@@ -1,0 +1,98 @@
+【ICMPv6】チェックサム計算,"
+```c:.c
+/* https://alpha-netzilla.blogspot.com/2011/08/network.html */
+/* Version + HeaderLength + ServiceType : 0x4500    */
+/* TotalLength                  : 0x003C            */
+/* Identifier                   : 0xF228            */
+/* Flag + FragmentOffset        : 0x0000            */
+/* TTL + Protocol               : 0x8001            */
+/* CheckSum                     : 0xC140 → 0x0000   */
+/* SourceIP                     : 0xC0A8            */
+/*                                0x0303            */
+/* DestIP                       : 0xC0A8            */
+/*                                0x0304            */
+
+/* icmpv6 checksum    */
+/* Source Address     */
+/* Destination Addres */
+/* IpV6 Packet Length */
+/* zero               */
+/* Next Header = 0x3A */
+
+#include <stdio.h>
+#include <string.h>
+
+typedef unsigned char  u_int8_t;
+typedef unsigned char  u_char;
+typedef unsigned short u_int16_t;
+typedef unsigned long  u_int32_t;
+
+u_int16_t checksum(u_char *data, int len);
+
+int main( void )
+{
+    u_int16_t  checksum_gen = 0x0000;
+    u_int16_t  checksum_ret = 0x0000;
+    u_int16_t  data[] = {
+        0x4500, 0x003C,
+        0xF228, 0x0000,
+        0x8001, checksum_gen,
+        0xC0A8, 0x0303,
+        0xC0A8, 0x0304,
+    };
+    
+    /* checksum generate */
+    checksum_gen = checksum((u_char*)&data[0], sizeof(data));
+    
+    /* checksum check */
+    data[5] = checksum_gen;
+    checksum_ret = checksum((u_char*)&data[0], sizeof(data));
+
+    printf(""checksum_len = %d\n"", sizeof(data));
+    printf(""checksum_gen = 0x%04X\n"", checksum_gen);
+    printf(""checksum_ret = 0x%04X\n"", checksum_ret);
+}
+
+u_int16_t checksum(u_char *data, int len)
+{
+  register u_int32_t sum;
+  register u_int16_t *ptr;
+  register int       c;
+
+  sum = 0;
+  ptr = (u_int16_t *)data;
+
+  for ( c = len; c > 1; c -= 2 )
+  {
+    sum += (*ptr);
+    // sumは32bitなので0x80000000(2進数にしたら最上位bitが1)を超えると
+    // 次の足し合わせ時に桁あふれする恐れがある。
+    // よってこの段階でオーバーフロー分を加算しておく。
+    if ( sum & 0x80000000 )
+    {
+      sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    ptr++;
+  }
+
+  if (c == 1)
+  {
+    u_int16_t val;
+    val = 0;
+    // 16bitの変数に8bitの値を前方に詰める。
+    memcpy(&val, ptr, sizeof(u_int8_t));
+    sum += val;
+  }
+
+  while (sum >> 16)
+  {
+    sum = (sum & 0xFFFF) + (sum >> 16);
+  }
+  // この結果が0または0xFFFFであればよい。
+  return(~sum);
+}
+```
+
+>参考(引用)
+https://alpha-netzilla.blogspot.com/2011/08/network.html
+"

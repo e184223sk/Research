@@ -1,0 +1,61 @@
+Swiftオブジェクトとvoid*の連携,"Cライブラリではしばしば見られる「void*でコンテキスト情報を渡し、後のコールバックではその値が引数として回ってくる」タイプのインターフェースを Swift で使う場合のメモ。平たく言うと Swift オブジェクトの参照をどうやって void* にキャストするか。
+
+# Cインターフェース
+さしあたりCインターフェースは次のようになっているとします。
+c_call はコンテキスト情報とコールバックを受け取り、コールバックに info を渡す単純なトランポリンです。
+
+```c_call.h
+typedef void (callback_t)(void* _Nullable info);
+
+void
+c_call(void* _Nullable info, callback_t cb);
+```
+
+```c_call.c
+void
+c_call(void* _Nullable info, callback_t cb) {
+    cb(info);
+}
+```
+
+# Swift インターフェース
+今回は Hello を表示する Greeting クラスを作り、それを info に渡して C 側から呼ぶことを考えます。
+
+```Greeting.swift
+class Greeting {
+    // これを c_call 経由で呼び出したい
+    func hello() {
+        print(""Hello"")
+    }
+}
+```
+
+# Swift コールバックの定義
+
+Swift では void* に UnsafeMutableRawPointer (const なら UnsafeRawPointer) が対応します。通常この手の引数は nullable だと思うので UnsafeMutableRawPointer? としています。
+
+```Callback.swift
+func swift_cb(info: UnsafeMutableRawPointer?) {
+    guard let greeting = info?.bindMemory(to: Greeting.self, capacity: 1).pointee else {
+        return
+    }
+    greeting.hello()
+}
+```
+Swift 関数はそのまま C関数として渡せるので特に細かいことは考えなくて大丈夫です。UnsafeRawPointer を特定の型に変換するには bindMemory を使います。
+オブジェクトを取り出すことができれば、あとは普通に hello() を呼び出すだけです。
+
+# UnsafeRawPonter への変換
+
+逆にオブジェクトの参照を UnsafeRawPointer へと変換するには withUnsafePointer/withUnsafeMutablePointer を使います。
+
+```Callback.swift
+func doGreeting() {
+    var greeting = Greeting()
+    withUnsafeMutablePointer(to: &greeting) { info in
+        c_call(info, swift_cb)
+    }
+}
+```
+この関数は変換したいオブジェクトとクロージャを取り、クロージャは UnsafeRawPointer にキャストされた info を受け取ります。これで Swift オブジェクトを void* として C に渡してなにかさせるという事ができるようになりました。
+"

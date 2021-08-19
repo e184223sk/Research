@@ -1,0 +1,263 @@
+FreeRTOSをVScode環境で動かす①環境構築,"#　概要
+__FreeRTOS__ をWindows上の __VScode＋Cmake__ 環境で動作させるための手順です。
+
+### 注意事項
+* FreeRTOSはARMマイコン上でを動作させることが本来
+* マイコン環境が無い状況下において、ある程度の動作確認をしたいため環境構築を行った
+* VisualStudio(VScodeではなく)を使用する場合、FreeRTOS.orgから提供されているサンプルがそのまま動くらしい
+
+# 使用ツール
+項目|ツール
+---|---
+OS |Windows10
+コンパイラ|GCC(MingW)
+ビルドツール|Cmake
+実行環境|VScode
+開発言語|C
+
+# ソースファイルの準備
+## 開発用フォルダ作成
+まず、作業用のフォルダを作成します。
+
+```
+.
+└── src  (自作ソース置き場)
+     ├── lib  (自作のライブラリcファイル置き場)
+     └── RTOS (入手したFreeRTOSのソース置き場)
+```
+※フォルダ構成は自由なのですが、Cmakeの書き方が不安な人は真似してください
+
+## FreeRTOSの入手
+
+②のURLより、**Source code using the FreeRTOS Windows port** をクリックしてWin32環境サンプル用のFreeRTOSソースファイルを入手します。
+
+No|説明|リンクURL
+---|---|---
+①|フル装備版|[https://www.freertos.org/a00104.html](https://www.freertos.org/a00104.html)
+②|Windows向け抜粋版|[https://www.freertos.org/Documentation/code/](https://www.freertos.org/Documentation/code/)
+
+## 必要なファイルの抽出
+入手したFreeRTOSのファイル構成は↓の通りで、VisualStudio向けのファイル等は不要なので、欲しいファイルだけコピーします。
+
+```
+Win32-simulator-MSVC
+├── /Examples　　　　　　<===多数のExsamplesが入っていますので、今回はExample001の中の FreeRTOSConfig.h をsrc直下へコピー
+├── /FreeRTOS_Source    <===このディレクトリの中身を自環境の""RTOS""フォルダにコピー
+│　　　　├── /include
+│　　　　├── /portable
+│　　　　├── event_groups.c
+│　　　　├── list.c
+│　　　　├── queue.c
+│　　　　├── readme.txt
+│　　　　├── tasks.c
+│　　　　└── timers.c
+├── /License
+├── /Supporting_Functions
+├── ReadMe-Instructions.txt
+├── RTOSDemo.sln
+└── RTOSDemo.suo
+```
+
+## 不足関数(vAssertCalled)の作成
+RTOSフォルダ直下に以下のコードを置きます。
+
+```c:vAssertCalled.c
+#include ""FreeRTOS.h""
+#include ""portmacro.h""
+#include ""projdefs.h""
+#include ""task.h""
+
+void vAssertCalled( uint32_t ulLine, const char * const pcFileName )
+{
+static portBASE_TYPE xPrinted = pdFALSE;
+volatile uint32_t ulSetToNonZeroInDebuggerToContinue = 0;
+
+    /* Parameters are not used. */
+    ( void ) ulLine;
+    ( void ) pcFileName;
+
+    taskENTER_CRITICAL();
+    {
+        /* You can step out of this function to debug the assertion by using
+        the debugger to set ulSetToNonZeroInDebuggerToContinue to a non-zero
+        value. */
+        while( ulSetToNonZeroInDebuggerToContinue == 0 )
+        {
+        }
+    }
+    taskEXIT_CRITICAL();
+}
+
+```
+## RTOSの修正
+エラー回避のため修正を入れていますので、Gitの差分情報を紹介します。
+
+コンフィグファイルではタイマ使用をONにします
+
+```c:src/FreeRTOSConfig.h
+-#define configUSE_TIMERS						0
++#define configUSE_TIMERS						1
+```
+
+２つの関数が参照できなかったのでプライベートスコープを外します。
+
+```c:src/RTOS/include/queue.h
+-QueueSetMemberHandle_t xQueueSelectFromSet( QueueSetHandle_t xQueueSet, const TickType_t xTicksToWait ) PRIVILEGED_FUNCTION;
++QueueSetMemberHandle_t xQueueSelectFromSet( QueueSetHandle_t xQueueSet, const TickType_t xTicksToWait ) ;//PRIVILEGED_FUNCTION;
+```
+
+```c:src/RTOS/include/task.h
+-void vTaskPlaceOnEventListRestricted( List_t * const pxEventList, const TickType_t xTicksToWait, const BaseType_t xWaitIndefinitely ) PRIVILEGED_FUNCTION;
++void vTaskPlaceOnEventListRestricted( List_t * const pxEventList, const TickType_t xTicksToWait, const BaseType_t xWaitIndefinitely ) ;//PRIVILEGED_FUNCTION;
+ 
+```
+
+## メインプログラム作成
+今回動作させるプログラムです。
+２つのタスクをクリエイトし、Task1が1秒周期、Task2が2秒周期でprintするプログラムです。
+
+```c:main.c
+#include ""FreeRTOS.h""
+#include ""task.h""
+#include <stdio.h>
+
+void vTask1( void *pvParameters );
+void vTask2( void *pvParameters );
+
+//===================================================================
+int main(){
+	/* Create one of the two tasks. */
+	xTaskCreate(vTask1,		/* Pointer to the function that implements the task. */
+				""Task 1"",	/* Text name for the task.  This is to facilitate debugging only. */
+				1000,		/* Stack depth - most small microcontrollers will use much less stack than this. */
+				NULL,		/* We are not using the task parameter. */
+				1,			/* This task will run at priority 1. */
+				NULL );		/* We are not using the task handle. */
+	
+	xTaskCreate( vTask2, ""Task 2"", 1000, NULL, 1, NULL );
+
+	vTaskStartScheduler();
+	for( ;; );
+	return 0;
+}
+//==================================================================
+void vTask1( void *pvParameters ){
+	const portTickType xDelay = 1000 / portTICK_RATE_MS;//1000ms
+	while(1){
+		printf(""task1\n"");
+		vTaskDelay( xDelay );
+	}
+}
+//==================================================================
+void vTask2( void *pvParameters ){
+	const portTickType xDelay = 2000 / portTICK_RATE_MS;//2000ms
+	while(1){{
+		printf(""\ttask2\n"");
+		vTaskDelay( xDelay );
+	}
+}
+
+```
+
+# Cmake環境構築
+ここまで用意したすべてのファイルをGCCに食わせれば(恐らく)動作するのですが、毎回フルビルドするのは効率が悪いのでCmakeを記述していきます。
+
+__今回Cmakeの記述は初心者でも理解しやすいように必要最小限の記述のみ__　とします
+
+各フォルダに __CMakeLists.txt__ を配置します。(ファイル名はCMakeLists.txtと同名にする必要がありますので、識別のため★＋番号を図示します)
+
+```
+.
+├── CMakeLists.txt ★1
+└── src
+     ├── CMakeLists.txt ★2
+     ├── lib
+     └── RTOS
+          ├── CMakeLists.txt ★3
+          ├── /include
+          ├── /portable
+          └── *.c
+```
+
+記述内容
+
+```CMake:CMakeLists.txt★1
+add_subdirectory(./src)
+```
+★１はsrcのフォルダ見てねという指示だけです。
+
+```CMake:CMakeLists.txt★2
+add_subdirectory(./RTOS)
+
+#==============================================================
+# include hedder 
+#==============================================================
+include_directories(./)
+include_directories(./RTOS/include)
+include_directories(./RTOS/portable/MSVC-MingW)
+#==============================================================
+# genarate executable object
+#==============================================================
+set(SOURCE_FILES
+	main.c
+    )
+
+add_executable(EXE_OBJECT ${SOURCE_FILES})
+#==============================================================
+# LINK objects.
+#==============================================================
+# windows dll 
+set(DLL_LIB
+    winmm 
+    gdi32
+)
+# own library
+set(STATIC_LIB
+    RTOS
+)
+target_link_libraries(EXE_OBJECT  PUBLIC ${STATIC_LIB} ${DLL_LIB} )
+```
+★2はRTOSフォルダが配下にありますよという指示をして、main.cを実行ファイルに変換、最後にLinkする指示です。
+FreeRTOSがWindowsのAPIを参照するので __winmm gdi32__ という名前のライブラリをリンクする必要があります。
+
+```CMake:CMakeLists.txt★3
+set(THIS_NAME ""RTOS"")
+
+include_directories(../)					#include FreeRTOSConfig.h 
+include_directories(./include)				#include Hedder file
+include_directories(./portable/MSVC-MingW)
+
+add_library(${THIS_NAME}  OBJECT
+	portable/MemMang/heap_4.c
+	portable/MSVC-MingW/port.c
+	event_groups.c
+	list.c
+	queue.c
+	timers.c
+	vAssertCalled.c
+	tasks.c
+)
+```
+★3では、RTOSのフォルダ配下のソースを全てコンパイルしてRTOSという名前のライブラリを生成するように指示します。
+
+# VSコードの設定
+* C,C++、Cmake関連のプラグインをインストールします。
+* GCCとMAKEのパスも通しておきます。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/6eee5d8f-80f4-700f-d20e-6981227f7da6.png)
+
+# ビルド＆実行
+VScodeのGUIから、ビルドして実行します。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/c4122c99-c66b-16c8-2c48-08f460eb7ab0.png)
+
+実行すると　task1とtask2が設定した周期で呼ばれている様子が分かります。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/5db27a95-a4a8-d75a-f572-689611b99502.png)
+
+# 停止方法
+
+今回紹介した部分までではタスク停止まで実装していません。
+プログラム実行停止したい場合は、タスクマネージャーで殺してください。。。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/18e1fde2-b056-b963-9fb9-7631561c3e9d.png)
+
+"

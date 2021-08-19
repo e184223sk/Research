@@ -1,0 +1,564 @@
+FreeRTOSキューまとめ,"# キューについて
+キューとはタスクの間でデータを交換するための仕組みです。いわば、タスクの間をつなぐトンネルのようなものです。キューを介してデータのやり取りをします。
+
+![Queue.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/77676/23e1c7b3-df27-1df1-8507-501fbac3a4b7.png)
+
+# キューの生成
+キューの生成には`xQueueCreate()`関数を使います。`xQueueCreate()`関数の引数には送信するデータサイズとキューが保持するデータの個数を指定します。返り値は`QueueHandle_t`です。`QueueHandle_t`は生成されたキューのハンドラです。キューの操作はこのハンドラを使って行われます。キューの生成時に動的メモリの確保が行われます。キューの生成に必要なメモリが確保できなかった場合は`NULL`を返します。
+
+以下の例では`DATA_SET`構造体を4つ保持するキューを生成します。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+/* キューを介して送受信するデータの型 */
+struct DATA_SET
+{
+    uint32_t a;
+    uint32_t b;
+};
+
+void init()
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    
+    // キューの生成
+    // 第一引数はキューで保持するデータ数
+    // 第二引数は各データの座椅子
+    xQueue = xQueueCreate(4, sizeof(DATA_SET));
+
+    if(xQueue == NULL)
+    {
+        // キューの生成に失敗したときの例外処理
+    }
+}
+```
+
+# キューを介したデータの送信
+キューを介してデータを送信するには`xQueueSendToBack()`関数、または`xQueueSendToFront()`関数を使います。`xQueueSendToBack()`関数はキューの末尾にデータを配置します。`xQueueSendToFront()`関数はキューの先頭にデータを配置します。
+基本的にFreeRTOSのキューは送信されたデータのコピーを保持します。なので、送信元のタスクでデータを変更してもキューに置かれたデータは影響をうけません。キューが満杯のときの挙動は第3引数で指定します。この引数に指定されたチック数分だけ満杯でなくなるまでタスクはブロックされます。キューが満杯でなくなるのを制限なく待ってほしいときはFreeRTOSConfig.hの`INCLUDE_vTaskSuspend`を1にした上で、第3引数に`portMAX_DELAY`を指定してください。これらの送信関数の返り値は送信成功時に`pdPASS`、失敗時に`errQUEUE_FULL`です。
+
+以下の例ではタスクAから`DATA_SET`構造体を送信しています。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+void task_a(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    BaseType_t result; // 送信結果
+    struct DATA_SET to_send; // 送信データ
+
+    /* タスクの引数からキューを取り出す */
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        /* 送信データの設定 */
+        to_send.a = 10;
+        to_send.b = 20;
+
+        /* データを送信する
+           第一引数はキューのハンドラ
+           第二引数は送信データへのポインタ
+           第三引数はキューが満杯だったときの待機時間
+        */
+        result = xQueueSendToBack(xQueue, &to_send, 10);
+
+        if (result != pdPASS)
+        {
+             /* 10チック待っても送信が完了しなかったときの例外処理 */            
+        }
+    }
+}
+
+```
+
+# キューを介したデータの受信
+キューからのデータの受信には`xQueueReceive()`関数を使用します。第3引数でキューが空だったときの挙動を指定できます。`xQueueSendToFront()`関数と`xQueueSendToBack()`関数と同様に、第三引数に指定されたチック数分だけ空でなくなるまでタスクはブロックされます。キューが空でなくなるのを制限なく待ってほしいときはFreeRTOSConfig.hの`INCLUDE_vTaskSuspend`を1にした上で、第3引数に`portMAX_DELAY`を指定してください。関数の返り値は送信成功時に`pdPASS`、失敗時に`errQUEUE_EMPTY`です。
+
+以下の例ではタスクAから`DATA_SET`構造体を受信しています。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+void task_b(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    BaseType_t result; // 受信結果
+    struct DATA_SET received; // 受信データ
+
+    // タスクの引数からキューハンドラを取得
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        // キューからデータを受信
+        // 第一引数はキューのハンドラ
+        // 第二引数は受信データへのポインタ
+        // 第三引数はキューが空だった場合の待機時間
+        // portMAX_DELAYが指定されているので無限に待機する
+        result = xQueueReceive(xQueue, &received, portMAX_DELAY);
+
+        if ( result != pdPASS)
+        {
+            // 受信失敗したときの例外処理
+        }
+    }
+}
+```
+
+# キューのユーティリティ関数
+送信・受信以外のキュー操作関数について説明します。
+
+## `uxQueueMessagesWaiting()`
+キューの中で読み出しを待っているデータの個数を返します。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+void task_c(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューへのハンドラ
+    UBaseType_t uxNumberOfItems; // キューにあるデータ数
+
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        /* キューにあるデータ数を取得する
+　　　　　　　引数はキューのハンドラ */
+        uxNumberOfItems = uxQueueMessagesWaiting( xQueue );
+    }
+}
+```
+
+## `xQueueOverwrite()`関数
+`xQueueSendToBack()`関数と同様にキューにデータを送信します。`xQueueSendToBack()`関数との違いはキューが満杯だったときの挙動です。`xQueueOverwrite()`関数はキューが満杯のときにキューにあるデータを上書きします。ただし、どのキューのどのデータが上書きされるかは不定です。なので、キューの長さが1以外のときはこの関数を使用すべきではありません。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+void task_a(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    struct DATA_SET to_send; // 送信データ
+
+    /* タスクの引数からキューを取り出す */
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        /* 送信データの設定 */
+        to_send.a = 10;
+        to_send.b = 20;
+
+        /* データを送信する
+           第一引数はキューのハンドラ
+           第二引数は送信データへのポインタ
+        */
+        xQueueOverwrite(xQueue, &to_send);
+    }
+}
+```
+
+## `xQueuePeek()`関数
+`xQueuePeek()`関数はキューの中からデータを削除せずにキューのデータを読み出します。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+void task_b(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    BaseType_t result; // 受信結果
+    struct DATA_SET to_send; // 受信データ
+
+    // タスクの引数からキューハンドラを取得
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        // キューからデータを受信
+        // 第一引数はキューのハンドラ
+        // 第二引数は受信データへのポインタ
+        // 第三引数はキューが空だった場合の待機時間
+        // portMAX_DELAYが指定されているので無限に待機する
+        result = xQueuePeek(xQueue, &to_send, portMAX_DELAY);
+
+        if ( result != pdPASS)
+        {
+            // 受信失敗したときの例外処理
+        }
+    }
+}
+```
+
+# 巨大なデータをキューを介して送受信する
+先述したとおりキューの生成時に動的メモリの確保が行われます。このため、キューを通じて大きなデータを送受信しようとすると十分なメモリが確保できないことがあります。そのような自体の回避策としてデータの代わりにデータへのポインタを送受信するという方法があります。
+以下の例では`BIG_DATA`構造体の代わりに静的に確保された`BIG_DATA`へのポインタをキューを介して送受信しています。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+typedef struct BIG_DATA_TAG
+{
+    double a;
+    double b;
+    double c;
+    double d;
+    double e;
+    double f;
+    double g;
+    double h;
+    double i;
+    double j;
+    double k;
+} BIG_DATA; // 送受信する大きなデータ
+
+void sender_task(void *pvParameters);
+void receiver_task(void *pvParameters);
+
+int main(void)
+{
+    /* キューのハンドラ */
+    QueueHandle_t xPointerQueue;
+
+    /* ポインタを送受信するキューの生成 */
+    xPointerQueue = xQueueCreate(1, sizeof(BIG_DATA*));
+
+    /* 送信タスクを生成します。 */
+    xTaskCreate(sender_task, ""Sender Task"", 1000, xPointerQueue, 1, NULL);
+
+    /* 受信タスクを生成します。 */
+    xTaskCreate(receiver_task, ""Receiver Task"", 1000, xPointerQueue, 1, NULL);
+
+    /* タスクの実行を始めます。 */
+    vTaskStartScheduler();
+
+    /*main関数は最後まで到達してはいけません。そこで、無限ループを挿入します。 */
+    for (;;)
+        ;
+}
+
+void sender_task(void *pvParameters)
+{
+    QueueHandle_t xQueue; // キューのハンドラ
+    BaseType_t result;    // 送信結果
+    BIG_DATA* big_data; // 動的メモリの確保されたBIG_DATAへのポインタ
+
+    /* タスクの引数からキューを取り出す */
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        /* BIG_DATAのメモリを確保 */
+        big_data = pvPortMalloc(sizeof(BIG_DATA));
+
+        /* 送信データの設定 */
+        big_data->a = 10.0;
+        big_data->b = 20.0;
+        big_data->c = 30.0;
+
+        /* データを送信する
+           第二引数は巨大なデータへのポインタ
+        */
+        result = xQueueSendToBack(xQueue, &big_data, 10);
+
+        if (result != pdPASS)
+        {
+            /* 10チック待っても送信が完了しなかったときの例外処理 */
+        }
+    }
+}
+
+void receiver_task(void *pvParameters)
+{
+    QueueHandle_t xQueue;      // キューのハンドラ
+    BaseType_t result;         // 受信結果
+    struct BIG_DATA *received; // 受信データへのポインタ
+
+    // タスクの引数からキューハンドラを取得
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        // キューからデータを受信
+        // 第二引数は巨大データへのポインタ
+        result = xQueueReceive(xQueue, &received, portMAX_DELAY);
+
+        if (result != pdPASS)
+        {
+            // 受信失敗したときの例外処理
+        }
+        // 必ず確保した動的メモリは解放すること
+        pvPortFree(received);
+
+    }
+}
+```
+
+# いろんな型のデータをキューを介して送受信する
+こちらも巨大なデータをキューを介して送受信するときと同様にポインタを使うことでできます。
+送信するデータの型を指定する列挙子と送信データへのポインタをメンバとする構造体を送信データとしてキューに送ります。
+以下、`int`と`char`の2種類のデータをこの方法で送受信するコードの例です。
+
+```c:
+#include “FreeRTOS.h”
+#include “queue.h”
+
+// 送受信データの指定
+typedef enum DATA_TYPE_TAG
+{
+    CHAR,
+    INT,
+} DATA_TYPE;
+
+typedef struct VARIABLE_DATA_TAG
+{
+    DATA_TYPE type; // 送受信データのタイプ
+    void *data;     // 送受信データ
+} VARIABLE_DATA;
+
+void sender_task(void *pvParameters);
+void receiver_task(void *pvParameters);
+
+int main(void)
+{
+    /* キューのハンドラ */
+    QueueHandle_t xPointerQueue;
+
+    /* 可変データを送受信するキューの生成 */
+    xQueue = xQueueCreate(1, sizeof(VARIABLE_DATA));
+
+    /* 送信タスクを生成します。 */
+    xTaskCreate(sender_task, ""Sender Task"", 1000, xQueue, 1, NULL);
+
+    /* 受信タスクを生成します。 */
+    xTaskCreate(receiver_task, ""Receiver Task"", 1000, xQueue, 1, NULL);
+
+    /* タスクの実行を始めます。 */
+    vTaskStartScheduler();
+
+    /*main関数は最後まで到達してはいけません。そこで、無限ループを挿入します。 */
+    for (;;)
+        ;
+}
+
+void sender_task(void *pvParameters)
+{
+    QueueHandle_t xQueue;   // キューのハンドラ
+    BaseType_t result;      // 送信結果
+    VARIABLE_DATA val_data; //
+
+    /* タスクの引数からキューを取り出す */
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        /* charを送信 */
+        val_data.type = CHAR;
+        val_data.data = pvPortMalloc(sizeof(char)); // メモリの割当
+
+        /* 送信データの設定 */
+        *((char *)val_data.data) = 'a';
+
+        /* データを送信する
+           第二引数はVARIABLE_DATAへのポインタ
+        */
+        result = xQueueSendToBack(xQueue, &val_data, 10);
+
+        if (result != pdPASS)
+        {
+            /* 10チック待っても送信が完了しなかったときの例外処理 */
+        }
+
+        /* intを送信 */
+        val_data.type = INT;
+        val_data.data = pvPortMalloc(sizeof(int)); // メモリの割当
+
+        /* 送信データの設定 */
+        *((int *)val_data.data) = 123;
+
+        /* データを送信する
+           第二引数はVARIABLE_DATAへのポインタ
+        */
+        result = xQueueSendToBack(xQueue, &val_data, 10);
+
+        if (result != pdPASS)
+        {
+            /* 10チック待っても送信が完了しなかったときの例外処理 */
+        }
+    }
+}
+
+void receiver_task(void *pvParameters)
+{
+    QueueHandle_t xQueue;   // キューのハンドラ
+    BaseType_t result;      // 受信結果
+    VARIABLE_DATA received; //
+    char received_char;
+    int received_int;
+
+    // タスクの引数からキューハンドラを取得
+    xQueue = (QueueHandle_t)pvParameters;
+    for (;;)
+    {
+        // キューからデータを受信
+        // 第二引数は巨大データへのポインタ
+        result = xQueueReceive(xQueue, &received, portMAX_DELAY);
+
+        if (result != pdPASS)
+        {
+            // 受信失敗したときの例外処理
+        }
+
+        switch (received.type)
+        {
+        case CHAR:
+            // 受信データの取り出し
+            received_char = *((char *)received.data);
+            break;
+        case INT:
+            // 受信データの取り出し
+            received_int = *((int *)received.data);
+            break;
+        }
+
+        // 忘れずに解放
+        pvPortFree(received.data);
+    }
+}
+
+```
+
+# 複数のキューから受信する(キューセット)
+
+![Queue2.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/77676/38412127-329a-c707-62ce-e387ffbf7d8c.png)
+
+複数のキューから受信したい場合、受信側ではキューを一つ一つチェックして受信するという方法があります。
+
+```c:
+void receiver_task(void *pvParameters)
+{
+    QueueHandle_t xQueue1; // キューのハンドラ
+    QueueHandle_t xQueue2; // キューのハンドラ
+    BaseType_t result;     // 受信結果
+    DATA received;         // 受信データ
+
+    // タスクの引数からキューハンドラを取得
+    xQueue1 = ((QueueHandle_t *)pvParameters)[0];
+    xQueue2 = ((QueueHandle_t *)pvParameters)[2];
+
+    for (;;)
+    {
+        /* xQueue1にデータがあるかを確認 */
+        if (xQueueMessagesWaiting(xQueue1) != 0)
+        {
+            // キューからデータを受信
+            // 第二引数は巨大データへのポインタ
+            result = xQueueReceive(xQueue1, &received, portMAX_DELAY);
+
+            if (result != pdPASS)
+            {
+                // 受信失敗したときの例外処理
+            }
+        }
+
+        /* xQueue2にデータがあるかを確認 */
+        if (xQueueMessagesWaiting(xQueue2) != 0)
+        {
+            // キューからデータを受信
+            // 第二引数は巨大データへのポインタ
+            result = xQueueReceive(xQueue2, &received, portMAX_DELAY);
+
+            if (result != pdPASS)
+            {
+                // 受信失敗したときの例外処理
+            }
+        }
+    }
+}
+```
+
+しかし、この方法ではコードが長くなります。そこで、複数のキューをまとめてデータがあるかどうかを確認できるようにするのがキューセットです。
+キューセットはキューの集合です。`xQueueCreateSet()`関数で生成し、`xQueueAddToSet()`関数でキューをキューセットに登録します。受信側では`xQueueSelectFromSet()`関数でキューセットに登録したキューのうち、受信できるようになったキューへのハンドラを取得します。キューセットを使用するには**FreeRTOSConfig.h**の`configUSE_QUEUE_SETS`を1に設定する必要があります。
+以下が、キューセットを使用したコードのサンプルです。
+
+```c:
+/* 2つのキューを宣言 */
+static QueueHandle_t xQueue1 = NULL, xQueue2 = NULL;
+/* キューセットを宣言 */
+static QueueSetHandle_t xQueueSet = NULL;
+
+int main(void)
+{
+    /* 2つのキューを生成 */
+    xQueue1 = xQueueCreate(1, sizeof(int));
+    xQueue2 = xQueueCreate(1, sizeof(int));
+    /* キューセットを生成
+     *
+     */
+    xQueueSet = xQueueCreateSet(1 * 2);
+    /* 2つのキューをキューセットに追加 */
+    xQueueAddToSet(xQueue1, xQueueSet);
+    xQueueAddToSet(xQueue2, xQueueSet);
+    /* データを送信するキューを生成 */
+    xTaskCreate(vSenderTask1, ""Sender1"", 1000, NULL, 1, NULL);
+    xTaskCreate(vSenderTask2, ""Sender2"", 1000, NULL, 1, NULL);
+    /* データを受信するキューを生成 */
+    xTaskCreate(vSenderTask1, ""Sender1"", 1000, NULL, 1, NULL);
+    xTaskCreate(vReceiverTask, ""Receiver"", 1000, NULL, 2, NULL);
+
+    vTaskStartScheduler();
+    for (;;)
+        ;
+    return 0;
+}
+
+void vReceiverTask(void *pvParameters)
+{
+    QueueSetMemberHandle_t xHandle; // キューのハンドル
+    int recieved;                   // 受信データ
+
+    for (;;)
+    {
+        /* 受信したキューのハンドラをキューセットから取り出す。
+         * 第一引数はキューセットのハンドラ
+         * 第二引数はキューが空だったときの待機時間
+         * 返り値は受信したキューのハンドラ。受信がない場合はNULL
+         */
+        xHandle = xQueueSelectFromSet(xQueueSet, pdMS_TO_TICKS(100));
+
+        if (xHandle == NULL)
+        {
+            /* 100 msec 待ってもキューが空だったときの処理 */
+        }
+        else if (xHandle == (QueueSetMemberHandle_t)xQueue1)
+        {
+            /*xQueue1から受信したときの処理*/
+
+            /* 通常のキューの操作とおなじ。ただし、キューが空でないことが保証されるので第三引数は0でよい */
+            xQueueReceive(xQueue1, &received, 0);
+        }
+        else if (xHandle == (QueueSetMemberHandle_t)xQueue2)
+        {
+            /*xQueue2から受信したときの処理*/
+            /* 通常のキューの操作とおなじ。ただし、キューが空でないことが保証されるので第三引数は0でよい */
+            xQueueReceive(xQueue2, &received, 0);
+        }
+    }
+}
+
+```
+
+
+# 参考文献
+- [FreeRTOS公式ウェブサイト](https://www.freertos.org/)
+- [Mastering the FreeRTOS Real Time Kernel – a Hands On Tutorial Guide ](https://www.freertos.org/fr-content-src/uploads/2018/07/161204_Mastering_the_FreeRTOS_Real_Time_Kernel-A_Hands-On_Tutorial_Guide.pdf)
+- [FreeRTOS V10.0.0 Reference Manual ](https://www.freertos.org/fr-content-src/uploads/2018/07/FreeRTOS_Reference_Manual_V10.0.0.pdf)
+
+# 素材
+- [ヒューマンピクトグラム2.0](http://pictogram2.com/)
+- [Icon rainbow](https://icon-rainbow.com/%E3%83%87%E3%83%BC%E3%82%BF%E5%88%86%E6%9E%90%E3%81%AE%E3%82%A2%E3%82%A4%E3%82%B3%E3%83%B3%E7%B4%A0%E6%9D%90/)
+
+"

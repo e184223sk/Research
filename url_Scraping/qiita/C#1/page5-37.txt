@@ -1,0 +1,241 @@
+raspi 4で組み込み！ ~Lチカ~　,"# raspi 4で組み込み！ ~Lチカ~
+
+raspi3とかいろいろLチカプログラムが出回ってましたがraspi4のLチカがあまり見当たらなかったのでRustで書く前にCで書いてみました。Rustで書いたものもそのうち投稿します。今回はOSなしのベアメタルでやっていきます。
+
+## 環境
+
+Host: macOS Big Sur 11.2.2
+コンパイラ: clang version 11.1.0
+リンカ: LLD 11.1.0 (compatible with GNU linkers)
+
+llvmでコンパイルしてます。ターミナルで
+
+```shell-session
+$ brew install llvm
+```
+
+でインストールできます。インストールしてもパスが通ってないので、パス通しを。多分、 /usr/local/Cellar/llvm にあります。GCCでコンパイルしたい方はオプションとコマンドを適宜置き換えてください。
+
+
+
+## メモリマップ
+
+現時点での最新の Peripheral の取説は[ここ](https://datasheets.raspberrypi.org/bcm2711/bcm2711-peripherals.pdf)にあります。古いバージョンだとGPIOのベース番地がずれてるので参考になりません。
+
+>The  peripheral  addresses  specified  in  this  document  are  legacy  master  addresses.  Software  accessing  peripheralsusing the DMA engines must use 32-bit legacy master addresses. The Main peripherals are available from 0x7C00_0000to 0x7FFF_FFFF. Behind the scenes, the VideoCore transparently translates these addresses to the 35-bit 0x4_7nnn_nnnn addresses.
+>
+>So  a  peripheral  described  in  this  document  as  being  at  legacy  address  0x7Enn_nnnn  is  available  in  the  35-bit  addressspace at 0x4_7Enn_nnnn, and visible to the ARM at 0x0_FEnn_nnnn if Low Peripheral mode is enabled.
+
+とあるように、RaspberryPi4（BCM）のPeripheralのベース番地は0x7E00_0000です。ただ、プロセッサからは、**0xFE00_0000**とみえてるので注意しましょう。。。ここ読み飛ばしててハマりました。
+
+(もちろん、最後の一文にあるようにPeripheralのモードで変わりますが、デフォでLow Peripheral modeみたいなので割愛します。)
+
+GPIOのベースが0xFE20_0000となっています。それ以外の挙動についてはデータシートの64ページ以降を参照してください。
+
+## コード
+
+まず、適当にディレクトリをつくって下のようなMakefileを書きます。
+
+```Makefile:Makefile
+##--PROJECT INFO--######################################
+PROJECT      =kernel8
+IMG          =$(PROJECT).img
+ELF          =$(PROJECT).elf
+TARGET       =aarch64
+OBJDIR       =tmp
+SRCDIR       =src
+INCLUDE      =headers
+STARTUP      =$(SRCDIR)/boot.S
+STARTUP_OBJ  =$(OBJDIR)/boot.o
+LINK         =link.ld
+SRCS         =$(wildcard $(SRCDIR)/*.c)
+OBJS         =$(SRCS:src/%.c=tmp/%.o)
+DUMP         =$(PROJECT).dump
+SD_CARD      = #マウントされたSDカードへのパス
+########################################################
+
+##--OPTIONS and FLAGS--#################################
+CFLAGS   = -Wall -O2 -ffreestanding -nostdinc -nostdlib -mcpu=cortex-a72+nosimd -I $(INCLUDE)
+LD       = ld.lld
+OBJCOPY  = llvm-objcopy
+OBJDUMP  = llvm-objdump
+########################################################
+
+##--comands depend on dev system--######################
+EJECT = diskutil eject #SDカードの取り出し用のコマンド
+########################################################
+
+all: dump
+build: $(IMG) 
+dump: $(DUMP)
+
+$(OBJDIR):;@mkdir $@
+
+$(STARTUP_OBJ): $(STARTUP)
+        clang --target=$(TARGET)-elf $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/%.o: $(SRCDIR)/%.c
+        clang --target=$(TARGET)-elf $(CFLAGS) -c $< -o $@
+
+$(ELF): $(OBJDIR) $(STARTUP_OBJ) $(OBJS) 
+        $(LD) -m $(TARGET)elf -nostdlib $(STARTUP_OBJ) $(OBJS) -T $(LINK) -o $@
+$(IMG): $(ELF)
+        $(OBJCOPY) -O binary $< $@
+
+clean:; rm -rf $(ELF) $(OBJDIR) *~ */*~ $(DUMP) src/*.o
+distclean: clean
+        rm -rf $(IMG) 
+
+$(DUMP): $(ELF)
+        @rm -rf $(DUMP)
+        @echo `date` > $(DUMP)
+        @$(OBJDUMP) -d $(ELF) | tee -a $(PROJECT).dump | less
+
+cp: $(IMG)
+        cp $(IMG) $(SD_CARD)/$(IMG)
+        $(EJECT) $(SD_CARD)
+```
+
+コピペのときは tabがスペースに変わると動かなくなるので気をつけてください。`SD_CARD`はマウントしたSDカードへのパスを入れてください。`make cp`でsdカードへのコピーまでできます。ejectされるので、そのまま取り出していいです。次にスタートアップのためのアセンブリです。
+
+```assembly:src/boot.S
+.section "".text.boot""  // Make sure the linker puts this at the start of the kernel image
+
+.global _start  // Execution starts here
+
+_start:
+    // Check processor ID is zero (executing on main core), else hang
+    mrs     x1, mpidr_el1
+    and     x1, x1, #3
+    cbz     x1, 2f
+    // We're not on the main core, so hang in an infinite wait loop
+1: 
+		wfe
+    b       1b
+2:  // We're on the main core!
+    // Set stack to start below our code
+    ldr     x1, =_start
+    mov     sp, x1
+
+    // Clean the BSS section
+    ldr     x1, =__bss_start     // Start address
+    ldr     w2, =__bss_size      // Size of the section
+3:  
+		cbz     w2, 4f               // Quit loop if zero
+    str     xzr, [x1], #8
+    sub     w2, w2, #1
+    cbnz    w2, 3b               // Loop if non-zero
+
+    // Jump to our main() routine in C (make sure it doesn't return)
+4:  
+		bl      main
+    // In case it does return, halt the master core too
+    b       1b
+
+```
+
+Armv8の命令セットを読んでみると意外と何してるかわかりました。コード自体は、[ここ](https://isometimes.github.io/rpi4-osdev/part1-bootstrapping/)からお借りしてます。このコードはbss領域の初期化を、アセンブリで行っていますがこの部分はCで書いてもいいみたいです。ただ、書いてみてdumpしてみた感じだとアセンブリのままのほうが命令数が少なそうです。
+
+次にmainのコードです。
+
+```c:src/main.c
+#define MMIO_BASE 0xFE000000
+#define GPIO_BASE (MMIO_BASE + 0x200000)
+#define GPFSEL0 (GPIO_BASE + 0x00)
+#define GPSET0 (GPIO_BASE + 0x1C)
+#define GPCLR0 (GPIO_BASE + 0x28)
+
+typedef unsigned long uint64_t;
+typedef unsigned int uint32_t;
+
+#define LED 16 // LED pin num
+#define OUTPUT 1 // regster value for output
+
+void set_high(uint64_t pin);
+void set_low(uint64_t pin);
+void set_function(uint64_t pin,uint32_t func);
+void mmio_write(uint64_t reg, volatile uint32_t val);
+void wait(uint64_t dur);
+
+void main(){
+  // setting for pin
+  uint64_t dur;
+  dur = 1000000;
+  set_function(LED, OUTPUT);
+  while(1){
+    set_low(LED);
+    wait(dur);
+    set_high(LED);
+    wait(dur);
+  }
+}
+
+void set_high(uint64_t pin)
+{
+  if(pin <= 57)
+    mmio_write(GPSET0 + (pin / 32) * 4,1 << (pin % 32));
+}
+
+void set_low(uint64_t pin)
+{
+  if(pin <= 57) 
+    mmio_write(GPCLR0 + (pin / 32) * 4,1 << (pin % 32));
+}
+
+void set_function(uint64_t pin, uint32_t func)
+{
+  if(pin <= 57)
+    mmio_write(GPFSEL0 + (pin / 10) * 4, OUTPUT << ((pin % 10) * 3));
+}
+
+void wait(uint64_t dur){
+  while(dur-- > 0)
+     asm(""""); //ここを入れないと、コンパイル時に最適化されてちかちかしません。
+}
+
+void mmio_write(uint64_t reg, volatile uint32_t val)
+{                                                   
+  *(volatile uint32_t*)reg = val;                   
+}                                                   
+
+```
+
+最後にリンカスクリプトの紹介です。
+
+```:link.ld
+SECTIONS
+{
+    . = 0x80000;     /* Kernel load address for AArch64 */
+    .text : { KEEP(*(.text.boot)) *(.text .text.* .gnu.linkonce.t*) }
+    .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
+    PROVIDE(_data = .);
+    .data : { *(.data .data.* .gnu.linkonce.d*) }
+    .bss (NOLOAD) : {
+        . = ALIGN(16);
+        __bss_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        __bss_end = .;
+    }
+    _end = .;
+
+   /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) *(.eh_frame*) }
+}
+__bss_size = (__bss_end - __bss_start) >> 3;
+```
+
+これも、[ここ](https://isometimes.github.io/rpi4-osdev/part1-bootstrapping/)からお借りしてます。必要なファイルはこれで以上です。この時点でのファイルは以下のようになってます。
+
+```shell-session
+.
+├── Makefile
+├── link.ld
+└── src
+    ├── boot.S
+    └── main.c
+```
+
+`make build`でimgファイルが生成されます。SD_CARDを正しく指定しておけば、`make cp`でSDカードへのコピーまでできます。また、SDカードへのコピーについてですが、 ファームウェア関連はもともとあるものを使っていくので、SDカードを入れて、ディレクトリ移動してから作成したもの以外のkernel*.imgファイルは削除してください。間違えた場合は[ここ](https://github.com/raspberrypi/firmware/tree/master/boot)からとってきたり、Raspbianのイメージを書き込んだりして修正してください。
+
+完成したイメージと、ソースをgithubで[公開](https://github.com/KKatsuaki/blink)しています。
+"

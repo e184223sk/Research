@@ -1,0 +1,136 @@
+Fortranで最初に戸惑ったことなど,"
+
+プログラミングをCから始めてC++やpythonを主に使っていたが、最近になり、Fortran90で書かれたプログラムに手を加える機会があった。Fortranの言語設計はQiitaでも時々話題になっているようだが、他言語から来て最初に躓いたりしたことのメモ。(似たような境遇の人の後学までに。)
+
+
+## 勝手にsave属性
+
+```Fortran
+program main
+   integer :: i
+   do i = 1, 5
+      call hoge
+   enddo
+end program
+
+
+subroutine hoge
+   integer :: a = 1
+   a= a+1
+   write(*,*) a
+end subroutine                    
+```
+の出力結果は、
+
+```
+           2
+           3
+           4
+           5
+           6
+```
+
+つまり、`hoge`の一行目の`a = 1`は一回しか実行されない。これは、変数宣言と同時に初期化すると`save`属性が付くという仕様のため生じる。
+この挙動を防ぐには、宣言文とは別に、実行文として`a=1`を行う。
+上記の挙動をC/C++で再現するには、 `static`をつけて変数宣言をすればよい。（個人的には余り使ったことがない。）
+
+```C++
+#include<iostream>
+void hoge(){
+  static int a = 1;
+  a++;
+  std::cout<< a << std::endl;
+}
+
+int main (){
+  for(int i = 0; i<5; ++i){
+    hoge();
+  }
+}  
+```
+
+## 倍精度の数値リテラルには`d0`を
+```Fortran
+program main
+   use, intrinsic :: iso_fortran_env
+   implicit none
+   real(real64)     :: a = 0.123456789123456789
+   real(real64)     :: b = 0.123456789123456789d0
+   write(*,'(f20.15)') a
+   write(*,'(f20.15)') b
+end
+```
+の出力結果は、（gfortranを利用した際は、）
+
+```
+   0.123456791043282
+   0.123456789123457
+```
+で、0.123456789123456789を倍精度型の`a`に代入しても、単精度の0.123456791043282で代入される。
+ところが、
+
+```Fortran
+program main
+   use, intrinsic :: iso_fortran_env
+   implicit none
+   real(real64)     :: a = 0.0
+   real(real64)     :: b = 0.0d0
+   write(*,'(f20.15)') a
+   write(*,'(f20.15)') b
+end
+```
+の出力は、
+
+```
+0.00000000000000
+0.00000000000000
+```
+だからなんだか悩ましい。
+
+ちなみに、 前半のコードも`-fdefault-real-8`というオプション（gfortranの場合）を付けてコンパイルすれば、数値リテラルの扱いが倍精度になり、
+
+```
+   0.123456789123457
+   0.123456789123457
+```
+という結果を得ることは可能。
+C/C++の浮動小数点リテラルの既定値は倍精度型なので、浮動小数点数リテラルの精度は意識しておかないと忘れがち。
+<https://docs.microsoft.com/ja-jp/cpp/cpp/numeric-boolean-and-pointer-literals-cpp?view=msvc-160>
+
+## 配列関係のライブラリは充実している
+配列添え字の範囲や配列の大きさなどは標準ライブラリで管理できる。自分で頑張る必要は無い（大事）。
+
+```Fortran
+program main
+   use, intrinsic :: iso_fortran_env
+   implicit none
+   integer(int64), allocatable :: a(:)
+   integer(int64) ::i
+   a = (/1, 2, 3, 4, 5/)
+
+   write(*,*) (size(a))
+
+   do i = lbound(a,1), ubound(a,1)
+      write(*,*) a(i)
+   enddo
+end
+```
+の出力結果は、
+
+```
+           5
+                    1
+                    2
+                    3
+                    4
+                    5
+```
+（もっとも、`write(*,*) a` で全要素を出力してくれるのだが。）
+
+## カラムメジャーか、ローメジャーか
+
+これは有名な話なので省略。BLASなどをC/C++から呼び出す時なども気を遣う。とは言うものの、なんだかんだで嵌まりがちなので、気をつけた方がよい。
+
+
+
+"

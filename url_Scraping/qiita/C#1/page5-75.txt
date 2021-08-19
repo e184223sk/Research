@@ -1,0 +1,215 @@
+C言語でハッシュ探索,"## ハッシュ探索の概要
+* ハッシュ探索は計算量を比較的少ない量で探索を行えるアルゴリズム
+* 各要素の値に応じて格納場所を管理するハッシュテーブルを用いることで、探索計算量を抑えている
+
+## ハッシュテーブルについて
+* キーを持つデータ（構造体）の集合（配列）
+* 配列のインデックスはデータのkey（値でも求められる？）を元に計算する関数をハッシュ関数
+
+## ハッシュ関数について
+* ある値を特定の計算方式で0 ~ n-1 の値を求める
+* 計算方式はモジュロ演算子(余りを求める演算子、%のこと)を使用することが多い
+* 同一ハッシュ値が起こりうる（衝突）
+
+## 衝突の回避法
+* オープンハッシュ法
+  * チェイン法
+* オープンアドレス法
+  * 線形探索法
+  * 二重ハッシュ法
+
+## 問題
+一番最初の行は命令数nを与える。続くn行にn件の命令を順番に与えます。
+### 命令
+```
+* insert 辞書に値を格納（出力なし）
+* find 辞書に指定した文字列が存在するかをチェックする(出力あり)
+* delete 値の削除（出力なし）
+```
+
+### 制約
+```
+1 <= 文字列の長さ <= 12
+n <= 100,000
+```
+
+### example
+```
+10 
+insert aaa
+insert AAA
+insert aCa
+insert bcc
+insert BCA
+find aaa
+探索結果：YES
+find ACA
+探索結果：NO
+find aCa
+探索結果：YES
+delete AAA
+find AAA
+探索結果：NO
+```
+
+### ハッシュ探索(チェイン法による衝突回避）の実装例
+``` c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_VALUE_SIZE 12
+#define TABLE_SIZE 100
+
+typedef struct node {
+  char value[MAX_VALUE_SIZE];
+  struct node *pNextNode;
+} node_t;
+
+int hashFunction(char *value) {
+  int sum = 0;
+  int i = 0;
+  while (value[i] != '\0') {
+    sum += value[i];
+    i++;
+  }
+
+  return sum % TABLE_SIZE;
+}
+
+void initHashTable(node_t *pHashTable[TABLE_SIZE]) {
+  int i;
+
+  for (i = 0; i < TABLE_SIZE; i++) {
+    pHashTable[i] = NULL;
+  }
+}
+
+
+node_t* initNode(char *value) {
+  node_t* pNode = NULL;
+
+  pNode = (node_t*)malloc(sizeof(node_t));
+  if(pNode == NULL) {
+    printf(""init malloc error\n"");
+    return NULL;
+  }
+
+  strcpy(pNode->value, value);
+  pNode->pNextNode = NULL;
+
+  return pNode;
+}
+
+void insert(node_t *pHashTable[TABLE_SIZE], char *value) {
+  node_t* pNode = NULL;
+  node_t* pPreNode = NULL;
+  int hashVal = hashFunction(value);
+  if (strlen(value) > MAX_VALUE_SIZE - 1) {
+    printf(""arg error\n"");
+    return;
+  }
+  if (pHashTable[hashVal] == NULL) {
+    pHashTable[hashVal] = initNode(value);
+    return;
+  }
+
+  pNode = pHashTable[hashVal];
+  pPreNode = pNode;
+
+  while (pNode != NULL) {
+    if (strcmp(value, pNode->value) == 0) return;
+    pPreNode = pNode;
+    pNode = pNode->pNextNode;
+  }
+
+  pPreNode->pNextNode = initNode(value);
+}
+
+void deleteKey(node_t *pHashTable[TABLE_SIZE], char *value) {
+  node_t* pNode = NULL;
+  node_t* pPreNode = NULL;
+  int hashVal = hashFunction(value);
+
+  if (pHashTable[hashVal] == NULL) return;
+
+  pNode = pHashTable[hashVal];
+  while(pNode != NULL) {
+    if (strcmp(value, pNode->value) == 0) {
+      if (pNode == pHashTable[hashVal]) {
+        pHashTable[hashVal] = pNode->pNextNode;
+      } else {
+        pPreNode->pNextNode = pNode->pNextNode;
+      }
+
+      free(pNode);
+      return;
+    }
+  }
+  pPreNode = pNode;
+  pNode = pNode->pNextNode;
+}
+
+void deleteNode(node_t *pHashTable[TABLE_SIZE]) {
+  node_t* pNode = NULL;
+  node_t* pPreNode = NULL;
+  int i;
+
+  for (i = 0; i < TABLE_SIZE; i++) {
+    if(pHashTable[i] != NULL) {
+      pNode = pHashTable[i];
+      while(pNode != NULL) {
+        pPreNode = pNode;
+        pNode = pNode->pNextNode;
+        free(pPreNode);
+      }
+      pHashTable[i] = NULL;
+    }
+  }
+}
+
+void findValue(node_t *pHashTable[TABLE_SIZE], char *value) {
+  node_t* pNode = NULL;
+  int hashVal = hashFunction(value);
+  if (pHashTable[hashVal] != NULL) {
+      pNode = pHashTable[hashVal];
+      while (pNode != NULL) {
+        if (strcmp(value, pNode->value) == 0) {
+          printf(""YES\n"");
+          return;
+        }
+        pNode = pNode->pNextNode;
+      }
+      printf(""NO\n"");
+  } else {
+    printf(""NO\n"");
+  }
+}
+
+int main() {
+  int i, count;
+  char order[10], value[MAX_VALUE_SIZE];
+  node_t* pHashTable[TABLE_SIZE];
+
+  initHashTable(pHashTable);
+
+  scanf(""%d"", &count);
+
+  for (i = 0; i < count; i++) {
+    scanf(""%s %s"", order, value);
+
+    if (strcmp(""insert"", order) == 0) {
+      insert(pHashTable, value);
+    } else if (strcmp(""delete"", order) == 0) {
+      deleteKey(pHashTable, value);
+    } else if (strcmp(""find"", order) == 0) {
+      findValue(pHashTable, value);
+    } else {
+      printf(""ERROR\n"");
+    }
+  }
+  deleteNode(pHashTable);
+  return 0;
+}
+```
+"

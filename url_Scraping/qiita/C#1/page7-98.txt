@@ -1,0 +1,94 @@
+ランチにPicoはいかがでしょうか～第5話　自分で書いたソースコードのビルド・実行方法～,"ごきげんよう、ちゃまおです。
+
+[前回の記事では、Windows10でC/C++を用いてRaspberry Pi Picoの開発をする為の環境導入について解説](https://qiita.com/Chamaotaku/items/05ae4c47c1f8724512c1)しました。また、動作確認として、公式のサンプルコードをダウンロードしてビルド・実行しました。
+
+サンプルコードは非常に便利ですが、自分で書いたソースコードをビルド・実行する事がものづくりの楽しみの一つです。今回の記事ではその方法について、紹介致します。本当は、詳細解説を行う予定でしたが、[Raspberry Pi Pico C/C++ SDKドキュメント](https://datasheets.raspberrypi.org/pico/raspberry-pi-pico-c-sdk.pdf)を読み込めていない為、かなり簡素な内容になってしまう事は予めご了承下さい。
+
+# 今回動かすソースコードの内容
+1秒毎にLEDを点灯させながら、「ごきげんよう」と出力する内容となっております。ソースコード名は「gokigenyou.c」としました。ソースコードは[公式サンプルのblink](https://github.com/raspberrypi/pico-examples/blob/master/blink/blink.c)と[公式サンプルのhello_world](https://github.com/raspberrypi/pico-examples/blob/master/hello_world/usb/hello_usb.c)を参考にしました。```//記号に続けてコメントを書いています。```
+
+```cpp
+#include <stdio.h> //C言語の標準ライブラリ読み込み
+#include ""pico/stdlib.h"" //Raspberry Pi Picoのライブラリ読み込み
+
+int main() {
+    const uint LED_PIN = 25; //GPIO25番を""LED_PIN""として設定
+
+    stdio_init_all(); //stdioの初期化
+    gpio_init(LED_PIN); //GPIOの初期化
+    gpio_set_dir(LED_PIN, GPIO_OUT); //設定したGPIOを出力にする
+    
+    while (true) {
+        gpio_put(LED_PIN, 1); //LEDを点ける
+        printf(""ごきげんよう\n""); //「ごきげんよう」と表示
+        sleep_ms(1000); //1000ms = 1s待機
+        gpio_put(LED_PIN, 0); //LEDを消す
+        sleep_ms(1000); //1000ms = 1s待機
+    }
+}
+
+```
+
+# ディレクトリ構成
+パソコン内のお好きな場所にお好きな名前のフォルダを作成しましょう。その中に、[ダウンロードした公式SDKフォルダ](https://github.com/raspberrypi/pico-sdk)内の""pico_sdk_import.cmake""ファイルを入れましょう。また、""CMakeLists""と言う名前のテキストファイルを作成しておきます。ご自身で書いたソースコード(今回は""gokigenyou.c"")も同じディレクトリ内に入れておきます。
+
+私は以下のようなフォルダ構成にしました。
+
+Gokigenyou
+　　｜ー　gokigenyou.c
+　　｜ー　CMakeLists.txt
+　　｜＿　pico_sdk_import.cmake
+
+# CMakeListsの内容
+公式サンプルフォルダにある同名ファイルを参考に、""CMakeLists.txt""の内容は以下のようにしました。(注)```#記号に続けて、分かる範囲でコメント書きました。```
+
+```
+#ここでは、お使いのCMakeのバージョンを指定します
+cmake_minimum_required(VERSION 3.19) 
+
+#.cmakeファイルを読み込みます
+include(pico_sdk_import.cmake)
+
+#プロジェクト名を書きます(ここでは、例として""TEST""としました)
+project(TEST)
+
+#SDKの初期化が行われます
+pico_sdk_init()
+
+#add_executable(プロジェクト名　C言語のソースコード名)と書きます
+add_executable(TEST
+        gokigenyou.c
+        )
+
+#""pico_stdlib.h""が読み込めるようにしています
+target_link_libraries(TEST pico_stdlib)
+
+#USBによる通信を許可し、UART通信を許可しない設定だと思います
+pico_enable_stdio_usb(TEST 1)
+pico_enable_stdio_uart(TEST 0)
+
+#ビルド実行結果などの色々なファイルを出力するのに必要な設定だと思います
+pico_add_extra_outputs(TEST)
+```
+
+# ビルド・実行方法
+Developer Command Prompt for VS 2019を立ち上げ、```code```と打ってVisual Studio Codeを立ち上げた後に、先ほど作成したフォルダに移動する事で、CMakeが出来るようになります。終わったらビルドする事で、先ほど作成したフォルダ内にbuildフォルダが出来上がり、その中にあるUF2ファイルをRaspberry Pi Picoに移せばLチカが動きます。
+
+# PuTTYのインストール (2021年2月13日時点での最新版は0.74)
+""gokigenyou.c""のプログラムが実行されている間、USBのシリアル通信を通して、Raspberry Pi Picoからパソコンに、「ごきげんよう」と言う情報が送られていますが、単にプログラム実行しただけでは、Lチカ以外何も見えません。「ごきげんよう」の表示が見れるようにする為には、シリアル通信の結果表示が出来るソフトが必要で、今回は[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html)と言うソフトをインストールします。
+
+お使いのパソコン環境に適したものをダウンロード&インストール(ここでは説明しませんが、インストールは画面に従って進むだけなので特に難しい事はありません。)したら、ソフトを立ち上げます。
+
+ソフトを立ち上げると色々な画面表記が出ていますが、下図のように""Session""項目の""Serial line""をRaspberry Pi Picoのポート番号、""Speed""を115200として、""Open""ボタンをクリックします。下図ではポート番号が""COM3""となっておりますが、お使いのパソコンによって異なりますので、<font color=""red"">Windows10のデバイスマネージャーで必ずご自身のRaspberry Pi Picoのポート番号を確認してください。</font>
+
+![スクリーンショット (253).png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/930492/9d17403c-ec04-0475-f3db-fe4686e8ad33.png)
+
+下図のように表示されたら成功です。
+
+![スクリーンショット (254).png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/930492/498583d5-8575-8d83-2e66-0d652c727628.png)
+
+自分で書いたソースコードのビルドと実行方法についての紹介は以上となります。お疲れ様でした。
+
+# 次回予告
+次回以降は、Raspberry Pi Picoを用いて作成した私のオリジナル作品の紹介等していけたら良いなと思っております。ただ、日常生活が忙しい関係で、更新時期は未定です。
+"

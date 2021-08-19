@@ -1,0 +1,121 @@
+[bash] カレントディレクトリが存在しなくてもcd ./は成功する,"##環境
+
+```
+$ bash --version
+bash --version
+GNU bash, version 4.4.20(1)-release (x86_64-pc-linux-gnu)
+```
+
+##事象
+```
+$ mkdir test; cd test;
+$ rmdir ../test　<- カレントディレクトリを削除
+$ cd ./
+cd: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+$ echo $?; pwd
+0　　　　　　　　　　　　<- エラーメッセージが出力されるが成功している
+/home/user42/test/./　 <- pwdがおかしくなっている
+$ cd ././/////./././/////././././///
+cd: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+$ echo $?; pwd
+0
+/home/user42/test/./././/////./././/////././././///　<- !?!?!?
+$ cd ../
+$ echo $?; pwd
+0
+/home/user42　<- cd ../すると元に戻る
+```
+
+##理由
+**`bash`は入力されたパスへの移動に失敗すると、入力値を直接引数として`cd`に再挑戦するから。**
+
+##調査
+bashのソースは[公式サイト](https://www.gnu.org/software/bash/)からダウンロードできるので、読んでみました。
+`builtins/cd.def`の中で`cd`の動作が定義されています。
+
+実際に`chdir`(カレントディレクトリを変更する関数)を呼び出している`change_to_directory`の処理をのぞいてみると、このようなコメントがあり、上記の動作が起こる理由が説明されています。
+
+``` 
+/* We're not in physical mode (nolinks == 0), but we failed to change to
+     the canonicalized directory name (TDIR).  Try what the user passed
+     verbatim. If we succeed, reinitialize the_current_working_directory.
+     POSIX requires that we just fail here, so we do in posix mode. */
+```
+
+POSIXモード[^1]でない際、正規化[^2]したパス(`TDIR`)[^3]への`cd`が失敗すると、引数をそのまま`cd`で試し、成功した場合、`the_current_working_directory`[^4]の再設定を行うと記述されています。
+
+`cd ./`を実行すると`chdir(""pwdの出力 + ./"")`に失敗した後、`chdir(""./"")`に挑戦しているようです。
+
+`bash`は`cd`が一度失敗しても引数そのままの`cd`に挑戦してくれる親切設計なんですね。
+
+---
+
+####終了ステータス
+存在しないディレクトリで`cd ./`を実行すると、`chdir(TDIR)`[^2]は失敗するが、`chdir(""./"")`は成功するので、`cd`の終了ステータスは0に設定されます。
+また、存在しないディレクトリでの`chdir(""../"")`も成功します。
+
+
+コメントに記述されているようにPOSIXモードだと失敗しました。
+
+```
+bash --posix　　　　　　 <-bashをPOSIXモードで起動
+$ mkdir test; cd test;　
+$ rmdir ../test　　　　　<-カレントディレクトリを削除
+$ cd ./
+bash: cd: ./: No such file or directory
+$ echo $?; pwd　　　　　 
+1　　　　　　　　　　　　　<-cdの終了ステータスが違う
+pwd: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+```
+
+---
+####エラーメッセージ
+
+存在しないディレクトリで`cd ./`を実行すると、下記のようなエラーメッセージが出力されます。
+
+```
+cd: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+```
+このメッセージを吐き出しているのは、`the_current_working_directory`[^4]の再設定を行う際に呼び出される`get_working_directory`という関数です。
+関数内部で`getcwd`(カレントディレクトリのパスの取得)を実行し、存在しないディレクトリにいることが原因で失敗するので、エラーメッセージが出力されます。
+
+---
+####pwdの出力
+
+
+存在しないディレクトリで`cd ./`を実行した後、pwdを実行すると、`.`や`/`がふくまれたパスを出力されます。
+
+これは、`get_working_directory`が失敗し、カレントディレクトリが取得できていないことが原因です。
+カレントディレクトリが取得できておらず、`the_current_working_directory`が設定できていないため、`TDIR`[^3]が`the_current_working_directory`として設定されています。
+
+```
+$ pwd
+/home/user42/test/./././/////./././/////././././///　
+```
+
+`getcwd`が成功するディレクトリに来たタイミングで`the_current_working_directory`は正しい値に修正されます。
+
+```
+$ pwd
+/home/user42/test/./././/////././././
+$ cd ../
+$ pwd
+/home/user42
+```
+
+
+##まとめ
+存在しないディレクトリでの`cd ./`成功は、`bash`の親切設計が引き起こしている挙動でした。
+エラーメッセージは、`getcwd`が失敗したことによる出力なので、終了ステータスには影響がないようです。
+
+
+
+[^1]: UNIX系OSが備えるべきとされる仕様の規格
+
+[^2]: `./`や`../`といったディレクトリではない要素をパスの中から取り除く作業`
+
+[^3]: `cd`は、`pwdで出力される値 + cdの引数`で構成される物理パスの正規化に成功すると、`chdir`の引数(`TDIR`)として正規化されたパスを採用します。正規化に失敗(存在しないディレクトリが含まれているなど)すると、物理パスを`TDIR`として採用します。
+
+[^4]: `bash`のソース内でカレントディレクトリとして使用される変数
+
+"

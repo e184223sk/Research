@@ -1,0 +1,330 @@
+gdbを使ったdynamic debugの小技集,"# はじめに
+こ、えだ臭？(デブ活
+
+ソフトウェア開発をするとどうしてもデバッグに割かれる時間は長くなります。効率的にデバッグをするためにはデバッグをしやすい環境を整えておくことが不可欠です。特にLinuxだと標準的なデバッガとしてgdbが使えることが多いので、gdbを中心にデバッグ環境を整えることも多いと思います。
+
+この記事では、gdbを使ったdynamicな方法でのデバッグの小技をいくつか紹介します。逆に、一般的なgdbの使い方の、break入れてcontinueしたり変数の中身を見たりといったとこは他の記事に任せることとします。
+
+# とはいえまずはgdbの一般的な話から
+dynamicにといっても、素性のgdbのままでは辛いことも多い。個人的には下記を常用している。
+
+```shell:.gdbinit
+set print pretty on
+set print object on
+set print static-members on
+set print vtbl on
+set print demangle on
+set print asm-demangle on
+set print elements 0
+set demangle-style gnu-v3
+set pagination off
+```
+
+ほかは「**set print repeats**」とか、ポインタを配列表示したいときの「**p some_array[0]@16**」とか、C++のSTLコンテナを[うまく表示できないときのためのマクロ](https://www.rarul.com/mt/log/2017/10/cstlgdbprint.html)あたりか。命令ステップ実行(**si**)するときは「**display/i $pc**」もよく使う。
+
+とはいえ、私自身も設定項目をいちいち覚えていないので、この手のは[githubにsettingレポジトリ](https://github.com/rarul/setting/blob/master/.gdbinit)として置くようにしている。逆に言えば、[githubで他人の.gdbinitを検索](https://github.com/search?q=.gdbinit&ref=simplesearch)すれば有用な設定やマクロが見つかる。
+
+一般的なgdbの使い方としては、私もたまたま見つけたけど、@tsuyopon氏の[gdbメモ(gdb.md)](https://github.com/tsuyopon/memo/blob/master/GDB/gdb.md)が非常に詳しい。日本語でここまでまとまったものはなかなかないので、gdbをよく使う人は一通り読んでおいて損はない。
+
+# 変数・メモリ・レジスタ書き換え
+### pを使った書き換え
+gdbを使うと変数やメモリの中身が見れると紹介した記事が多いが、むしろ、変数やメモリやレジスタの中身を書き換えるのがgdbの本来の使い方じゃないかと思っている。表示するときはp(print)を使うが、書き換えるときもpを使えば良い。
+
+```bash:(gdb)
+(gdb) p val
+$3 = 2
+(gdb) p val = 3
+$4 = 3
+(gdb) p/x *(char*)(0x555555555158)
+$10 = 0x1
+(gdb) p/x *(char*)(0x555555555158) = 2
+$11 = 0x2
+(gdb) p/x $edi
+$1 = 0x1
+(gdb) p/x $edi = 2
+$2 = 0x2
+```
+
+### 関数書き換え
+特に書き換えは、権限さえあれば**mmap**の**prot**属性を無視して操作できるので(**ptrace**使うから回避している？)、関数を書き換えてしまうことも可能。
+
+```cpp:print_increment_val.cpp
+static void print_increment_val(int val){
+    int newval = val + 1;
+    printf(""%d\n"", newval);
+}
+```
+
+```bash:(gdb)
+(gdb) disas print_increment_val(int)
+Dump of assembler code for function print_increment_val(int):
+=> 0x0000555555555149 <+0>: sub    $0x8,%rsp
+   0x000055555555514d <+4>: lea    0x1(%rdi),%edx
+   0x0000555555555150 <+7>: lea    0xead(%rip),%rsi        # 0x555555556004
+   0x0000555555555157 <+14>:    mov    $0x1,%edi
+   0x000055555555515c <+19>:    mov    $0x0,%eax
+   0x0000555555555161 <+24>:    callq  0x555555555050 <__printf_chk@plt>
+   0x0000555555555166 <+29>:    add    $0x8,%rsp
+   0x000055555555516a <+33>:    retq
+End of assembler dump.
+(gdb) call print_increment_val(11)
+12
+(gdb) p/x *(unsigned char*)0x000055555555514f
+$21 = 0x1
+(gdb) p/x *(unsigned char*)0x000055555555514f = 2
+$22 = 0x2
+(gdb) disas print_increment_val(int)
+Dump of assembler code for function print_increment_val(int):
+=> 0x0000555555555149 <+0>: sub    $0x8,%rsp
+   0x000055555555514d <+4>: lea    0x2(%rdi),%edx
+   0x0000555555555150 <+7>: lea    0xead(%rip),%rsi        # 0x555555556004
+   0x0000555555555157 <+14>:    mov    $0x1,%edi
+   0x000055555555515c <+19>:    mov    $0x0,%eax
+   0x0000555555555161 <+24>:    callq  0x555555555050 <__printf_chk@plt>
+   0x0000555555555166 <+29>:    add    $0x8,%rsp
+   0x000055555555516a <+33>:    retq
+End of assembler dump.
+(gdb) call print_increment_val(11)
+13
+```
+
+# 関数呼び出し
+### callコマンド
+**call**もしくはp(print)を使うと関数呼び出しができる。pを使うと関数の返り値をgdbの変数に代入できるのでpのほうがよいかと思う。
+
+```bash
+(gdb) p $testret = printf(""Hello %s\n"", ""rarul"")
+Hello rarul
+$2 = 12
+(gdb) p $testret
+$3 = 12
+```
+
+gdbマクロに**call**をいっぱい並べて単体テストっぽいこともできると思う。ただ一直線に呼ぶだけだったならば普通にコンパイルして実行して**assert()**で比較するだけでよい気もする。いい応用例があるかどうかについてはまだ模索中...
+
+gdbで止めた状態のまま関数を呼ぶ仕組みのため、リエントラントな関数群でないと気軽には呼べない。例えば、下記で**malloc()**, **free()**を呼ぶ例を出すけど、libcのmallocの中の**mutex**資源がリエントラントにならないので、妙な箇所で止めた状態でcallするとデッドロックで抜けてこないかもしれない。
+
+また、callの途中でsignalや例外が出るといろいろめんどい。[gdbマニュアルに**unwindonsignal**の記載がある](https://sourceware.org/gdb/onlinedocs/gdb/Calling.html)とはいえ、あまり面倒なことはやらないほうがよいんじゃないかと思う。
+
+### メモリ管理
+callしたい内容によっては一時メモリが必要になる。でも大丈夫、**malloc()**や**free()**を呼べば良い。
+
+```bash
+(gdb) p/x $tmpbuf = ((void* (*) (size_t)) malloc)(32)
+$15 = 0x7ffff7fc0f80
+(gdb) call strcpy($tmpbuf, ""Hello World!\n"")
+$16 = 0x7ffff7fc0f80 ""Hello World!\n""
+(gdb) call puts($tmpbuf)
+Hello World!
+$17 = 14
+(gdb) call ((void(*)(void*))free)($tmpbuf)
+```
+
+C++だと**new**, **delete**したくなるけど、stlコンテナの場合は**malloc()**した領域を無理やり使う方法もある模様。[Creating C++ string in GDB - Stack Overflow](https://stackoverflow.com/questions/7429462/creating-c-string-in-gdb/11311786#11311786)  (Thanks to and via [gdb覚書 - Qiita](https://qiita.com/cielavenir/items/874faf64c9c4b6fc0468))
+
+...まで書いてから追記するのもなんだけど、先に書いたとおり、**malloc()**は内部で**mutex**を持つので、だったらもう直接anonymous mmapしたほうが早いんじゃね？ってことで、試してみると、下記のようにできた。
+
+```bash
+(gdb) call mmap(0, 4096, 0x7, 0x22, -1, 0)
+$7 = (void *) 0x7ffff7ffb000
+(gdb) x/16wx $7
+0x7ffff7ffb000: 0x00000000  0x00000000  0x00000000  0x00000000
+0x7ffff7ffb010: 0x00000000  0x00000000  0x00000000  0x00000000
+0x7ffff7ffb020: 0x00000000  0x00000000  0x00000000  0x00000000
+0x7ffff7ffb030: 0x00000000  0x00000000  0x00000000  0x00000000
+(gdb) call memset($7, 0x5a, 4096)
+$8 = (void *) 0x7ffff7ffb000
+(gdb) x/16wx $7
+0x7ffff7ffb000: 0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a
+0x7ffff7ffb010: 0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a
+0x7ffff7ffb020: 0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a
+0x7ffff7ffb030: 0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a  0x5a5a5a5a
+(gdb) call ((int(*)(void*,size_t))munmap)($7, 4096)
+$9 = 0
+```
+
+**mmap**, **munmap**をgdbマクロでdefineして関数化しておけばいろいろと便利、かもしれない。なお「0x7 == **PROT_READ|PROT_WRITE|PROT_EXEC**」「0x22 == **MAP_PRIVATE|MAP_ANONYMOUS**」です。キャストとか#defineの値の中身とか、説明が少々前後してしまっている点はもうしわけない。
+
+
+### ttyをつなぎ替える
+**tty**を失ったり**stdout**, **stderr**が閉じられたりしたプロセスの出力を再び奪う応用例も比較的有名。
+
+```bash
+(gdb) call puts(""test"")
+test
+(gdb) call close(1)
+(gdb) call open(""/dev/null"", 1)
+$24 = 1
+(gdb) call puts(""test"")
+(gdb) call close(1)
+(gdb) call open(""/dev/pts/1"", 1)
+$27 = 1
+(gdb) call puts(""test"")
+test
+```
+
+ここでは**file descriptor**の1番を閉じた直後に**open()**してるので、そのまま1が割り当たって都合が良い。番号いじりにくいときは**open()**して**dup2()**して**close()**する流れになるかと思う。ちなみに**open()**の引数「1」はLinuxで**O_WRONLY**の意味。**O_RDONLY**が0で**O_WRONLY**が1で**O_RDWR**が2の模様。([**asm-generic/fcntl.h**](https://github.com/torvalds/linux/blob/6f52b16c5b29b89d92c0e7236f4655dc8491ad70/include/uapi/asm-generic/fcntl.h#L15)より。固定値だと決めつけるのは怖いけど**ABI**だバイナリコンパチだ守る限りは変わらないだろうからもう固定値で覚えといてよいんじゃないだろうか)
+
+ネタの提供元
+- [コンソールから切れたプロセスを標準出力につなげなおす - 絶品ゆどうふのタレ](https://yudoufu.hatenablog.jp/entry/2014/02/06/001440)
+- [プロセスを生かしたまま出力先を変更 - Qiita](https://qiita.com/maueki/items/ad5faa35146865fda382)
+
+### 環境変数を書き換える
+同様に環境変数を書き換える応用例も比較的有名。
+
+```bash
+(gdb) p getenv(""TESTENV"")
+$36 = 0x0
+(gdb) p setenv(""TESTENV"", ""test test"", 1)
+$37 = 0
+(gdb) p getenv(""TESTENV"")
+$38 = 0x5555555593f8 ""test test""
+```
+ネタ提供元
+- [他のプロセスの環境変数を書き換える - Qiita](https://qiita.com/cielavenir/items/80d69340acb0c043d3cf)
+
+直接関係しない話だけど、Linux kernelは環境変数をプロセス起動時に引き継ぐ機能しか提供しないため、**/proc/[PID]/environ**からはプロセス起動時の環境変数しか取れない。この説明に疑問を持った人は[man environ](https://linuxjm.osdn.jp/html/LDP_man-pages/man7/environ.7.html)をちゃんと読んで置こう。
+
+ - [/proc/pid/environでは任意のプロセスの全ての環境変数を取得できない？ – StupidDog's blog](https://stupiddog.jp/note/archives/1073)
+ - [Linux memo 2019/07/17](https://www.rarul.com/mt/log/2019/07/linux-memo-2019-4.html)(自サイトの宣伝とも言う)
+
+### prototypeがわからない場合
+compile & link したときに見えていたシンボル状況によっては関数のプロトタイプが見えないことがある。その場合は無理やり関数ポインタにキャストすればよい。
+
+```bash
+(gdb) p $tmpbuf = ((void* (*) (size_t)) malloc)(32)
+$13 = (void *) 0x7ffff7fc8030
+(gdb) p ((void(*)(void*))free)($tmpbuf)
+$14 = void
+```
+
+このあたりも[先ほどのgdbマニュアル](https://sourceware.org/gdb/onlinedocs/gdb/Calling.html)に記載されている。**.got**や**.plt**が気になるところだけど、シンボルが見えてさえいれば通常のshared libraryのときと同じ動きをするので、特に問題はない模様。ただ、当然ではあるけど、unused functionでリンク時に消された関数などは呼び出しは不可能。(**malloc()**してマシン命令列を代入して**mprotect()**で**PROT_EXEC**をつければcallできるとは思うけどさすがにそこまで試す気にはならなかった)
+
+# 動的にprintfを挿入する
+### dprintf
+gdbの**dprintf**を使えば動的にデバッグ出力分を挿入できる。コンパイルし直し不要だし、引数や関数トレースポイントがわかってさえいれば問題切り分けも容易になるし、ロギング機能が弱い環境にも適用しやすい。
+
+```bash
+(gdb) dprintf puts, ""puts(%s) is called!\n"", str
+Note: breakpoint 4 also set at pc 0x7ffff7e545a0.
+Dprintf 5 at 0x7ffff7e545a0: file ioputs.c, line 33.
+```
+
+ネタ提供元
+ - [gdbのDynamic Printfを使う -Qiita](https://qiita.com/tobira-code/items/4b903e3ad36a62204002)
+
+[gdbのマニュアル](https://doc.ecoscentric.com/gnutools/doc/gdb/Dynamic-Printf.html)を参考に、**dprintf**の出力先を変更することもできるが、正直、拡張性や連携の面では弱い。**dprintf**が使いにくいと感じる場合は、下記で説明する**commands**を使い自分でマクロを組むとよい。
+
+なお、dprintfは内部的にbreak,gdbマクロ実行,continueをするため、実行速度面ではどうしても不利になる。システムレベルでのトレースが目的の場合は、**strace**や**perf**のほうがよい。
+
+# commands
+**commands**を使うと、breakpointにヒットしたときに実行するものをマクロ的に定義できる。下記では、**puts()**にbreakpointをはり、ヒットしたときに引数の文字列を表示しつつ、そのままcontinueする例を示している。これで**dprintf**と同等のことを実現できる。
+
+```bash
+(gdb) b puts
+Breakpoint 3 at 0x7ffff7e545a0: file ioputs.c, line 33.
+(gdb) commands
+Type commands for breakpoint(s) 3, one per line.
+End with a line saying just ""end"".
+>silent
+>printf ""puts is called with %s\n"", str
+>continue
+>end
+```
+
+任意のgdbマクロ文を記述できるので、intをenumにキャストしてprintしたり、特定条件のときだけcontinueせずに止めたままにしたり、特定の値だったら引数を書き換えて実行を継続したり、といったことができる。特定の値のときだけbreakしたい場合は**Break Conditions**で条件付きでbreakpointをはる方法でもよい。
+
+- [5.1.7 Breakpoint Command Lists](https://sourceware.org/gdb/current/onlinedocs/gdb/Break-Commands.html)
+- [5.1.6 Break Conditions](https://sourceware.org/gdb/current/onlinedocs/gdb/Conditions.html)
+
+# 外部shellと連携する
+### shellコマンド
+**shell**を使えばgdbプロンプトの中で外部シェルコマンドを実行できる
+
+```bash
+(gdb) shell ls
+Makefile  test  test.cpp  test.o
+```
+
+とはいえ、一般的には、もっと特化した**make**の方を便利に使ってる人が多いんじゃないかと思う。**kill**, **make**, **file**, **run** と順に実行するようマクロを組んでおけば、繰り返しの実行を素早く執り行いやすい。(**set args**ももちろん使ってね) **pipe**につなげる応用もある([gdbマニュアル](https://sourceware.org/gdb/current/onlinedocs/gdb/Shell-Commands.html)より)ものの、shell単体だと「gdb中でshellを立ち上げられるよね」以上の使い所がいまいちないように見える。
+
+凝ったことをしたい場合は**eval**コマンドを使うと良いという例も見えるが、実施に使ってみると、二重に変数展開したいような場面で非常に使いづらいことがわかった。どうせなら次に書く**source**を介したやり方がよいと思う。
+
+### shell & source
+**shell**の実行結果をgdbで受け取るやり方はどうもないようだ。代わりに、それを無理やりやる方法として、**shell**を実行した結果をリダイレクトでファイルに保存し、その保存したファイルを**source**でgdbから読む方法がある。下記は、**pgrep**使って目的のプログラムの**PID**を探して**attach**する例になる。
+
+```
+(gdb) shell echo attach `pgrep target_program` > attach_pid.gdbinit
+(gdb) source attach_pid.gdbinit
+0x00007fa69bf0b334 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=req@entry=0x7fff4b68f010, rem=re\
+m@entry=0x7fff4b68f010) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+78  ../sysdeps/unix/sysv/linux/clock_nanosleep.c: No such file or directory.
+(gdb) bt
+#0  0x00007fa69bf0b334 in __GI___clock_nanosleep (clock_id=<optimized out>, clock_id@entry=0, flags=flags@entry=0, req=req@entry=0x7fff4b68f010, re\
+m=rem@entry=0x7fff4b68f010) at ../sysdeps/unix/sysv/linux/clock_nanosleep.c:78
+#1  0x00007fa69bf11047 in __GI___nanosleep (requested_time=requested_time@entry=0x7fff4b68f010, remaining=remaining@entry=0x7fff4b68f010) at nanosl\
+eep.c:27
+#2  0x00007fa69bf10f7e in __sleep (seconds=0) at ../sysdeps/posix/sleep.c:55
+#3  0x00005613614e812a in main () at test.cpp:27
+```
+
+見つかるまで**pgrep**し続けるような例がStack Overflowにて紹介されている。
+ - [linux - How can I use the output of a shell command as an argument to GDB command within GDB? - Stack Overflow](https://stackoverflow.com/questions/36004373/how-can-i-use-the-output-of-a-shell-command-as-an-argument-to-gdb-command-within)
+
+別の例として、cross buildなどの**sysroot**を設定しないといけない環境にて、pathの取得と設定を自動化する例を紹介する。sysrootのトップになる特徴的なpath部分文字列があれば容易に設定することができる。
+
+```bash
+(gdb) shell echo set sysroot ${PWD%%/usr/src*} > sysroot.txt
+(gdb) source sysroot.txt
+```
+
+shellの結果をsourceするという方法は下記のStack Overflowにて初めて知った。
+ - [Memory dump formatted like xxd from gdb  - Stack Overflow](https://stackoverflow.com/questions/9233095/memory-dump-formatted-like-xxd-from-gdb)
+手を介して良いなら外部スクリプトを使っていくらでも整形できるけど、いちいち個別化したスクリプトを準備して実行していられないくらいの高頻度で行う作業は、こういうsourceを絡めたgdbマクロにしておくとよい。
+
+# その他
+**reverse step**実行や**extended-remote**のことも一通り試した上でまとめようと思っていたけど、ごめん文章を書くのに力尽きてしまった。紹介だけに留める。
+
+ - [gdbで実行ステップ行を戻す方法 - Qiita](https://qiita.com/keima_12/items/57097c08bd52ddde7b67)
+ - [gdbのリモートデバッグのextended-remoteモードを試す(2)](https://qiita.com/tetsu_koba/items/dd7c5a0beb7a8742d875)
+
+# あとがき
+gdbの組み込み**Python**を有効にした上で**Python**でgdbマクロを書くのが今流だという話もある。ただ、悲しいかな、なぜかこれまで**Python**無効にされたgdbの環境ばかりしか経験してないんだ。
+
+```
+(gdb) python import os
+Python scripting is not supported in this copy of GDB
+```
+
+自分でgdbビルドしてもいいんだけど、なぜかそこまでやる気力が今までは沸かなかった。個人的な話で悪いんだけど実は**Python**書いたことないんだ、ごめんね、どうもタブの思想が受け入れがたいようで。逆に、**Python**バリバリ使ってこうやるんだよという例を逆提案してもらうと嬉しい。**gdb-peda**なんかもほとんど使ったことがない。
+
+gdbマニュアルを読んでいると、**systemtap**や**dtrace**との連携の話も見かけたけど、正直よくわからん。だれか私みたいな**Python**使えない老害おじさんにもわかりやすいgdbの使い方を紹介した記事書いて教えて。
+
+# 参考サイト
+### gdbマニュアル
+ - [gdb unwindonsignal](https://sourceware.org/gdb/onlinedocs/gdb/Calling.html)
+ - [17.5.1 Calling Functions with No Debug Info](https://sourceware.org/gdb/onlinedocs/gdb/Calling.html)
+ - [gdb shell](https://sourceware.org/gdb/current/onlinedocs/gdb/Shell-Commands.html)
+ - [5.1.7 Breakpoint Command Lists](https://sourceware.org/gdb/current/onlinedocs/gdb/Break-Commands.html)
+ - [5.1.6 Break Conditions](https://sourceware.org/gdb/current/onlinedocs/gdb/Conditions.html)
+
+### gdbの便利な使い方を紹介した記事
+ - [C++のSTLコンテナをgdbデバッグでprintする](https://www.rarul.com/mt/log/2017/10/cstlgdbprint.html)(自サイトの宣伝)
+ - [コンソールから切れたプロセスを標準出力につなげなおす - 絶品ゆどうふのタレ](https://yudoufu.hatenablog.jp/entry/2014/02/06/001440)
+ - [プロセスを生かしたまま出力先を変更 - Qiita](https://qiita.com/maueki/items/ad5faa35146865fda382)
+ - [他のプロセスの環境変数を書き換える - Qiita](https://qiita.com/cielavenir/items/80d69340acb0c043d3cf)
+ - [gdbのDynamic Printfを使う -Qiita](https://qiita.com/tobira-code/items/4b903e3ad36a62204002)
+ - [gdbで実行ステップ行を戻す方法 - Qiita](https://qiita.com/keima_12/items/57097c08bd52ddde7b67)
+ - [gdbのリモートデバッグのextended-remoteモードを試す(2)](https://qiita.com/tetsu_koba/items/dd7c5a0beb7a8742d875)
+ - [Creating C++ string in GDB - Stack Overflow](https://stackoverflow.com/questions/7429462/creating-c-string-in-gdb/11311786#11311786)
+ - [linux - How can I use the output of a shell command as an argument to GDB command within GDB? - Stack Overflow](https://stackoverflow.com/questions/36004373/how-can-i-use-the-output-of-a-shell-command-as-an-argument-to-gdb-command-within)
+ - [Memory dump formatted like xxd from gdb  - Stack Overflow](https://stackoverflow.com/questions/9233095/memory-dump-formatted-like-xxd-from-gdb)
+
+### その他
+ - [@rarul(私)のgithub settingレポジトリの.gdbinit](https://github.com/rarul/setting/blob/master/.gdbinit)
+ - [githubで他人の.gdbinitを検索](https://github.com/search?q=.gdbinit&ref=simplesearch)
+ - [@tsuyopon氏のgdbメモ(gdb.md)](https://github.com/tsuyopon/memo/blob/master/GDB/gdb.md)
+ - [man environ](https://linuxjm.osdn.jp/html/LDP_man-pages/man7/environ.7.html)
+ - [/proc/pid/environでは任意のプロセスの全ての環境変数を取得できない？ ? StupidDog's blog](https://stupiddog.jp/note/archives/1073)
+ - [Linux memo 2019/07/17](https://www.rarul.com/mt/log/2019/07/linux-memo-2019-4.html)(自サイトの宣伝)
+"

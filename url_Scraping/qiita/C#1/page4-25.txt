@@ -1,0 +1,110 @@
+VSCodeのcode runnerでファイル分割されたC/C++ファイルをコンパイル&実行,"## 環境
+- MacOS Big Sur
+- Visual Studio Code (以下,VSCode)
+
+# 実現したいこと
+VSCodeの拡張機能である`Code Runner`を用いてファイル分割したC/C++の実行をショートカットでできるように設定したい.
+
+## code runnerのインストールと設定
+
+次の記事を参考にインストールしてください.
+
+https://murabitoleg.com/vscode-runner/#CodeRunner
+
+## デフォルトの設定の問題点
+
+デフォルトの設定では次のような単一ファイルのみを`code runner`でコンパイル＆実行することができる.
+
+```c:hello.c
+#include <stdio.h>
+
+int main(void)
+{
+    printf(""hello\n""); // => hello
+    return 0;
+}
+```
+
+同階層のディレクトリに`hello`という実行ファイルが作成されて,コンソールに`hello`と出力される.
+よって,ここまでは意図した通りに正しく実行できる.
+
+しかし,デフォルトの設定では次のようなケースでは正しくコンパイルできない.
+
+次のようにファイル分割することを考える.
+
+```c:hello.c
+#include <stdio.h>
+
+void hello(void)
+{
+    printf(""hello\n"");
+}
+```
+
+```c:hello.h
+#ifndef _HELLO_H_
+#define _HELLO_H_
+
+void hello();
+
+#endif //_HELLO_H_
+```
+
+```c:main.c
+#include ""hello.h""
+
+int main(void)
+{
+    hello(); // => hello
+    return 0;
+}
+```
+
+ここではファイルの内容に関して詳しく議論しない.
+
+問題となる点はこれがデフォルトの設定では意図したようにコンパイル＆実行されないことである.
+
+デフォルトの設定では次のようにコンパイル時のエラーが出力される.
+![スクリーンショット 2021-04-11 7.45.33.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/1262857/8d56de72-fbfa-c23b-5a28-42a352b199f6.png)
+
+要するに,`hello`という関数が定義されてないからどうしたらいいのかわからないといったところである.
+
+### 問題の本質
+> 分割した`hello.c`がリンクされていないこと
+
+よって,`code runner`を実行した時のコンパイルの仕方を変更する必要性がある.
+
+
+## 設定の変更
+
+1. VSCodeの拡張機能からインストールした`code runner`を検索する.
+![スクリーンショット 2021-04-11 7.46.40.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/1262857/70e7711b-9785-f62f-f25a-ea85b59600b1.png)
+
+1. `code runner`の`json`ファイルを開く.
+![スクリーンショット 2021-04-11 7.55.44.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/1262857/a4ca69e7-178a-5d45-6d64-71ecf0778a6e.png)
+1. C/C++の設定を探すとデフォルトでは次の画像のようになっている.
+![スクリーンショット 2021-04-11 7.46.06.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/1262857/96d94ad0-e3e0-409a-ad06-fce14d271be0.png)
+1. `gcc $filename`の部分を`*.c`に変更する.ついでに,cppも同様に`g++ $filename`を`*.cpp`に変更する.
+つまり,次のように変更する.
+
+```json:settings.json
+      ""c"": ""cd $dir && gcc *.c -o $fileNameWithoutExt && $dir$fileNameWithoutExt"",
+      ""cpp"": ""cd $dir && g++ *.cpp -o $fileNameWithoutExt && $dir$fileNameWithoutExt"",
+```
+
+これでファイル分割したC/C++でも`code runner`で`hello.c`もリンクされ正しく実行できる.
+
+### 注意
+> ここでの設定は`main.c`を実行しているディレクトリにある`.c`ファイルしかリンクされない.
+
+よってサブディレクトリにある`.c`ファイルはリンクされないので当然ながらコンパイルエラーが出力されるだろう.
+もしサブディレクトリに存在するファイルもリンクしたいのなら,
+`find . -name ""*.cpp"" -type f | xargs g++ ...`
+などに変更することで無理矢理実行することはできるかもしれないが,これをしたがために意図しない余計なファイルも同時にリンクされ,実行ファイルのサイズが大きくなったり,関数のバッティングが起こってしまうかもしれない.
+
+なので,この方法はあまりおすすめしない.
+どうしても楽に実行することを考えるなら,大人しく`Makefile`などを書くことを推していきたい.
+
+
+おそらく`Windows`でも設定方法はほとんど同じであろう.
+"

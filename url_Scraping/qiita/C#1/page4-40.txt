@@ -1,0 +1,63 @@
+今さらのリングバッファ,"無線でデータをやりとりするセンサを作っていたんですが、データの保存にリングバッファが必要になりました。
+んで、以前に使っていたリングバッファを使い回そうとしたら、こいつは「バッファが一杯になったら、それ以上の追加はお断りする」タイプでした。
+今回必要なのは「バッファが一杯になったら、古いデータを上書きする」タイプ。
+
+「今さらリングバッファを自分で書かなくて良いから」と言われてしまいそうですが、んまぁ自作はやっぱり楽しいんで、忘れないうちにアップしてみました。
+なおアップしたのはbyte型の一番単純なやつです。
+バッファの位置マーカーも単純にバッファサイズと比較しているので、必要であればマスクするなりmodを使うなり･･･ソースはRL78とCS+用です。
+
+```_ringbuff.h
+#ifndef _RINGBUFF_H
+#define _RINGBUFF_H
+
+void 		RBinit(uint8_t*buff, uint16_t size);
+uint16_t 	RBloc(void);
+void 		RBset(uint8_t d);
+uint8_t 	RBget(void);
+
+#endif	// _RINGBUFF_H
+```
+
+```_ringbuff.c
+#include ""r_cg_macrodriver.h""
+#include ""r_cg_userdefine.h""
+#include ""_ringbuff.h""
+
+// 管理用の変数（必要ならvolatileを追加）
+uint8_t *bptr;
+uint16_t ip, op, bsize, remain;
+
+// 初期化（""size - 1""個のデータが保存される）
+void RBinit(uint8_t*buff, uint16_t size)
+{
+	bptr = buff;
+	bsize = size;
+	ip = op = remain = 0;
+}
+// データ存在の検査
+uint16_t RBloc(void)
+{
+	//return (ip == op)? 0: 1;	// 	データがあれば""1""
+	return remain;	// 残りデータ個数を返す
+}
+// データを1個セット
+void RBset(uint8_t d)
+{
+	bptr[ip] = d;
+	if (++ip == bsize) ip = 0;
+	if (ip == op) {
+		if (++op == bsize) op = 0;
+	} else ++remain;
+}
+// データを1個取り出し
+uint8_t RBget(void)
+{
+	uint8_t w;
+	while (RBloc() == 0) NOP();
+	w = bptr[op];
+	if (++op == bsize) op = 0;
+	--remain;
+	return w;
+}
+```
+"

@@ -1,0 +1,178 @@
+保守容易性指数(Maintainability Idex)の計算方法を理解する,"# 概要
+最近、flutterでコードメトリクス[^5]を計測したら、保守容易性指数(Maintainability Idex)という指標が出てきました。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/f64aa87a-d1bd-5a25-ab4a-76d345e1cb92.png)
+
+ちょっと調べて見たところ、C#とかでは結構メジャーっぽい(?)。
+どうやって改善するのかわからないので調査します。
+(最近まで全然知らんかったんだけど、この指標みんな使ってるの？)
+
+# 目次
+- [保守容易性指数の目安](#保守容易性指数の目安)
+- [保守容易性指数の計算式](#保守容易性指数の計算式)
+- [サイクロマチック複雑度](#サイクロマチック複雑度)
+- [Halstead複雑度のVolume](#halstead複雑度のvolume)
+- [最後に](#最後に)
+- [参考にした資料](#参考にした資料)
+
+# 保守容易性指数の目安
+[コードメトリックス-保守容易性インデックスの範囲と意味(Microsoft)](https://docs.microsoft.com/ja-jp/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning?view=vs-2019)によると、評価基準は以下の通りらしい。
+
+- 0-9 = 赤
+- 10-19 = 黄
+- 20-100 = 緑
+
+ただし、コレはMicrosoftの[^1]保守容易性指数(Maintainability Idex)なので、他のツールだとちょっと違うかも。
+でもこの基準を参照すると、僕のflutterコードはめっちゃきれいですやん。
+
+# 保守容易性指数の計算式
+いろいろなところで計算式は紹介されていますが、概ね[^1]以下のとおりです
+
+> 保守容易性指数
+> = 171 - 5.2 * log(Halstead複雑度のVolume) - 0.23 * サイクロマチック複雑度 - 16.2 * log(コードのライン数)
+
+まず、 **マジックナンバー(171とか)については諦めます**
+流石に調査はキツイので、誰が知っている人がいたら教えてください...
+
+したがって、このページでは'サイクロマチック複雑度'と'Halstead複雑度のVolume'の具体的な計算方法を紹介します。
+
+# サイクロマチック複雑度
+### 概要
+英語版のWikipediaを引用します。
+
+> ソースコードのサイクロマチック複雑度は対象のセクションにおける'線形独立'なパスの数です。
+> '線形独立'とは、他のパスに存在しないエッジが1つ以上存在することです。
+
+### 具体例
+以下の関数のサイクロマチック複雑度を計算します。
+
+```C++
+int test_function(int max_index){
+  if (max_index == 0) return 0;
+  
+  for (int index = 0; index < max_index; ++index){
+    // 処理A
+    if (index == 2){
+      // 処理B
+    }
+  }
+
+  return 1;
+}
+```
+
+この関数のCFD[^2]は以下のようになります。(レイアウトのため横書きにしています)
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/1a921023-d85d-219b-0f3e-0a4b5b3eb8f5.png)
+
+では、Entry PointからExitまでの'線形独立'なパスのパターン数を数えます。
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/065f9704-2f3c-fabe-362a-a7a0f2c057a4.png)
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/8df07dd3-a0c4-72af-21d7-bed12133a195.png)
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/a1aa92da-776d-e1d5-6cb1-0cb1af261fbd.png)
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/6eea9263-d37a-b48c-6a06-339d938cb29b.png)
+
+上図の通り、4通りのパスが存在するため、サイクロマチック複雑度は4です。
+また、Wikipediaには以下のように人間にとって簡単な計算方法が紹介されています
+
+> サイクロマチック複雑度Mは以下のように計算されます
+> M = E - N + 2P
+> E = CFD[^2]のグラフのエッジ数
+> N = CFD[^2]のグラフのノード数
+> P = CFD[^2]の連結グラフ[^3]の数
+
+連結グラフ[^3]の定義を参照すると、1つの関数のCFDではP=1だと言うことがわかります。
+したがって、
+
+> M = E - N + 2
+
+平面においては面の数=エッジ数-ノード数+2であるため、1つの関数のサイクロマチック複雑度MはCFD[^2]の面の数を数えれば良いことがわかります。
+
+![base.drawio.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/185272/9ef09e07-1b38-788d-fa07-ed757a5da68f.png)
+
+# Halstead複雑度のVolume
+英語版のWikipediaのHalstead複雑度の項では以下の3種類の指標が定義されています
+
+- Volume
+- Difficulty
+- Effort
+
+ここでは、保守容易性指数(Maintainability Idex)の計算に必要なVolumeの概要と具体例を記述します。
+
+### 概要
+プログラムの長さ・大きさを表現する指標です。ざっくりいうと以下のように定義されています。
+
+> Halstead複雑度のVolume = 単語の数 * 1単語あたりのビット数
+
+つまり、Halstead複雑度のVolumeとは **プログラム全体をビット配列で表現したときの長さ** のことです。
+
+ココで言う'単語'はオペレータ[^4]とオペランド[^4]のことです。
+しかしながら、単純にトークンのことだと考えても結果に大して違いはない(はず)です。
+
+### 具体例
+英語版Wikipediaの例をそのまま引用します。
+
+```C++
+main()
+{
+    int a, b, c, avg;
+    scanf(""%d %d %d"", &a, &b, &c);
+    avg = (a + b + c) / 3;
+    printf(""avg = %d"", avg);
+}
+```
+
+まず、1単語あたりのビット数を計算します。このプログラムには、以下の12種類の'単語'が出現します。
+
+1. main
+2. ()
+3. {}
+4. int
+5. scanf
+6. &
+7. =
+8. +
+9. /
+10. printf
+11. ,
+12. ;
+13. a
+14. b
+15. c
+16. avg
+17. ""%d %d %d""
+18. 3
+19. ""avg = %d""
+
+これをビット配列で表現するとき、必要なビット数はlog2(19)です。コレが'1単語あたりのビット数'になります。
+次に、'単語の数'を数えると、27個存在することがわかります。
+
+したがって、Halstead複雑度のVolume = 27 *log2(19)となります。
+
+# 最後に
+Halstead複雑度のVolumeは複雑な解説資料多いけど、ちゃんと資料読んだら概念はめっちゃ単純でした。
+ここまで読むと、以下の式で算出される値を改善する方法もなんとなくわかってくると思います。
+
+> 保守容易性指数
+> = 171 - 5.2 * log(Halstead複雑度のVolume) - 0.23 * サイクロマチック複雑度 - 16.2 * log(コードのライン数)
+
+# 参考にした資料
+
+- [コードメトリックス-保守容易性インデックスの範囲と意味(Microsoft)](https://docs.microsoft.com/ja-jp/visualstudio/code-quality/code-metrics-maintainability-index-range-and-meaning?view=vs-2019)
+- [Why we don’t use the Software Maintainability Index
+](https://www.cqse.eu/en/news/blog/maintainability-index/#:~:text=The%20Maintainability%20Index%20is%20computed,comment%20ratio%20of%20the%20system.)
+- [Halstead complexity measures(Wikipedia)](https://en.wikipedia.org/wiki/Halstead_complexity_measures)
+- [Measurement of Halstead Metrics](https://www.verifysoft.com/en_halstead_metrics.html)
+- [Cyclomatic complexity(Wikipedia)](https://en.wikipedia.org/wiki/Cyclomatic_complexity)
+- [連結グラフ](https://ja.wikipedia.org/wiki/%E9%80%A3%E7%B5%90%E3%82%B0%E3%83%A9%E3%83%95#:~:text=%E9%80%A3%E7%B5%90%E3%82%B0%E3%83%A9%E3%83%95%EF%BC%88%E3%82%8C%E3%82%93%E3%81%91%E3%81%A4%E3%82%B0%E3%83%A9%E3%83%95,%E6%88%90%E5%88%86%20(connected%20component)%20%E3%81%A8%E3%81%84%E3%81%86%E3%80%82)
+
+
+[^1]: 場所によって0-100の値に正規化していたり、コメント行数を考慮した式が追加されていたりします
+[^2]: Control Flow Diagram。clangを使えば自動的に生成もできる
+[^3]: [連結グラフ](https://ja.wikipedia.org/wiki/%E9%80%A3%E7%B5%90%E3%82%B0%E3%83%A9%E3%83%95#:~:text=%E9%80%A3%E7%B5%90%E3%82%B0%E3%83%A9%E3%83%95%EF%BC%88%E3%82%8C%E3%82%93%E3%81%91%E3%81%A4%E3%82%B0%E3%83%A9%E3%83%95,%E6%88%90%E5%88%86%20(connected%20component)%20%E3%81%A8%E3%81%84%E3%81%86%E3%80%82)
+[^4]: ググってくれ！
+[^5]: https://pub.dev/packages/dart_code_metrics
+"

@@ -1,0 +1,233 @@
+サボるとキレる機械作った,"## 勉強してるとついサボっちゃうよね
+家で作業や勉強してると誘惑が沢山ありますね。
+一人暮らしの私の場合はついついギター弾きたくなったりベッドに潜りたくなったり・・・
+昔勉強サボるとオカンに叱られたっけ。
+全く、自分一人じゃこんなもんかよ・・・
+
+というわけでサボり対策の為にサボると警告してくれるガジェットを作ってみました。
+
+## 実現したいこと
+デスクから離れている状態をサボりとします。
+常時私がデスクに居るかどうか監視し、1分間デスクから居なくなったらアラートが作動するシステムを作ります。
+サボり抑制システムなので、なるべく鬱陶しいアラートを実装したいですね。
+
+## 早速作ってみよう
+配線図がへたくそ過ぎて泣きそうですが・・・
+こんな感じのハードにします。
+今回も制御用マイコンはArduinoで行きます。
+*Arduino*であればnanoでなくても何でもOKです。
+![okoru_kun_ブレッドボード.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/653352/8a29cde3-6fe6-5527-3001-e2234f557239.png)
+### 使ったもの
+- [Arduino nano](https://www.amazon.co.jp/ELEGOO-Arduino-Nano%E3%83%9C%E3%83%BC%E3%83%89-ATmega328P%E3%80%81Arduino-V3-0%E4%BA%92%E6%8F%9B/dp/B072F5NS4X/ref=sr_1_1_sspa?dchild=1&keywords=arduino+nano&qid=1614436543&sr=8-1-spons&psc=1&spLa=ZW5jcnlwdGVkUXVhbGlmaWVyPUFON1I0SVdWSkVCNUkmZW5jcnlwdGVkSWQ9QTAxMDY4MDQzVzdIWVdUNlUwTksmZW5jcnlwdGVkQWRJZD1BMThDNE03QVFGV0dBWSZ3aWRnZXROYW1lPXNwX2F0ZiZhY3Rpb249Y2xpY2tSZWRpcmVjdCZkb05vdExvZ0NsaWNrPXRydWU=)(マイコン)
+- [焦電型赤外線(人感)センサモジュール SB412A](https://akizukidenshi.com/catalog/g/gM-09002/)(そこに人が居るか居ないか判断する)
+- [マイクロサーボ SG90](https://akizukidenshi.com/catalog/g/gM-08761/)(うざ可愛い動きとサウンドを実現)
+- [ダ〇ボー](https://www.amazon.co.jp/%E6%B5%B7%E6%B4%8B%E5%A0%82-%E3%83%AA%E3%83%9C%E3%83%AB%E3%83%86%E3%83%83%E3%82%AF%E3%83%80%E3%83%B3%E3%83%9C%E3%83%BC%E3%83%BB%E3%83%9F%E3%83%8B-%E9%9B%B6%E6%88%A652%E5%9E%8BVer-%E7%B4%8485mm-%E5%A1%97%E8%A3%85%E6%B8%88%E3%81%BF%E5%8F%AF%E5%8B%95%E3%83%95%E3%82%A3%E3%82%AE%E3%83%A5%E3%82%A2/dp/B019SSLHBU/ref=pd_lpo_21_t_0/356-0926560-9708420?_encoding=UTF8&pd_rd_i=B019SSLHBU&pd_rd_r=83c565f8-cf68-4440-bf27-443502a197dc&pd_rd_w=JanzK&pd_rd_wg=kYHEC&pf_rd_p=cb2cef9d-b0a3-4b58-a575-45abfc5e07e8&pf_rd_r=0XAM14HYW9BGT103NJJH&psc=1&refRID=0XAM14HYW9BGT103NJJH)(家に飾ってたやつ)
+- LED電球
+- 抵抗1kΩ
+- ジャンパ線
+
+## デスクから離れるとダ〇ボーがブンブン回ります。
+今回は人感センサで人が居るのか居ないのかをチェックし、人が居ない状態が1分続いたらダ〇ボーを載せたサーボモータをぶんまわします。
+みゅいんみゅいん動作音もうるさいし、なんか動いてるし鬱陶しいったらありゃしません。**すぐに止めに行かねば。**
+言葉でこの鬱陶しさを伝えきれないので、gifをご覧ください。
+![おこるくんカイ.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/653352/e94546ad-f22f-1c15-6a4d-acbfa4b7954b.gif)
+
+1分間デスクから離れるとデスクからみゅいんみゅいん聞こえる・・・
+結構うるさい。
+机に戻るとピタッと止まる。
+結構賢い。
+
+gifでは分かりにくいので手をかざしていますが、デスクに戻るとちゃんと反応して止まってくれます。
+
+というわけでどうやって動かしたのか、肝心のプログラムを紹介します。
+
+では行こう。
+
+## どうやって動かしてんだよ
+まずはソースコードの全容をご覧ください。
+
+```c:okoru.ino
+#include <Servo.h>
+#define SENSOR 5
+#define IRU 1
+#define INAI 0
+#define LED 2
+
+Servo waiservo;
+
+unsigned char human = IRU;
+unsigned char prev_state;
+
+void anger(void);
+
+void setup()
+{
+    pinMode(LED, OUTPUT);
+    pinMode(SENSOR, INPUT);
+    Serial.begin(9600);
+    waiservo.attach(3);
+}
+
+void loop()
+{
+    human = digitalRead(SENSOR);
+    if ((human == INAI && prev_state == IRU))
+    {
+        for (int i = 0; i <= 60; i++)
+        {
+            delay(1000);
+            Serial.println(i);
+            if (digitalRead(SENSOR) == IRU)
+            {
+                break;
+            }
+            if (i == 60)
+            {
+                anger();
+                i = 0;
+                break;
+            }
+        }
+    }
+    delay(500);
+    prev_state = human;
+}
+
+void anger(void)
+{
+    for (;;)
+    {
+        human = digitalRead(SENSOR);
+        waiservo.write(0);
+        digitalWrite(LED, HIGH);
+        delay(300);
+        waiservo.write(90);
+        digitalWrite(LED, LOW);
+        delay(300);
+        waiservo.write(180);
+        digitalWrite(LED, HIGH);
+        delay(300);
+        waiservo.write(90);
+        digitalWrite(LED, LOW);
+        delay(300);
+        if (human == IRU)
+        {
+            digitalWrite(LED, HIGH);
+            delay(100);
+            digitalWrite(LED, LOW);
+            delay(100);
+            digitalWrite(LED, HIGH);
+            delay(100);
+            digitalWrite(LED, LOW);
+            break;
+        }
+    }
+}
+```
+### 人感センサについて
+人感センサで人が居る、居ないを判断するわけですが、ざっくりどんなものかと言いますと、赤外線で熱量の変化をみてるんですね。
+なので動物や人間がセンサの検知範囲内に入った時だけ反応するという点が特徴です。
+プログラムでの取り扱いは非常に簡単で、人を検知したら3Vを出力するだけなので、プログラム側では入力があったか無かったか見てあげればOKです。
+今回はこいつをスイッチとして利用します。
+
+但し、人を検知した場合、検知した状態(出力状態)を一定時間保持するという仕様となっているので、
+「人が居なくなってから1分経ったらサーボモータを動かす」という動作を実装する場合、人が居なくなった瞬間がどこなのか、はっきりさせなければいけません。
+
+```c:edge
+
+void loop()
+{
+    human = digitalRead(SENSOR);
+    if ((human == INAI && prev_state == IRU))
+    {
+        for (int i = 0; i <= 60; i++)
+        {
+            delay(1000);
+            Serial.println(i);
+            if (digitalRead(SENSOR) == IRU)
+            {
+                break;
+            }
+            if (i == 60)
+            {
+                anger();
+                i = 0;
+                break;
+            }
+        }
+    }
+    delay(500);
+    prev_state = human;
+}
+
+```
+`loop`関数の中の処理は
+人感センサの値が`INAI`に変わったら、
+for文で1分待機モードに遷移し、1分経ったらサーボモータを起動
+待機中にセンサが反応したら何もせず監視モードに戻るという処理です。
+ここでポイントになるのは`if ((human == INAI && prev_state == IRU))`
+の条件文です。
+
+`human`変数にはセンサの現在の状態が入っています。
+人が居る場合常に`IRU`が入ってきます。
+`loop`関数の最後、`prev_state`変数にはhumanの値を代入しています。
+
+これにより、`loop`関数の頭に戻った時に`human`変数の値が`INAI`になった(人が居なくなった)場合、次の`if ((human == INAI && prev_state == IRU))`で比較しているそれぞれの変数の中身は`human = INAI` `prev_state = IRU`となり、*人が居なくなった瞬間*を判断したことになります。
+
+このように信号の立ち上がりや立下りを検出するテクニックを**エッジを取る**なんて呼んだりします。(なんかカックイイです) 
+普通の物理的なスイッチなんかの処理にもよく使います。(スイッチ離したらそれをフックになんか処理するとか。)
+
+というわけで今回は信号の**立ち下り**を取ることで人が居なくなったタイミングを判断できたわけですね。
+
+### サーボモータについて
+```c:Servo
+void anger(void)
+{
+    for (;;)
+    {
+        human = digitalRead(SENSOR);
+        waiservo.write(0);
+        digitalWrite(LED, HIGH);
+        delay(300);
+        waiservo.write(90);
+        digitalWrite(LED, LOW);
+        delay(300);
+        waiservo.write(180);
+        digitalWrite(LED, HIGH);
+        delay(300);
+        waiservo.write(90);
+        digitalWrite(LED, LOW);
+        delay(300);
+        if (human == IRU)
+        {
+            digitalWrite(LED, HIGH);
+            delay(100);
+            digitalWrite(LED, LOW);
+            delay(100);
+            digitalWrite(LED, HIGH);
+            delay(100);
+            digitalWrite(LED, LOW);
+            break;
+        }
+    }
+}
+```
+こちらがサーボモータを動かす関数です。
+そうです、ライブラリ頼みです。
+なんならついでにLEDピカピカさせてアラート感出してみています。
+
+プログラムの冒頭で
+`Servo.h`をインクルードし、
+`Servo waiservo`と名前をつけて
+`waiservo.write(90)`引数に角度を整数で指定すれば、その角度にサーボモータが動いてくれるという簡単な仕組みです。
+今回は0～180度までビュンビュン回しています。
+間に`delay()`を挟んでモータが次の角度に動く迄待ってあげるという流れです。
+
+## 終わりに
+まだ複雑なものはなかなか作れませんが、
+こういった単純な工作ならパパっと設計して作り切れるようになってきました。
+楽しい。
+今回のネタを応用して、サボった回数をスプレッドシートかなんかでログを取って、一定回数サボったら罰を与える鬼畜システムでも作ってみたいですね。
+
+とりあえず一度もダ〇ボー暴れさせることなく本記事を最後まで書けたので効果はテキメンということにしておきます。
+"

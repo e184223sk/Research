@@ -1,0 +1,466 @@
+システムコールでラズパイを操作してみよう！,"# システムコールとかいうロマン溢れる響き
+アプリケーション側からカーネルの機能を呼び出す為のインターフェースをシステムコールと言います。
+「OSの中核を担うプログラムを呼び出す」・・・くぅ！！カッコいい！！！
+
+・・・これぞプログラミングのロマンと思い、チャレンジしてみました。
+
+
+## で、なにするの？
+今回はシステムコール！って叫びたいので、ラズパイのGPIOを**カーネルの機能のみ**で制御してみようと思います。
+ラズパイのOSはDebianベースのLinuxなのでシステムコールのお勉強には最適です。
+ボタンとLEDを組み合わせた回路を組んで、ボタンを押したらLEDが光る奴を作ります。
+
+
+## 実験材料
+- RaspberryPi 4B
+- LED(汎用品適当に)
+- タクトスイッチ(ポチポチ押すスイッチ)
+- 抵抗 1kΩ
+
+使用言語は**C言語**です。システムコールの為のライブラリがいろいろ準備されています。
+
+## システムコールでラズパイのGPIOを操作する
+概念的な部分を簡単に説明すると、Linuxでは様々なデータをファイルという単位で管理しています。
+GPIOのオン、オフなんかも、ピンごとに制御する為のファイルが存在し、そこに情報を書き込んでやれば制御できる、というわけです。
+
+例えば、LEDを点灯させたければ、`GPIO18`にLEDを繋いでいた場合、対応するファイルをプログラム上で開き、出力状態を記述し、ファイルを閉じるとLEDが光ります。
+
+カーネルの機能としては、プロセス管理や排他制御、同期、プロセス間通信など、重要な機能が沢山ありますが、マルチタスクを実装するわけでは無いので、今回は扱いません。
+
+今回使うカーネル機能は、**ファイル操作＋α**となります。システムコール入門編といったところですね！
+
+では行こう。
+
+## 先ずはヘッダファイルをinclude!
+
+```C
+#include<fcntl.h>
+#include<poll.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<stdio.h>
+
+void led_on(void);
+void led_off(void);
+```
+まずは必要なヘッダファイルを`include`します。
+標準ライブラリ系の奴らと、ファイル操作系、ポーリング処理系のヘッダファイルです。
+
+LEDのオンオフに関する処理は関数としてプロトタイプ宣言しておきます。
+
+では、準備が出来たところで`main`関数を見て行きましょう！
+
+## とりあえず変数宣言！
+```C
+int main(void){
+    int i;
+	int fd; //ファイルディスクリプタ
+	int fd2; 
+	int ret; //戻り値格納用
+	struct pollfd pfd; //ポーリング処理構造体
+	char c; //スイッチ状態格納用
+```
+`main`関数に入ったところで、変数を宣言しておきます。
+
+ここでいきなり馴染みのない言葉「ファイルディスクリプタ」が登場します。
+これが分かれば本記事のネタは7割クリアも同然です！
+
+### ファイルディスクリプタ！
+システムコールに続き、~~カッコいい~~用語続出ですね・・・
+一言で言えば、**ファイル識別用の番号**です。ファイル記述子とも呼びます。
+
+Linuxでは例えば**標準入力**(キーボードからの入力)なんかもファイルとして扱われます。今回はGPIOの制御をしたいので、該当ファイルを
+
+開く→ステータスを書き込む→制御成功！
+
+とプログラム上で操作する事が基本的な考え方となります。このファイル識別番号を目印に、ファイルを読み書きする必要があります。
+
+では、実際にコードを書いてみます。
+
+```C
+    // ファイルを開く
+	fd = open(""/sys/class/gpio/export"", O_WRONLY);
+    // エラーが起きた場合は終了する
+	if(fd < 0){
+		printf(""export error"");
+		exit(1);
+	}
+    // ファイルに情報を書き込む
+	write(fd, ""12"", 2);
+    // ファイルを閉じる
+	close(fd);
+
+```
+
+先ずは`/sys/class/gpio/export`というファイルに使用するGPIO番号を書き込みます。
+流れとしては、ここに書き込んだGPIO番号に該当するファイルが作成され、そのファイルに「入力か出力か」「何かオプションはあるか」を書き込み、最後に「オンかオフか」を書き込めばOK、という感じです。
+ラズパイおなじみのライブラリ`wiringPi`でいうと
+
+```c
+wiringPiSetupGpio();
+pinMode(12, OUTPUT);
+digitalWrite(12, HIGH);
+```
+このへんの処理に該当します。
+
+もう少し掘り下げて、関数について説明します。
+
+```
+open(""ファイルのパス"", 動作モード);
+戻り値 = 非負の整数(エラー時-1)
+```
+
+ファイルのパスを指定して、動作モード(読み込み専用、書き込み専用など)を指定すれば、0以上の値が帰ってきます。
+この関数が走った時点で他にファイルディスクリプタが使用されていなければ、
+**3**が帰ってきます。いきなり3！？
+理由は、0～2は標準入力、標準出力、標準エラー出力に割り当てられている為です。そういうもんなんです。
+
+あとはこの帰り値を目印として、書き込み用関数を使用します。
+
+```
+write(ファイルディスクリプタ番号, ""書き込む値(今回はGPIO番号)"", 書き込むバイト数);
+戻り値 = 書き込んだバイト数(エラー時 -1)
+```
+
+主な関数はこんな感じで使用します。
+
+エラー時は`-1`が帰ってくるので、ファイルオープンの段階で`-1`を受け取ったらエラー処理をするように記述しておきます。(勝手にエラー吐いてくれません)
+
+一連の処理が終わったら、下記の関数にファイルディスクリプタを渡してファイルを閉じます。放置するといろいろややこしいです。(詳細は割愛)
+
+```
+close(fd)
+```
+
+ここまで分かれば今回のコードは楽勝です！
+一気に進めましょう。
+
+```c
+	// スイッチのGPIO番号指定
+	fd = open(""/sys/class/gpio/export"", O_WRONLY);
+	if(fd < 0){
+		printf(""export error"");
+		exit(1);
+	}
+	write(fd, ""12"", 2);
+	close(fd);
+
+	// LEDのGPIO番号指定
+	fd2 = open(""/sys/class/gpio/export"", O_WRONLY);
+	if(fd2 < 0){
+		printf(""export error\n"");
+		exit(1);
+	}
+	write(fd2, ""23"", 2);
+	close(fd2);
+
+	// スイッチに割り当てたGPIOのモードを入力に設定
+	fd = open(""/sys/class/gpio/gpio12/direction"",O_WRONLY);
+	if(fd < 0){
+		printf(""direction error"");
+		exit(1);
+	}
+	write(fd, ""in"", 2);
+	close(fd);
+
+	// LEDに割り当てたGPIOのモードを出力に設定
+	fd2 = open(""/sys/class/gpio/gpio23/direction"", O_WRONLY);
+	if(fd < 0){
+		printf(""direction error"");
+		exit(1);
+	}
+	write(fd2, ""out"", 3);
+	close(fd2);
+
+	// スイッチに割り当てたGPIOのエッジ検出機能を使う
+	fd = open(""/sys/class/gpio/gpio12/edge"", O_WRONLY);
+	if(fd < 0){
+		printf(""edge error"");
+		exit(1);
+	}
+	write(fd, ""both"", 4);
+	close(fd);
+
+```
+
+これでGPIOの設定が完了しました！
+
+## LEDチカを実装！
+
+ファイルシステムの概要が掴めていれば、楽勝です。以下のように記述します。GPIOの番号は適宜変更を。
+
+```c
+void led_on(void){
+	fd2 = open(""/sys/class/gpio/gpio23/value"",O_WRONLY);
+	if(fd2 < 0){
+		printf(""gpio23 error\n"");
+		exit(1);
+	}
+	// 1を書き込むと出力オン！
+	write(fd2,""1"",1);
+	close(fd2);
+}
+
+void led_off(void){
+	fd2 = open(""/sys/class/gpio/gpio23/value"", O_WRONLY);
+	if(fd2 < 0){
+		printf(""gpio23 error\n"");
+		exit(1);
+	}
+	// 0を書き込むと出力オフ！
+	write(fd2, ""0"", 1);
+	close(fd2);
+}
+
+```
+
+## スイッチの状態を読む！
+
+まずはコードをざっと見てみましょう！
+
+```c
+	fd = open(""/sys/class/gpio/gpio12/value"", O_RDONLY);
+	if(fd < 0){
+		printf(""value error"");
+		exit(1);
+	}
+	// 構造体のメンバfdにファイルディスクリプタ番号を指定
+	pfd.fd = fd;
+	// 構造体のメンバeventsにデータ読み出しモードを設定
+	pfd.events = POLLPRI;
+	for(i = 0; i < 20; i++){
+		// 読み出し位置(オフセット)をファイル先頭に指定
+		lseek(fd, 0, SEEK_SET);
+		// イベントを待つ。イベントがあれば以下の処理を実行
+		ret = poll(&pfd, 1, 3000);
+		read(fd, &c, 1);
+		if(ret == 0){
+			printf(""Timeout\n"");
+		}
+		else{
+			if(c==49){
+				printf(""LED ON"");
+				led_on(fd2);
+			}
+			else{
+				printf(""LED OFF"");
+				led_off(fd2);
+			}
+		}
+	}
+	close(fd);
+```
+
+まずはスイッチのファイルを`open()`して読み書き出来るようにします。
+
+今回はもう一つ、`poll`システムコールを使うので、少しだけ説明します。
+
+```
+ pfd.fd = fd;
+ pfd.events = POLLPRI;
+```
+ここで使われている構造体の中身は・・・
+
+```c
+struct pollfd {
+        int   fd;
+        short events;
+        short revents;
+    };
+```
+
+こんな感じです。
+
+あとは`poll()`を使って、ボタン入力を待つ、という仕掛けです。
+`poll`はその名の通りポーリングと言って、状態を常に監視して(今回はスイッチの状態)指定したイベントが発生した場合に次の処理に移行します。
+
+```c
+ret = poll(&pfd, 1, 3000);
+		read(fd, &c, 1);
+		if(ret == 0){
+			printf(""Timeout\n"");
+		}
+		else{
+			if(c=='1'){
+				printf(""LED ON"");
+				led_on(fd2);
+			}
+			else{
+				printf(""LED OFF"");
+				led_off(fd2);
+			}
+		}
+
+```
+
+`poll()`に`pollfd`構造体を渡し、タイムアウトする時間を設定します。
+今回の場合はボタンを押せばイベントを検知するので、その先の処理が実行されます。
+
+`read()`では`0`か`1`が帰ってくるので、その値を元に条件分岐させて、
+
+ボタンが押された→LED点灯
+ボタンが離された→LED消灯
+
+という処理となります。
+
+では、最後に完成したプログラムです。
+
+## ソースコード
+
+```c:syscall.c
+#include<fcntl.h>
+#include<poll.h>
+#include<unistd.h>
+#include<stdlib.h>
+#include<stdio.h>
+
+void led_on(void);
+void led_off(void);
+
+int main(void){
+	int i;
+	int fd;
+	int fd2;
+	int ret;
+	struct pollfd pfd;
+	char c;
+
+	fd = open(""/sys/class/gpio/export"", O_WRONLY);
+	if(fd < 0){
+		printf(""export error"");
+		exit(1);
+	}
+	write(fd, ""12"", 2);
+	close(fd);
+
+	fd2 = open(""/sys/class/gpio/export"", O_WRONLY);
+	if(fd2 < 0){
+		printf(""export error\n"");
+		exit(1);
+	}
+	write(fd2, ""23"", 2);
+	close(fd2);
+
+	fd = open(""/sys/class/gpio/gpio12/direction"",O_WRONLY);
+	if(fd < 0){
+		printf(""direction error"");
+		exit(1);
+	}
+	write(fd, ""in"", 2);
+	close(fd);
+
+	fd2 = open(""/sys/class/gpio/gpio23/direction"", O_WRONLY);
+	if(fd < 0){
+		printf(""direction error"");
+		exit(1);
+	}
+	write(fd2, ""out"", 3);
+	close(fd2);
+
+	fd = open(""/sys/class/gpio/gpio12/edge"", O_WRONLY);
+	if(fd < 0){
+		printf(""edge error"");
+		exit(1);
+	}
+	write(fd, ""both"", 4);
+	close(fd);
+
+	fd = open(""/sys/class/gpio/gpio12/value"", O_RDONLY);
+	if(fd < 0){
+		printf(""value error"");
+		exit(1);
+	}
+	pfd.fd = fd;
+	pfd.events = POLLPRI;
+	for(i = 0; i < 20; i++){
+		lseek(fd, 0, SEEK_SET);
+		ret = poll(&pfd, 1, 3000);
+		read(fd, &c, 1);
+		if(ret == 0){
+			printf(""Timeout\n"");
+		}
+		else{
+			if(c=='1'){
+				printf(""LED ON\n"");
+				led_on();
+			}
+			else{
+				printf(""LED OFF\n"");
+				led_off();
+			}
+		}
+	}
+	close(fd);
+
+	fd = open(""/sys/class/gpio/unexport"", O_WRONLY);
+	write(fd, ""12"", 2);
+	close(fd);
+	
+	fd2 = open(""/sys/class/gpio/unexport"", O_WRONLY);
+	write(fd2, ""23"", 2);
+	close(fd2);
+
+	return(0);
+}
+
+void led_on(void){
+	int fd2 = open(""/sys/class/gpio/gpio23/value"",O_WRONLY);
+	if(fd2 < 0){
+		printf(""gpio23 error\n"");
+		exit(1);
+	}
+	write(fd2,""1"",1);
+	close(fd2);
+}
+
+void led_off(void){
+	int fd2 = open(""/sys/class/gpio/gpio23/value"", O_WRONLY);
+	if(fd2 < 0){
+		printf(""gpio23 error\n"");
+		exit(1);
+	}
+	write(fd2, ""0"", 1);
+	close(fd2);
+}
+```
+
+紹介した全ての処理が終了した後は
+
+```c
+    fd = open(""/sys/class/gpio/unexport"", O_WRONLY);
+    write(fd, ""12"", 2);
+    close(fd);
+
+    fd2 = open(""/sys/class/gpio/unexport"", O_WRONLY);
+    write(fd2, ""23"", 2);
+    close(fd2);
+```
+このようにファイルを操作してGPIOをお掃除して終了です。
+早速コンパイルしてみましょう。
+
+```
+gcc -o syscall syscall.c && sudo ./syscall
+```
+
+コンパイルして実行する際は必ず管理者権限を伴って実行します。
+システムファイルを弄るので一般ユーザは書き込み権限が無い為です。
+では、実行結果を見てみましょう！
+
+## 実行結果
+
+![GIF-210425_190853.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/653352/7beb6ea1-d3bc-5771-f926-261614f85fc2.gif)
+
+スイッチのチャタリング対策を記述していないのでちょっとノイズありますが・・・
+無事に意図した動作を実装出来ました！
+
+遂にシステムコールによるラズパイのGPIO操作が出来るようになりました！
+少しだけLinuxカーネルに近づけましたね！
+
+## おわりに
+「システムコール・オープン！」「システムコール・ポール！！」とか叫びながらコーデイングしていた私は多分アホですが、OSの仕組を理解する第一歩として非常に勉強になりました。
+例えば、ポーリングを含むメイン処理をfor文で回数制限するのではなく、`ctl + c`入力でシグナルを送信してGPIOのクリーンナップを行えばもうちょいスマートなんだろうなぁとか思いつつ、記事ボリュームがもりもりになりすぎそうだったので今回は割愛しました。
+プロセス操作や排他制御を理解すれば、行く行くは高度なAPIも自作出来るようになりそうです！！
+
+今回の記事に関しましてはまだ理解の甘い所が多いと思います。
+もし内容の誤り等ございましたら随時改善して参りますので、宜しければご指摘頂ければ幸いです。
+"

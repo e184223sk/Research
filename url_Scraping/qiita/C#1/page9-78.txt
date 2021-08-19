@@ -1,0 +1,814 @@
+Observerパターンを理解するためにLifeGameを作った話(ReactiveUI編),"17年プログラマをやっていますが、どうにもObserverパターンがしっくりこないのでLifeGameで自主練してみました。
+
+# ことはじめ
+
+業務でReactiveUIを利用しているのですが、どうにもしっくり来ていませんでした。
+<blockquote class=""twitter-tweet""><p lang=""ja"" dir=""ltr"">しかしobserverパターンは苦手だ。アタマに馴染まないというか、、、。昨晩もModel層のコレクションの変化をViewModel層に通知するインターフェースの最適解について、納得いく答えに辿り着けたのは、朝3:30。。。</p>&mdash; kami_teru (@kami_teru) <a href=""https://twitter.com/kami_teru/status/1352817867385757696?ref_src=twsrc%5Etfw"">January 23, 2021</a></blockquote> <script async src=""https://platform.twitter.com/widgets.js"" charset=""utf-8""></script> 
+
+だけど頑張りました。
+
+<blockquote class=""twitter-tweet""><p lang=""ja"" dir=""ltr"">今週はobserverパターンと良い友達になれた気がした。</p>&mdash; kami_teru (@kami_teru) <a href=""https://twitter.com/kami_teru/status/1355189384333594625?ref_src=twsrc%5Etfw"">January 29, 2021</a></blockquote> <script async src=""https://platform.twitter.com/widgets.js"" charset=""utf-8""></script> 
+
+そんな折、ふとアイデアが降臨。
+
+<blockquote class=""twitter-tweet""><p lang=""ja"" dir=""ltr"">昔に参加したグローバルディズ オブ コードリトリート で、ペアプロで一度も作りきれなかったライフゲーム、今なら作れるか試してみたくなった。</p>&mdash; kami_teru (@kami_teru) <a href=""https://twitter.com/kami_teru/status/1355535244955250691?ref_src=twsrc%5Etfw"">January 30, 2021</a></blockquote> <script async src=""https://platform.twitter.com/widgets.js"" charset=""utf-8""></script> 
+
+当時、何度やっても45分で完成させることができなかったのですよねー。
+
+探してみたらありました。
+
+* [Global Day of Coderetreat 2012 in Osaka](https://kokucheese.com/event/index/60873/)
+
+懐かしいなぁ。すげぇ人たちと沢山出逢って......そうそう、心くじけて「C#できます」っていうのを止めようと思ったのがこの会で。あとピザ旨かった。
+
+あれから9年。Observerパターンと友達になった今の私なら、1時間くらいでサクッと作れんじゃね？と思い立ち。
+やってみた話をここにまとめます。
+
+# できたもの
+
+お忙しい方に私のチャレンジストーリーをお読みいただくのは心苦しいので、先に学習の結果を出しておきます。
+
+![lifegame.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/109362/4abb4021-3092-1b9a-e6fe-5021029c0ce8.gif)
+
+## フレームワーク／バージョン
+
+* .Net Framerork 4.7.2 & WPF
+* ReactiveUI.WPF 12.1.1
+* ReactiveUI.Fody 12.1.1
+
+## 構造
+
+![スクリーンショット 2021-02-28 001937.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/109362/1f0bf158-4f67-8df5-d55e-920c9e04d7a5.png)
+
+ReactiveUI的なところを補足しておくと、こういうクラスを利用します。
+
+* Model層の世代の変更を通知する方法。
+
+|||
+|---|---|
+|実装|`Subject<int>`|
+|通知インターフェース|`IObservable<int>`|
+
+* Model層のCellの生死状態の変更を通知する方法。
+
+|||
+|---|---|
+|実装|`ReactiveUI.ReactiveObject`|
+|通知インターフェース|`IObservable<IReactivePropertyChangedEventArgs<IReactiveObject>>`|
+
+* Model層のCellのコレクションの変更を通知する方法。
+
+|||
+|---|---|
+|実装|`DynamicData.SourceCache<Cell, Tuple<int, int>>`|
+|通知インターフェース|`IObservable<IChangeSet<Cell, Tuple<int, int>>>`|
+
+## 完成したソースコード
+
+[LifeGame20210131 - Github](https://github.com/atsuteru/LifeGame20210131/)
+
+
+# やってみた話
+
+ここから、完成に至るまでの私のストーリー。
+
+そんなのいらない？
+
+い、いや、ソースコードの説明とか入れていくので、ぜひ読んでほしいですおねがいします🙇‍♂️💦
+
+では、果たして「1時間くらいでサクッと」作れたのか？
+以下、ぜひお読みください。
+
+
+## まずはざっくり構想した。
+
+こんな構造で作ります。
+
+### Model層
+
+* LifeGameController は、`開始依頼`を受信すると、Cell のコレクションを生成します。
+* LifeGameController は、タイマーによって定期的に`世代交代`を通知します。
+* Cell は、`世代交代`を監視し、受信時に自身の`生死状態`を更新する処理を行います。
+* Cell は、隣接 Cell の`生死状態`を監視し、生死判定で使う`近隣生死状態情報`を作っておきます。
+
+### ViewModel層
+
+* MainViewModel は、起動時に`行数`,`列数`,`タイマー間隔`,`初期生死状態情報`を引数に、Controllerオブジェクトに`開始依頼`を送ります。
+* LifeGameCanvasViewModel は、LifeGameController の Cell のコレクションを監視し、ViewModelに同期します。
+* CellPanelViewModel は、Cell の`生死状態`を監視し、ViewModelに同期します。
+
+### View層
+
+* LifeGameCanvas は、ViewModel の Cell のコレクションの変更を監視し、変更時には必要数分の CellPanel を Canvas に描画します。
+* CellPanelは、ViewModel の`生死状態`と背景色をバインドし、生なら黒、死なら白の背景色を描画します。
+
+
+## なにはともあれ、MVVMの構造を組む。
+
+動かす仕組みがないとデバッグしづらいヨネ、ということで構成部品の枠組みを先にコーディング。
+
+その時のソースがこれ。
+[LifeGame20210131_v0.1 - Github](https://github.com/atsuteru/LifeGame20210131/tree/v0.1)
+
+### Model層の実装
+
+* `DynamicData.SourceList`が Observer で、`Connect()`により Observable を生成。
+* Cell のコレクションを必要数分の Cell で構成。
+
+```cs:WpfApp/Models/LifeGameController.cs
+    public class LifeGameController : ILifeGameController
+    {
+        protected SourceList<Cell> Cells { get; }
+        public LifeGameController()
+        {
+            Cells = new SourceList<Cell>();
+        }
+        IObservable<IChangeSet<Cell>> ILifeGameController.Connect()
+        {
+            return Cells.Connect();
+        }
+        Task ILifeGameController.InitializeAsync(int columns, int rows)
+        {
+            return Task.Run(() =>
+            {
+                for (int y = 0; y < rows; y++)
+                {
+                    for (int x = 0; x < columns; x++)
+                    {
+                        Cells.Add(new Cell()
+                        {
+                            PositionX = x,
+                            PositionY = y,
+                        });
+                    }
+                }
+            });
+        }
+    }
+```
+
+* Cell の処理の実装は未だ無い。
+
+```cs:WpfApp/Models/Cell.cs
+    public class Cell
+    {
+        [Reactive]
+        public int PositionX { get; internal set; }
+
+        [Reactive]
+        public int PositionY { get; internal set; }
+    }
+```
+
+### ViewModel層の実装
+
+* LifeGameCanvasViewModel は起動時にLifeGameControllerの開始処理を呼び出す。
+
+```cs:WpfApp/ViewModels/LifeGameCanvasViewModel.cs
+    public class LifeGameCanvasViewModel : IActivatableViewModel
+    {
+        ViewModelActivator IActivatableViewModel.Activator => new ViewModelActivator();
+
+        public LifeGameCanvasViewModel()
+        {
+            this.WhenActivated(d =>
+            {
+                HandleActivation(d);
+                Disposable
+                    .Create(() => this.HandleDeactivation())
+                    .DisposeWith(d);
+            });
+        }
+
+        private void HandleActivation(CompositeDisposable d)
+        {
+            await Locator.Current.GetService<ILifeGameController>().InitializeAsync(columns: 10, rows: 10);
+        }
+
+        private void HandleDeactivation()
+        {
+        }
+    }
+```
+
+* CellPanelViewModel の処理の実装は未だ無い。
+
+```cs:WpfApp/ViewModels/CellPanelViewModel.cs
+    public class CellPanelViewModel
+    {
+        [Reactive]
+        public bool IsAlive { get; set; }
+    }
+```
+
+### View層の実装
+
+* MainWindowは、LifeGameController の`開始依頼`を呼び出す。
+* MainWindowは、デザインに LifeGameCanvas を配置しただけ。
+
+```xml:WpfApp/MainWindow.xaml
+<Window x:Class=""WpfApp.MainWindow""
+        xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+        xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+        xmlns:d=""http://schemas.microsoft.com/expression/blend/2008""
+        xmlns:mc=""http://schemas.openxmlformats.org/markup-compatibility/2006""
+        xmlns:vw=""clr-namespace:WpfApp.Views""
+        xmlns:local=""clr-namespace:WpfApp""
+        mc:Ignorable=""d""
+        Title=""LifeGame"" Height=""200"" Width=""400"">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width=""*""/>
+            <ColumnDefinition Width=""Auto""/>
+            <ColumnDefinition Width=""*""/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height=""*""/>
+            <RowDefinition Height=""Auto""/>
+            <RowDefinition Height=""*""/>
+        </Grid.RowDefinitions>
+        <vw:LifeGameCanvas Grid.Column=""1"" Grid.Row=""1"" Width=""100"" Height=""100""/>
+    </Grid>
+</Window>
+
+```
+
+* LifeGameCanvasは、Grid にとりあえず10×10の Cell を固定配置してみた。
+
+```cs:WpfApp/Views/LifeGameCanvas.xaml.cs
+    public partial class LifeGameCanvas : ReactiveUserControl<LifeGameCanvasViewModel>
+    {
+        public LifeGameCanvas()
+        {
+            InitializeComponent();
+
+            for (int x = 0; x < 10; x++)
+            {
+                Grid.ColumnDefinitions.Add(new ColumnDefinition()
+                {
+                    Width = new GridLength(10.0, GridUnitType.Pixel),
+                });
+            }
+            for (int y = 0; y < 10; y++)
+            {
+                Grid.RowDefinitions.Add(new RowDefinition()
+                {
+                    Height = new GridLength(10.0, GridUnitType.Pixel),
+                });
+            }
+            for (int y = 0; y < Grid.RowDefinitions.Count; y++)
+            {
+                for (int x = 0; x < Grid.ColumnDefinitions.Count; x++)
+                {
+                    var cell = new CellPanel();
+                    cell.SetValue(Grid.RowProperty, y);
+                    cell.SetValue(Grid.ColumnProperty, x);
+                    Grid.Children.Add(cell);
+                }
+            }
+        }
+    }
+```
+
+* CellPanelの処理の実装は未だ無い。
+* CellPanelのデザインは作った。
+
+```cs:WpfApp/Views/CellPanel.xaml.cs
+    public partial class CellPanel : ReactiveUserControl<CellPanelViewModel>
+    {
+        public CellPanel()
+        {
+            InitializeComponent();
+
+            ViewModel = new CellPanelViewModel();
+            DataContext = ViewModel;
+        }
+    }
+```
+
+```xml:WpfApp/Views/CellPanel.xaml
+<rx:ReactiveUserControl 
+    x:Class=""WpfApp.Views.CellPanel""
+    x:TypeArguments=""vm:CellPanelViewModel""
+    xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+    xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+    xmlns:mc=""http://schemas.openxmlformats.org/markup-compatibility/2006"" 
+    xmlns:d=""http://schemas.microsoft.com/expression/blend/2008""
+    xmlns:rx=""http://reactiveui.net""
+    xmlns:vm=""clr-namespace:WpfApp.ViewModels""
+    xmlns:local=""clr-namespace:WpfApp.Views""
+    mc:Ignorable=""d"" 
+    d:DesignHeight=""10"" d:DesignWidth=""10"">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key=""BooleanToVisibilityConverter""/>
+    </UserControl.Resources>
+    <Border Width=""10"" Height=""10"" BorderThickness=""1"" BorderBrush=""LightGray"" >
+        <Rectangle Width=""8"" Height=""8"" Fill=""Black"" Visibility=""{Binding IsAlive, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"" />
+    </Border>
+</rx:ReactiveUserControl>
+```
+
+ここまで、構想＆枠組み実装で約30分。WPF & ReactiveUIって、構造を作るだけでそこそこ時間がかかりますねぇ。
+
+などと考えながら、動かしてみると
+
+・・・
+
+あれれ？　LifeGameController の`開始依頼`が動いていないよ。
+
+なんで？なんで？焦る、焦る！😵😵😵
+
+と、とりあえず MainWindow.xaml.cs から LifeGameController の`開始依頼`を出すとか。。。(混乱:ViewからModel呼ぶなw
+
+## 爆死。
+
+はい１時間経過ー🎉🎉🎉
+
+できるどころか、LifeGame本体の実装に１ミリも触ってない段階で、爆死🤯
+深夜1時39分、視界がかすむ目でソースをコミットして、眠りにつきました。。。
+
+翌日、落ち着いて原因を探ると、こんなミス。
+
+```cs:WpfApp/Views/LifeGameCanvas.xaml.cs
+        public LifeGameCanvas()
+        {
+            InitializeComponent();
+漏れ->       DataContext = new LifeGameCanvasViewModel();
+漏れ->       this.WhenActivated(d =>
+漏れ->       {
+漏れ->           ViewModel = DataContext as LifeGameCanvasViewModel;
+漏れ->       });
+```
+
+```cs:WpfApp/ViewModels/LifeGameCanvasViewModel.cs
+誤り->   //ViewModelActivator IActivatableViewModel.Activator => new ViewModelActivator();
+正解->   public ViewModelActivator Activator { get; }
+正解->   public LifeGameCanvasViewModel()
+正解->   {
+正解->       Activator = new ViewModelActivator();
+正解->   }
+```
+
+ReactiveUIは使いこなせているつもりが、ソラで書くとまぁ、こんな覚え違いをしているようなレベル。
+そんなイタイやつがココにいたのでした😰
+
+## 実力は分かった(白目 ...だけど完成はさせよう。
+
+時間と競えるほどの実力は未だ無いことがはっきりしました。
+ここからはReactiveUIを使ったObserverパターンを、１から学習しなおすつもりで取り組みました。
+
+それから約 8時間❗ の結果がこれ。ウネウネ動くようになりました。
+
+![lifegame_v1.0.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/109362/553f14f6-8af2-a3c5-62a8-23bb032f9750.gif)
+[LifeGame20210131_v1.0 - Github](https://github.com/atsuteru/LifeGame20210131/tree/v1.0)
+
+学習したつくりを説明していきます。説明はインラインコメントで。
+
+### Model層
+
+* Cellのコレクションは、コレクションの変更通知を一旦諦めて、よりシンプルなConcurrentDictionaryに変更😓
+* 他は計画通りに実装。
+
+```cs:WpfApp/Models/LifeGameController.cs
+    public class LifeGameController : ILifeGameController
+    {
+        //Cellのコレクション
+        protected ConcurrentDictionary<Tuple<int, int>, Cell> Cells { get; }
+        //世代交代を通知するObserver & Observable
+        protected Subject<int> Generation { get; }
+        //歴史を刻むタイマー
+        public System.Timers.Timer GenerationTimer { get; }
+        //現世代
+        public int Generations { get; protected set; }
+        //コンストラクタ
+        public LifeGameController()
+        {
+            Cells = new ConcurrentDictionary<Tuple<int, int>, Cell>();
+            Generation = new Subject<int>();
+            GenerationTimer = new System.Timers.Timer();
+        }
+        //初期化依頼を受ける
+        Task ILifeGameController.InitializeAsync(int columns, int rows)
+        {
+            return Task.Run(() =>
+            {
+                //Cellのコレクションを構築する
+                var cells = new Dictionary<Tuple<int, int>, Cell>();
+                for (int y = 0; y < rows; y++)
+                {
+                    for (int x = 0; x < columns; x++)
+                    {
+                        cells.Add(Tuple.Create(x, y), new Cell(x, y, Generation));
+                    }
+                }
+                //Cellに、隣接するCellを教える
+                foreach (var cell in cells.Values)
+                {
+                    foreach (var offset in new (int, int)[] { (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1) })
+                    {
+                        if (cells.TryGetValue(Tuple.Create(cell.PositionX + offset.Item1, cell.PositionY + offset.Item2), out var ajacentCell))
+                        {
+                            cell.SetAjacent(ajacentCell);
+                        }
+                    }
+                }
+                //CellのコレクションをObservableなコレクションに登録する
+                foreach (var cell in cells.Values)
+                {
+                    Cells.AddOrUpdate(Tuple.Create(cell.PositionX, cell.PositionY), cell, (k,v) => cell);
+                }
+            });
+        }
+        //Cellの監視インターフェース(Observable)を返す
+        IObservable<IReactivePropertyChangedEventArgs<IReactiveObject>> ILifeGameController.CellListener(int positionX, int positionY)
+        {
+            return Cells[Tuple.Create(positionX,positionY)].Changed;
+        }
+        //開始依頼を受ける
+        void ILifeGameController.Start(double generationInterval, params Cell[] initialAlives)
+        {
+            //歴史を刻むタイマーのセットアップ。タイムアウト発生ごとに世代交代を通知する。
+            GenerationTimer.Interval = generationInterval;
+            GenerationTimer.Elapsed += (s, e) =>
+            {
+                Generations++;
+                Generation.OnNext(Generations);
+            };
+            //初期の生死状態をセルにセットする
+            foreach (var initialAlive in initialAlives)
+            {
+                if (Cells.TryGetValue(Tuple.Create(initialAlive.PositionX, initialAlive.PositionY), out var cell))
+                {
+                    cell.IsAlive = true;
+                }
+            }
+            //歴史を刻むタイマーを開始。これで歴史が動き出す。
+            Generations = 0;
+            GenerationTimer.Start();
+        }
+    }
+```
+
+```cs:WpfApp/Models/Cell.cs
+    //ReactiveObjectは、Reactive属性のプロパティが変更されるとChangedイベントを発火する。
+    public class Cell : ReactiveObject
+    {
+        //隣接する Cell の生死情報の構造体
+        private struct AliveStatus
+        {
+            public int Generation { get; set; }
+            public bool IsAlive { get; set; }
+        }
+        //この Cell の位置情報
+        public int PositionX { get; }
+        public int PositionY { get; }
+        //この Cell の生死情報
+        public int CurrentGeneration { get; private set; }
+        [Reactive] public bool IsAlive { get; set; }
+        //近隣生死状態情報
+        private ConcurrentDictionary<Tuple<int,int>, AliveStatus> Ajacents { get; }
+        //コンストラクタ
+        public Cell()
+        {
+            Ajacents = new ConcurrentDictionary<Tuple<int, int>, AliveStatus>();
+            CurrentGeneration = 0;
+        }
+        //コンストラクタ
+        public Cell(int positionX, int positionY) : this()
+        {
+            PositionX = positionX;
+            PositionY = positionY;
+        }
+        //コンストラクタ
+        public Cell(int positionX, int positionY, IObservable<int> generation) : this(positionX, positionY)
+        {
+            //世代交代を受信したときの処理を定義
+            generation.Subscribe(generationNumber =>
+            {
+                CurrentGeneration = generationNumber;
+                //近隣生死状態情報から、前世における生の数をカウント
+                var adjacentAlives = Ajacents.Values.Count(alives => 
+                        (alives.Generation < generationNumber && alives.IsAlive == true) ||
+                        (alives.Generation == generationNumber && alives.IsAlive == false));
+                //近隣生死状態情報の前世における生の数から、この Cell の生死を判定する
+                if (adjacentAlives == 3) // 誕生
+                {
+                    IsAlive = true;
+                }
+                else if (adjacentAlives < 2) // 過疎
+                {
+                    IsAlive = false;
+                }
+                else if (adjacentAlives > 3) // 過密
+                {
+                    IsAlive = false;
+                }
+            });
+        }
+        //隣接する Cell の変更を監視する
+        public void SetAjacent(Cell ajacentCell)
+        {
+            AddOrUpdateAjacents(ajacentCell);
+            ajacentCell.Changed.Subscribe(e =>
+            {
+                AddOrUpdateAjacents(e.Sender as Cell);
+            });
+        }
+        //隣接する Cell の生死情報を受け取って近隣生死状態情報を更新する
+        private void AddOrUpdateAjacents(Cell cell)
+        {
+            Ajacents.AddOrUpdate(
+                Tuple.Create(cell.PositionX, cell.PositionY),
+                new AliveStatus() { Generation = 0, IsAlive = cell.IsAlive },
+                (k, v) =>
+                {
+                    v.Generation = cell.CurrentGeneration;
+                    v.IsAlive = cell.IsAlive;
+                    return v;
+                });
+        }
+    }
+```
+
+### ViewModel層
+
+* LifeGameCanvasViewModelは処理なしのため省略
+
+```cs:WpfApp/ViewModels/CellPanelViewModel.cs
+    //ReactiveObjectは、Reactive属性のプロパティが変更されるとChangedイベントを発火し、Viewは再描画を行う。
+    public class CellPanelViewModel : ReactiveObject, IActivatableViewModel
+    {
+        public ViewModelActivator Activator { get; }
+        private ReadOnlyObservableCollection<Cell> _cells;
+        public ReadOnlyObservableCollection<Cell> Cells => _cells;
+        //CellPanel の情報
+        [Reactive]
+        public bool IsAlive { get; set; }
+        public int PositionY { get; set; }
+        public int PositionX { get; set; }
+        //コンストラクタ
+        public CellPanelViewModel()
+        {
+            Activator = new ViewModelActivator();
+            this.WhenActivated(d =>
+            {
+                HandleActivation(d);
+            });
+        }
+        //Viewが生成された後に呼ばれる処理
+        private void HandleActivation(CompositeDisposable d)
+        {
+            //Cellの生死状態を監視する
+            Locator.Current.GetService<ILifeGameController>()
+                .CellListener(PositionX, PositionY)
+                .Subscribe(e =>
+                {
+                    var cell = e.Sender as Cell;
+                    IsAlive = cell.IsAlive;
+                })
+                .DisposeWith(d);
+        }
+    }
+```
+
+### View層
+
+この段階ではまだ View から Model を呼ぶという禁忌を犯している状態・・・😞
+
+```cs:WpfApp/MainWindow.xaml.cs
+    public partial class MainWindow : Window
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+        }
+        //画面の描画が完了したときに呼び出される処理
+        protected override async void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            //LifeGameControllerに初期化要求を送る
+            await Locator.Current.GetService<ILifeGameController>().InitializeAsync(columns: 40, rows: 40);
+            //初期の生死状態をランダムに作り上げる
+            var aliveCells = new List<Cell>();
+            var random = new Random();
+            for (int i = 0; i < 300; i++)
+            {
+                aliveCells.Add(new Cell(random.Next(1, 40), random.Next(1, 40)));
+            }
+            //LifeGameControllerに開始要求を送る
+            Locator.Current.GetService<ILifeGameController>().Start(
+                100.0,
+                aliveCells.ToArray()
+                );
+        }
+    }
+```
+
+この段階ではまだ行数、列数をこんなところにも固定持ちしている状態・・・😞
+
+```cs:WpfApp/Views/LifeGameCanvas.xaml.cs
+    public partial class LifeGameCanvas : ReactiveUserControl<LifeGameCanvasViewModel>
+    {
+        public LifeGameCanvas()
+        {
+            InitializeComponent();
+            //40列×40行固定でCellPanelを作る
+            for (int x = 0; x < 40; x++)
+            {
+                Grid.ColumnDefinitions.Add(new ColumnDefinition()
+                {
+                    Width = new GridLength(10.0, GridUnitType.Pixel),
+                });
+            }
+            for (int y = 0; y < 40; y++)
+            {
+                Grid.RowDefinitions.Add(new RowDefinition()
+                {
+                    Height = new GridLength(10.0, GridUnitType.Pixel),
+                });
+            }
+            for (int y = 0; y < Grid.RowDefinitions.Count; y++)
+            {
+                for (int x = 0; x < Grid.ColumnDefinitions.Count; x++)
+                {
+                    var cellVM = new CellPanelViewModel()
+                    {
+                        PositionX = x,
+                        PositionY = y,
+                    };
+                    var cell = new CellPanel();
+                    cell.DataContext = cellVM;
+                    Grid.Children.Add(cell);
+                }
+            }
+        }
+    }
+```
+
+```cs:WpfApp/Views/CellPanel.xaml.cs
+public partial class CellPanel : ReactiveUserControl<CellPanelViewModel>
+    {
+        public int PositionX
+        {
+            get
+            {
+                return _positionX;
+            }
+            set
+            {
+                _positionX = value;
+                SetValue(Grid.ColumnProperty, _positionX);
+            }
+        }
+        private int _positionX;
+        public int PositionY
+        {
+            get
+            {
+                return _positionY;
+            }
+            set
+            {
+                _positionY = value;
+                SetValue(Grid.RowProperty, _positionY);
+            }
+        }
+        private int _positionY;
+        //コンストラクタ
+        public CellPanel()
+        {
+            InitializeComponent();
+            this.WhenActivated(d =>
+            {
+                HandleActivation(d);
+            });
+        }
+        //View が描画される直前で呼び出される処理
+        private void HandleActivation(CompositeDisposable d)
+        {
+            //View と ViewModelのバインド
+            ViewModel = DataContext as CellPanelViewModel;
+            this.OneWayBind(ViewModel, vm => vm.PositionX, v => v.PositionX).DisposeWith(d);
+            this.OneWayBind(ViewModel, vm => vm.PositionY, v => v.PositionY).DisposeWith(d);
+        }
+    }
+```
+
+Model層の実装について、世代交代の時に、隣接するCellが前世の場合と現世の場合がある点が、処理をややこしくしてしまっていますね。もっとうまく書けないものでしょうか🤔
+
+ViewModel層はシンプルに保てていますが、View層にModel層の呼び出しを持ち込んでいる時点で言語道断😡
+
+だけどこれで、とりあえず動作はするようになったので、v1.0として終了しました。
+合計９時間もかかってしまうとは。とほほです。。。
+
+# やっぱり満足できなかった話
+
+ここから後日談。ソースコード改善と、機能追加を行いました。
+
+## 気に入らなかったところを修正
+
+### View層からModel層を呼び出している問題
+
+そもそもMainWindowのViewModelを作っていませんでした。
+MainViewModelを作成し、そちらに開始依頼を移動して解消。
+
+### LifeGameのマスの数（行数、列数）を２か所で記述している問題
+
+Model層の Cellのコレクション を、ConcurrentDictionary から SourceCache に戻しました。
+ViewModelで SourceCache の変更を受け取り、これをさらに LifeGameCanvas で変更を受け取って CellPanel を生成するように修正。
+
+関係個所を抜き出すと、以下の流れです。
+
+Model層では、`SourceCache.Connect`メソッドの結果を変更監視用に公開。
+
+```c#:WpfApp/Models/LifeGameController.cs
+    public class LifeGameController : ILifeGameController
+    {
+        protected SourceCache<Cell, Tuple<int, int>> Cells { get; }
+        public LifeGameController()
+        {
+            Cells = new SourceCache<Cell, Tuple<int, int>>(cell => Tuple.Create(cell.PositionX, cell.PositionY));
+        }
+        IObservable<IChangeSet<Cell, Tuple<int, int>>> ILifeGameController.CellsWatcher()
+        {
+            return Cells.Connect();
+        }
+    }
+```
+
+ViewModel層では、Model層の`SourceCache.Connect`メソッドの結果を自身の`ReadOnlyObservableCollection`にバインド。
+
+```c#:WpfApp/ViewModels/LifeGameCanvasViewModel.cs
+    public class LifeGameCanvasViewModel : IActivatableViewModel
+    {
+        public ReadOnlyObservableCollection<Cell> Cells => _cells;
+        private ReadOnlyObservableCollection<Cell> _cells;
+        public LifeGameCanvasViewModel()
+        {
+            this.WhenActivated(d =>
+            {
+                HandleActivation(d);
+            });
+        }
+        private void HandleActivation(CompositeDisposable d)
+        {
+            Locator.Current.GetService<ILifeGameController>()?
+                .CellsWatcher().Bind(out _cells).Subscribe();
+        }
+    }
+```
+
+View層では、ViewModel層の`ReadOnlyObservableCollection`の変更を受け、CanvasにCellPanelを配置するように修正。
+
+```c#:WpfApp/Views/LifeGameCanvas.xaml.cs
+    public partial class LifeGameCanvas : ReactiveUserControl<LifeGameCanvasViewModel>
+    {
+        public LifeGameCanvas()
+        {
+            this.WhenActivated(d =>
+            {
+                ViewModel.Cells?
+                    .ToObservableChangeSet()
+                    .ToCollection()
+                    .Subscribe(cells =>
+                    {
+                        InitializeCanvas(
+                            cells.Max(cell => cell.PositionX),
+                            cells.Max(cell => cell.PositionY));
+                    });
+            });
+        }
+    }
+```
+
+## 機能追加: セルの生死を変更できるようにしてみた。
+
+何度も動かしていると、見てるだけじゃ満足できなくなるんですよね。
+それに[ライフゲームの物体一覧 - Wikipedia](https://ja.wikipedia.org/wiki/%E3%83%A9%E3%82%A4%E3%83%95%E3%82%B2%E3%83%BC%E3%83%A0%E3%81%AE%E7%89%A9%E4%BD%93%E4%B8%80%E8%A6%A7)とか、出してみたいじゃないですか😁
+
+というわけで、セルの生死を変更できるようにしてみました。
+よくある「セルをクリックすると生死が反転」みたいなのじゃなく、ヌルヌルと変更したかったので、次のようにしました。
+
+* マウスホバー中、「Ctrl」を押していると「生」に状態変更する。
+* マウスホバー中、「Ctrl + Shift」を押していると「死」に状態変更する。
+
+これを実装した結果が、冒頭の「できたもの」になります。
+この機能追加の実装の説明は、もう蛇足にしかならないと思うので、省略。
+
+# おわりに
+
+「1時間くらいでサクッと作れんじゃね？」とか、どこからそんな自信が湧いたのでしょうかね。。。
+ホント恥ずかしい限りです😅
+
+だけど、そう思い立ってチャレンジしてみたからこそ、この結果を知ることができたわけですよね。
+そんな思いで、つぶやいてました。
+
+<blockquote class=""twitter-tweet""><p lang=""ja"" dir=""ltr"">ライフゲームチャレンジが、自分の能力のテストになった。何か学んだと思ったら、こういうテストしなきゃダメだな。ホントに習得できているかわかったもんじゃ無いわ、自分。。。</p>&mdash; kami_teru (@kami_teru) <a href=""https://twitter.com/kami_teru/status/1355903531434143752?ref_src=twsrc%5Etfw"">January 31, 2021</a></blockquote> <script async src=""https://platform.twitter.com/widgets.js"" charset=""utf-8""></script> 
+
+このチャレンジが自分のテストになり、そして成長にもなったことは確か。
+なのでまた、前を向いて進んでいきたいと思います。
+
+そしていつかまた、1時間でサクッと作れるか、チャレンジしてみたいと思いますっ😁
+
+ここまで、私のチャレンジストーリーにお付き合いいただき、感謝しかありません。ありがとうございました。
+"

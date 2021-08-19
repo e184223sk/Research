@@ -1,0 +1,283 @@
+DXライブラリでライフゲーム,"# 概要
+DXライブラリを使用して何か動くものが作りたかったので、ライフゲームを作成してみました。
+基本的にはwikipediaに書いてあるルールを参考にしています。
+[wikipedia ライフゲーム](https://ja.wikipedia.org/wiki/%E3%83%A9%E3%82%A4%E3%83%95%E3%82%B2%E3%83%BC%E3%83%A0, ""wiki"")
+プログラム初心者な為おかしい部分が多々あると思いますが、大目に見て頂ければと思います。
+
+# ソースコード
+実際のソースコードは以下になります。
+
+```c++:main.cpp
+#include <DxLib.h>
+#include ""Cells.h""
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+    SetOutApplicationLogValidFlag(FALSE);//Log.txtを生成しないように設定
+    if (DxLib_Init() == 1) { return -1; }//初期化に失敗時にエラーを吐かせて終了
+    ChangeWindowMode(true);
+
+    Cells cells;
+    cells.Initialize();
+    while (ProcessMessage() == 0)
+    {
+        ClearDrawScreen();//裏画面消す
+        SetDrawScreen(DX_SCREEN_BACK);//描画先を裏画面に
+
+        cells.Update();
+        cells.Draw();
+
+        ScreenFlip();//裏画面を表画面にコピー
+    }
+
+    DxLib_End();
+    return 0;
+}
+```
+
+```C++:Cells.h
+#pragma once
+#include <vector>
+class Cells
+{
+private:
+
+	// セルの状態
+	enum State
+	{
+		Life,	// 生存
+		Dead,	// 死
+		Disable,
+	};
+
+	std::vector<std::vector<State>> m_cells;
+	std::vector<std::vector<State>> m_nextCells;
+
+	int m_frameCnt;
+	int m_updateInterval;
+	int m_nowGeneration;
+
+public:
+	Cells();
+	void Initialize();
+	void Update();
+	void Draw();
+
+
+private:
+	void UpdateGeneration();
+
+	int GetRinsetuCnt(int x, int y);
+};
+```
+
+```C++:Cells.cpp
+#include <DxLib.h>
+#include <iterator>
+#include <algorithm>
+#include ""Cells.h""
+
+namespace
+{
+	const int CellSize = 10;		// セルの大きさ
+	const int CellDistance = 2;		// セルの間隔
+	const int MaxCountX = 50;		// 最大個数(X)
+	const int MaxCountY = 35;		// 最大個数(Y)
+	const int InitUpdateInterval = 60;	// 更新間隔
+}
+
+Cells::Cells() :
+	m_cells(MaxCountY, std::vector<State>(MaxCountX)),
+	m_nextCells(MaxCountY, std::vector<State>(MaxCountX))
+{
+	m_frameCnt = 0;
+	m_updateInterval = InitUpdateInterval;
+	m_nowGeneration = 0;
+}
+
+// 初期状態設定
+void Cells::Initialize()
+{
+	for (int y = 0; y < m_cells.size(); y++)
+	{
+		for (int x = 0; x < m_cells[y].size(); x++)
+		{
+			// 端っこは全部壁にしとく
+			if ((y == 0) || (x == 0) || (y == MaxCountY-1) || (x == MaxCountX-1))
+			{
+				m_cells[y][x] = State::Disable;
+			}
+			else
+			{	// 生存・死のセルを半々にする
+				if (GetRand(1) == 0)
+				{
+					m_cells[y][x] = State::Life;
+				}
+				else
+				{
+					m_cells[y][x] = State::Dead;
+				}
+			}
+		}
+	}
+}
+
+// 更新
+void Cells::Update()
+{
+	m_frameCnt++;
+
+	// 速度早くする
+	if (CheckHitKey(KEY_INPUT_LEFT) != 0)
+	{
+		if (m_updateInterval > 1)
+		{
+			m_updateInterval--;
+		}
+	}	
+		
+	// 速度遅くする
+	if (CheckHitKey(KEY_INPUT_RIGHT) != 0)
+	{
+		m_updateInterval++;
+	}
+	
+	// 世代更新
+	if (m_frameCnt % m_updateInterval == 0)
+	{
+		UpdateGeneration();
+	}
+}
+
+// 描画
+void Cells::Draw()
+{
+	int yPos = 0;
+	for (int y = 0; y < m_cells.size(); y++)
+	{
+		yPos += CellSize + CellDistance;
+		int xPos = 0;
+		for (int x = 0; x < m_cells[y].size(); x++)
+		{
+			xPos += CellSize + CellDistance;
+			if (m_cells[y][x] == State::Life)
+			{
+				DrawBox(
+					xPos,
+					yPos,
+					xPos + CellSize,
+					yPos + CellSize,
+					GetColor(255, 255, 255),
+					TRUE
+				);
+			}
+		}
+	}
+
+	char str[128];
+	sprintf_s(str, sizeof(str),""現在%d世代目　速度:%dフレーム毎に更新"", m_nowGeneration, m_updateInterval);
+	DrawStringF(0, 0, str, GetColor(255, 255, 255));
+
+}
+
+// 次の世代の更新
+void Cells::UpdateGeneration()
+{
+	for(int y = 0; y < m_cells.size(); y++)
+	{
+		for(int x = 0; x < m_cells[y].size(); x++)
+		{
+			if (m_cells[y][x] == State::Disable)
+			{
+				m_nextCells[y][x] = State::Disable;
+				continue;
+			}
+			
+			int rinsetu = GetRinsetuCnt(x, y);
+
+			// 現在死亡存状態
+			if (m_nextCells[y][x] == State::Dead)
+			{
+				// 誕生判定
+				if (rinsetu == 3)
+				{
+					m_nextCells[y][x] = State::Life;
+				}
+			}
+			
+			// 現在生存状態
+			if (m_nextCells[y][x] == State::Life)
+			{
+				// 生存判定
+				if (rinsetu == 2 || rinsetu == 3)
+				{
+					m_nextCells[y][x] = State::Life;
+				}
+
+				// 過疎判定
+				if (rinsetu <= 1)
+				{
+					m_nextCells[y][x] = State::Dead;
+				}
+
+				// 密です判定
+				if (rinsetu >= 4)
+				{
+					m_nextCells[y][x] = State::Dead;
+				}
+			}
+		}
+	}
+
+	m_cells = m_nextCells;
+	m_nowGeneration++;
+}
+
+// 隣接するセルを取得
+int Cells::GetRinsetuCnt(int x, int y)
+{
+	int rinsetu = 0;
+	if(m_cells[y-1][x] == State::Life)	 rinsetu++;
+	if(m_cells[y-1][x+1] == State::Life) rinsetu++;
+	if(m_cells[y][x+1] == State::Life)	 rinsetu++;
+	if(m_cells[y+1][x+1] == State::Life) rinsetu++;
+	if(m_cells[y+1][x] == State::Life)	 rinsetu++;
+	if(m_cells[y+1][x-1] == State::Life) rinsetu++;
+	if(m_cells[y][x-1] == State::Life)	 rinsetu++;
+	if(m_cells[y-1][x-1] == State::Life) rinsetu++;
+
+	return rinsetu;
+}
+```
+
+# 簡単な説明
+セルの状態は二次元配列(コンテナ？)で持つようにしています。
+Cells::UpdateGeneration()関数で、次の世代でセルが生きるか死ぬかを決めています。
+最初の状態は良く分からなかったので、50%で生、50%で死の状態にしています。
+また、for文の部分で警告が多々ありますが、まだ改善していません。
+方向キーで、更新速度を変更できるようにしています（操作し辛いですが）
+
+# 実行結果
+1世代目は以下のような感じになって
+![1.jpg](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/639022/604c5d2b-0d25-0ebc-d178-bb38a95d95ac.jpeg)
+
+ちょっとするとこんな感じになって
+![2.jpg](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/639022/9991f303-ce77-6454-1cd0-38b943d825b8.jpeg)
+
+最終的には以下のような感じになりました。
+![3.jpg](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/639022/742946bf-8a65-c221-6298-82e6156af905.jpeg)
+
+ん～、画像だけでは分からないと思いますが、それっぽく動いている気はします…が、よく分からん…
+固定物体の例や振動子の例などは一部見られますが、移動物体の例の宇宙船などは出来ていない気がする…
+wikipediaのライフゲームのルールだけ見て作ったので、他に改善しないと行けない点があるかも知れない為、今後出来れば改善していきたいと思います。
+
+以上になります。
+こんな記事を見て頂き、ありがとうございました。
+
+
+
+
+
+
+
+"

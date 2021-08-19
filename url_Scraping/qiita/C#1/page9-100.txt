@@ -1,0 +1,171 @@
+Raspberry pi pico x ubuntu18.04 C環境構築,"#Raspberry pi pico ubuntu18.04 C環境構築
+![Et_XazeU0AAdZ2K.jpeg](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/253609/11cfa30c-6b81-53f6-4a54-588568f96d4d.jpeg)
+
+* Ubuntuで完結
+ * WindowsやWSLは使わない
+　
+<br>
+  
+* C言語用環境
+ * MicroPythonは使わない
+
+* 範囲
+    * Lチカとその改変プログラムまで
+
+
+## 参考文献
+基本的にこの内容に沿って行っていく
+https://datasheets.raspberrypi.org/pico/getting-started-with-pico.pdf
+（2.1章からはじめるよ！）
+
+## 環境つくる
+### 1. 適当なワークスペースにて作業ディレクトリを作る
+（本家はホームディレクトリに作るようになってるけど無視する（無視しても良い））
+
+```
+$ mkdir pico
+$ cd pico
+```
+
+### 2. 開発環境とサンプルを取ってくる 
+```
+$ git clone -b master https://github.com/raspberrypi/pico-sdk.git
+$ cd pico-sdk
+$ git submodule update --init
+$ cd ..
+$ git clone -b master https://github.com/raspberrypi/pico-examples.git
+```
+
+### 3. Toolチェインを揃える
+下記に記す本家では cmake のバージョンでエラーが発生するので別途 cmake をインストールする必要がある
+（下記コマンドも実行しておく）
+
+```
+$ sudo apt update
+$ sudo apt install cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential
+```
+
+#### 3.1 OpenSSL ライブラリのインストール
+pico で使用する cmake 3.12 以降のメイクインストールに必要となるためインストールする
+
+```
+$ sudo apt install libssl-dev
+```
+
+#### 3.2 cmake をインストールする
+古い cmake をアンインストールしておく
+（3.12以降なら良いっぽい）
+
+version 確認方法
+
+```
+$ cmake --version
+```
+
+アンインストール
+
+```
+$ sudo apt remove cmake
+``` 
+
+git から cmake 持ってくる
+
+```
+$ git clone https://github.com/Kitware/CMake
+```
+
+インストール（時間かかる）
+
+```
+$ cd CMake
+$ ./configure
+$ sudo ./bootstrap && make && sudo make install
+```
+
+version 確認
+
+```
+$ cmake --version
+ cmake version 3.20.20(ry
+```
+
+### 4. 開発環境の構築
+ドットを忘れるな（メモ書き）
+
+```
+$ cd pico-examples
+$ mkdir build
+$ cd build
+$ export PICO_SDK_PATH=../../pico-sdk
+$ cmake ..
+```
+
+### 5. 既存Lチカのビルド
+```
+$ cd blink
+$ make -j4
+```
+ディレクトリ構成がややこしいがこの blink は
+> pico/pico-examples/build/blink 
+
+であるが、コンパイルされるファイルは
+> pico/pico-examples/blink/blink.c
+
+である
+
+### 6. pico にファイルを送る（そのまま実行される）
+BOOTSEL ボタンを押したまま USB を接続することでメモリとして認識される
+>/media/(user name)/RPI-RP2
+
+としてマウントされるのでファイルをここに投げる
+
+```
+$ pwd 
+ /home/(user name)/works/pico/pico-examples/build/blink
+$ cp blink.uf2 /media/(user name)/RPI-RP2/
+```
+Lチカを確認する
+
+### 7. 既存のLチカを改変する
+バックアップ
+
+```
+$ pwd
+ /home/(user name)/works/pico/pico-examples/blink
+$ cp blink.c blink.c_old
+```
+
+ファイル内容を以下に変更くコ:彡
+
+``` blink.c
+#include ""pico/stdlib.h""
+ 
+int main() {
+  const uint LED_PIN = 25;
+  gpio_init(LED_PIN);
+  gpio_set_dir(LED_PIN, GPIO_OUT);
+  int i1, i2, i3;
+
+  while (true) {
+    for (i1 = 0; i1 < 10; i1++) {
+      for (i2 = 0; i2 < 10; i2++) {
+        for (i3 = 0; i3 < 10; i3++) {
+          if (i1 < i3)
+            gpio_put(LED_PIN, 1);
+          else
+            gpio_put(LED_PIN, 0);
+          sleep_ms(1);
+        }
+      }
+    }
+  }
+}
+```
+
+5.既存Lチカのビルド
+6.pico にファイルを送る（そのまま実行される）
+を実行するとLチカの光り方が変わるよ
+
+####謝辞
+cmake 助けてくれてありがとう
+"

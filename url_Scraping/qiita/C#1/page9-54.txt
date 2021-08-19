@@ -1,0 +1,156 @@
+カフェでプログラミングしてる風（でも何もやってない）エンジニアにマウントがとりたい,"リスペクト : https://qiita.com/3S_Laboo/items/660883a0184dabaea65b
+
+# おしゃれなカフェで...
+あなたは今おしゃれなカフェで作業をしている。
+作業にひと段落が付き、背筋をぐっと伸ばしあたりを見渡す。
+すると、あなたの近くに、コーヒーとMacを持った人物が座っていることに気付く。
+マナー違反であることは承知しているが、誘惑に負けてMacの画面をのぞき込む。
+
+なにやらターミナルが忙しく動いている。
+あなたはエンジニア仲間を見つけ喜びを感じる。しかし一方で、ある違和感を覚える。
+
+[あのコードだ。][link-1]
+[link-1]:https://qiita.com/3S_Laboo/items/660883a0184dabaea65b
+
+その人物はプログラミングをしているのではなく、プログラミングしている風の画面を出し自己肯定感を上げていたのだ。
+あなたは仲間を見つけた喜びを裏切られた気分になり、次第に感情は苛立ちへと変化していく。
+
+そしてあなたは自身の作業のことを忘れ、プログラミングしている風の人物に真のエンジニアリングを見せつけると決意する。
+しかし相手は日頃からQiitaを見ているであろう人物。ターミナルに大量の文字列を表示しているものを見せつけたとて、動じるとは考えられない。
+
+そこであなたは気付く。文字以外を表示すればよいことに。
+
+![bunny.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/634268/7e04ea46-ee05-bbf5-fe4b-84808a89ac38.gif)
+
+# 描画準備
+何を描画するにしろ、まずは描画するための準備が必要だ。
+あなたは[ANSIエスケープシーケンス][ansi-1]を駆使し、様々な色の空白をピクセルのように扱うことで描画する方法に取り掛かる。
+[ansi-1]:https://qiita.com/PruneMazui/items/8a023347772620025ad6
+
+```c++:setup_console.cpp
+#include <signal.h>
+#define NOMINMAX
+#include <windows.h>
+
+volatile sig_atomic_t _FLAG = 0;
+static void close(int signal) { _FLAG = 1; };
+
+int main(int argc, char* argv[]) {
+  signal(SIGINT, close);
+
+  DWORD l_mode;
+  HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+  GetConsoleMode(hStdout, &l_mode);
+  SetConsoleMode(hStdout, l_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+
+  CONSOLE_FONT_INFOEX cfi;
+  cfi.cbSize = sizeof(cfi);
+  cfi.nFont = 0;
+  cfi.dwFontSize.X = 1;
+  cfi.dwFontSize.Y = 1;
+  cfi.FontFamily = FF_DONTCARE;
+  cfi.FontWeight = FW_NORMAL;
+  wcscpy_s(cfi.FaceName, L""Consolas"");
+  SetCurrentConsoleFontEx(hStdout, FALSE, &cfi);
+
+  size_t width = 300, height = 300;
+  COORD dwSize = { static_cast<SHORT>(width) + 1, static_cast<SHORT>(height) + 1 };
+  SetConsoleScreenBufferSize(hStdout, dwSize);
+  SMALL_RECT consoleWindow = { 0, 0, dwSize.X - 1, dwSize.Y - 1 };
+  SetConsoleWindowInfo(hStdout, TRUE, &consoleWindow);
+
+  //----------描画ループ-------------
+  for (size_t count = 0; !_FLAG; count++) {
+
+  }
+}
+```
+
+```c++:color_space.cpp
+#include <string>
+std::string colorSpace(const auto col) {
+  return ""\033[48;2;"" +
+    std::to_string(col[0]) + "";"" +
+    std::to_string(col[1]) + "";"" +
+    std::to_string(col[2]) + ""m \033[0m"";
+}
+```
+
+ここであなたは気付く。環境依存のコードすぎないか、と。
+
+# 好きなものを描く
+準備はできた。あとは描画するものを画像のように二次元の配列で表現すれば完成だ。
+
+```c++
+
+//----------描画ループ-------------
+for (size_t count = 0; !_FLAG; count++) {
+  std::string buf{};
+
+  for (size_t i = 0; i < height; i++) {
+    for (size_t t = 0; t < width; t++) {
+      buf += colorSpace(color[i][t]);
+    }
+    buf += ""\n"";
+  }
+  std::cout << ""\033[H"";
+  std::cout << buf;
+}
+```
+
+深く息を吸う。まずは相手への親愛と敬意をこめてハートを描画することに決める。
+[ハートの方程式][link-2]を調べ、点群を生成、拙い手段で座標をターミナル中央に調整する。
+[link-2]:https://mathworld.wolfram.com/HeartCurve.html
+
+```c++
+std::vector<glm::vec2> heart(const size_t n) {
+  std::vector<glm::vec2> pts(n);
+  for (size_t i = 0; i < n; i++) {
+    double t = (double)i / n * std::numbers::pi * 2.0;
+    double x = 16 * pow(sin(t), 3);
+    double y = 13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t);
+    pts[i] = { x / 16.0, -((y + 2.5) / 14.5) };
+  }
+  return pts;
+}
+
+void drawHeart(const size_t n, const size_t count, const size_t width, const size_t height) {
+  std::vector<std::vector<glm::ivec3>> color(height, std::vector<glm::ivec3>(width, {0, 0, 0}));
+  std::vector<glm::vec2> pts = heart(n);
+  auto rot = glm::toMat4(glm::quat(glm::vec3(0.0, count * 0.1, 0.0)));
+
+  for (auto& p : pts) {
+    auto v = rot * glm::vec4(p, 0.0, 1.0);
+    v *= (width / 2.0) * 0.9;
+    v += (width / 2.0);
+    if (v.y < 0 || v.y >= height || v.x < 0 || v.x >= width) continue;
+    color[(size_t)v.y][(size_t)v.x] = { 255, 255, 255 };
+   }
+}
+```
+
+![heart.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/634268/6c400e4a-296f-3355-46c6-82cd3bc75bd8.gif)
+
+まだまだ満足していないあなたは、カオスとフラクタルの世界へと踏み込む。
+ハートと同様の手段で[Thomas' cyclically symmetric attractor][tcsa]点群を生成し描く。
+[tcsa]:https://en.wikipedia.org/wiki/Thomas%27_cyclically_symmetric_attractor
+
+![tcsa.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/634268/825f877c-2c15-d9dc-0db4-61571ca2de48.gif)
+
+さらにはプログラマなら皆大好きマトリックス風の画面を0、1の点群を生成し描く。
+
+![matrix.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/634268/a1b345c4-c5fb-9a5c-f331-c67ad3e20704.gif)
+
+ここであなたは気付く。可能性が無限大であることに。
+コンピュータグラフィックスの知識をもってすれば、三角形と線分の交差判定によりスタンフォードバニーを描画するだけにとどまらず、ターミナル上で[物理ベースレンダリング][pbr]も夢ではないのだ。
+[pbr]:https://qiita.com/emadurandal/items/3a8db7bc61438245654d
+
+# 終わりに
+
+あなたは次々とターミナルに描画をする。あなたを止められる人はどこにもいない。
+画面に広がる混沌を見つめ恍惚とした表情を浮かべるあなた。
+
+![chaos.gif](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/634268/5e40b69e-daa2-4956-de71-fcc3f8164aad.gif)
+
+そしてあなたは気付く。なんだこれ、と。
+"

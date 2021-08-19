@@ -1,0 +1,89 @@
+VSCode + PlatformIO で micro:bit + Zephyr RTOS 開発,"# tl;dr
+
+[VSCode](https://code.visualstudio.com/) + [PlatformIO](https://platformio.org/) というモダンな開発環境で [Zephyr RTOS](https://www.zephyrproject.org/)を使った [micro:bit](https://microbit.org/) の開発を試してみました。Linux 上での操作で説明します。
+![mb_zephyr.jpg](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/265397/638e4276-015e-9453-e696-b6eed2383f92.jpeg)
+
+# いきさつ
+VSCode + platformio が良いらしいということを聞いてひとつ試してみるかと思いました。手元にmicro:bitがあったのですが、framework が `Arduino`, `Mbed`, `Zephyr RTOS` の3択。Zephyr? なにそれ？ 聞いたことない、ということで、せっかくだから俺はこのZephyrを選ぶぜ、と思った次第です。
+
+# VSCode
+拡張機能にPlatformIOを追加すれば準備完了です。VSCodeじゃないところでPlatformIOを (aptやbrewなどで) 入れていると衝突するようなので注意しましょう。(ぼくは最初これでハマりました。)
+
+
+# udev の設定 (Linux)
+
+以下の2行を適当なファイル名で`/etc/udev/rules.d/`に入れておきます。
+
+```text:/etc/udev/rules.d/50-myusb.rules
+KERNEL==""ttyACM[0-9]*"",MODE=""0666""
+ATTRS{product}==""*CMSIS-DAP*"", MODE=""660"", GROUP=""plugdev"", TAG+=""uaccess""
+```
+
+ファイルを作ったら`systemctl restart udev.service` あるいは再起動などして有効化してください。
+
+# プロジェクトの作成
+
+VSCodeの左に縦に並んでいるアイコンのPlatformIOを選択して、`QUICK ACCESS` > `PIO Home` > `Open` > `+ New Project` と進みます。
+適当なプロジェクト名を入力し、Board を `BBC micro:bit`、Frameworkを`Zephyr RTOS` として Finish。これだけです。簡単！
+
+# プロジェクトの設定
+
+今回はデフォルトではビルドされない **Displayインタフェース** を使おうと思うので設定ファイルを一つ作ります。`PlatformIO` > `QUICK ACCESS` > `PIO Home` > `Open` > `Open Project` から今作ったプロジェクトを開きます。左にツリー表示が現れるので、`プロジェクト名` > `zephyr` を展開します。たぶん `CMakeLists.txt` だけがあると思いますが、それと同じ階層に `prj.conf` というファイルを新規作成します。内容は以下の通りです。
+
+```text:prj.conf
+CONFIG_DISPLAY=y
+CONFIG_MICROBIT_DISPLAY=y
+```
+
+# main.c の編集
+
+`src` に入っている `main.c` を開いて編集します。こんな感じでどうぞ。
+
+```c:main.c
+#include <zephyr.h>
+#include <sys/printk.h>
+#include <display/mb_display.h>
+
+void main(void)
+{
+    struct mb_image patterns[] = {
+        MB_IMAGE(
+            {0, 0, 0, 0, 0},
+            {1, 1, 0, 1, 1},
+            {0, 0, 0, 0, 0},
+            {1, 0, 0, 0, 1},
+            {0, 1, 1, 1, 0},
+        ),
+    };
+    struct mb_display *dpy = mb_display_get();
+    mb_display_image(dpy, MB_DISPLAY_MODE_DEFAULT, SYS_FOREVER_MS, patterns, 1);
+    while (1) {
+        printk(""hello, world %s\n"", CONFIG_BOARD);
+    }
+}
+
+```
+
+# build & upload
+
+VSCode 最下部にチェックマークがあると思います。これをクリックすればビルドできます。あるいは `PlatformIO` をクリックして現れる `PROJECT TASKS` の `Build` をクリックしても同じです。その際、最下部左側のアイコンの並びの最後の方にプロジェクト名が出ていますが、これが今作業したい対象のプロジェクトです。そうでない場合は、**ここをクリックすると選択できます**。
+![vscodepiobottom.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/265397/5a6934d0-ee0e-1930-0ec5-71e63f225bc4.png)この図だと右端の`Default (mbdemo)`の部分です。
+
+なんかUIが非常に分かりづらいのですが、ぼくはVSCodeもpioもほぼ初めてなので何かもっと素直な方法があったら教えてください。
+
+無事ビルドが終わったら micro:bit を差し込んでチェックマークの隣りの矢印（→）をクリックします。これで書き込み完了です！micro:bitに表示が現れます。(本記事の冒頭の写真)
+
+
+# シリアル出力も確認
+コードの最後の無限ループで`printk`しています。これはシリアルに吐いているはずなので確認してみましょう。Linux の場合はこんな感じです。上述の udev が効いていれば sudo 不要のはずです。
+
+```shell-session:Linuxのシェル
+$ stty -F /dev/ttyACM0 raw 115200
+$ cat /dev/ttyACM0
+```
+
+# おわりに
+
+これでいちおうPlatformIOの開発手順が把握できたし、Zephyr経験者になることもできました。RTOS要素ゼロですけど。
+micro:bit はmbed OSのclassicな方しか対応していなかったと思うので、より本格的なRTOSが使いたい場合はZephyrが役に立つかも知れません。ぼくは…たぶんもう使うことはないだろうな。
+"

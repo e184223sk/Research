@@ -1,0 +1,174 @@
+シリアルの割り込み設定,"### 概要
+ここでは，以前の[シリアル設定](https://qiita.com/hiro4669/items/aa82f379abffc7f09e6b)を前提とし，シリアルデータの受信に割り込みを使ってみる．送信も割り込みを使うことができるが，まとまったデータを送るときには一気に送信できたほうが便利かつ楽だと思うので，送信の割り込みは見送ることにした．
+
+### シリアルの割り込み設定
+仕様書によると，シリアルの割り込みには以下の3種類がある
+
+- 受信割り込み：データが受信された時に発生する割り込み
+- 送信完了割り込み：データ送信が終了したら発生する割り込み
+- データレジスタクリア割り込み：送受信に使用するレジスタ(UDR0)が空になったら発生する割り込み
+
+今回は，受信割り込みだけ設定する．そして，割り込みを利用するにはUCSRnBレジスタを操作する必要がある．
+
+![Screen Shot 2021-03-02 at 9.34.47.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/ed1bde6e-b202-61d7-f4b1-06c2afe44f96.png)
+
+ここにあるように，7ビット目のRXCIEnをON(1)にすることで，受信割り込みが有効化される．なお，他2種類の割り込みも，TXCIEn, UDRIEnをONにすれば有効化される．なお，このレジスタの3ビット目と4ビット目は，そもそもシリアルの送受信を行うために有効化する必要があった．
+
+なお，ここでは割愛するが，どうやってAtmega328がどうやって割り込みを発生させるかというと，ステータスレジスタであるUCSR0Aの5~7ビット目を使っている．つまり，以前割り込みを使わないときにはビジーウェイトで送受信のタイミングを測ったが，それをハードウェアで実行し，後述する割り込みハンドラを呼び出してくれる．ということは，データを受信するまで何もしないようなアプリケーションでは処理はほぼ同じになるが，マルチスレッドを使う場合などはそのスレッドを休眠させられるので意味があるのだろう．
+
+### 割り込みベクタの設定
+割り込みベクタは以下のように配置されている．
+![Screen Shot 2021-03-02 at 10.01.07.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/44a1e028-c456-4e15-2ffb-43b3b8adf6bc.png)
+
+この表より，受信割り込みを利用するには，19番目(0x012)のUSART, RXに割り込みハンドラを設定すれば良いことがわかる．なお，Arduinoでは，そもそも割り込みベクタのアドレスを変更する必要があるが，それについては[タイマ割り込み](https://qiita.com/hiro4669/items/00b9d60cf8e1f6320acc)に詳しく書いたのでここでは割愛．
+
+### シリアル受信割り込みの実装
+これまでの議論から，シリアル受信割り込みを設定するには，
+
+1. 割り込みハンドラの定義と設定
+2. 受信割り込みの有効化
+
+を行えば良い．
+
+#### 割り込みハンドラの定義
+まず，割り込みベクタvector.sで設定する．そして，割り込みハンドラ自体はアセンブリ言語でserial.sに定義する
+
+```asm:vector.s
+        .section .text
+        .global start
+        .type   start,@function
+reset:          jmp     start
+int0:           jmp     nointr
+int1:           jmp     nointr
+pcint0:         jmp     nointr
+pcint1:         jmp     nointr
+pcint2:         jmp     nointr
+wdt:            jmp     nointr
+timer2_compa:   jmp     nointr
+timer2_compb:   jmp     nointr
+timer2_ovf:     jmp     nointr
+timer1_capt:    jmp     nointr
+timer1_compa:   jmp     nointr
+timer1_compb:   jmp     nointr
+timer1_ovf:     jmp     nointr
+timer0_compa:   jmp     nointr
+timer0_compb:   jmp     nointr
+timer0_ovf:     jmp     nointr
+spi_stc:        jmp     nointr
+usart_rx:       jmp     inter_rx
+usart_udre:     jmp     nointr
+usart_tx:       jmp     nointr
+adc:            jmp     nointr
+ee_rdy:         jmp     nointr
+analog_comp:    jmp     nointr
+twi:            jmp     nointr
+spm_ready:      jmp     nointr
+
+nointr:         jmp     nointr
+```
+
+```asm:serial.s
+(略)
+inter_rx:
+        cli       ; 割込み禁止
+        rcall si0 ; 割り込み処理ルーチンの呼び出し
+        reti      ; 割り込みを有効化して呼び出し元に戻る
+(略)
+```
+ここで，`si0`は次のようにserial.cに定義する
+
+```c:serial.c
+(略)
+void si0(void) {
+        turnon();
+        ic = USART_UDR0;
+}
+(略)
+```
+ここで，`turnon`は[LED点滅](https://qiita.com/hiro4669/items/a469b649cb7b3284815e)で定義した関数で，`ic`には受信した1バイトが代入される．つまり，この割り込みハンドラが呼び出されると，LEDが点灯することになる.
+なお，割り込みベクタはバイナリの先頭に配置する必要があるため，リンカスクリプトで調整する．リンカスクリプトについても[タイマ割り込み](https://qiita.com/hiro4669/items/00b9d60cf8e1f6320acc)に詳しく書いたのでここでは割愛．
+
+
+#### 受信割り込み割り込みの有効化
+割り込みを有効化するため，シリアルの初期化を以下のようにする
+
+```c:serial.c
+int serial_init() {
+  USART_UCSR0B = 0;
+
+#define CPU_CLOCK 16000000L
+#define BAUDRATE 9600
+  USART_UBRR0L = (CPU_CLOCK / (BAUDRATE * 16L) - 1);
+  USART_UBRR0H = (CPU_CLOCK / (BAUDRATE * 16L) - 1) >> 8;
+
+  //USART_UCSR0B = USART_UCSR0B_RXEN0 | USART_UCSR0B_TXEN0; // 送受信可能 
+  USART_UCSR0B = USART_UCSR0B_RXCIE0 | USART_UCSR0B_RXEN0 | USART_UCSR0B_TXEN0; // 送受信可能 
+  USART_UCSR0C = USART_UCSR0C_UCSZ00 | USART_UCSR0C_UCSZ01;
+
+  ic = 'z'; // test
+  return 0;
+}
+```
+
+シリアルでの送受信可能設定に加え，受信割り込みを有効化する(`USART_UCSR0B_RXCIE0`)
+なお，`ic`にはzを初期値として入れておく．割り込みがうまく言ったら，`ic`が書き換えられるはず．
+
+### 受信テスト
+以下のように`main.c`を記述し，シリアルモニタとLEDで動作を確認する
+
+```c:main.c
+(略)
+#define INTR_DISABLE asm volatile (""cli"")
+#define INTR_ENABLE  asm volatile (""sei"")
+(略)
+int main(void) {
+
+        INTR_DISABLE; // 割込み禁止
+
+        vector_init(); // 割り込みベクタの移動
+        serial_init(); // シリアルの初期化(割り込み含む)
+        
+        setout();     // LEDの出力設定
+        turnoff(;     // LEDを消灯
+
+        INTR_ENABLE; // 割り込み有効
+
+        while(1) {
+                putc(ic);
+        }
+
+        return 0;
+}
+```
+詳細はコメントの通りだが，`INTR_ENABLE`でatmega328p自体の割り込みを有効化しないと割り込みが入らないことに注意する(これを忘れてハマった)．
+このコードから，`ic`の文字をひたすら出力することがわかる．そして，割り込みが入って他の文字が入力されたら出力結果が変わり，LEDが点灯するはずである．
+
+#### 結果
+初期状態
+![Screen Shot 2021-03-02 at 10.25.17.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/edbf94a0-e437-9990-1fe9-5b9f06e76fc3.png)
+
+
+'a'を送信
+![Screen Shot 2021-03-02 at 10.25.29.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/d0cc3ce5-07d9-b88b-b0c2-f5b4e77bd985.png)
+
+成功！
+![Screen Shot 2021-03-02 at 10.25.37.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/2d5fc44d-ebcd-b651-088b-4c6861d572cf.png)
+
+おまけ
+![IMG_4669.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/57629/7a6dccb3-07a1-b997-c5fd-452720a6603d.png)
+
+万が一シリアルの結果が変わらなくても，LEDの点灯を確認することで割り込みが入ったかどうかはわかる．LED大事w
+
+以下のコマンドで実行できる
+
+```
+>git clone https://github.com/hiro4669/iosv.git
+>cd iosv
+>cd serial_intr
+>make
+>make write
+```
+
+
+
+"

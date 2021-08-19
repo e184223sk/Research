@@ -1,0 +1,134 @@
+STM32マイコンでFerrRTOSを動かす,"# 概要
+STマイクロの環境を使用して、マイコン上でFreeRTOSを使用したLチカ環境を構築します。
+
+# 環境
+
+項目|使用環境
+---|---
+マイコンボード| [NUCLEO-F767ZI](https://os.mbed.com/platforms/ST-Nucleo-F767ZI/)
+コード生成ツール|[STM32CubeMX](https://www.st.com/ja/development-tools/stm32cubemx.html)
+言語|C言語
+
+# テンプレートコード生成手順
+
+1. [マイコンの選択](#anchor1)
+1. [FreeRTOSの追加](#anchor2)
+1. [クロックの設定](#anchor3)
+1. [GPIOの設定](#anchor4)
+1. [コードの生成](#anchor5) 
+
+<a id=""anchor1""></a>1. マイコンの選択
+
+__STM32F767ZI__ を指定します。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/d8eaf8b7-aec8-acfa-2036-2259b9cebf4c.png)
+
+
+<a id=""anchor2""></a>2. FreeRTOSの追加
+
+* __Middleware__ の __FRERTOS__ にチェックを入れます。
+* 今回interface(API)は __CMSIS_V1__　としておきます。
+* __Tasks and Queues__ のタブからタスクを追加します。（今回は３つのLEDそれぞれを別タスクで動作させますので、タスクを３つ作りました）
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/184380bf-1f19-0dd4-1510-319d1633aa98.png)
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/1f095161-5d59-71bf-3ca7-857d35029c41.png)
+
+<a id=""anchor3""></a>3. クロックの設定
+
+HCLK=216MHzに設定します。（特に理由はありませんが、最速にしました）
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/6e1473ca-ebbd-f51e-7ed1-197cd88c9923.png)
+
+<a id=""anchor4""></a>4. GPIOの設定
+
+オンボードのLEDが３つ（緑、青、赤）あります。
+
+ピンの割り当ては以下の通りだそうです。
+[https://os.mbed.com/questions/86685/Cant-find-led3-pin/](https://os.mbed.com/questions/86685/Cant-find-led3-pin/)
+
+```
+    LED1        = PB_0,  // LD1 = GREEN
+    LED2        = PB_7,  // Blue
+    LED3        = PB_14, // Red
+```
+この３つのポートをGPIO_OUTに設定します。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/7f77a259-3154-4978-77d5-ccb099733999.png)
+
+<a id=""anchor5""></a>5. コードの生成
+
+__GENERATE CODE__ を押してコードを生成します。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/e5c0b8cb-1fb4-c809-4642-6a89906d61ad.png)
+
+# プロジェクトの形式
+
+私は　__EWARM__　の環境で使用しますので、　デフォルトのEWARMのままにしています。
+CubeIDE等で開発したい方はここの設定を変更してみてください。
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/204268/9f7b4199-d0cc-3d9c-19c1-ce2695732964.png)
+
+# タスク内の動作記述
+
+main.cを参照すると、　CumeMXの　__Entity Function__ にて指定した名称の関数が用意されています。
+この関数がマルチスレッドで動作しています。
+
+各スレッド内に　GPIOをトグルさせる処理を記述し、異なるディレイをかけるように記述しました。
+
+```c:main.c
+void StartDefaultTask(void const * argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+    osDelay(500);//ms
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartTask02 */
+/**
+* @brief Function implementing the Tssk2 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask02 */
+void StartTask02(void const * argument)
+{
+  /* USER CODE BEGIN StartTask02 */
+  /* Infinite loop */
+  for(;;)
+  {
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
+    osDelay(1000);//ms
+  }
+  /* USER CODE END StartTask02 */
+}
+
+/* USER CODE BEGIN Header_StartTask03 */
+/**
+* @brief Function implementing the Task3 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartTask03 */
+void StartTask03(void const * argument)
+{
+  /* USER CODE BEGIN StartTask03 */
+  /* Infinite loop */
+  for(;;)
+  {
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
+    osDelay(2000);//ms
+  }
+  /* USER CODE END StartTask03 */
+}
+```
+
+# 動作確認
+
+<blockquote class=""twitter-tweet""><p lang=""ja"" dir=""ltr"">FreeRTOSで３スレッドLチカ（Qiita埋め込み用動画） <a href=""https://t.co/dO0AF1caEc"">pic.twitter.com/dO0AF1caEc</a></p>&mdash; takeru0x5569 (@cyebu1103) <a href=""https://twitter.com/cyebu1103/status/1366589152418959360?ref_src=twsrc%5Etfw"">March 2, 2021</a></blockquote> <script async src=""https://platform.twitter.com/widgets.js"" charset=""utf-8""></script>
+"

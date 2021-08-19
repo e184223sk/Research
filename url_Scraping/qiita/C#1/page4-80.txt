@@ -1,0 +1,352 @@
+"macOSでC, C++並列処理をするためのOpenMP, OpenMPI環境構築","2021/02/27投稿
+#はじめに
+初投稿です。
+自分がmacにOpenMPとOpenMPIを導入する際かなり混乱したため、**自分のような初心者でもわかるように**書きました。参考になれば幸いです。
+
+#並列処理
+**プログラムは基本1つの実行に対して1つのコアかつ1つのスレッドしか使用しません。**
+
+そのためPC内の他のコアは常に暇しており、また計算以外の処理中などは使用しているコア自体も手持ち無沙汰になっています。
+簡単なプログラムであれば問題ありませんが、プログラムによっては計算時間が非常にかかるため、暇している他のコアに仕事を振ったり、使用しているコアにもスレッドを分けて複数の仕事を与えたいところです。
+
+そこで並列処理を行います。**プログラム内のデータを各スレッドや各コアに分散させ、計算が終わったところで各スレッドや各コアからデータを収集します。**
+
+今回導入するOpenMP、OpenMPIはそれぞれスレッド、コアを並列化することが出来ます。
+
+#OpenMPとOpenMPI
+**OpenMPはスレッド並列化を行うAPIです。**1つのCPUが1つのコアしか持っていなくても、複数の処理を同時に行うことができます。
+**OpenMPIは**MPI(Message Passing Interface)の一種で、**プロセス自体を並列化するライブラリであり**OpenMPとは全くの別物です。1つの命令を1つのコアではなく複数のコア(プロセス)を用いて処理します。
+
+これらを同時に使用することで、各コアがそれぞれ複数の処理を同時に行うことができるようになり、計算速度が上がります。
+
+これらはfortran, C言語, C++で使用する事が出来ますが、今回はC言語, C++での設定を行います。またOpenMPIは複数ノードを用いた設定もありますが、今回はしていません。
+
+#環境　
+macOS Sierra 10.12.6
+macOS Mojave 10.14.6
+macOS Catalina 10.15.7
+
+#gcc(OpenMP)の導入
+**OpenMPはmacの標準のCコンパイラ(clang)ではサポートされていません。**
+なので今回は、OpenMPがサポートされている**gcc**にコンパイラを切り替える事で、OpenMPの導入をしようと思います。
+
+**※自分のアカウントが一般ユーザーの場合、スーパーユーザー(管理者権限を持つアカウント)または`sudo`コマンドを頭につけて行ってください。**
+####gccの有無確認
+```
+gcc -v
+```
+バージョンが書いてあるところにHomebrewと書いてある場合、gccは入っているのでOpenMPも導入済です。
+clangと書いてある場合、ややこしいですがgccは入っておらず、`gcc`というコマンドでclangが代わりに起動するようになっているため、gccをインストールする必要があります。gccがインストールされればOpenMPも同時にインストール完了です。
+
+####gccをインストール
+```
+brew install gcc
+```
+Homebrew経由でgcc, g++の最新版をインストール。
+`brew`コマンドがなければ以下のサイト上にあるコマンドをターミナルにコピペしてインストールしておいてください。
+https://brew.sh/index_ja.html
+
+gccが入ってはいるが古い場合は、
+
+```
+brew upgrade gcc
+```
+でgcc, g++を最新版にしておくと良いですが不要かもしれません。
+
+####gccにシンボリックを貼る
+```
+ls /usr/local/bin | grep gcc
+ls /usr/local/bin | grep g++
+```
+まずはインストールしたgcc, g++のバージョン確認。例えば`gcc-10`や`g++-10`と返されれば、先程インストールしたgcc, g++はバージョン10です。
+
+ただこのままだと`gcc-10`と打たないとgccが起動しないので、`gcc`と打てば`gcc-10`が起動するようショートカット(シンボリック)を作成します。
+
+```
+ln -s /usr/loca/bin/gcc-10 /usr/local/bin/gcc
+ln -s /usr/local/bin/g++-10 /usr/local/bin/g++
+```
+
+####gccの優先順位確認
+
+```
+which -a gcc
+```
+gccというコマンドで起動するコンパイラを全て表示します。
+`/usr/local/bin/gcc`と`/usr/bin/gcc`の二つが返されると思いますが、前者はgcc, 後者はclangです。
+`gcc`とコマンドを打った際にどちらが起動するか確認します。
+
+```
+which gcc
+```
+`/usr/local/bin/gcc`と返されれば、gccが優先的に使用されるのでOpenMPの導入も完了です。OpenMPIの導入に移ってください。
+`/usr/bin/gcc`と返される場合、clangが優先的に使用されるのでgccを優先させる必要があります。
+
+####gccへの切り替え(パスを通す)
+**※パスはユーザーごとに異なるため、一般ユーザーであればスーパーユーザーからアカウントを切り替えて行ってください**
+
+gccを優先させるために、`/usr/local/bin`にあるコマンドを優先させます(パスを通す)。
+まずは自分が使用しているシェルを確認します。シェルによってパスの編集方法が若干変わってきます。
+
+```
+echo $SHELL
+```
+`/bin/zsh`のように返されれば使用シェルはzsh、`/bin/bash`のように返されれば使用シェルはbashなので覚えておいてください(これら以外の可能性もあります)。
+
+次にホーム(`~`)に移動してファイル一覧を表示し、自分のPCにパスの編集用ファイルがあるか確認します。
+
+```
+cd ~
+ls -a
+```
+zshの場合は`ls -a`で表示されたファイルに.zshrcがあればそれが編集用ファイルです。bashの場合は.bash_profileや.bashrcが編集用ファイルです。
+
+編集用ファイルが無い場合は作成します(必ずホームで作成してください)。zshの方は、
+
+```
+touch .zshrc
+```
+bashの方は、
+
+```
+touch .bash_profile .bashrc
+```
+.bash_profileだけでも出来たりしますが今回は両方使用する設定を行います。
+
+またbashの場合は事前準備として作成した.bash_profileに、以下を書いてください。**これが無いと.bashrcが自動で読み込まれません**(zshの場合は自動で読み込まれるので以下の操作は必要ありません)。既にこの記述がある場合はそのままで大丈夫です。
+
+```:.bash_profile
+source ~/.bashrc
+```
+<br>
+次にファイルにパスを通す記述をします。
+.zshrcまたは.bashrcを開き、以下を書いてください。
+
+```:.zshrcまたは.bashrc
+export PATH=""/usr/local/bin:$PATH""
+```
+
+編集が終わったら、設定を読み込むためターミナルを再起動してください。
+
+####再確認
+```
+which gcc
+```
+`/usr/local/bin/gcc`と返ってくればgccが優先されています(`gcc -v`でHomebrewと表示されるはずです)。OpenMPも同時に使用可能になっています。
+
+#OpenMPIの導入
+**※またスーパーユーザーに戻るか必要に応じて`sudo`コマンドを用いて作業してください**
+####OpenMPIのインストール
+
+http://www.open-mpi.org/software/ompi/
+こちらから最新版のOpenMPIのバージョンを確認してください。今回は例としてバージョン4.0.5を使用します。
+
+ダウンロードしたい場所へ移動しダウンロードします(サイトから直接落としても可)。
+
+```
+cd ~/Desktop
+wget http://www.open-mpi.org/software/ompi/v4.0/downloads/openmpi-4.0.5.tar.gz
+```
+`wget`コマンドが無い場合は`brew install wget`で入れておいてください。
+
+次に落としたものを解凍します。
+
+```
+tar xzvf openmpi-4.0.5.tar.gz
+```
+これでOpenMPIのフォルダが自動で生成されるので、フォルダに移動し作業を進めます。
+
+```
+cd openmpi-4.0.5
+```
+`ls`コマンドでファイル一覧を見ればわかりますが、この時点ではMakefileがないので(Makefile.amなどは別物です)、作成する必要があります。
+
+```
+./configure CC=gcc CXX=g++ F77=gfortran FC=gfortran --enable-mpi-thread-multiple --prefix=/usr/local/bin
+```
+ここでCCはCのコンパイラ、CXXはC++のコンパイラ、F90, FCはfortranのコンパイラ、--prefixはインストール先のフォルダを指定します。
+これを行うとMakefileなどが生成されます。
+<font color=""Gray"">試していませんがfortranのコンパイラを入れておらず、fortranを使わないようであればF77, FCの指定はしなくて良いかもしれません。指定せずエラーが出た場合はfortranのコンパイラ(`gfortran`など)も入れておいてください。</font>
+
+
+####コンパイルとインストール
+Makefileが生成されている事を確認できたら、コンパイルを行い、それをインストールします。
+
+```
+make
+make install
+```
+どちらもかなり時間がかかります。
+権限が無い場合は`sudo make`, `sudo make install`。
+またもしエラーなどが出て`make`をやり直す場合は、生成されたファイルを一度消した方が良いかもしれません(フォルダごと削除してダウンロードからやり直すと無難)。
+
+####コマンドの確認
+OpenMPIを使用する際のコマンドはcとc++でそれぞれ`mpicc`, `mpic++`です。
+
+```
+which mpicc
+which mpic++
+```
+例えば`/usr/local/bin`と返されれば、そこに`mpicc`, `mpic++`コマンドがあります。
+パスをいくつか設定する必要があるため、実際にインストールされたフォルダの場所を調べます。
+上記の`which`コマンドで返された場所へ移動し、OpenMPIの情報を見ます
+
+```
+cd /usr/local/bin
+mpicc --version
+```
+`Configured with:`の欄に、`--prefix=インストールされたフォルダ`が書いてあるので、その場所(例えば`/usr/local/Cellar/gcc/10.2.0`)をメモします。
+
+####パスの編集
+**※gccの時と同様に、一般ユーザーであればアカウントを切り替えて行ってください**
+
+gccのパス設定と同様に、ホームに移動しパス編集用ファイルを開き以下を記述します。
+
+```:.zshrcまたは.bashrc
+#openmpi
+export MANPATH=インストールしたフォルダ/share/man:$MANPATH
+export LD_LIBRARY_PATH=インストールしたフォルダ/lib:$LD_LIBRARY_PATH
+export PATH=""インストールしたフォルダ/bin:$PATH""
+```
+ここでのインストールしたフォルダは、先程`mpicc --version`で確認したフォルダです。
+
+編集が終わったら、設定を読み込むためターミナルを再起動してください。
+
+####確認
+```
+echo $PATH
+echo $MANPATH
+echo $LD_LIBRARY_PATH
+```
+先程パス編集ファイルに記述した場所が含まれていればパスの設定は成功です。
+`mpicc`, `mpic++`コマンドが**無い**場所へ移動し(`cd ~`など)、
+
+```
+mpicc --version
+mpic++ --version
+```
+これで反応があればパスは通っています。OpenMPIが使用可能です。
+
+#サンプルプログラム
+https://mpitutorial.com/tutorials/mpi-hello-world/
+こちらのMPIのサンプルプログラムに、OpenMPによる複数スレッドからの出力を追加しました。
+
+```
+touch sample.cpp
+```
+```cpp:sample.cpp
+#include <stdio.h>
+#include <omp.h>
+#include <mpi.h>
+
+int main(){
+  //初期化
+  MPI_Init(NULL,NULL);
+
+  //プロセス数(この計算全体で何コア使用しているか)の取得。実行時にコア数は指定できる。
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  //ランク(現在何番目のコアで計算しているか)を取得
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  //プロセッサー名を取得
+  char processor_name[MPI_MAX_PROCESSOR_NAME];
+  int name_len;
+  MPI_Get_processor_name(processor_name, &name_len);
+
+//OpenMPによる並列化
+#pragma omp parallel
+  {
+    //ランクが0でスレッドが0の時、プロセス数と1プロセスあたりのスレッド数を出力
+    if(world_rank==0 && omp_get_thread_num()==0){
+      printf(""the number of processors : %d\n"", world_size);
+      printf(""the number of threads per 1 process : %d\n"", omp_get_num_threads());
+    }
+//出力している間他のスレッドはここで待機。不要かも。
+#pragma omp barrier
+  }
+  //出力している間他のコアはここで待機。無くても良い。
+  MPI_Barrier(MPI_COMM_WORLD);
+
+//各プロセス、各スレッドから出力
+#pragma omp parallel
+  {
+    printf(""Hello world from processor %s, thread %d, rank %d\n"", processor_name, omp_get_thread_num(), world_rank);
+  }
+
+  //終了処理
+  MPI_Finalize();
+
+  return 0;
+}
+```
+MPIによるコア並列処理はプログラム実行時に指定しますが、OpenMPによるスレッド並列処理はプログラム内に逐一記述します。
+
+OpenMPIのコンパイルはc,c++でそれぞれ`mpicc`, `mpic++`で行います。またOpenMPを有効にするにはコンパイルオプションで指定する必要があります。オプションはコンパイラによって異なりますが、gccの場合は`-fopenmp`です。
+
+```
+mpic++ -fopenmp sample.cpp
+```
+また使用するスレッド数(1プロセスあたり)はあらかじめ指定しておきます。指定する数字については下記の**補足：コア数、スレッド数の上限**を参照してください。
+指定方法はbashやzshでは下記のように`export OMP_NUM_THREADS=[スレッド数]`ですが、使用シェルによって変わります。また毎回同じ数を指定するのであれば、.bashrcや.zshrcに書いておくことでいちいち書かなくて良くなります。
+
+```
+export OMP_NUM_THREADS=2
+```
+今回は例として2個に指定しました。
+
+実行は`mpirun`で行います(試していませんが`mpiexec`でも出来るそうです)。
+
+```
+mpirun -np 4 ./a.out
+```
+`-np`または`-n`でOpenMPIで使用するコア数(プロセス数)を指定します。例として4個としています。
+
+```
+the number of processors : 4
+the number of threads per 1 process : 2
+Hello world from processor [プロセッサー名].local, thread 1, rank 0
+Hello world from processor [プロセッサー名].local, thread 0, rank 0
+Hello world from processor [プロセッサー名].local, thread 1, rank 1
+Hello world from processor [プロセッサー名].local, thread 0, rank 1
+Hello world from processor [プロセッサー名].local, thread 1, rank 2
+Hello world from processor [プロセッサー名].local, thread 0, rank 2
+Hello world from processor [プロセッサー名].local, thread 1, rank 3
+Hello world from processor [プロセッサー名].local, thread 0, rank 3
+```
+のように一度の実行でプロセス数×1プロセスあたりのスレッド数の数だけ`Hello world`が出力されていれば成功です。
+
+#補足：コア数、スレッド数の上限
+使用できるコア数はPCによって異なります。
+PCの全コア数の確認は、
+
+```
+system_profiler SPHardwareDataType
+```
+`Total Number of Cores:`の値が使用できる最大のコア数です。単一ノードの場合**これ以上の数字は指定出来ません。**
+
+またスレッド数はいくらでも増やせますが、**全スレッド数(1プロセスあたりのスレッド数×プロセス数)がPCの論理コア数を越えると一度に処理が出来ないので計算が遅くなります。**論理コア数の確認は、
+
+```
+sysctl -n hw.logicalcpu_max
+```
+また論理コア数を上回っていなくても、コア数とスレッド数は大きくしすぎるとデータを各スレッド、各コアに分ける作業や各スレッド、各コアから集める作業で時間がかかる可能性があるので注意してください。
+
+#参考文献
+* [MacでMPIとopenmpをハイブリッドにつかえる環境を構築する - Qiita](https://qiita.com/ymd_/items/c30d83d0f7642fb3af57)
+<br>メインで参考にした記事です。大まかにはこちらの記事で十分です。
+* [Homebrew - Mac用パッケージマネージャー](https://brew.sh/index_ja.html)
+<br>HomebrewのMac用インストールサイトです。
+* [Open MPI](http://www.open-mpi.org/software/ompi/)
+<br>OpenMPIのダウンロードページです。
+* [Open MPI Documentation](https://www.open-mpi.org/doc/)
+<br>OpenMPIのバージョン毎の関数の説明があります。
+* [MPI HELLO WORLD - MPI Tutorial](https://mpitutorial.com/tutorials/mpi-hello-world/) 
+<br>サンプルプログラムを書く際に参考にしたページです。
+* [OpenMPによるスレッド並列計算](http://www.eccse.kobe-u.ac.jp/assets/images/simulation_school/kobe-hpc-summer-basic-2018/KHPC2018-openmp.pdf)
+<br>OpenMPの概念と基本的な関数の説明を参考にしました。
+* [C言語によるOpenMP入門](https://www.cc.u-tokyo.ac.jp/events/lectures/03/kosyu-openmp_c.pdf)
+<br>コンパイラオプションや環境変数についても書いてあります。指示文の説明も参考にしました。
+"

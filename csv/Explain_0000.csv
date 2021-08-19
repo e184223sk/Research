@@ -1,0 +1,620 @@
+＜説明文を含む文章＞
+こちらの記事をQiitaにも共有してコミュニティに貢献したいと思います。
+https://academy.tinybetter.com/Article/37407ec1-cd3a-50c8-2fa1-39f6ed3dae74/View,
+ネット上には様々な記事が溢れていますが情報が断片化していてプログラムを始めた初心者には全体像を掴むのが難しいです。コンピューターサイエンスの基本的な理解とパフォーマンスTIPSをまとめた記事があまり見当たらないのでまとめてみました。,
+パフォーマンスチューニングの最も大事な原則は計測することです。
+計測用のツールをまとめておきます。,
+■BenchmarkDotNet
+https://benchmarkdotnet.org/articles/overview.html
+C#コードの計測をするツールです。Nugetから利用できます。Stopwatchクラスではなくこちらを使いましょう。StopwatchではGCなどの影響を正しく計測できません。,
+■Visual Studio プロファイリング ツール
+https://docs.microsoft.com/ja-jp/visualstudio/profiling/?view=vs-2019
+Visual Studioのプロファイリングツールを使用するとCPU、メモリ、スレッド、GC、LOHなどの状態を確認できます。呼び出しツリーを見ればどのメソッドのどのコードがCritical Pathなのかすぐに見つけることができます。,
+■Fiddler
+https://www.telerik.com/fiddler
+ネットワークの内容をキャプチャしてくれるツールです。
+https://zappysys.com/blog/how-to-use-fiddler-to-analyze-http-web-requests/,
+■ブラウザの開発者ツール
+Fiddlerをインストールしなくてもブラウザの開発者ツールでネットワークの内容をキャプチャすることもできます。Fiddlerの方が高機能な印象ですが簡単に調べるだけならブラウザの開発者ツールでも良いでしょう。,
+■Wireshark
+https://www.wireshark.org/download.html
+TCP/IP通信のキャプチャができるソフトです。
+https://knowledge.sakura.ad.jp/6286/
+https://hldc.co.jp/blog/2020/04/15/3988/,
+アプリケーション開発ではあまりお世話にならないかもしれませんが通信を深く見たい時がいつか来るかもしれません。覚えておきましょう。,
+■WinDbg
+https://docs.microsoft.com/ja-jp/windows-hardware/drivers/debugger/debugger-download-tools
+Windowsのダンプファイルを取得して解析することができます。スタックトレースを取得してどのメソッドが原因なのか解析できます。
+https://docs.microsoft.com/ja-jp/windows-hardware/drivers/debugger/debugging-using-windbg-preview
+https://docs.microsoft.com/en-us/windows-hardware/drivers/debugger/debugging-using-windbg
+クラッシュダンプ解析のはじめの一歩,
+この記事の内容はだいたい合ってると思いますが嘘があるかもしれません。C#が進化して昔と変わってしまったりなどがあるのでネットの情報を鵜呑みにするのではなく、しっかりと自分で計測して確かめることが大事です。,
+パフォーマンスへの影響を理解するためにはコンピューターとネットワークの原理の理解が欠かせません。コンピューターはCPU、メモリ、ハードディスクから構成されます。CPUは計算処理、メモリとハードディスクは記憶装置です。メモリはさらにいくつかの種類に細分化されます。,
+CPUの計算処理の向上により、メモリへの読み書きがついていけなくなりました。その結果、キャッシュメモリーという機構が用意されるようになりました。
+https://ascii.jp/elem/000/000/563/563800/
+キャッシュメモリー（1次）が一番早く、キャッシュメモリー（2次）→キャッシュメモリー（3次）→スタックメモリ→ヒープメモリ→SSD→ハードディスクの順で遅くなります。容量はハードディスクが一番大きいです。また価格はだんだん安くなります。,
+さてネットワーク通信にて、とある文字列を送信するには文字データをByteに変換し、DNSで名前解決してターゲットのPCを特定し、TCP/IPでthree-way handshakeでやり取りをしてからSliding Windowで徐々に送信量を増やしていくという処理になります。
+https://www.infraexpert.com/study/tcpip11.html
+https://ascii.jp/elem/000/000/619/619702/,
+上記の感じで処理がされるのでネットワーク通信は非常に時間がかかる処理になります。通信は最終的には電圧のON/OFFの信号へ変換され、ケーブルへの外部からの電波などの干渉で電圧信号が欠損したりするのでそれをTCP/IPが検出して再度送りなおしたりなどが発生するので遅くなります。UDPだと少し早いですがいずれにしてもネットワーク通信はプログラミングの中では一番遅い処理になります。,
+さてコンピューターとネットワークへの理解が深まったところで優先順位と基本的な取り組み方について学びます。ホットコードパス、ネットワーク呼び出し、ファイルIO、ヒープメモリ、スレッド、非同期などについて解説していきます。実践部分は今回はC#と.NETを例に解説していきますが、Python,Javaなどでもネットワーク通信、ヒープメモリ、ガベージコレクションの基本的な考え方は同じです。,
+まず最初に理解しておく必要があるのはホットコードパスの概念です。for文などの繰り返し処理の内部は何度も実行されます。例えば以下のような画面を考えます。
+,
+こういった画面を作るには下記の順でfor文などで繰り返し処理を書くことになるでしょう。
+複数のユーザー→複数の日付→複数のタスク
+概念的にはこんな感じになります。,
+とこんな感じだとしましょう。ネットワーク通信のコードが3つあります。,
+CreateTaskTableCellメソッドの内部のコードはホットコードパスになります。このメソッドは非常に多くの回数呼ばれます。例えばユーザーが100人、日数が21日、タスクが1日あたり平均5個ある場合、10500回呼ばれることになります。その中でDBから色データを取得するなどというコード（ネットワーク通信その3）を書いた場合、DBアクセスが10ミリ秒だとすると10ミリ秒×10500＝105秒はかかることになります。ページが表示されるまで2分弱かかることになるでしょう。ネットワーク通信その2は2100回なのでネットワーク通信その3よりはましですがこれも改善の必要があります。
+ネットワーク通信その1は1回しか呼ばれていないのでそのままでも良いでしょう。,
+このように実行される回数が多い部分のコードをホットコードパスと言い、このコードを優先的に改善していく必要があります。
+この動画
+https://www.youtube.com/watch?v=4yALYEINbyI
+の12:10では
+20%のコードが80%のリソースを消費している。
+4.0%のコードが64%のリソースを消費している。
+0.8%のコードが51%のリソースを消費している。
+と言っています。ホットコードパスがいかにリソースを消費しているのかがわかると思います。,
+注意するべきプログラムコードは多くの場合において以下の順番になります。
+・ネットワーク通信
+・ハードディスク操作
+・ヒープメモリ
+上記の順場とは別でCPU、スレッド、async、例外などについても理解し、パフォーマンスの良いコードを書くように注意する必要があります。,
+ネットワーク通信は遅いのでなるべく回数を減らしましょう。C#でネットワーク通信が発生しているメソッドを知ることが大事です。以下にネットワーク通信をしているクラスを列挙します。,
+SqlConnection、SqlCommand,
+HttpClient,
+Google Calendar,
+Azure Blob Storage,
+だいたい感覚は掴めてきましたでしょうか？DBサーバーや外部のWEBサーバー、Saas（Google、Stripe、Office365、Blob）のAPIなどの呼び出しでデータを取得するときにはネットワーク通信が発生しています。自分のPCでプログラムを走らせているとイメージが掴みやすいですよね。GoogleカレンダーであればGoogleのデータセンターのコンピューターに保存されているデータを取得するので、ネットワーク通信が発生することになります。,
+さらに言うとこのデータはおそらくハードディスク（もしくはSSD）に保存されているでしょう。非常に時間がかかるネットワーク通信をした後に、これまた時間のかかるハードディスクからデータを読み取り、その値をまたネットワーク通信で返却する、という流れになるのでこれらのメソッドの実行は非常に遅いです。,
+ネットワークの次はファイル操作のコードについてです。ファイル操作をするいくつかのクラスを知っておきましょう。,
+FileStreamクラスを利用する場合もハードディスクへの操作になります。,
+ヒープメモリを効率的に使うために必要なTipsについての目次です。
+・不要なnewを避ける
+・ボクシング
+・String is immutable
+・StringBuilder
+・String.Intern
+・Listを正しく初期化する
+・ラムダ式のキャプチャを意識する
+・ArrayPoolを使用する
+・Taskの代わりにValueTaskを使用する
+・SpanとStackAllocを活用する,
+不要なnewはヒープメモリを浪費します。避けましょう。,
+文字の比較で両方を小文字にするなども避けましょう。,
+代わりにStriing.Compareを使用します。,
+値型をObject型などにアサインするとボクシングが発生します。,
+ボクシングが発生するとメモリの割り当てが発生します。
+,
+ヒープメモリの割り当ては時間がかかる処理です。（ネットワーク通信＞ハードディスク操作＞ヒープメモリ割り当て）
+https://ufcpp.net/study/computer/MemoryManagement.html
+不要なボクシングは避けましょう。,
+値型をインターフェースへキャストするとボクシングを発生させます。,
+避けられるのならば避けましょう。,
+まずあまり書かれていない重要な事としてStringはクラスですが不変であるということです。
+https://docs.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/reference-types,
+これはどういうことかというと例えば以下のようなコードがあるとして,
+このコードを書いたときのメモリの動作として下図のようなイメージを持つかもしれませんが
+,
+実際には以下のようにヒープメモリに新しい領域を確保します。
+,
+これがStringは不変と言われる理由です。Stringの変更をある程度の回数行う場合はStringBuilderを使用しましょう。,
+この例では最初からHello World!という値をセットすればいい話ですが、実際にはテキストボックスの入力値からクエリを組み立てるとか、ユーザーへのメッセージを組み立てるとか、そういう場合にStringBuilderを使用することになるでしょう。,
+Stringで文字の連結や変更を何度も行うとその回数だけヒープメモリの確保と以前使用した値（この例だとHello）が使われないメモリとなり、ガベージコレクションの回数が増加します。,
+アプリケーションの中で何度も使用する文字列はInternメソッドでインターン化しておくとメモリの消費を抑制しパフォーマンスの改善が期待できます。例えば追加ボタンの「追加」という文字などはインターン化するのに良い対象となるでしょう。,
+List系のクラスのコンストラクタにはcapacityを受け取るオーバーロードがあります。このオーバーロードを使用すると内部で用意する配列のサイズを指定できます。例えばタスク一覧ページがあり、1ページあたり50件のタスクを表示するのであれば50を最初から指定してあげることで配列の再生成を防ぐことができます。結果としてメモリの消費の抑制と処理時間の短縮が期待できます。,
+Listのソースコードです。,
+,
+アイテムを追加して内部の配列の長さを超える場合、EnsureCapacityメソッドで配列の作り直しを行っています。サイズが分かっている場合は最初から指定して無駄なメモリ使用を避けましょう。,
+ラムダ式で外部変数をキャプチャした場合、暗黙的にクラスが定義されそのインスタンスが生成されます。,
+これは以下のようにコンパイルされます。,
+外部変数をキャプチャするとインスタンスが生成されヒープメモリを消費します。特にホットコードパスでのラムダ式の使用では注意が必要です。最新のC#ではラムダ式にstaticキーワードをつけて外部変数のキャプチャを禁止することができるので外部変数の意図しないキャプチャを防ぎたいのならば積極的に利用していきましょう。,
+staticメソッドのデリゲートが遅くなります。以下にその理由が詳しく書いてあります↓
+https://ufcpp.net/study/csharp/functional/miscdelegateinternal/#static-method
+その他、staticメソッドのデリゲートが遅くなるとかいろいろなテスト結果です。
+https://gist.github.com/ufcpp/b2e64d8e0165746effbd98b8aa955f7e,
+以下のようなコードを考えてみましょう。,
+静的メソッドをそのまま引数として渡す書き方の場合、実際には以下のようにコンパイルされます。,
+毎回Funcクラスのインスタンスが作成されてメモリを浪費します。さらにデリゲート呼び出しがインスタンスメソッドの方に最適化されているのが原因で呼び出し自体も非常に遅いです。,
+ラムダで囲んでおくと
+https://ufcpp.net/study/csharp/sp2_anonymousmethod.html#static,
+みたいな感じに展開され、無駄なインスタンスの生成がゼロになります。メモリの無駄遣いを抑制し、ガベージコレクションの回数を減らすことができます。またインスタンスメソッドの呼び出しになっているので呼び出しが遅くなることもありません。,
+例えばファイルのダウンロード処理や、WEBサイトでアップロードされたファイルを処理する場合、Byte[]でデータをやり取りします。バッファでByte[]を使用することもあると思います。ArrayPoolを使用することでByte[]のヒープメモリへのアロケーションを避け、既に用意されているByte[]を使用できます。
+http://ikorin2.hatenablog.jp/entry/2020/07/25/113904
+ヒープメモリへのアロケーションを避けることにより、ガベージコレクションの回数が減ることが期待できます。,
+https://www.buildinsider.net/column/iwanaga-nobuyuki/009
+非同期メソッドが何階層にも渡って呼び出されている場合にはパフォーマンスの向上が見込めます。,
+Stringや配列にたいしてSpanやStackallocを活用するとパフォーマンスの向上とメモリ使用量の低減が可能です。
+https://ufcpp.net/blog/2018/12/spanify/,
+C#では.NET Framework（.NET Core）がメモリを管理してくれるガベージコレクションという仕組みがあります。
+https://docs.microsoft.com/ja-jp/dotnet/standard/garbage-collection/fundamentals
+簡単に言うと、ヒープメモリを3世代に分けて管理し、どこからも参照されなくなったヒープメモリをクリアして空いたスペースを詰めてメモリを整理してくれる仕組みです。
+https://ufcpp.net/study/csharp/rm_gc.html
+https://ufcpp.net/study/computer/MemoryManagement.html?sec=garbage-collection#garbage-collection,
+ヒープメモリを消費していくとどこかのタイミングでガベージコレクションの処理が実行されます。この処理は重い処理になります。なるべくガベージコレクションが発生する回数が少なくなるようにしましょう。特にGen2のコレクション処理は非常に重くなります。ヒープメモリを無駄遣いしない、Byte[]などの配列データを再利用するなどの方法を活用してGCの発生回数を減らしましょう。,
+ガベージコレクションの実行時間が長くならないためのTipsです。
+https://docs.microsoft.com/en-us/previous-versions/dotnet/articles/ms973837(v=msdn.10),
+まとめると
+・多くのアロケーションがあると実行時間が長くなります。
+・巨大なオブジェクト（new Byte[10000]とか）があると実行時間が長くなります。
+・オブジェクトが複雑にお互いを参照しているようなクラスがあると参照されていない事の検証処理に時間がかかります。
+・ルートオブジェクトが多いと参照されていない事の検証処理に時間がかかります。
+・ファイナライザがあるクラスの作成は注意して実装する。,
+https://docs.microsoft.com/ja-jp/dotnet/csharp/programming-guide/classes-and-structs/destructors
+ファイナライザがあると自動的に世代が1世代昇格されます。これはつまりGen0での回収がされないことを意味します。
+ファイナライザがあると300倍ほど遅くなります。↓
+https://michaelscodingspot.com/avoid-gc-pressure/
+またファイナライザの実装に問題があると以下のような問題が発生します。
+https://troushoo.blog.fc2.com/blog-entry-56.html
+注意しましょう。,
+https://michaelscodingspot.com/ways-to-cause-memory-leaks-in-dotnet/
+https://michaelscodingspot.com/find-fix-and-avoid-memory-leaks-in-c-net-8-best-practices/,
+イベントハンドラー
+匿名メソッド、ラムダ式でのキャプチャ
+Staticフィールドはガベージコレクションのルートになる
+WPFのBindingについて
+キャッシュするデータ量が多いとメモリが不足してOutOfMemoryExceptionが発生する
+Week Referenceについて
+終了しないThread（Timersも）のStackに積まれた変数はガベージコレクションのルートになる,
+メモリがリークするとそのメモリは解放されず使用可能なメモリ領域が減少しガベージコレクションが頻発することになります。ガベージコレクションは重い処理なのでアプリケーション全体のパフォーマンスが低下します。,
+例外の発生は重い処理です。不要な例外の発生は避けましょう。,
+Parseメソッドの代わりにTryParseメソッドがあります。,
+まずはデータアクセスのクラスです。,
+DataSetやDataTableはいろいろな機能があって遅いです。単にデータを読み取るだけならばDataReaderを使用するようにしましょう。,
+複数行を一括で処理する場合はTVP(Table-Valued Parameter)かSqlBulkCopyを使用しましょう。
+https://www.sentryone.com/blog/sqlbulkcopy-vs-table-valued-parameters-bulk-loading-data-into-sql-server
+1000以下のレコードであればTVPの方が高速です。これはBulk Insertは初期化処理に多少時間がかかるためです。
+https://docs.microsoft.com/en-us/sql/relational-databases/tables/use-table-valued-parameters-database-engine?view=sql-server-ver15#BulkInsert
+1000以上のレコードの挿入の場合、SqlBulkCopyを使用してデータを挿入しましょう。,
+TVPのストアドをC#から呼び出すのは結構面倒くさいです。DbSharpを使用するとC#の呼び出しコードを簡単に自動生成できます。
+DbSharp（ストアドを実行するC#のソースコード自動生成ツール）の紹介
+活用しましょう。,
+Dictionaryのキーの比較にはGetHashCodeが使用されます。キーにStringやEnumを使用するとキーの比較は低速です。
+http://proprogrammer.hatenadiary.jp/entry/2014/08/17/015345
+Enumをキーに使用する場合に高速化する手法です↓
+https://stackoverflow.com/questions/26280788/dictionary-enum-key-performance/26281533
+可能であればInt32などをキーとして使用しましょう。,
+Wait()メソッドやResultプロパティは使用しないようにしましょう。処理が完了するまでの間、スレッドをブロックしてしまいます。asyncを使用すれば待ち時間の間スレッドを解放します。その解放されたスレッドは他の処理の実行に使用されます。
+WEBサイトなどでは並列にリクエストが飛んできて、DBからのデータの取得などで待ちが発生します。全て非同期にすることでスレッドがただ何もしないで待つという事がなくなり、常にどれかのリクエストの処理を実行している形になるので全体のスループットが向上します。,
+Streamを使用することでデータを順次読み込み・書き込みすることができます。使える場合は使っていきましょう。,
+公式ドキュメントによるとHttpClientは特殊な使用方法を要求されます。
+https://docs.microsoft.com/ja-jp/dotnet/api/system.net.http.httpclient?view=netcore-3.1
+適切な使用方法の参考記事です↓
+https://qiita.com/superriver/items/91781bca04a76aec7dc0,
+HttpClientFactoryを利用するとDIやリトライなどが楽に設定できます。
+https://docs.microsoft.com/en-US/dotnet/architecture/microservices/implement-resilient-applications/use-httpclientfactory-to-implement-resilient-http-requests,
+Socketでのデータの送受信ではByte[]を利用します。,
+BeginSendに渡したByte[]はI/O Completion PortでOSからI/O完了時にデータが書き込まれます。OSがこのアドレスに間違いなく書き込めることを保証する必要があり、このbufferはガベージコレクションの処理時に勝手にアドレスが動かないようPINされます。
+http://ahuwanya.net/blog/post/Buffer-Pooling-for-NET-Socket-Operations,
+問題は例えば1024のサイズのバッファーを使用してデータを送ると1MBのデータを送るにはSendCallbackが1000回実行され、Byte[]のインスタンスが1000個生成され、その全てがPINされることになります。PINされたオブジェクトはガベージコレクションで移動されないのでメモリが断片化します。その結果、Out Of Memoryが発生します。,
+その他、様々な高速化のTipsを紹介します。,
+リフレクションは非常に遅い処理になります。,
+実行回数を減らして低速化を回避しましょう。,
+GetProperty,GetMethodなどは低速です。キャッシュを使用して低速化を回避しましょう。
+https://yamaokuno-usausa.hatenablog.com/entry/20090821/1250813986,
+dynamicを利用するとキャッシュをある程度コンパイラがいい感じにやってくれます↓
+https://ufcpp.net/study/csharp/misc_dynamic.html,
+Generic Type Cachingを使用するとコンパイル時にマップが完了しているため高速です。静的にTypeが確定できる場合は利用していきましょう。
+http://csharpvbcomparer.blogspot.com/2014/03/tips-generic-type-caching.html,
+Expressionのコンパイルは重い処理です。コンパイル済みのデリゲートをキャッシュするようにしましょう。,
+以下のコードでRegexクラスをコンパイル済みにします。
+var rg= new Regex("[a-zA-Z0-9-]*", RegexOptions.Compiled);
+コンパイル済みにすることでパフォーマンスの向上が期待できます。,
+EnumのToStringは内部でリフレクションを使用しています。
+https://referencesource.microsoft.com/#mscorlib/system/type.cs,d5cd3cb0c6c2b6c1,
+リフレクションを使用しているため非常に遅いです。
+高速化する方法は以下になります↓
+https://qiita.com/higty/items/513296536d3b26fbd033,
+ループを展開すると高速化が可能です。例えば配列の全ての値を1増やす場合を考えてみます。,
+ループを展開し、4つの要素を一気に処理するように変更します。,
+ループ処理では毎回処理を繰り返すかの条件を検証する式（i &lt; numberList.Length）とインクリメント（i++）の処理が実行されます。
+展開することで40000回の上記の処理が10000回になり、30000回の条件の評価とインクリメントの処理がなくなることになります。配列の要素数が4の倍数でない場合は多少の調整が必要ですが、このようにループの展開を使用すると処理を高速化できます。4ではなく10とかもっと増やせばもっと高速化できます。,
+foreachはCurrentプロパティへのアクセス、MoveNextメソッドの呼び出しが毎回あるためforよりもわずかに低速です。通常の多くの部分では無視できるくらいの差しかありませんが、非常にシビアなパフォーマンスの向上が求められる場合にはforの使用を検討してみましょう。特に配列とforの組み合わせだとコンパイラが相当な最適化をしてくれます。,
+LINQ風のメソッドチェーンを繋げる呼び出しはメソッド呼び出しの分などで少し遅いorだいぶ遅くなることがあります。
+このページのコメントのやり取り参照↓
+https://michaelscodingspot.com/performance-problems-in-csharp-dotnet/,
+LINQ風の書き方,
+LINQ風の書き方でもオプティマイザが最大限最適化してくれはしますが、通常のforeachの方が早いことがほとんどです。,
+ソース↓
+https://stackoverflow.com/questions/5099604/any-faster-way-of-copying-arrays-in-c
+https://marcelltoth.net/article/41/fastest-way-to-copy-a-net-array
+https://www.youtube.com/watch?time_continue=4&amp;v=-H5oEgOdO6U&amp;t=1689
+この動画によるとArray.CopyToが最速っぽいです。理由はOSのAPIを直接呼出しているからと言ってます。,
+,
+Arrayのループは以下が最速,
+ローカル変数にLengthを保存すると遅くなる,
+下のコードの場合は他スレッドからの変更とかを考慮するとlength変数が変更されていないことを保証するのが難しい（コンパイルに時間がかかる）です。その結果、Arrayの境界値チェックが働くので遅くなってしまいます。最初の例だとa.Lengthは配列の長さ以内という事が確定しているので境界値チェックを省略し、配列の各要素への処理を最適化した中間コードが生成されるので速くなります。,
+プロパティは実際にはメソッドです。プロパティアクセスの際にはメソッド呼び出しが挟まることになります。パフォーマンスがシビアに求められる環境ではメソッド呼び出しのコストさえも容認できないときがあります。そのようなときはプロパティではなくフィールドにしてしまうことも検討しましょう。,
+2重ループのインデックスの順序を間違うとCPUのメモリ局所性をうまく活用できず処理が遅くなることがあります。
+https://raygun.com/blog/c-sharp-performance-tips-tricks/,
+メモリ局所性をうまく活用できるコード,
+うまく活用できないコード,
+上のコードの方が8倍ほど高速です。上記のコードの方が使用するデータがメモリー上で近い位置に配置されて一気に読み込めます。,
+UIが反応がないとユーザーはストレスを感じます。長時間かかる処理などはバックグラウンドスレッドで実行し、UIスレッドは常に反応するようにしましょう。Threadクラスを使用するかasync、awaitパターンを使用しましょう。,
+DBのデータやネットワーク通信で取得したデータ、ファイル操作で取得したデータなどをメモリ上やRedis上に置いておいてアクセスを高速化します。キャッシュに適しているのは以下の特性を持つデータです。
+・データ量が小さい
+・頻繁に参照される
+・あまり変更されない
+メモリ上の保持するためあまり大きなデータをキャッシュしてしまうとメモリが枯渇します。あまり参照されないものをキャッシュすると貴重なメモリ領域を無駄に浪費することになります。キャッシュ元のデータが更新された場合、キャッシュを更新する必要があります。頻繁に更新されるデータをキャッシュすると更新処理でCPUとメモリを使用するのでこのようなデータはキャッシュに適していません。,
+以上を踏まえると例えば以下のようなデータがキャッシュの対象として適切です。,
+・アプリケーションのテキスト（追加ボタンの”追加”という文字などは不変）
+・組織マスタ（1年に1回しか変更されない）
+・先月の売上データの表のHTML（先月の売上データは不変）
+などが挙げられます。,
+基本的にはstaticフィールド（もしくはプロパティ）で実装することになるでしょう。元のデータが更新されたときにはこのデータを更新します。WEBアプリケーションの場合は複数のスレッドからのアクセスがあるため、lockなどで競合の管理が必要です。,
+またクラウドでWEBアプリをスケールアウトしている場合はRedisのPublish、Subscribeを使用して複数のWEBアプリに通知を送ることで全てのWEBアプリのキャッシュを更新することが可能です。,
+この記事ではC#を例にしてキャッシュを紹介していますが、キャッシュの仕組み自体は応用が利きます。CDN、DNS、ブラウザの画像ファイルなど様々なところでキャッシュの仕組みが使われています。,
+忘れずにリリースビルドにしましょう。,
+ハイパフォーマンスなアプリケーションの作成方法に興味がある方向けにいくつか記事を書いてみました。
+タスク管理を作ってみた　～初級からレベルアップするためのツールとサービスたち～
+WEBアプリケーションのパフォーマンスをUPするために知っておくべき技術と知識
+C#で世界最速のMapperライブラリを作ってみた（AutoMapperなどよりも3倍-10倍ほど高速）
+プログラマのための機能のUIデザイン
+世界で通用するエンジニアになるための高度な技術記事（英語）,
+※その他の引用した記事
+https://michaelscodingspot.com/performance-problems-in-csharp-dotnet/
+https://devblogs.microsoft.com/dotnet/system-io-pipelines-high-performance-io-in-net/
+https://raygun.com/blog/c-sharp-performance-tips-tricks/
+https://www.c-sharpcorner.com/UploadFile/dacca2/5-tips-to-improve-performance-of-C-Sharp-code/
+https://michaelscodingspot.com/avoid-gc-pressure/
+https://michaelscodingspot.com/challenging-the-c-stringbuilder/,
+,
+
+＜プログラム＞
+private void ShowCalendar()
+{
+    List&lt;UserRecord&gt; userList = GetUserList(); //ネットワーク通信その1
+    foreach (var user in userList)
+    {
+        var startDate = new DateTime(2020, 9, 12);
+        for (var i = 0; i &lt; 21; i++)
+        {
+            var date = startDate.AddDays(i);
+            var taskList = GetTaskList(date); //ネットワーク通信その2
+            foreach (var task in taskList)
+            {
+                CreateTaskTableCell(task);
+            }
+        }
+    }
+}
+private void CreateTaskTableCell(TaskRecord record)
+{
+    //HOT PATH!!!!!!
+
+    // Get color of Task
+    var color = GetColorFromDatabase(); //ネットワーク通信その3
+}
+,
+var cn = new SqlConnection();
+var cm = new SqlCommand("insert into Table1.....");
+cm.Connection = cn;
+cn.Open(); //ネットワーク通信が発生しているかも？調べてみてね。
+cm.ExecuteNonQuery(); //ネットワーク通信が発生！
+,
+var cl = new HttpClient();
+var res = await cl.GetAsync("https://www.hignull.com"); //ネットワーク通信が発生！
+,
+var credential = new ServiceAccountCredential(
+new ServiceAccountCredential.Initializer(serviceAccountEmail)
+{
+    Scopes = new[] { CalendarService.Scope.Calendar }
+});
+var sv = new CalendarService(new BaseClientService.Initializer()
+{
+    HttpClientInitializer = credential,
+    ApplicationName = "MyApp1",
+});
+var req = new EventsResouce.ListRequest(sv, "calendarID");
+var eventList = req.Execute(); //ネットワーク通信が発生！
+,
+CloudStorageAccount account = CloudStorageAccount.Parse("My connection string");
+var cl = account.CreateCloudBlobClient();
+var container = cl.GetContainerReference("My Container name");
+var list = container.ListBlobs(); //ネットワーク通信が発生！
+,
+var text = System.IO.File.ReadAllText("C:\\Doc\\MyMemo.txt");
+,
+FileStream fs = new FileStream("C:\\Doc\\MyMemo1.txt", FileMode.Create);
+StreamWriter sw = new StreamWriter(fs);
+sw.WriteLine("WIFI Number 1234-5678-4563");
+sw.Close();
+fs.Close();
+,
+private void Main()
+{
+    List&lt;UserRecord&gt; userList = new List&lt;UserRecord&gt;();
+    userList = GetUserList();
+}
+private List&lt;UserRecord&gt; GetUserList()
+{
+    List&lt;UserRecord&gt; userList = new List&lt;UserRecord&gt;();
+    // get user list...
+    return userList;
+}
+,
+var s1 = "a";
+var s2 = "A";
+var isSameString = s1.ToLower() == s2.ToLower(); //メモリが浪費される
+,
+var s1 = "a";
+var s2 = "A";
+var isSameString = String.Compare(s1, s2, StringComparison.CurrentCultureIgnoreCase);
+,
+int x = 10;
+object o = x; //ボクシング発生！
+,
+struct MyStruct : IComparer&lt;int&gt;
+{
+    public int Compare(int x, int y)
+    {
+        return x.CompareTo(y);
+    }
+}
+private Main()
+{
+    int s = new MyStruct();
+    IComparer&lt;int&gt; comparer = s; //ボクシング発生！
+    s.Compare(0, 1); 
+}
+,
+string s = "Hello";
+s = "Hello World!";
+,
+StringBuilder sb = new StringBuilder();
+sb.Append("Hello");
+sb.Append("World!");
+,
+List&lt;TaskRecord&gt; taskList = new List&lt;TaskRecord&gt;(50);
+,
+    public class List&lt;T&gt; : IList&lt;T&gt;, System.Collections.IList, IReadOnlyList&lt;T&gt;
+    {
+        private const int _defaultCapacity = 4;
+
+        static readonly T[]  _emptyArray = new T[0];        
+        public List() {
+            _items = _emptyArray;
+        }
+        public List(int capacity) {
+            if (capacity &lt; 0) ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
+            Contract.EndContractBlock();
+
+            if (capacity == 0)
+                _items = _emptyArray;
+            else
+                _items = new T[capacity];
+        }        
+
+        // 省略.............................
+
+        public void Add(T item) {
+            if (_size == _items.Length) EnsureCapacity(_size + 1);
+            _items[_size++] = item;
+            _version++;
+        }                
+        private void EnsureCapacity(int min) {
+            if (_items.Length &lt; min) {
+                int newCapacity = _items.Length == 0? _defaultCapacity : _items.Length * 2;
+                if ((uint)newCapacity &gt; Array.MaxArrayLength) newCapacity = Array.MaxArrayLength;
+                if (newCapacity &lt; min) newCapacity = min;
+                Capacity = newCapacity;
+            }
+        }        
+,
+public Action GetWriteLineAction(int number)
+{
+    return () =&gt; Console.WriteLine(number);
+}
+,
+public class __GeneratedClass
+{
+    public int number;
+    public void GeneratedMethod()
+    {
+        Console.WriteLine(number);
+    }
+}
+public Action GetWriteLineAction(int number)
+{
+    var c = new __GeneratedClass();
+    c.number = number;
+    return c.GeneratedMethod;
+}
+,
+static void Main(string[] args)
+{
+    var textList = new List&lt;String&gt;();
+    textList.Add("   "); //Empty
+    textList.Add("Higty");
+    //....いくつか追加
+    textList.Where(String.IsNullOrWhiteSpace); //静的メソッド
+    textList.Where(x =&gt; String.IsNullOrWhiteSpace( x ) ); //ラムダで囲む
+}
+,
+textList.Where(new Func&lt;String, Boolean&gt;(string.IsNullOrWhiteSpace));
+,
+class __GeneratedClass
+{
+    static Func&lt;String, Boolean&gt; _ActionCache = null;
+    internal Boolean __GeneratedMethod(String text)
+    {
+        return String.IsNullOrWhiteSpace(text);
+    }
+}
+static void Main(string[] args)
+{
+    if (__GeneratedClass._ActionCache == null)
+    {
+        __GeneratedClass._ActionCache = __GeneratedClass.__GeneratedMethod;
+    }
+    textList.Where(__GeneratedClass._ActionCache);
+}
+,
+private Int32? GetNumber(String text)
+{
+    try
+    {
+        var x = Int32.Parse(text);
+        return x;
+    }
+    catch (Exception ex)
+    {
+        return null;
+    }
+}
+,
+private Int32? GetNumber(String text)
+{
+    if (Int32.TryParse(text, out var x))
+    {
+        return x;
+    }
+    return null;
+}
+,
+private voi Send()
+{
+    var buffer = new Byte[1024];
+    socket.BeginSend(buffer, ...);
+}
+,
+List&lt;UserRecord&gt; userList = GetUserList();
+foreach (var user in userList)
+{
+    PropertyInfo namePropertyInfo = Typeof(UserRecord).GetProperty("Name"); //非常に遅い！
+    String userName = (String)namePropertyInfo.GetValue(u);
+}
+,
+PropertyInfo namePropertyInfo = Typeof(UserRecord).GetProperty("Name");
+
+List&lt;UserRecord&gt; userList = GetUserList();
+foreach (var user in userList)
+{
+    String userName = (String)namePropertyInfo.GetValue(u);
+}
+,
+public override String ToString()
+{
+    return Enum.InternalFormat((RuntimeType)GetType(), GetValue());
+}
+//************************省略***************************
+private void GetEnumData(out string[] enumNames, out Array enumValues)
+{
+    Contract.Ensures(Contract.ValueAtReturn&lt;String[]&gt;(out enumNames) != null);
+    Contract.Ensures(Contract.ValueAtReturn&lt;Array&gt;(out enumValues) != null);
+
+    FieldInfo[] flds = GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+    object[] values = new object[flds.Length];
+    string[] names = new string[flds.Length];
+
+    for (int i = 0; i &lt; flds.Length; i++)
+    {
+        names[i] = flds[i].Name;
+        values[i] = flds[i].GetRawConstantValue();
+    }
+
+    // Insertion Sort these values in ascending order.
+    // We use this O(n^2) algorithm, but it turns out that most of the time the elements are already in sorted order and
+    // the common case performance will be faster than quick sorting this.
+    IComparer comparer = Comparer.Default;
+    for (int i = 1; i &lt; values.Length; i++)
+    {
+        int j = i;
+        string tempStr = names[i];
+        object val = values[i];
+        bool exchanged = false;
+
+        // Since the elements are sorted we only need to do one comparision, we keep the check for j inside the loop.
+        while (comparer.Compare(values[j - 1], val) &gt; 0)
+        {
+            names[j] = names[j - 1];
+            values[j] = values[j - 1];
+            j--;
+            exchanged = true;
+            if (j == 0)
+                break;
+        }
+
+        if (exchanged)
+        {
+            names[j] = tempStr;
+            values[j] = val;
+        }
+    }
+
+    enumNames = names;
+    enumValues = values;
+}
+,
+var numberList = new Int32[40000];
+for (var i = 0; i &lt; numberList.Length; i++)
+{
+    numberList[i] += 1;
+}
+,
+var numberList = new Int32[40000];
+for (var i = 0; i &lt; 10000; i = i + 4)
+{
+    numberList[i] += 1;
+    numberList[i + 1] += 1;
+    numberList[i + 2] += 1;
+    numberList[i + 3] += 1;
+}
+,
+var numbers = GetNumbers();
+int total = numbers.Where(n =&gt; n % 2 == 0).Sum(n =&gt; n * 2);
+return total;
+,
+var numbers = GetNumbers();
+int total = 0;
+foreach (var number in numbers)
+{
+    if (number % 2 == 0)
+    {
+        total += number * 2;
+    }
+}
+return total;
+,
+int hash = 0;
+for (int i=0; i&lt; a.Length; i++)
+{
+    hash += a[i];
+}
+,
+int hash = 0;
+int length = a.length;
+for (int i=0; i&lt; length; i++)
+{
+    hash += a[i];
+}
+,
+for (int i = 0; i &lt; _map.Length; i++)
+{
+    for (int n = 0; n &lt; _map.Length; n++)
+    {
+        if (_map[i][n] &gt; 0)
+        {
+            result++;
+        }
+    }
+}
+,
+for (int i = 0; i &lt; _map.Length; i++)
+{
+    for (int n = 0; n &lt; _map.Length; n++)
+    {
+        if (_map[n][i] &gt; 0)
+        {
+            result++;
+        }
+    }
+}
+,
+public class CacheData
+{
+    public static Dictionary&lt;String, String&gt; TextList = new Dictionary&lt;String, String&gt;();
+}
+,
+,
+

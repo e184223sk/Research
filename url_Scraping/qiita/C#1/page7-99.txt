@@ -1,0 +1,119 @@
+FreeRTOSヒープメモリ管理まとめ,"# ヒープメモリ
+ヒープメモリとはプログラムの実行中に確保されるメモリをさします。Cの`malloc()`関数で確保されるメモリと言えばC言語に馴染みのある人にはわかると思います。FreeRTOSはカーネルオブジェクト(タスク、キュー、セマフォ)をヒープメモリ上に配置します。このことは、プログラマがカーネルオブジェクトのメモリ配置を考慮する負担をなくします。ヒープメモリはRTOSに不可欠な構成要素です。
+
+通常のWindowsアプリでは`malloc()`と`free()`関数を用いてヒープメモリの管理が行われますが、組み込み環境ではそのようにはいきません。これは以下の理由によるためです。
+
+1. ほとんどの組み込み環境では`malloc()`と`free()`がサポートされていない
+2. 大抵の`malloc()`と`free()`関数の実装は巨大でメモリが限られている組み込み環境に適さない
+3. 大抵スレッドセーフでない
+4. 処理時間が確保するメモリサイズや呼び出しタイミングに左右される
+5. フラグメンテーションが発生する
+6. リンカー設定を修正する必要がある
+7. ヒープに確保されたメモリのサイズが大きくなるにつれて困難なバグの発生原因となる
+
+FreeRTOSでは`malloc()`と`free()`の代わりに`pvPortMalloc()`関数と`vPortFree()`関数を使います。
+
+```c:
+void heap_sample()
+{
+    char* message;
+
+    message = (char*) pvPortMalloc(4); // 確保するサイズを引数で指定。4バイト確保
+    message[0] = 'H';
+    message[1] = 'i';
+    message[2] = '!';
+    message[3] = 0;
+
+    pvPortFree(message); // 使い終わったら解放する。
+}
+```
+
+`pvPortMalloc()`関数と`vPortFree()`関数の実装は自分で定義することができます。FreeRTOSでは**FreeRTOS/Source/portable/MemMang**ディレクトリに以下5種類の実装を提供しています。
+
+1. Heap_1
+2. Heap_2
+3. Heap_3
+4. Heap_4
+5. Heap_5
+
+次節からはHeap_1からHeap_5の詳細を順に説明します。
+
+## Heap_1 
+**FreeRTOS/Source/portable/MemMang/heap_1.c**に実装されています。
+Heap_1は最も単純な実装です。コンパイル時に配列として割り当てられたメモリ領域を`pvPortMalloc()`関数が呼び出されるたびに切り出して、ポインタとして返します。Heap_1はメモリを割り当てるだけで削除することはありません。したがって、`vPortFree()`は実装されていません。
+コンパイル時に割り当てるメモリ領域のサイズは`configTOTAL_HEAP_SIZE`変数の値を修正することで変更することができます。
+Heap_1は動的メモリを割り当てるだけで解放することはできません。注意深くプログラミングしないとすぐに枯渇してしまうという問題がありますが、フラグメンテーションなど動的メモリの割当てに伴う問題が発生しないというメリットがあります。
+
+## Heap_2 
+Heap_2はHeap_1と同様に`configTOTAL_HEAP_SIZE`変数でサイズが指定された配列を切り分けて動的メモリとして使用します。Heap_1との違いは
+
+- メモリの割当にベストフィットアルゴリズムを使用すること
+- 割り当てられたメモリを`vPortFree()`で解放できる
+
+Heap_2は後方互換のために用意されているので使用は推奨されていません。代わりにHeap_4を使用してください。
+
+ベストフィットアルゴリズムは`pvPortMalloc()`関数で要求されたメモリサイズに最も近いサイズの空きメモリを返すことを保証します。このことは、`pvPortMalloc()`関数と`vPortFree()`関数によって確保される・開放されるメモリのサイズが毎回同じときに効率よくメモリの割当てが行うことができます。
+
+## Heap_3 
+Heap_3は標準ライブラリの`malloc()`関数と`free()`関数が使われます。`configTOTAL_HEAP_SIZE`変数は無視されます。スレッドの同期にためにスケジューラによるタスクの切り替えは`pvPortMalloc()`と`vPortFree()`関数の呼び出しの間は停止されます。
+
+## Heap_4 
+Heap_1とHeap_2と同様に配列を小分けにしてメモリの割当を行います。メモリの割当てにはファーストフィットアルゴリズムが使われます。ファーストフィットアルゴリズムはHeap_2で用いられているベストフィットアルゴリズムよりもフラグメンテーションに強いアルゴリズムです。
+Heap_4はサイズのみならず割当てに使われる配列のアドレスを変更することができます。
+**FreeRTOSConfig.h**の`configAPPLICATION_ALLOCATED_HEAP`変数の値を1にすると、割当に使われる配列の実装は`uint8_t`型の配列`ucHeap`が使われます。`ucHeap`はアプリケーション側で定義する必要があります。また、`configTOTAL_HEAP_SIZE`のサイズである必要があります。
+特定のアドレスに配列を配置する方法はコンパイラーによって変わります。GCCの場合は`__attribute__`を使って配置するアドレス(セクション)を以下のように指定できます。
+
+```c:
+uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__ ( ( section( "".my_heap"" ) ) );
+```
+
+IARのコンパイラーの場合は以下のように指定できます。
+
+```c:
+uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] @ 0x20000000;
+```
+
+`configAPPLICATION_ALLOCATED_HEAP`変数の値が0の時はリンカーによって自動的に割り当てに使われる配列のアドレスが決定されます。
+
+## Heap_5  
+Heap_5はheap_4と同じアルゴリズムをメモリの割当て用います。Heap_4との違いは複数の分割されたメモリ空間からの割当ができる点です。その反面、Heap_5は初期化処理が必要です。すなわち、`pvPortMalloc()`関数を呼び出す前に`vPortDefineHeapRegions()`関数を用いて割当に使われるメモリのアドレスとサイズを設定する必要があります。以下に`vPortDefineHeapRegions()`を使って割当に使われるメモリ領域を設定する初期化処理を示します。
+
+```c:
+#define HEAP_A_ADDR    ((uint8_t*)0x01000000) // 領域Aの開始アドレス
+#define HEAP_A_SIZE    0x00001000 // 領域Aのサイズ
+#define HEAP_B_ADDR    ((uint8_t*)0x02000000) // 領域Bの開始アドレス
+#define HEAP_B_SIZE    0x00001000 // 領域Bのサイズ
+
+// 警告：各領域は重複しないようにしてください。
+
+const HeapRegion_t xHeapRegions[] =
+{
+{ HEAP_A_ADDR, HEAP_A_SIZE },
+{ HEAP_B_ADDR, HEAP_B_SIZE },
+{ NULL,        0           } /* 配列の終わりの目印 */
+};
+
+void init_heap( void )
+{
+    // 領域Aと領域BをHeap_5のメモリ割り当てに使うように指定
+    vPortDefineHeapRegions(xHeapRegions);
+}
+```
+
+# ヒープユーティリティ関数
+`pvPortMalloc()`関数と`vPortFree()`関数以外にもヒープの操作に使われる関数があります。ここでは、`pvPortMalloc()`関数と`vPortFree()`関数以外のヒープユーティリティ関数について説明します。
+
+## `xPortGetFreeHeapSize()`
+現在、利用可能なヒープのサイズを取得します。主にヒープサイズの最適化のために使われます。
+
+## `xPortGetMinimumEverFreeHeapSize()`
+今まで使用されることのなかったヒープのサイズを返します。これも、`xPortGetFreeHeapSize()`と同様にヒープサイズの最適化のために使われます。
+
+## `vApplicationMallocFailedHook()`
+こちらはヒープが枯渇したときに呼ばれるフック関数です。アプリケーション側で実装します。この関数にメモリの割当に失敗したときの例外処理を実装します。デフォルトでは`pvPortMalloc()`関数がメモリの割当に失敗したときは、`NULL`を返すだけです。`NULL`を返す代わりにフック関数が呼ばれるようにするには、**FreeRTOSConfig.h**の`configUSE_MALLOC_FAILED_HOOK`を1に設定します。
+
+# 参考文献
+- [FreeRTOS公式ウェブサイト](https://www.freertos.org/)
+- [Mastering the FreeRTOS Real Time Kernel – a Hands On Tutorial Guide ](https://www.freertos.org/fr-content-src/uploads/2018/07/161204_Mastering_the_FreeRTOS_Real_Time_Kernel-A_Hands-On_Tutorial_Guide.pdf)
+- [FreeRTOS V10.0.0 Reference Manual ](https://www.freertos.org/fr-content-src/uploads/2018/07/FreeRTOS_Reference_Manual_V10.0.0.pdf)
+"

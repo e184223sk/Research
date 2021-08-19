@@ -1,0 +1,132 @@
+「AWS Certificate Manager」でHTTPS接続する,"# なぜHTTPSにする必要があるのか
+
+###「HTTP」と「HTTPS」の違い
+
+HTTPS（Hypertext Transfer Protocol Secure）」も、HTTPと同じプロトコル（通信規格）の1つです。
+最後の「S」はセキュア（Secure）のことで、HTTPSではSSL（Secure Sockets Layer）というプロトコルを使用します。
+ただし現在は、SSLに変わる新しい仕組みのプロトコルTLS（Transport Layer Security）が使われているのですが、名残もあるため、SSLの名称がそのまま使われています。
+
+「HTTP」と「HTTPS」の大きな違いは**「通信内容が暗号化されているかどうか」**です。
+HTTPSに対応するサーバーでは、ウェブサイトの通信内容を暗号化してくれるので、ウェブの情報を安全にやり取りできます。
+HTTPS通信は、ウェブセキュリティの第一歩ともいうべき重要な技術です。
+
+
+#HTTPSの設定方法
+
+色々な方法があるのですが、今回はタイトルにもある通り、**「AWS Certificate Manager」**というAWSのサービスを使って実装します。
+「AWS Certificate Manager（ACM）」は、AWSサービスとSSL証明書の管理を簡単にするツールです。
+
+#事前の準備
+
+`「http://<ドメイン名>でポートフォリオにアクセスできるようになっている」ことが前提です。`
+
+
+Railsのconfigファイルを編集する
+
+```app/config/environments/production.rb
+config.force_ssl = true
+```
+大体50行目付近にあると思います。
+コメントアウトされていると思うので、それを外します。
+これにより、アプリケーションへのアクセスが強制的に「https://……」へリダイレクトされるようになります。
+
+##「ACM」と「AWS Route 53」を関連づける
+
+まず、AWSにアクセスし、マネジメントコンソールのサービス検索で「Certificate Manager」を検索します。
+
+
+![certificate_manager_search.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/d48fe1b0-8bb3-7b39-07a0-196fbb0b007d.png)
+
+「証明書のプロビジョニング」で［今すぐ始める］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/149fa63f-5192-97de-ff8e-60c04a3564cb.png)
+
+「証明書のリクエスト」の「パブリック証明書のリクエストを選択し、［証明書のリクエスト］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/f8c07639-a32a-c2ba-3da7-f58eda1216b4.png)
+
+「ドメイン名の追加」の「ドメイン名」にドメイン名を入力し、［次へ］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/ab7e359e-644a-e93f-e9b0-6e9b05113376.png)
+
+「検証方法の選択」の「DNSの検証」を選択し、［次へ］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/28f29224-a8d1-d74e-9c45-cc151c7b681c.png)
+
+「タグを追加」では、何も設定せずに［確認］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/605a3f3a-0f77-918e-0de3-c5b43a0183a4.png)
+
+ここまでに設定した内容が表示されるので、内容を確認し、［確定とリクエスト］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/c749b56d-669e-3bd6-4bb2-e997251f5675.png)
+
+証明書のリクエスト画面が表示されるので、［Route53でのレコードの作成］をクリックします。
+「ドメイン」内の「名前」「タイプ」「値」を利用して、Route 53の対象ドメインに対してCNAMEレコードが作成されます。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/9f8f8454-afbb-bfc6-212d-2e48cad78dfd.png)
+
+通常、10分ほど経過すると、「検証状態」の「検証保留中」が「発行済み」へ変わります。
+なお、30分ほど経っても変わらない場合は、設定がうまくいってない可能性があるので設定を見直してみてください。
+
+##ロードバランサーを設定する
+
+次に、ロードバランサーの作成と設定を行います。
+なお、ロードバランサーを使用するには、料金が発生する場合があります。
+なぜロードバランサーを介入するかというと、HTTPS通信をするにはSSL証明書が必要なのですが、本来であればサーバ一つ一つに対してSSL証明書をインストールする必要があります。
+それに対してロードバランサーを設置すれば、そこに登録すれば良いだけなので、サーバの数が増えたときに手間を省けるメリットがあります。
+
+では、実際にロードバランサーを設置していきましょう。
+
+まず、EC2コンソールを開きます。
+ナビゲーションペインの[ロードバランシング]の[ロードバランサー]を選択します。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/65edbeec-3e43-240f-5296-c19c4aef971b.png)
+
+「Application Load Balancer」の［作成］をクリックします。
+![スクリーンショット 2021-03-24 15.16.58.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/8df69e9e-cab5-556d-0368-bf04c5b661ef.png)
+
+
+「名前」を適宜入力します。
+「ロードバランサーのプロトコル」の［リスナーの追加］をクリックし、「HTTPS」を選択します。
+「アベイラビリティゾーン」の「VPC」を選択し、アベイラビリティゾーンでは2つ以上選択します。
+設定できたら、［次の手順］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/7d735665-9598-a7dc-8a4d-fc2a63bd1175.png)
+
+「証明書タイプ」で「ACMから証明書を選択する」を選択します。
+「証明書の名前」では、さきほどACMで発行したものを選択し、［次の手順：セキュリティグループの設定］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/41a4e44d-602b-7cb5-db9f-393c42cb40d5.png)
+
+セキュリティグループの一覧で、HTTPSが許可されているものを選択し、［次の手順］をクリックします。
+なお、HTTPSが許可されているセキュリティグループがない場合には、作成してください。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/74afddc4-6fd7-1c62-246f-1344b42bab7c.png)
+
+「ターゲットグループ」の「名前」を適宜入力し、［次の手順］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/ac8576a4-e94d-86cd-9557-37ac4f190d0b.png)
+
+アプリケーションの置かれたEC2インスタンスを選択します。
+［登録済みに追加］をクリックし、アプリケーションを置いたEC2インスタンスが「登録済みターゲット」欄に表示されていることを確認し、［次の手順］をクリックします。
+確認画面が表示されるので、入力してきた内容を確認し、［作成］をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/0d574668-f240-b63e-edcd-ee7a59e6b159.png)
+
+ロードバランサーが正しく作成されると、以下の画面が表示されます。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/047565e6-b539-d31e-a06c-9bd51cc77c1f.png)
+
+サービスよりRoute53を選択してコンソールへ遷移します。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/1b61bfc1-6a99-bf27-7504-db8a28b5c806.png)
+
+ナビゲーションペインの[ホストゾーン]を選択して、対象のドメインをクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/cefd985e-ff85-e1f6-b3ed-686e265545bb.png)
+
+タイプがAのレコードにチェックを入れて、[編集]をクリックします。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/011f8bdd-5219-a8a8-9a72-52d0fbae5fd2.png)
+
+
+
+「値/トラフィックのルーティング先」の項目を上から順番に以下のように編集します。
+
+①Application Load BalancerとClassic Load Balancerへのエイリアス
+②ロードバランサーを配置してあるリージョンの選択
+③ロードバランサーを選択
+
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/918117/ac5b0da4-543a-63a4-eaf7-c902e0688180.png)
+
+編集ができたら、右下の[保存]をクリックします。
+
+これで、設定が完了しました。
+https://<ドメイン名>でアクセスしてみましょう。
+
+これで、Route 53とACMとロードバランサーを利用して、HTTPSを実装できました。
+"

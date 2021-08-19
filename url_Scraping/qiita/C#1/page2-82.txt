@@ -1,0 +1,131 @@
+閾値判定のためのスレッショルドを作ってみた,"
+
+農業用IoTシステムで自分が指定した値になったときにラインの送信をするために閾値判定のためのスレッショルドを作ってみました。
+
+スレッショルドとは敷居、閾のことです。
+具体的には温度がx℃となったときにアラートを発信するとしたときのxという値だと考えてください。
+
+スレッショルドに付随してヒステリシスという考え方があります。
+ヒステリシスとは物質の状態が現在の状態だけではなく、過去の経路の影響を受けることです。
+少しわかりにくいかもしれませんが、スレッショルドを判断するときの幅（余裕）だと考えてください。
+
+具体的にはx℃という閾値をとるときに判断する幅を2yにするとしたら、
+判断するときの上限値はx+y、下限値はx-yとなります。
+
+つまりx+yを上回ったときに上限を超えたという判断を
+x-yを下回ったときに下限値を下回ったという判断をするようにします。
+
+実際にc言語で実装してみました
+スレッショルドよりも温度が上がったときと、温度が下がったときにアラートを発信するプログラムです。
+そのままプログラムを書いてしまうと、
+同じ状態で何度もアラートを発信してしまうので、
+プログラムに状態を持たせます。
+
+閾値よりも低温の状態の時に閾値を超えたときと、
+閾値よりも高温の状態の時に閾値を下回ったときにアラートを送信するようにしています。
+また。閾値の付近で頻繁にアラートを送信しないようにするためにスレッショルドを指定するようにしています。
+
+```
+/*アラートを送信するためのスレッショルドの作成テスト
+スレッショルドとヒステリシスは最初に設定する*/
+
+#include<stdio.h>
+
+//statusを定義する
+enum status {
+	high,
+	low
+};
+
+
+
+int main(void) {
+
+	int		value_th;			//スレッショルドの値
+	float	hys;				//ヒステリシス
+	float	th_higher;			//ヒステリシスの上限値
+	float	th_lower;			//ヒステリシスの下限値
+
+	//入力された値を判断する
+	float value;
+
+	//テストで使用するときは値を手入力する
+	//value_thを入力する
+	printf(""input threshold: "");
+	(void)scanf_s(""%d"", &value_th);
+	//hysを入力する
+	printf(""input hysteris: "");
+	(void)scanf_s(""%f"", &hys);
+
+	th_higher = value_th + hys;
+	th_lower = value_th - hys;
+
+	//確認用の表示
+	printf(""th_higher is %F\n"", th_higher);
+	printf(""th_lower is %F\n"", th_lower);
+
+	
+	//閾値よりも低い状態からスタートすると仮定する
+	int status = low;
+	
+
+	//ヒステリシスを含めた値と同じになった場合はlowerのほうに含めることにする
+	//テストのために10回好きな値を入力できるようにする
+	for (int i = 0; i < 10; i++) {
+
+		printf(""input value: "");
+		(void)scanf_s(""%f"", &value);
+
+		//statusがlowの時に閾値を超えた場合
+		if (status == low && th_higher < value) {
+
+			//alertを出す
+			printf(""this is High\n"");
+			//statusをhighにする
+			status = high;
+		}
+
+		//siatusがhighの時に閾値を超えた場合
+		else if (status == high && th_higher < value) {
+
+			//特に何もしない
+
+
+		}
+
+		//statusがhighの時に閾値を下回る
+		//statusがlowの時に閾値を下回る場合
+		if (status == low && th_lower >= value) {
+
+			//特に何もしない
+			
+		}
+
+		//statusがhighの時に閾値を下回る
+		 else if (status == high && th_lower >= value) {
+
+			//alertを発火する
+			printf(""this is law\n"");
+			//statusをlowにする
+			status = low;
+
+		}
+	}	
+
+	return 0;
+
+}
+
+
+```
+
+テストをしてみて想定通りに結果が出たので、![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/244155/f97455e6-8bb6-2eb8-5b2d-e602f7b6feca.png)
+
+ちょっとだけ改造して、農業用IoTシステムのアラート発信判断部分に実装しました。
+
+今のところいい感じで使えています。
+![image.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/244155/d9853987-83fb-0ee0-500c-f10c63d2ca87.png)
+
+
+
+"

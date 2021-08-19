@@ -1,0 +1,185 @@
+クイックソートのわかりやすい実装,"# はじめに
+クイックソートは平均時間計算量が最小のアルゴリズムであることが知られている(つまり速いアルゴリズムである)が、それだけではなく、単純に分かりやすいアリゴリズムでもある。
+
+## イメージ
+目の前に整数が描かれたカードが並んでいてそれを小さい順に並び替えようとする。まず1枚目のカードを取り上げて、その数より小さい数の書かれたカードを左に、その数より大きい数が書かれたカードを右に集めて、小さい方のカード、最初に選んだ1枚目のカード、大きい方のカードを少し離して並べる。
+同じことを今度は左右の小さい方、大きい方のカードたちでやれば、全体を並び替えることができる。
+pythonという便利なプログラミング言語があって、イメージできるアルゴリズムは大体簡単に実装できる。
+
+## pythonで実装
+書き方は色々あるが、こんな感じで良いと思う。
+
+```python
+def quicksort(l):
+    if len(l) == 0:
+        return []
+    else:
+        pivot = l[0]
+        # pivotより小さいのを集めて、同じように並び替えておく
+        smaller = quicksort([x for x in l[1:] if x < pivot])
+
+        # pivotより大きいのを集めて、同じように並び替えておく
+        bigger = quicksort([x for x in l[1:] if pivot <= x])
+
+        return smaller + [pivot] + bigger # 3つを並べる
+```
+
+今回はこれをCで書こうとして苦戦した話である。
+
+## Cで書く場合
+上のpythonの関数は、そのままCで実装することはできない。特に問題となるのは```smaller = quicksort([x for x in l[1:] if x <= p])```の中の```[x for x in l[1:] if x <= p]```のように、新しい配列を生成している部分である。Cで配列を作ろうと思ったら、まず長さを決めてメモリを確保しなくてはいけない。
+
+```c:smaller生成まで
+void quicksort(int *array, int len) {
+  if (len==0) return;
+
+  int pivot = array[0];
+  int small_items_count = 0;
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) small_items_count++;
+  }
+
+  int small_item_index = 0;
+  int smaller[small_items_count];
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) {
+      smaller[small_item_index] = array[i];
+      small_item_index++;
+    }
+  }
+}
+```
+
+次に、pythonで`smaller + [pivot] + bigger`となっているところだが、Cではこんな風に簡単に配列を連結させたりできない。それぞれの長さを把握した上で、長さの合計から新しい配列を定義して、そこに代入していくことになる。今回の場合、一旦smallerとbiggerを作ってさらに次の新しい配列にそれらを入れていくのでは無駄なので、あらかじめ目標の配列を定義して、そこにpivotより小さい要素と大きい要素を格納していくことにする。
+
+```c
+void *quicksort(int *array, int len) {
+  if (len==0) return;
+  int pivot = array[0];
+  int new_pivot_index = 0;
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) new_pivot_index++;
+  }
+  int new_array[len];
+  int small_item_index = 0;
+  int big_item_index = new_pivot_index + 1;
+  new_array[new_pivot_index] = pivot;
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) {
+      new_array[small_item_index] = array[i];
+      small_item_index++;
+    } else {
+      new_array[big_item_index] = array[i];
+      big_item_index++;
+    }
+  }
+}
+```
+
+これで1回分の並び替えができたが、これではもちろん不十分で、smallerとbiggerのそれぞれで並び替えをしておく必要がある。そのためにはそれぞれをこのquicksort関数にかける必要があるが、今回はsmallerとbiggerを別個ではなく一つの配列にあらかじめまとめているので、配列自体ではなく、配列の一部分についてquicksortを呼ぶ形になる。
+
+```c
+void quicksort(int *array, int len) {
+  if (len==0) return;
+
+  int pivot = array[0];
+  int new_pivot_index = 0;
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) new_pivot_index++;
+  }
+
+  int new_array[len];
+  // まずpivotを移動
+  new_array[new_pivot_index] = pivot;
+
+  // pivotの前後に小さいものと大きいものを移動
+  int small_item_index = 0;
+  int big_item_index = new_pivot_index + 1;
+  for (int i = 1; i < len; i++) {
+    if (array[i] < pivot) {
+      new_array[small_item_index] = array[i];
+      small_item_index++;
+    } else {
+      new_array[big_item_index] = array[i];
+      big_item_index++;
+    }
+  }
+
+  // pivotの前後にたいしquicksortを施す
+  quicksort(new_array, new_pivot_index);
+  quicksort(new_array + new_pivot_index + 1, len - new_pivot_index - 1);
+  
+  // 並び替えたnew_araryを元のarrayに反映させる
+  for (int i = 0; i < len; i++) {
+    array[i] = new_array[i];
+  }
+}
+```
+
+これで一応実装できた。テストは例えば、
+
+```c
+int print_array(int array[], int len) {
+  int k;
+  for (k = 0; k < len; k++) printf(""%d "", array[k]);
+  printf(""\n"");
+}
+
+int main(int argc, char *argv[]){
+  int array[6] = {3, 1, 4, 1, 5, 3};
+  print_array(array, len); // => 3 1 2 1 5 3 
+  quicksort(array, len);
+  print_array(array, len); // 1 1 3 3 4 5
+
+  return 0;
+}
+```
+のようにする。
+
+## 一時的に別の配列に移している問題
+pythonのコードを無理やりCに移して分かったのは、pythonのやり方は一時的に並び替えたい配列とは別の領域を確保して、そこに並び替えて値を格納しているということである。これは、メモリを余分に必要としていることを意味する。実はこのアルゴリズムは別個の配列用の領域を使わなくても実装できる。
+例えば小さいものをsmallerに集めるとき、別個の配列に代入していくのではなく、元の配列の前の方にずらしていく。その際、pivotより大きいものと交換していけば、自然と配列の先頭の方に小さいものが、後ろの方に大きいものが集まってくる。例えばこんな感じで実装する。
+
+```C
+int partition(int *array, int left, int right) {
+  int i, pivot = left;
+
+  // まず新しいpivotをおく
+  for (i = left; i <= right; i++) {
+    if (array[i] < array[left]) pivot++;
+  }
+  swap(&array[left], &array[pivot]);
+
+  // leftとpivotの間にpivot以上のものがあれば、pivotとrightの間にある
+  // pivotより小さいものと交換する
+  int seaching_smaller = pivot + 1;
+  for (i = left; i < pivot; i++ ) {
+    if (array[pivot] <= array[i]) {
+      for (;;seaching_smaller++) {
+        if (array[seaching_smaller] < array[pivot]) {
+          swap(&array[i], &array[seaching_smaller]);
+          break;
+        }
+      }
+    }
+  }
+  return pivot;
+}
+
+void quicksort (int *array, int left, int right) {
+  int pivot;
+  if (left < right) {
+    pivot = partition(array, left, right);
+    quicksort(array, left, pivot-1);
+    quicksort(array, pivot+1, right);
+  }
+}
+```
+
+このやり方だと並び替えたいひとつの配列の中で要素を入れ替えているだけなので、別の配列の領域を確保する必要がない。しかし、わかりやすさという点では先程のように別個の配列を用意したほうがいいかもしれない。
+
+
+
+
+
+"

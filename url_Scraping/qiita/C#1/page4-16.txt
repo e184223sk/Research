@@ -1,0 +1,94 @@
+msys2 ucrt64環境でquick_exitするための方法,"# quick_exitとは
+
+https://cpprefjp.github.io/reference/cstdlib/quick_exit.html
+
+これ見てください
+
+あるいは
+
+https://qiita.com/yumetodo/items/ba5bef7f64636ed2f439
+
+をどうぞ
+
+# これまでのmsys2 mingwでは
+
+使えません。msvcrtには`quick_exit`が含まれていないからです。
+
+https://stackoverflow.com/questions/36825196/quick-exit-not-available
+
+# msys2 ucrt64では
+
+https://qiita.com/yumetodo/items/d849a6dcf08e0435f815
+
+普通に使える・・・はずもなく、一工夫必要です。
+
+以下のコードが最短でquick_exitを呼ぶ方法です。
+
+```cpp
+extern ""C"" [[noreturn]] void quick_exit(int) noexcept;
+int main()
+{
+        quick_exit(0);
+}
+```
+
+つまり何かというと、`/ucrt64/include/c++/10.2.0/cstdlib`およびそこから参照される`/ucrt64/x86_64-w64-mingw32/include/stdlib.h`にはまだ`quick_exit`の宣言がありません。
+
+でもucrt自体にはあるので、ならば標準ライブラリヘッダーなんか投げ捨てて自分で宣言を書けばいいわけですね！
+
+~~・・・あとでバグレポ投げます。~~投げました
+
+https://github.com/msys2/MINGW-packages/issues/8425
+
+# 修正された
+
+その後、mingwそのものの問題だったのでメーリングリストに投げ直していました。
+https://sourceforge.net/p/mingw-w64/mailman/message/37265392/
+
+すると
+
+- 2021-04-22 03:38:54(UTC): https://sourceforge.net/p/mingw-w64/mailman/message/37266519/
+- 2021-04-22 07:58:37(UTC): https://sourceforge.net/p/mingw-w64/mailman/message/37266635/
+- 2021-04-22 08:38:39(UTC): https://sourceforge.net/p/mingw-w64/mailman/message/37266649/
+
+ぽんぽんと修正が投げられて承認されてmasterにpushされました
+
+https://sourceforge.net/p/mingw-w64/mingw-w64/ci/7dda261
+
+```diff_c
+--- a/mingw-w64-headers/crt/stdlib.h
++++ b/mingw-w64-headers/crt/stdlib.h
+@@ -387,6 +387,9 @@
+ #define _CRT_TERMINATE_DEFINED
+   void __cdecl __MINGW_NOTHROW exit(int _Code) __MINGW_ATTRIB_NORETURN;
+   void __cdecl __MINGW_NOTHROW _exit(int _Code) __MINGW_ATTRIB_NORETURN;
++#ifdef _UCRT
++  void __cdecl __MINGW_NOTHROW quick_exit(int _Code) __MINGW_ATTRIB_NORETURN;
++#endif
+ 
+ #if !defined __NO_ISOCEXT /* extern stub in static libmingwex.a */
+   /* C99 function name */
+@@ -420,6 +423,9 @@
+ #endif
+ 
+   int __cdecl atexit(void (__cdecl *)(void));
++#ifdef _UCRT
++  int __cdecl at_quick_exit(void (__cdecl *)(void));
++#endif
+ #ifndef _CRT_ATOF_DEFINED
+ #define _CRT_ATOF_DEFINED
+   double __cdecl atof(const char *_String);
+```
+
+そして
+
+> https://sourceforge.net/p/mingw-w64/mailman/message/37266669/
+>
+> This has been fixed on master now:
+
+と言ってくるLiu Haoさんめっちゃかっこいい。
+
+はやくmsys2に降ってこないかなぁ・・・。
+
+
+"

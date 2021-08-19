@@ -1,0 +1,533 @@
+原理原則で理解するZshの例外処理,"## はじめに
+
+[Z shell](http://zsh.sourceforge.net/)(以下Zsh)はシェルのプログラムの一種です。シェルは広義にはユーザーや他のプログラムに対してOSとのインターフェースを提供するプログラムを指しますが、一般的にはコマンドライン上で機能を提供するプログラムとして認知されていると思います。
+
+多くのエンジニアにとって馴染み深いシェルは[Bash](https://www.gnu.org/software/bash/)だと思っていますが、macOS 10.15 Catalinaからターミナルの標準シェルがzsh変更されたこともありMacを開発環境としているエンジニアを中心にZshの認知度も高まってきているのではないでしょうか？
+
+Zshはシェルの役割を超えたスクリプト言語のようなプログラムです。Bashも一般的なプログラミング言語で利用可能な構文や式を利用することができましたが、Zshはこれまでのシェル(特にBash)の機能に独自拡張を搭載した上位互換プログラムになっています。
+
+今回はZshの中でも特徴的な機能の一つである例外処理について下記の順序で解説します。
+
+最初にZshで例外処理を行う方法について確認し、それをどのように実現しているんだろう？という疑問に答え、最後に実装を理解すると見えてくる注意事項について根拠と共にお伝えしようと思います。
+
+- Zshで例外処理を行う方法(初心者向け)
+- Zshの例外処理の実装の仕組み(中級者向け)
+- Zshの例外処理における注意事項(上級者向け)
+
+後続にいくほどディープな内容になっていますが、興味のあるところだけご覧頂ければ幸いです
+
+## 検証環境
+
+macOSは標準のもので、Ubuntuはソースコードからビルドしたもので検証しています。
+
+### Ubuntu
+
+```bash
+$ lsb_release -a
+No LSB modules are available.
+Distributor ID: Ubuntu
+Description:    Ubuntu 20.10
+Release:        20.10
+Codename:       groovy
+$ zsh --version
+zsh 5.8.0.2-dev (x86_64-pc-linux-gnu)
+```
+
+#### ソースコード
+
+[https://github.com/zsh-users/zsh/tree/9c0533931c51b7d512d3e95850404f5aac2dbce1](https://github.com/zsh-users/zsh/tree/9c0533931c51b7d512d3e95850404f5aac2dbce1)
+
+### macOS
+
+```bash
+$ system_profiler SPSoftwareDataType
+system_profiler SPSoftwareDataType
+Software:
+
+    System Software Overview:
+
+      System Version: macOS 10.15.7 (19H524)
+      Kernel Version: Darwin 19.6.0
+...中略
+$ zsh --version
+zsh --version
+zsh 5.7.1 (x86_64-apple-darwin19.0)
+```
+
+## Zshで例外処理を行う方法(初心者向け)
+
+公式ドキュメントは[26.8 Exception Handling](http://zsh.sourceforge.net/Doc/Release/User-Contributions.html#Exception-Handling)から確認可能ですが、以下の簡易的な例で例外処理のサンプルの例を紹介します。
+
+ソースコード
+
+```bash:test.sh
+#!/usr/bin/env zsh
+
+set -u
+
+autoload catch
+autoload throw
+
+{
+
+  echo 'try block 1'
+  throw Exception
+  echo 'try block 2'
+
+} always {
+
+  echo 'always block'
+  if catch * ; then
+    echo $CAUGHT
+  fi
+
+}
+```
+
+実行結果はこちらです。
+
+```bash:実行結果
+$ ./test.sh  
+try block 1
+always block
+Exception
+```
+
+見慣れない書式ですが、ブロック文をalwaysというキーワードで連結したような構文になっています。一般的な例外処理のキーワードであるtry-catch-finallyに当てはめると、最初の無名のブロックがtry、always以降がfinallyと同等です。catchはalwaysの中でcatch関数を実行することで実現しています。
+
+処理の流れを箇条書にすると以下の通りです。
+
+- echoによってtry block 1が出力されます
+- throw関数によってExceptionという名前の例外を投げます。※この名前は文字列として有効な値であれば任意の名前を指定可能です
+- alwaysのブロックへ即座に処理が移ります。したがってtry block 2は永久に出力されません
+- catch関数で例外を補足でできた時、その名前(今回の場合はException)を出力します
+
+恐らくシェルに多少詳しい方は、既にちょっと不思議なところがあるのではないでしょうか？
+
+その点含め内部の仕組み的には色々と面白い点があるので、仕組みについては後述のZshの例外処理の仕組み(中級者向け)にて解説します。
+
+## Zshの例外処理の実装の仕組み(中級者向け)
+
+さきほどのソースコードの中で下記のような記述がありました。
+
+```bash
+autoload catch
+autoload throw
+```
+
+これはZshで提供されている組み込みコマンドautoloadを利用して関数をロードしている処理です。autoloadによって検索されるパスは、Zshが関数定義を参照する特別なパス配列`$fpath` 内のパスから引数で与えたファイル名に合致するファイルが関数として読み込まれます。
+
+この記述がないと先程のコマンドの実行結果は下記のようになり、関数が未定義になってしまいます。
+
+```bash
+./test.sh 
+try block 1
+./test.sh:11: command not found: throw
+try block 2
+always block
+./test.sh:17: command not found: catch
+```
+
+ちなみにautoloadの記述は絶対パスで記述すると任意に定義したファイルを読み込むことが可能です。
+
+```bash
+$ autoload /home/tajima/hoge
+$ hoge
+# hoge内に書かれた処理が実行される
+```
+
+あえて処理の冒頭でロードしていることで察しがつくかもしれませんが、実はthrowおよびcatchはZshの標準の関数でなくユーザーコミュニティによって提供されたプラグイン的な関数です。
+
+### throwとcatchはZshの標準機能ではない
+
+公式ドキュメントに記載があるので事実上標準の関数と言っても良いですが、Zshが提供されている環境だからといってthrowとcatchは必ずしもサポートしている関数ではないことは念頭においておきましょう。
+
+もしthrowやcatchが使えない稀な環境だったとしても、下記のような簡易的な例外処理は実現可能です。
+
+```bash:test_raw.sh
+#!/usr/bin/env zsh
+
+set -u
+
+{
+
+  echo 'try block 1'
+  readonly THROW
+  THROW= 2>/dev/null
+  echo 'try block 2'
+
+} always {
+
+  echo 'always block'
+
+}
+```
+
+実行結果はこちらです。
+
+```bash:実行結果
+$ ./test_raw.sh
+try block 1
+always block
+```
+
+この例ではtryブロックの中で意図的にエラーを発生させることで、即座にalwaysブロックの処理を実行させています。
+
+この例からわかるように例外処理においてZshが標準的に提供しているのは、tryとalwaysだけです。これらは構文解析においてもネイティブにサポートしている文です。
+
+tryブロック内の処理からalwaysへ即座に処理が遷移する条件は、Zshが処理継続不可能と判断するエラーが実行時に発生した時です。サブシェルがエラーを発生させた時や、Zshのエラーでも致命的と判断されないエラーは対象外です。__※この点は最後のZshの例外処理における注意事項(上級者向け)において掘り下げます。__
+
+上記の例では読み込み専用で定義した変数に再代入を行っていますが、この操作は実行継続不可能と判断されるエラーです。
+※`2>/dev/null`しているのはエラーメッセージの出力抑制の為です。
+
+ちなみに、同じシェルでもBashでは読み込み専用で定義した変数に再代入を行っても、デフォルトでは致命的なエラーとみなされず処理が継続する仕様になっています。
+
+### throwとcatchの関数を見てみる
+
+では実際にthrowとcatchの関数を確認してみましょう。短いコードなので処理に関わるところのみ全部引用します。
+
+```bash:throw
+typeset -g EXCEPTION=""$1""
+readonly THROW
+if (( TRY_BLOCK_ERROR == 0 )); then
+  # We are throwing an exception from the middle of an always-block.
+  # We can do this by restoring the error status from the try-block.
+  (( TRY_BLOCK_ERROR = 1 ))
+fi
+# Raise an error, but don't show an error message.
+THROW= 2>/dev/null
+```
+
+throwでは下記のことを行います。
+
+- EXCEPTION変数に例外の名前を代入する。※throwされる際に指定可能な名前
+- TRY_BLOCK_ERROR変数に例外が発生したフラグをセットする
+- 読み込み専用変数に再代入を行うことによってエラーを発生させる
+
+エラー発生の仕組みは既にみた通りですが、それ以外にcatchで利用する例外名の保存と例外が発生したことのフラグを立てます。
+
+```bash:catch
+function catch {
+  if [[ $TRY_BLOCK_ERROR -gt 0 && $EXCEPTION = ${~1} ]]; then
+    (( TRY_BLOCK_ERROR = 0 ))
+    typeset -g CAUGHT=""$EXCEPTION""
+    unset EXCEPTION
+    return 0
+  fi
+
+  return 1
+}
+# Never use globbing with ""catch"".
+alias catch=""noglob catch""
+
+catch ""$@""
+```
+
+ここではthrowから引き継いだ情報をもとに、CAUGHT変数に例外名を設定しています。ここで、最初のスクリプトのalwaysの部分だけ切り取ったものを再度確認してみます。
+
+```bash
+  echo 'always block'
+  if catch * ; then
+    echo $CAUGHT
+  fi
+```
+
+CAUGHT変数によって例外名を参照していることがわかりますが、個人的にここでの注目ポイントでは`catch *`です。素朴な認識としてシェルにおいて`*`はワイルドカードの一種として認識されるのでシングルまたはダブルクォーテーションで囲まないと現在の作業ディレクトリのファイルがスペース区切りで展開されてしまう気がします([グロブ](https://ja.wikipedia.org/wiki/%E3%82%B0%E3%83%AD%E3%83%96))。冒頭で少し言及した不思議なところというのは、この点を意図していました。
+
+```bash
+#現在の作業ディレクトリにfile1、file2、file3が存在している場合
+if catch file1 file2 file3 ; then
+```
+
+しかし、catchではこれをプリコマンド修飾子noglobを指定した上でのエイリアスにしているので、`*`を単なる文字列として評価しています。
+
+逆に関数内部の評価式では`$EXCEPTION = ${~1}`というチルダをつけた[変数展開](http://zsh.sourceforge.net/Doc/Release/Expansion.html)を用いており、`*`によるパターンマッチングを可能にしています。
+
+以上のようにZshの標準的な仕様と、それを拡張したユーザーコミュニティ提供の関数によってtry-catchライクな例外処理が実現されていることがわかりました。
+
+最後に以上を理解した上での注意事項について触れておきます。
+
+## Zshの例外処理における注意事項(上級者向け)
+
+Zshのthrowとcatchによる拡張例外処理はEXCEPTION、TRY_BLOCK_ERROR、CAUGHTといったシェルスクリプトの変数で実現されていました。※実はTRY_BLOCK_ERROR変数だけはZsh内部の処理と深く紐付いているのですが今回は割愛します。
+
+この仕様に基づくならば、プロセスについて理解がある方は同じプロセス内でしかtry-catchライクな処理は実現できないだろうと察すると思います。外部コマンドの実行やサブシェルを起動して例外をthrowする場合、それらはforkされた子プロセスなのでそういった処理はできないだろうと。
+
+実際この予想は正しくて、throw関数の[コメント](https://github.com/zsh-users/zsh/blob/9c0533931c51b7d512d3e95850404f5aac2dbce1/Functions/Exceptions/throw)にも下記のような記載があります。
+
+```bash
+# although as normal with exceptions it might be hidden deep inside
+# other code.  Note, however, that it must be code running within the
+# current shell; with shells, unlike other languages, it is quite easy
+# to miss points at which the shell forks.
+```
+
+では、新しくプロセスをforkしないsourceコマンドやevalコマンドではどうでしょう？素朴なイメージではそれらではtry-catchライクな処理を実現できる気がするので、試してみます。
+
+```bash:test_source.sh
+#!/usr/bin/env zsh
+
+set -u
+
+autoload catch
+autoload throw
+
+{
+
+  echo 'try block 1'
+  source inc.sh
+  echo 'try block 2'
+
+} always {
+
+  echo 'always block'
+  if catch * ; then
+    echo $CAUGHT
+  fi
+
+}
+```
+
+sourceコマンドで呼び出すファイルです。
+
+```bash:inc.sh
+echo 'child try block 1'
+throw 'Child Exception'
+echo 'child try block 2'
+```
+
+実行結果はこちらです。
+
+```bash:実行結果
+$ ./test_source.sh
+try block 1
+child try block 1
+try block 2
+always block
+```
+
+sourceコマンドで指定されたスクリプトを実行した時、throw関数によってそのスクリプト内の処理は即座に中断しましたが、復帰した呼び出し元ではalwaysに遷移することなく以降のtry block 2が出力されてしまいました。
+
+では、evalではどうでしょうか？
+
+```bash:test_eval.sh
+#!/usr/bin/env zsh
+
+set -u
+
+autoload catch
+autoload throw
+
+{
+
+  echo 'try block 1'
+  eval 'throw Exception'
+  echo 'try block 2'
+
+} always {
+
+  echo 'always block'
+  if catch * ; then
+    echo $CAUGHT
+  fi
+
+}
+```
+
+実行結果はこちらです。
+
+```bash:実行結果
+$ ./test_eval.sh
+try block 1
+try block 2
+always block
+```
+
+こちらも処理が遷移することなく、上から順番に処理されてしまいました。
+
+いずれも同じプロセス内の処理なのは`$$`変数を参照することでも確認できます。ここからはZshのソースコードから処理を確認しなければ理由がわからなさそうです。
+
+### ソースコードから内部の処理を確認する
+
+tryブロックからalwaysブロック内の処理は[exectry関数](https://github.com/zsh-users/zsh/blob/9c0533931c51b7d512d3e95850404f5aac2dbce1/Src/loop.c#L732)で定義されています。下記に処理を引用した上で必要なところにはコメントを加えています。
+
+```c
+/**/
+int
+exectry(Estate state, int do_exec)
+{
+    Wordcode end, always;
+    int endval;
+    int save_retflag, save_breaks, save_contflag;
+    zlong save_try_errflag, save_try_interrupt;
+    /*
+      state->pcはZshにおけるプログラムカウンタとしてみなすことができる
+      その実態はwordcodeという整数であり、
+      下位5ビットが現在のコンテキストタイプを表し、それより上位ビットに実行に必要なデータを格納している
+      WC_TRY_SKIPマクロによりwordcodeからデータ部を取り出し、
+      ブロック全体の終了とalwaysブロックを処理するwordcodeのポインタを
+      endとalwaysという変数に保存している
+    */
+    end = state->pc + WC_TRY_SKIP(state->pc[-1]);
+    always = state->pc + 1 + WC_TRY_SKIP(*state->pc);
+    state->pc++;
+    pushheap();
+    cmdpush(CS_CURSH);
+
+    /* The :try clause */
+    ++try_tryflag;
+    /* tryブロックの中の処理が実行される */
+    execlist(state, 1, 0);
+    --try_tryflag;
+
+    /* Don't record errflag here, may be reset.  However, */
+    /* endval should show failure when there is an error. */
+    endval = lastval ? lastval : errflag;
+
+    freeheap();
+
+    cmdpop();
+    cmdpush(CS_ALWAYS);
+
+    /* The always clause. */
+    save_try_errflag = try_errflag;
+    save_try_interrupt = try_interrupt;
+    try_errflag = (zlong)(errflag & ERRFLAG_ERROR);
+    try_interrupt = (zlong)((errflag & ERRFLAG_INT) ? 1 : 0);
+    /* We need to reset all errors to allow the block to execute */
+    errflag = 0;
+    save_retflag = retflag;
+    retflag = 0;
+    save_breaks = breaks;
+    breaks = 0;
+    save_contflag = contflag;
+    contflag = 0;
+
+    state->pc = always;
+    /* alwaysブロックの中の処理が実行されます  */
+    execlist(state, 1, do_exec);
+
+    if (try_errflag)
+	errflag |= ERRFLAG_ERROR;
+    else
+	errflag &= ~ERRFLAG_ERROR;
+    if (try_interrupt)
+	errflag |= ERRFLAG_INT;
+    else
+	errflag &= ~ERRFLAG_INT;
+    try_errflag = save_try_errflag;
+    try_interrupt = save_try_interrupt;
+    if (!retflag)
+	retflag = save_retflag;
+    if (!breaks)
+	breaks = save_breaks;
+    if (!contflag)
+	contflag = save_contflag;
+
+    cmdpop();
+    popheap();
+    state->pc = end;
+
+    return endval;
+}
+```
+
+シェルは他の一般的なインタプリタ言語と違って字句解析、構文解析した結果実行できると判断した段階で即実行します。
+
+従って、上記のexectry関数を実行する段階では、alwaysの開始処理のアドレスや終了アドレス、必要なデータ構造まで全て取得できています(これ以降の処理にしては何も解析していない状態です)。
+alwaysの開始処理のアドレスはtryブロック終了後、処理をalwaysに遷移させる際に利用され、終了アドレスは最後にブロック全体の終了アドレスをセットする時に使われます。
+
+よってtryブロックの中で処理が中断しない原因を確認すれば、throw関数によって処理がalwaysに遷移しない理由が判明すると仮説を立てることができます。
+
+まず処理が中断しないケースについて確認します。
+
+#### 処理が中断しない原因
+
+tryブロック内のスクリプト内の処理は[execlist関数](https://github.com/zsh-users/zsh/blob/9c0533931c51b7d512d3e95850404f5aac2dbce1/Src/exec.c#L1292)の下記のwhileループにおいて順繰り処理されていきます。
+
+```c
+while (wc_code(code) == WC_LIST && !breaks && !retflag && !errflag) {
+```
+
+その実行中、Zshが致命的なエラーと判断する事態が発生した場合(読み込み専用変数への代入等)は、errflag変数に1がセットされます。これによって、whileループが中断されたのちにexectry関数に処理が復帰します。その後は上述の通り、alwaysのexeclist関数の処理が実行されます。
+
+結論を言うと、sourceコマンドやevalコマンドでの実行においてエラー発生時にerrflag変数に1がセットされていないことが原因です。※他にもこういったケースはあります。
+
+その理由はsourceコマンドやevalコマンドの該当の処理を確認すればわかります。evalコマンドを実行している[eval関数](https://github.com/zsh-users/zsh/blob/9c0533931c51b7d512d3e95850404f5aac2dbce1/Src/builtin.c#L5970)やsourceコマンドを実行している[source関数](https://github.com/zsh-users/zsh/blob/9c0533931c51b7d512d3e95850404f5aac2dbce1/Src/init.c#L1406)いずれにおいても下記の処理が終了間際で実行されました。
+
+```c
+errflag &= ~ERRFLAG_ERROR;
+```
+
+これによってerrflag変数にエラーが設定されていても内容がクリアされるようになっていたのです。
+
+試しにeval関数の該当の場所をコメントアウトしてビルドした後、実行してみます。
+
+```bash:実行結果
+$ test_eval.sh
+try block 1
+always block
+Exception
+```
+
+意図した通りに処理が実行されました。
+
+#### エラーをクリアしたい意図
+
+sourceコマンドやevalコマンドの実行結果のエラーフラグをクリアしている意図はなんでしょうか？
+
+それは僕が思うに、根底にあるのはプログラムそれぞれの処理を疎結合にするという方針があると思います。たとえば、今の改変したeval関数の処理で実行継続不可能エラーが発生した場合、そのプロセス全体の処理が即座に終了してしまいます。
+
+これはZshにおける例外処理の実現方法が、実行継続不可能なエラーの発生としている限り避けられません。
+
+```bash
+#!/usr/bin/env zsh
+
+set -u
+
+eval ""readonly HOGE; HOGE=1""
+# 以降の処理が実行されない
+```
+
+eval関数にしてもsource関数にしても、わざわざサブルーチン的に処理を分割しているからには原則としてそれ単体で閉じた形で成立している方が都合が良いはずです。サブルーチン呼び出しによって呼び出し側まで終了してしまうのは使い勝手としてあまりよくありません。
+
+また、たとえサブルーチンの結果によって呼び出し側を強制終了させたい場合があったとしても、下記のような方法で呼び出し側でのコントロールが可能です。
+
+```bash
+#!/usr/bin/env zsh
+
+set -u
+
+autoload catch
+autoload throw
+
+{
+
+  echo 'try block 1'
+  if ! source inc.sh ; then
+
+    throw ChildError
+  fi
+  echo 'try block 2'
+
+} always {
+
+  echo 'always block'
+  if catch '*' ; then
+    echo $CAUGHT
+    exit 1
+  fi
+
+}
+```
+
+当初この挙動を見た時は、同じプロセスなのにthrowされた例外がcatchできないのはおかしいのではないか？と思ったりもしたのですが、現状の仕様を読み解くうちに仕方ないと思いました😅
+
+※尤も、もう少し大きな視点で考えれば異常終了を判定にせず例外発生専用のフラグを持たせれば単純なエラー発生のケースでスクリプトを強制終了させる必要はなくなりそうですが…
+
+## まとめ
+
+Zshは例外処理をはじめ、プログラミング言語のような高度な処理を行わせることができます。ただ、高機能だからといって重厚なプログラムを組もうとしてしまうと辛くなってくるでしょう。
+
+なので、シェルとしてZshの機能にお世話になりつつも複雑な処理を行う場合は、それ専用のプログラムを適切なプログラミング言語によって作成し呼び出すという方針にした方が良いと思いました。※適材適所でエコシステムを設計することを意識したいというポジティブな見解です。
+"

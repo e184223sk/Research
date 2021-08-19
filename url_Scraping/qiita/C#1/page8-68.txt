@@ -1,0 +1,82 @@
+プロセス間通信（パイプ）を試す,"パイプってshellでよく使うけど、中身を知らないので試してみる。  
+
+## 試すこと
+引数で渡されたパスのテキストファイルを親プロセスが読み、pipe経由で子プロセスに渡し、lessがファイルディスクリプタ0番から利用する（はず）  
+
+## ざっくり手順
+1. pipe()でパイプ用のファイルディスクリプタを取得 ※forkより前に実行
+2. fork
+3. 親プロセスは パイプのファイルディスクリプタ.書き込み側 に出力
+4. 子プロセスは 標準入力のファイルディスクリプタを閉じる
+5. 子プロセスは パイプのファイルディスクリプタ.読み出し側 を複製する -> 0番（標準入力で使用されているファイルディスクリプタ番号）として複製される
+
+## ソース
+エラー処理とかexitとかやってません...  
+
+```
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+
+int 
+main(int argc, char* argv[])
+{
+    FILE *fp;
+    fp = fopen(argv[1], ""r"");
+
+    int pipefd[2];
+    pipe(pipefd);
+
+    int pid;
+    pid = fork();
+    if (pid > 0) {
+        // 親
+        printf(""parent %d\n"", pid);
+
+        char buf[4096];
+        int n;
+        while (fgets(buf, sizeof(buf), fp)) {
+            n = strlen(buf);
+            write(pipefd[1], buf, n);
+        }
+        waitpid(pid, NULL, 0);
+    } else {
+        // 子
+        printf(""chiled %d\n"", pid);
+
+        close(0); // 標準入力を閉じる
+        dup(pipefd[0]); // pipefdの 読み出し側:0 を 標準入力:0 に複製する
+        execl(""/bin/less"", ""less"", NULL);
+    }
+}
+```
+
+### コンパイル・実行
+```
+$ gcc -g ipc_pipe.c
+$ ./a.out hoge.txt
+```
+
+## 補足 
+### デフォルトのファイルディスクリプタ
+0: 標準入力  
+1: 標準出力  
+2: 標準エラー出力  
+
+### パイプのファイルディスクリプタ
+0: 読み出し側  
+1: 書き込み側  
+
+## 所感
+- 標準入出力前提のプログラムは入出力の切り替えが出来て便利
+- [xv6のshコード](https://github.com/mit-pdos/xv6-public/blob/master/sh.c#L100) を読むことで、shellから利用するパイプの実現方法を理解できた
+
+## 参考
+- [詳解UNIXプログラミング ](https://amzn.to/3kTMsFm) 
+- [はじめてのOSコードリーディング](https://amzn.to/3bq6kN7)
+- [xv6のshコード](https://github.com/mit-pdos/xv6-public/blob/master/sh.c#L100)
+
+
+
+"

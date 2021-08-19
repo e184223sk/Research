@@ -1,0 +1,133 @@
+C言語+MPIのtips（MPIでのファイル出力（愚直編））,"【目的】
+並列計算で各プロセスでの計算結果を一つのファイル（data.datと名付ける）にまとめる。
+MPI-IOは使用しない。
+
+【使用するもの】
+open-mpi
+
+【環境】 
+$ mpicc —version
+ Apple clang version 11.0.3 (clang-1103.0.32.29)
+Target: x86_64-apple-darwin20.3.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+
+【方法】
+
+```c:Mpi_file.c 
+#include<stdio.h>
+#include""mpi.h""
+
+int main(int argc, char *argv[]){
+  int i;
+  int num;
+  int nprocs,myrank;
+  char filename[20];
+  FILE *fp;
+
+  MPI_Init(&argc,&argv);
+  MPI_Comm_size(MPI_COMM_WORLD,&nprocs);
+  MPI_Comm_rank(MPI_COMM_WORLD,&myrank);
+
+  num=nprocs*(myrank+1);
+  sprintf(filename,""data_%02d.dat"",myrank);
+  fp=fopen(filename,""w"");
+
+     fprintf(fp,""data_0%d.dat is open"",myrank);
+     for(i=0;i<num;i++) fprintf(fp,""!"");
+     fprintf(fp,""\n"");
+     fprintf(fp,""ID: %d, num= %d\n"",myrank,num);
+     fprintf(fp,""data_0%d.dat is closed"",myrank);
+     for(i=0;i<num;i++) fprintf(fp,""!"");
+     fprintf(fp,""\n"");
+
+  fclose(fp);
+  MPI_Finalize();
+  return 0;
+}
+```
+
+【結果】
+mpicc コマンドでコンパイル、mpirun コマンドでプロセス数を２にして実行。  
+
+```
+$ mpicc Mpi_file.c           
+$ mpirun -np 2 ./a.out                                                                            
+```
+
+ターミナルで ls コマンドを実行すると、data_00.dat、data_01.dat が作成されている。
+
+```
+$ ls
+Mpi_file.c    a.out      data_00.dat      data_01.dat
+```
+
+さらにcatコマンドでファイルの中身を見てみる。
+
+```
+$ cat data_00.dat            
+data_00.dat is open!!
+ID: 0, num= 2
+data_00.dat is closed!!
+```
+
+```
+$ cat data_01.dat  
+data_01.dat is open!!!!
+ID: 1, num= 4
+data_01.dat is closed!!!!
+```
+
+【考察（何が起きたのか）】
+まずプロセス０と１でnumが計算される。
+at プロセス０　num=2*(0+1)=2
+at プロセス１　num=2*(1+1)=4
+次にdata_00.dat と data_01.datが作成される。
+data_00.datではプロセス０の計算結果が出力される。
+data_00.dat is open!!
+ID: 0, num= 2
+data_00.dat is closed!!
+
+data_01.datではプロセス１の計算結果が出力される。
+data_01.dat is open!!!!
+ID: 1, num= 4
+data_01.dat is closed!!!!
+
+それぞれのファイルが閉じて終了。
+これらを一つにまとめるにはcat コマンドの出力結果をdata.datにリダイレクトすれば良い。
+
+```
+$ cat data_00.dat data_01.dat > data.dat
+```
+
+ワイルドカードを使うと楽できる。ここでは?でも*でも良い。
+
+```
+$ cat data_0?.dat > data.dat
+```
+
+```
+$ cat data_0*.dat > data.dat
+```
+
+ls コマンドでdata.dat ができていることを確認。さらにcat コマンドで data_00.dat、data_01.dat の順番に結果がまとめられていることを確認。
+
+```
+$ ls
+Mpi_file.c    a.out      data.dat     data_00.dat      data_01.dat
+```
+
+```
+$ cat data.dat
+data_00.dat is open!!
+ID: 0, num= 2
+data_00.dat is closed!!
+data_01.dat is open!!!!
+ID: 1, num= 4
+data_01.dat is closed!!!!
+```                      
+　
+【参考】
+MPIのファイル出力については「mpi i/o」「mpi io」などと検索するとさらに情報が得られると思います。
+                                                    
+"
