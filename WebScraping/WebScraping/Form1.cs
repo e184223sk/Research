@@ -16,6 +16,8 @@ namespace WebScraping
 
         public string _csvText;
 
+        public PerfomanceMode _mode = PerfomanceMode.Test;
+
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool AllocConsole();
         public Form1()
@@ -24,6 +26,7 @@ namespace WebScraping
             AllocConsole();
 
             _URLText.Text = "https://qiita.com/atsushi33/items/beb0685f5b967613f2e5";
+            this.Text = "PageScraper  < TestMode >";
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -44,7 +47,7 @@ namespace WebScraping
             //------------------------------------------------------
 
             //スクレイパーを作る
-            SampleScraping scraper = new SampleScraping();
+            WebScraping scraper = new WebScraping();
 
             string html ="", program ="", sentence = "" , title ="";
 
@@ -88,28 +91,36 @@ namespace WebScraping
 
 
             labelView.Visible = false;
-#if DEBUG
-
-            MessageBox.Show("デバッグ中です", "デバッグ中", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-#else
-            int count = Properties.Settings.Default._FileCount;
-            string filename = String.Format("_{0:0000}", count);
-
-            using (System.IO.StreamWriter sr = new System.IO.StreamWriter(@"C:\Users\konolab\Desktop\Research\csv\Explain" +filename + ".csv"))
+            if(_mode == PerfomanceMode.Test)
             {
-                sr.WriteLine("＜説明文を含む文章＞");
-                sr.WriteLine(sentence);
-            
+                MessageBox.Show("デバッグ中です", "デバッグ中", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
             }
-            using (System.IO.StreamWriter sr = new System.IO.StreamWriter(@"C:\Users\konolab\Desktop\Research\csv\Program" +filename + ".csv"))
+            else if(_mode == PerfomanceMode.Seperate)
             {
 
-                sr.WriteLine("＜プログラム＞");
-                sr.WriteLine(program);
+                int count = Properties.Settings.Default._FileCount;
+                string filename = String.Format("_{0:0000}", count);
+
+                using (System.IO.StreamWriter sr = new System.IO.StreamWriter(setting.Output_Path + filename + ".csv"))
+                {
+                    sr.WriteLine("＜説明文を含む文章＞");
+                    sr.WriteLine(sentence);
+
+                }
+                using (System.IO.StreamWriter sr = new System.IO.StreamWriter(setting.Output_Path + filename + ".csv"))
+                {
+
+                    sr.WriteLine("＜プログラム＞");
+                    sr.WriteLine(program);
+                }
+                Properties.Settings.Default._FileCount++;
             }
-            Properties.Settings.Default._FileCount++;
-#endif
+            else if(_mode == PerfomanceMode.Dataset)
+            {
+
+            }
+ 
         }
 
         // 参照ボタン押したときの挙動
@@ -123,7 +134,7 @@ namespace WebScraping
         }
 
 
-        #region MenuButton Event
+#region MenuButton Event
         private void ReadURL_Click(object sender, EventArgs e)
         {
             _isCSV = false;
@@ -138,6 +149,31 @@ namespace WebScraping
             reference.Visible = false;
         }
 
-#endregion
+        #endregion
+
+        private void testToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            _mode = PerfomanceMode.Test;
+            this.Text = "PageScraper  < TestMode >";
+        }
+
+        private void separateToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            _mode = PerfomanceMode.Seperate;
+            this.Text = "PageScraper  < SeparateMode >";
+
+        }
+
+        private void datasetToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            _mode = PerfomanceMode.Dataset;
+            this.Text = "PageScraper  < DatasetMode >";
+        }
     }
+}
+public enum PerfomanceMode
+{
+    Test,
+    Seperate,
+    Dataset
 }

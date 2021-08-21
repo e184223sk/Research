@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace WebScraping
 {
-    class SampleScraping
+    class WebScraping
     {
         public string GetHTML(string url)
         {
