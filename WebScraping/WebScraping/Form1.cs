@@ -8,6 +8,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
+using WebScraper;
+
 namespace WebScraping
 {
     public partial class Form1 : Form
@@ -26,7 +28,7 @@ namespace WebScraping
             AllocConsole();
 
             _URLText.Text = "https://qiita.com/atsushi33/items/beb0685f5b967613f2e5";
-            this.Text = "PageScraper  < TestMode >";
+            this.Text = "Pagescraper  < TestMode >";
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -45,9 +47,7 @@ namespace WebScraping
             labelView.Update();
 
             //------------------------------------------------------
-
-            //スクレイパーを作る
-            WebScraping scraper = new WebScraping();
+             PageScraper scraper = new PageScraper();
 
             string html ="", program ="", sentence = "" , title ="";
 
@@ -94,12 +94,12 @@ namespace WebScraping
             if(_mode == PerfomanceMode.Test)
             {
                 MessageBox.Show("デバッグ中です", "デバッグ中", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
+                //MessageBox.Show(program ==""  ? "空っぽ" : "じゃない","ss", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else if(_mode == PerfomanceMode.Seperate)
             {
 
-                int count = Properties.Settings.Default._FileCount;
+                int count = WebScraping.Properties.Settings.Default._FileCount;
                 string filename = String.Format("_{0:0000}", count);
 
                 using (System.IO.StreamWriter sr = new System.IO.StreamWriter(setting.Output_Path + filename + ".csv"))
@@ -114,7 +114,7 @@ namespace WebScraping
                     sr.WriteLine("＜プログラム＞");
                     sr.WriteLine(program);
                 }
-                Properties.Settings.Default._FileCount++;
+                WebScraping.Properties.Settings.Default._FileCount++;
             }
             else if(_mode == PerfomanceMode.Dataset)
             {
@@ -138,42 +138,96 @@ namespace WebScraping
         private void ReadURL_Click(object sender, EventArgs e)
         {
             _isCSV = false;
-            label1.Text = "CSVモード";
-            reference.Visible = true;
+            label1.Text = "URLモード";
+            reference.Visible = false;
         }
 
         private void ReadCSV_Click(object sender, EventArgs e)
         {
             _isCSV = true;
-            label1.Text = "URLモード";
-            reference.Visible = false;
+            label1.Text = "CSVモード";
+            reference.Visible = true;
         }
+
+
 
         #endregion
 
         private void testToolStripMenuItem_Click(object sender, EventArgs e)
         {
             _mode = PerfomanceMode.Test;
-            this.Text = "PageScraper  < TestMode >";
+            this.Text = "Pagescraper  < TestMode >";
         }
 
         private void separateToolStripMenuItem_Click(object sender, EventArgs e)
         {
             _mode = PerfomanceMode.Seperate;
-            this.Text = "PageScraper  < SeparateMode >";
+            this.Text = "Pagescraper  < SeparateMode >";
 
         }
 
         private void datasetToolStripMenuItem_Click(object sender, EventArgs e)
         {
             _mode = PerfomanceMode.Dataset;
-            this.Text = "PageScraper  < DatasetMode >";
+            this.Text = "Pagescraper  < DatasetMode >";
         }
+
+
+        private void exclusionToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            PageScraper scraper = new PageScraper();
+                       
+            if (_URLText.Text == null)
+                MessageBox.Show("URLを入力してください");
+            else
+            {
+                //CSVモード
+                if (_isCSV)
+                {
+
+                    
+                    string[] urls = CSVReader.Read(_URLText.Text);
+
+                    List<string> after = new List<string>();
+                    foreach(string url in urls)
+                    {
+                        string tmp_html = scraper.GetHTML(url);
+                        string tmp_code = scraper.GetCode(tmp_html);
+                        string tmp_sentence = scraper.GetSentence(tmp_html);
+
+                        if(tmp_code !="" && tmp_sentence != "")
+                        {
+                            after.Add(url);
+                        }
+                    }
+
+                    string tmp_url = _URLText.Text.Replace(".csv", "");
+
+                    tmp_url += "_1.csv";
+
+                    using (StreamWriter sr = new StreamWriter(tmp_url))
+                    {
+                        foreach(string s in after)
+                        {
+                            sr.WriteLine(s + ",");
+                        }
+                    }
+
+                    MessageBox.Show("完了しました");
+                }
+                else
+                {
+                    MessageBox.Show("CSVモードでのみ可能です \n [Switch Performance] → [CSV]よりCSVモードに変更して下さい");
+
+                }
+            }
+        }
+
     }
 }
 public enum PerfomanceMode
 {
     Test,
     Seperate,
-    Dataset
+    Dataset,
 }

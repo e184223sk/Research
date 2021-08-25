@@ -8,11 +8,11 @@ namespace WebScraping
 {
     class CSVReader
     {
-        //csvファイルを二重配列にする
+        //csvファイルを配列にする
         public static string[] Read(string url)
         {
             string[] data ;
-            using (StreamReader sr = new StreamReader(url))
+           /* using (StreamReader sr = new StreamReader(url))
             {
                 string text = sr.ReadToEnd();
 
@@ -27,6 +27,18 @@ namespace WebScraping
                 }
 
             }
+            */
+            
+
+            using (StreamReader sr = new StreamReader(url))
+            {
+                string text = sr.ReadToEnd();
+                string[] tmp_data= text.Split('\n'); 
+                data = tmp_data;
+            }
+
+
+
             return data;
         }
 

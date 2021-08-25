@@ -29,7 +29,7 @@ class BatchGenerator:
         with open(file_path, encoding="utf-8") as f:
             lines = [line.strip() for line in f.readlines()]
         self.data = self._create_data(lines)
-        print(self.sp.decode_ids( self.data[2][0]))
+        print(lines[106066])
 
     def get_batch(self, batch_size: int = 128, shuffle=True):
         while True:

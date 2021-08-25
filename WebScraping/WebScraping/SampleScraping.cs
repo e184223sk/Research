@@ -4,14 +4,15 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
-namespace WebScraping
+namespace WebScraper
 {
-    class WebScraping
+    public class PageScraper
     {
         public string GetHTML(string url)
         {
+            
             //URLからRequestを作成
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            HttpWebRequest request = WebRequest.CreateHttp(url);
             //html格納用
             string html = "";
 
@@ -43,7 +44,7 @@ namespace WebScraping
             //条件にマッチした部分からKey（"タイトル部分"）にマッチした値を抜き取る
             return Matchtitle.Groups["title"].Value;
         }
-        
+
         /// <summary>
         /// web上の存在するすべてのプログラムを取得する プログラムとして成り立っていないものは除外する
         /// </summary>
@@ -51,39 +52,103 @@ namespace WebScraping
         /// <returns>カンマ区切りの文字列</returns>
         public string GetCode(string html)
         {
-            Regex regex = new Regex("<code>(?<Code>.*?)</code>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
 
             //見つかったすべての部分文字列
             string Codes = "";
+            int Counter_div = 0;
+            int Counter_slashdiv = 0;
 
-            //まずは一個探す
-            var match = regex.Match(html);
-            var group = match.Groups["Code"];
+            int startIndex = 0, lastIndex = 0;
+            string[] tmp_html;
 
-            /*
-            if(group.Value.Contains("<span>"))
-                Codes += RemoveSpan(group.Value);
-            else */
-            //Codes +=  IsProgram( group.Value) ?group.Value +",": "" ;
-
-            string tmp_s = IsProgram(group.Value) ? group.Value : "";
-
-            Codes = AllTagsDelete(tmp_s) +"," + System.Environment.NewLine;
-            //MessageBox.Show(Regex.Replace(group.Value,"<[^>]*?>",""), "タグ消しテキスト", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-            //次にマッチする文字列があれば追記していく
-            do
+            const string target = "<div class=\"code-frame\" data-lang=\"C#\">";
+            const string target2 = "<div class=\"code-frame\" data-lang=\"csharp\">";
+            while (html.Contains(target) || html.Contains(target2))
             {
-                match = match.NextMatch();
-                Codes += AllTagsDelete(match.Groups["Code"].Value) + "," + System.Environment.NewLine;
+                Counter_div = 0;
+                Counter_slashdiv = 0;
+                startIndex = 0;
+                lastIndex = 0;
+
+                if (html.Contains(target))
+                    startIndex = html.IndexOf(target);
+                else
+                    startIndex = html.IndexOf(target2);
+
+
+                string tmp_h = html.Substring(startIndex, html.Length - startIndex - 1);
+                tmp_html =tmp_h.Split('\n');
+
+                foreach (string s in tmp_html)
+                {
+                    if (Counter_div == Counter_slashdiv)
+                    {
+                        if(s.Contains("<div") && s.Contains("</div>"))
+                        {
+                            //tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
+                            Counter_div++;
+                            Counter_slashdiv++; 
+
+                        }
+                        else if (s.Contains("<div"))
+                        {
+                           // tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
+                            Counter_div++;
+                        }
+                        else if (s.Contains("</div>"))
+                        {
+                            lastIndex = html.IndexOf("</div>");
+                        }
+                    }
+                    else
+                    {
+                        if (s.Contains("</div>"))
+                        {
+                            //tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
+                            Counter_slashdiv++;
+                        }
+                    }
+                }
+
+                string CsharpCode = html.Substring(startIndex, lastIndex);
+
+                html = html.Remove(startIndex, target.Length);
+                html = html.Remove(lastIndex - "</div>".Length, "</div>".Length);
+
+                Regex regex = new Regex("<code>(?<Code>.*?)</code>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+
+                //まずは一個探す
+                var match = regex.Match(CsharpCode);
+                var group = match.Groups["Code"];
+
+
+                string tmp_s = IsProgram(group.Value) ? group.Value : "";
+
+                Codes += AllTagsDelete(tmp_s) + "," + System.Environment.NewLine;
+                //MessageBox.Show(Regex.Replace(group.Value,"<[^>]*?>",""), "タグ消しテキスト", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                //次にマッチする文字列があれば追記していく
+                /* do
+                 {
+                     match = match.NextMatch();
+                     Codes += AllTagsDelete(match.Groups["Code"].Value) + "," + System.Environment.NewLine;
+                 }
+                 while (match.Success);
+                 */
             }
-            while (match.Success);
 
             return Codes;
 
         }
 
-       
+        //ソースコードの周りには<div cakss ="code-frame" data-lang="C#"> プログラム　</>　があることが分かった。
+        //これがあればC#のソースコードがある
+        //しかし単純にこの中を取ろうと<div>～</div>をやると別の</div>に引っかかる
+        //同じインデントにある<div>を探すためには
+        //内側にある<div>と</div>を数えてその数が同じになった時、次に出てくる</div>を探す
+
 
         public string GetSentence(string html)
         {
@@ -92,7 +157,7 @@ namespace WebScraping
             string sentences = "";
             var match = regex.Match(html);
             var group = match.Groups["Sentence"];
-            sentences = AllTagsDelete( group.Value);
+            sentences = AllTagsDelete(group.Value);
             sentences += "," + System.Environment.NewLine;
             do
             {
@@ -110,9 +175,9 @@ namespace WebScraping
             bool value = true;
 
             string[] lines = text.Split(System.Environment.NewLine.ToCharArray());
-            for(int i = 0;i < lines.Length; i++)
+            for (int i = 0; i < lines.Length; i++)
             {
-                if (Regex.IsMatch(lines[i], @"[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}]+")) 
+                if (Regex.IsMatch(lines[i], @"[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}]+"))
                 {
                     if (!lines[i].Contains("//") && !lines[i].Contains("\""))
                     {
@@ -123,7 +188,7 @@ namespace WebScraping
             }
             return value;
         }
-        
+
         public string AllTagsDelete(string text)
         {
             return Regex.Replace(text, "<[^>]*?>", "");
@@ -142,6 +207,6 @@ namespace WebScraping
 
             return count;
         }
-        
+
     }
 }
