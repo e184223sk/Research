@@ -3,11 +3,12 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
-
+using System;
 namespace WebScraper
 {
     public class PageScraper
     {
+
         public string GetHTML(string url)
         {
             
@@ -17,14 +18,20 @@ namespace WebScraper
             string html = "";
 
             //指定されたURLに対してRequestを投げてResponseを取得
-            using (HttpWebResponse resonse = (HttpWebResponse)request.GetResponse())
-            using (Stream responseStream = resonse.GetResponseStream())
-
-            //取得した文字列をUTF-8でエンコード
-            using (StreamReader reader = new StreamReader(responseStream, Encoding.UTF8))
+            try
             {
-                //htmlを格納
-                html = reader.ReadToEnd();
+                using (HttpWebResponse resonse = (HttpWebResponse)request.GetResponse())
+                using (Stream responseStream = resonse.GetResponseStream())
+                //取得した文字列をUTF-8でエンコード
+                using (StreamReader reader = new StreamReader(responseStream, Encoding.UTF8))
+                {
+                    //htmlを格納
+                    html = reader.ReadToEnd();
+                }
+            }
+            catch(Exception e)
+            {
+                return "";
             }
 
             return html;
@@ -52,7 +59,6 @@ namespace WebScraper
         /// <returns>カンマ区切りの文字列</returns>
         public string GetCode(string html)
         {
-
 
             //見つかったすべての部分文字列
             string Codes = "";
@@ -98,7 +104,7 @@ namespace WebScraper
                         }
                         else if (s.Contains("</div>"))
                         {
-                            lastIndex = html.IndexOf("</div>");
+                            lastIndex = tmp_h.IndexOf("</div>");
                         }
                     }
                     else
@@ -110,11 +116,21 @@ namespace WebScraper
                         }
                     }
                 }
+                string CsharpCode = CsharpCode = tmp_h.Substring(0, lastIndex);
+                try
+                {
+                    html = html.Remove(startIndex, target.Length);
+                    html = html.Remove(lastIndex - "</div>".Length, "</div>".Length);
+                }
+                catch(Exception e)
+                {
+                    //System.Windows.Forms.MessageBox.Show(e.ToString());
+                    continue;
+                }
+                
+                
 
-                string CsharpCode = html.Substring(startIndex, lastIndex);
-
-                html = html.Remove(startIndex, target.Length);
-                html = html.Remove(lastIndex - "</div>".Length, "</div>".Length);
+               
 
                 Regex regex = new Regex("<code>(?<Code>.*?)</code>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
@@ -181,7 +197,7 @@ namespace WebScraper
                 {
                     if (!lines[i].Contains("//") && !lines[i].Contains("\""))
                     {
-                        MessageBox.Show(lines[i], "IsJapanese", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                       // MessageBox.Show(lines[i], "IsJapanese", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         value = false;
                     }
                 }

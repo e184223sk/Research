@@ -20,6 +20,9 @@ namespace WebScraping
 
         public PerfomanceMode _mode = PerfomanceMode.Test;
 
+        ExclusionProgress form2;
+
+
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool AllocConsole();
         public Form1()
@@ -29,6 +32,8 @@ namespace WebScraping
 
             _URLText.Text = "https://qiita.com/atsushi33/items/beb0685f5b967613f2e5";
             this.Text = "Pagescraper  < TestMode >";
+
+            form2 = new ExclusionProgress();
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
@@ -176,7 +181,7 @@ namespace WebScraping
         private void exclusionToolStripMenuItem_Click(object sender, EventArgs e)
         {
             PageScraper scraper = new PageScraper();
-                       
+            
             if (_URLText.Text == null)
                 MessageBox.Show("URLを入力してください");
             else
@@ -188,9 +193,18 @@ namespace WebScraping
                     
                     string[] urls = CSVReader.Read(_URLText.Text);
 
+                    form2.progressBar1.Minimum = 0;
+                    form2.progressBar1.Maximum = urls.Length;
+                    form2.Show();
+
+
                     List<string> after = new List<string>();
                     foreach(string url in urls)
                     {
+                        if (url == "") break;
+
+                        form2.label1.Text = form2.progressBar1.Value++.ToString()+" / " + urls.Length.ToString();
+                        form2.label1.Update();
                         string tmp_html = scraper.GetHTML(url);
                         string tmp_code = scraper.GetCode(tmp_html);
                         string tmp_sentence = scraper.GetSentence(tmp_html);
@@ -201,6 +215,9 @@ namespace WebScraping
                         }
                     }
 
+                    //System.Threading.Thread.Sleep(5000);
+                    form2.Close();
+                    form2.Dispose();
                     string tmp_url = _URLText.Text.Replace(".csv", "");
 
                     tmp_url += "_1.csv";
@@ -209,11 +226,12 @@ namespace WebScraping
                     {
                         foreach(string s in after)
                         {
-                            sr.WriteLine(s + ",");
+                            sr.WriteLine(s);
                         }
                     }
 
                     MessageBox.Show("完了しました");
+
                 }
                 else
                 {
