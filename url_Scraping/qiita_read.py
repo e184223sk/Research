@@ -18,6 +18,6 @@ for i in range(100):
     data = res.read()
     # CSVに出力
     df = pd.read_json(data)
-    df.to_csv("qiita5.csv", columns=[
+    df.to_csv("qiita7.csv", columns=[
         'url' # 記事URL
         ], mode='a', header=False, index=False)
