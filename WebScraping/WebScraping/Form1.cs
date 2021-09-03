@@ -226,7 +226,7 @@ namespace WebScraping
                     {
                         foreach(string s in after)
                         {
-                            sr.WriteLine(s);
+                            sr.Write(s);
                         }
                     }
 

@@ -68,8 +68,13 @@ namespace WebScraper
             int startIndex = 0, lastIndex = 0;
             string[] tmp_html;
 
+
+            //C#コードを囲むdiv。　種類が　c# C# csharpと3種類あるため　含有チェックとタグを消す際に３分岐する必要あり　enumやね
             const string target = "<div class=\"code-frame\" data-lang=\"C#\">";
             const string target2 = "<div class=\"code-frame\" data-lang=\"csharp\">";
+
+            
+
             while (html.Contains(target) || html.Contains(target2))
             {
                 Counter_div = 0;
@@ -86,6 +91,7 @@ namespace WebScraper
                 string tmp_h = html.Substring(startIndex, html.Length - startIndex - 1);
                 tmp_html =tmp_h.Split('\n');
 
+                //対応する</div>のindexを取得
                 foreach (string s in tmp_html)
                 {
                     if (Counter_div == Counter_slashdiv)
@@ -116,9 +122,10 @@ namespace WebScraper
                         }
                     }
                 }
-                string CsharpCode = CsharpCode = tmp_h.Substring(0, lastIndex);
+                string CsharpCode =  tmp_h.Substring(0, lastIndex);
                 try
                 {
+
                     html = html.Remove(startIndex, target.Length);
                     html = html.Remove(lastIndex - "</div>".Length, "</div>".Length);
                 }
@@ -128,14 +135,10 @@ namespace WebScraper
                     continue;
                 }
                 
-                
-
-               
-
                 Regex regex = new Regex("<code>(?<Code>.*?)</code>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
 
-                //まずは一個探す
+                //コードの抽出
                 var match = regex.Match(CsharpCode);
                 var group = match.Groups["Code"];
 
