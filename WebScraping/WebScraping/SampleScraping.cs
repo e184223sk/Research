@@ -4,14 +4,19 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System;
-namespace WebScraper
+namespace WebScraping
 {
     public class PageScraper
     {
+        //C#コードを囲むdiv。　種類が　c# C# csharpと3種類あるため　含有チェックとタグを消す際に３分岐する必要あり　enumやね
+        const string target = "<div class=\"code-frame\" data-lang=\"C#\">";
+        const string target2 = "<div class=\"code-frame\" data-lang=\"csharp\">";
+        const string target3 = "<div class=\"code-frame\" data-lang=\"Csharp\">";
+
 
         public string GetHTML(string url)
         {
-            
+
             //URLからRequestを作成
             HttpWebRequest request = WebRequest.CreateHttp(url);
             //html格納用
@@ -29,7 +34,7 @@ namespace WebScraper
                     html = reader.ReadToEnd();
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 return "";
             }
@@ -69,72 +74,63 @@ namespace WebScraper
             string[] tmp_html;
 
 
-            //C#コードを囲むdiv。　種類が　c# C# csharpと3種類あるため　含有チェックとタグを消す際に３分岐する必要あり　enumやね
-            const string target = "<div class=\"code-frame\" data-lang=\"C#\">";
-            const string target2 = "<div class=\"code-frame\" data-lang=\"csharp\">";
 
-            
 
-            while (html.Contains(target) || html.Contains(target2))
+            TagPattern pattern = ContainTarget(html);
+
+
+
+            while (pattern != TagPattern.NULL)
             {
                 Counter_div = 0;
                 Counter_slashdiv = 0;
                 startIndex = 0;
                 lastIndex = 0;
 
-                if (html.Contains(target))
-                    startIndex = html.IndexOf(target);
-                else
-                    startIndex = html.IndexOf(target2);
+                startIndex = SearchTarget(pattern, html);
 
 
-                string tmp_h = html.Substring(startIndex, html.Length - startIndex - 1);
-                tmp_html =tmp_h.Split('\n');
+                string tmp_h = html.Substring(startIndex, html.Length - startIndex);
+                tmp_html = tmp_h.Split('\n'); 
 
-                //対応する</div>のindexを取得
-                foreach (string s in tmp_html)
-                {
-                    if (Counter_div == Counter_slashdiv)
+                for (int i = 1; i < tmp_html.Length ; i++)
+                { 
+                    if (tmp_html[i].Contains("<div") && tmp_html[i].Contains("</div>"))
                     {
-                        if(s.Contains("<div") && s.Contains("</div>"))
-                        {
-                            //tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
-                            Counter_div++;
-                            Counter_slashdiv++; 
-
-                        }
-                        else if (s.Contains("<div"))
-                        {
-                           // tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
-                            Counter_div++;
-                        }
-                        else if (s.Contains("</div>"))
-                        {
-                            lastIndex = tmp_h.IndexOf("</div>");
-                        }
+                        Counter_div++;
+                        Counter_slashdiv++;
                     }
-                    else
+                    else if (tmp_html[i].Contains("<div"))
                     {
-                        if (s.Contains("</div>"))
+                        Counter_div++;
+                    }
+                    else if (tmp_html[i].Contains("</div>"))
+                    {
+                       
+                        if (Counter_div == Counter_slashdiv)
                         {
-                            //tmp_h = tmp_h.Remove(tmp_h.IndexOf(s), s.Length);
+                            lastIndex = CountAllString(tmp_html, i);
+                            break;
+                        }
+                        else
+                        {
                             Counter_slashdiv++;
                         }
-                    }
+                    } 
                 }
-                string CsharpCode =  tmp_h.Substring(0, lastIndex);
+                
+                string CsharpCode = tmp_h.Substring(0, lastIndex);
+
+                System.IO.File.WriteAllText(@"C:\Users\konolab\Desktop\xxx\1.txt", CsharpCode);//ikeda
                 try
                 {
-
-                    html = html.Remove(startIndex, target.Length);
-                    html = html.Remove(lastIndex - "</div>".Length, "</div>".Length);
+                    html = DeleteTarget(pattern, html);
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     //System.Windows.Forms.MessageBox.Show(e.ToString());
                     continue;
                 }
-                
                 Regex regex = new Regex("<code>(?<Code>.*?)</code>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
 
@@ -146,21 +142,19 @@ namespace WebScraper
                 string tmp_s = IsProgram(group.Value) ? group.Value : "";
 
                 Codes += AllTagsDelete(tmp_s) + "," + System.Environment.NewLine;
-                //MessageBox.Show(Regex.Replace(group.Value,"<[^>]*?>",""), "タグ消しテキスト", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                //次にマッチする文字列があれば追記していく
-                /* do
-                 {
-                     match = match.NextMatch();
-                     Codes += AllTagsDelete(match.Groups["Code"].Value) + "," + System.Environment.NewLine;
-                 }
-                 while (match.Success);
-                 */
+                //ループ条件　タグがまだあるか
+                pattern = ContainTarget(html);
+                 
             }
+
 
             return Codes;
 
         }
+
+
+
 
         //ソースコードの周りには<div cakss ="code-frame" data-lang="C#"> プログラム　</>　があることが分かった。
         //これがあればC#のソースコードがある
@@ -200,7 +194,7 @@ namespace WebScraper
                 {
                     if (!lines[i].Contains("//") && !lines[i].Contains("\""))
                     {
-                       // MessageBox.Show(lines[i], "IsJapanese", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        // MessageBox.Show(lines[i], "IsJapanese", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         value = false;
                     }
                 }
@@ -226,6 +220,80 @@ namespace WebScraper
 
             return count;
         }
+        #region TagPattern Methods
 
+
+        public int CountAllString(string[] array, int index)
+        {
+            int count = 0;
+
+            for (int i = 0; i <= index; i++)
+            {
+                count += array[i].Length + 1;
+            }
+            return count;
+        }
+
+        public TagPattern ContainTarget(string text)
+        {
+
+
+            if (text.Contains(target)) return TagPattern.C_hash;
+            if (text.Contains(target2)) return TagPattern.csharp;
+            if (text.Contains(target3)) return TagPattern.Csharp;
+
+            return TagPattern.NULL;
+
+
+        }
+
+        public int SearchTarget(TagPattern tag, string text)
+        {
+            switch (tag)
+            {
+                case TagPattern.C_hash:
+                    return text.IndexOf(target);
+
+                case TagPattern.csharp:
+                    return text.IndexOf(target2);
+
+                case TagPattern.Csharp:
+                    return text.IndexOf(target3);
+                default:
+                    return -1;
+
+            }
+        }
+
+        public string DeleteTarget(TagPattern tag, string text)
+        {
+            switch (tag)
+            {
+                case TagPattern.C_hash: return text.Remove(text.IndexOf(target), target.Length);
+                case TagPattern.csharp: return text.Remove(text.IndexOf(target2), target.Length);
+                case TagPattern.Csharp: return text.Remove(text.IndexOf(target3), target.Length);
+                default: return "";
+            }
+        }
+
+        #endregion
     }
 }
+
+
+public enum TagPattern
+{
+    C_hash,
+    csharp,
+    Csharp,
+    NULL
+} 
+
+/*
+ 悪魔のコードです
+                int start = SearchTarget(pattern, html);
+                int len = html.IndexOf("</code></pre></div>") - start;
+                string devilCode = html.Substring(start , len);
+                return devilCode;
+     
+     */

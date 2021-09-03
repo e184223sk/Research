@@ -8,8 +8,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
-using WebScraper;
-
 namespace WebScraping
 {
     public partial class Form1 : Form
