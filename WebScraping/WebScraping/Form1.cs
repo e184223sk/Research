@@ -187,15 +187,16 @@ namespace WebScraping
                 //CSVモード
                 if (_isCSV)
                 {
-
                     
+                    //URLの読み込み
                     string[] urls = CSVReader.Read(_URLText.Text);
 
+                    //プログレスバーウィンドウの表示
                     form2.progressBar1.Minimum = 0;
                     form2.progressBar1.Maximum = urls.Length;
                     form2.Show();
-
-
+                    
+                    //プログラムと本文のいずれかが欠けてたら省く
                     List<string> after = new List<string>();
                     foreach(string url in urls)
                     {
@@ -218,7 +219,7 @@ namespace WebScraping
                     form2.Dispose();
                     string tmp_url = _URLText.Text.Replace(".csv", "");
 
-                    tmp_url += "_1.csv";
+                    tmp_url += "_2.csv";
 
                     using (StreamWriter sr = new StreamWriter(tmp_url))
                     {
@@ -238,12 +239,14 @@ namespace WebScraping
                 }
             }
         }
-
+        
     }
-}
-public enum PerfomanceMode
-{
-    Test,
-    Seperate,
-    Dataset,
+
+    public enum PerfomanceMode
+    {
+        Test,
+        Seperate,
+        Dataset,
+    }
+
 }

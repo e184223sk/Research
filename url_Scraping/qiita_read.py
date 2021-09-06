@@ -8,7 +8,7 @@ url = "/api/v2/tags/csharp/items?"
 
 
 
-for i in range(100):
+for i in range(200):
     i += 1
     # Qiita APIで記事情報を取得
     page = "page=" + str(i)
@@ -18,6 +18,6 @@ for i in range(100):
     data = res.read()
     # CSVに出力
     df = pd.read_json(data)
-    df.to_csv("qiita7.csv", columns=[
+    df.to_csv("qiita8.csv", columns=[
         'url' # 記事URL
         ], mode='a', header=False, index=False)

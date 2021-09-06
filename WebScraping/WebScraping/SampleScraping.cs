@@ -8,10 +8,13 @@ namespace WebScraping
 {
     public class PageScraper
     {
-        //C#コードを囲むdiv。　種類が　c# C# csharpと3種類あるため　含有チェックとタグを消す際に３分岐する必要あり　enumやね
-        const string target = "<div class=\"code-frame\" data-lang=\"C#\">";
-        const string target2 = "<div class=\"code-frame\" data-lang=\"csharp\">";
-        const string target3 = "<div class=\"code-frame\" data-lang=\"Csharp\">";
+        //C#コードを囲むdiv。　種類が　たくさんあるため　含有チェックとタグを消す際に分岐する必要あり　enumやね
+        const string target1 = "<div class=\"code-frame\" data-lang=\"c#\">";
+        const string target2 = "<div class=\"code-frame\" data-lang=\"C#\">";
+        const string target3 = "<div class=\"code-frame\" data-lang=\"csharp\">";
+        const string target4 = "<div class=\"code-frame\" data-lang=\"Csharp\">";
+        const string target5 = "<div class=\"code-frame\" data-lang=\"cs\">";
+        const string target6 = "<div class=\"code-frame\" data-lang=\"CS\">"; //ないかもしれんが一応
 
 
         public string GetHTML(string url)
@@ -73,12 +76,7 @@ namespace WebScraping
             int startIndex = 0, lastIndex = 0;
             string[] tmp_html;
 
-
-
-
             TagPattern pattern = ContainTarget(html);
-
-
 
             while (pattern != TagPattern.NULL)
             {
@@ -91,10 +89,10 @@ namespace WebScraping
 
 
                 string tmp_h = html.Substring(startIndex, html.Length - startIndex);
-                tmp_html = tmp_h.Split('\n'); 
+                tmp_html = tmp_h.Split('\n');
 
-                for (int i = 1; i < tmp_html.Length ; i++)
-                { 
+                for (int i = 1; i < tmp_html.Length; i++)
+                {
                     if (tmp_html[i].Contains("<div") && tmp_html[i].Contains("</div>"))
                     {
                         Counter_div++;
@@ -106,7 +104,7 @@ namespace WebScraping
                     }
                     else if (tmp_html[i].Contains("</div>"))
                     {
-                       
+
                         if (Counter_div == Counter_slashdiv)
                         {
                             lastIndex = CountAllString(tmp_html, i);
@@ -116,12 +114,10 @@ namespace WebScraping
                         {
                             Counter_slashdiv++;
                         }
-                    } 
+                    }
                 }
-                
-                string CsharpCode = tmp_h.Substring(0, lastIndex);
 
-                System.IO.File.WriteAllText(@"C:\Users\konolab\Desktop\xxx\1.txt", CsharpCode);//ikeda
+                string CsharpCode = tmp_h.Substring(0, lastIndex);
                 try
                 {
                     html = DeleteTarget(pattern, html);
@@ -145,12 +141,9 @@ namespace WebScraping
 
                 //ループ条件　タグがまだあるか
                 pattern = ContainTarget(html);
-                 
+
             }
-
-
             return Codes;
-
         }
 
 
@@ -237,10 +230,12 @@ namespace WebScraping
         public TagPattern ContainTarget(string text)
         {
 
-
-            if (text.Contains(target)) return TagPattern.C_hash;
-            if (text.Contains(target2)) return TagPattern.csharp;
-            if (text.Contains(target3)) return TagPattern.Csharp;
+            if (text.Contains(target1)) return TagPattern.c_hash;
+            if (text.Contains(target2)) return TagPattern.C_hash;
+            if (text.Contains(target3)) return TagPattern.csharp;
+            if (text.Contains(target4)) return TagPattern.Csharp;
+            if (text.Contains(target5)) return TagPattern.cs;
+            if (text.Contains(target6)) return TagPattern.CS;
 
             return TagPattern.NULL;
 
@@ -251,16 +246,13 @@ namespace WebScraping
         {
             switch (tag)
             {
-                case TagPattern.C_hash:
-                    return text.IndexOf(target);
-
-                case TagPattern.csharp:
-                    return text.IndexOf(target2);
-
-                case TagPattern.Csharp:
-                    return text.IndexOf(target3);
-                default:
-                    return -1;
+                case TagPattern.c_hash: return text.IndexOf(target1);
+                case TagPattern.C_hash: return text.IndexOf(target2);
+                case TagPattern.csharp: return text.IndexOf(target3);
+                case TagPattern.Csharp: return text.IndexOf(target4);
+                case TagPattern.cs    : return text.IndexOf(target5);
+                case TagPattern.CS    : return text.IndexOf(target6);
+                default               : return -1;
 
             }
         }
@@ -269,10 +261,13 @@ namespace WebScraping
         {
             switch (tag)
             {
-                case TagPattern.C_hash: return text.Remove(text.IndexOf(target), target.Length);
-                case TagPattern.csharp: return text.Remove(text.IndexOf(target2), target.Length);
-                case TagPattern.Csharp: return text.Remove(text.IndexOf(target3), target.Length);
-                default: return "";
+                case TagPattern.c_hash: return text.Remove(text.IndexOf(target1), target1.Length);
+                case TagPattern.C_hash: return text.Remove(text.IndexOf(target2), target2.Length);
+                case TagPattern.csharp: return text.Remove(text.IndexOf(target3), target3.Length);
+                case TagPattern.Csharp: return text.Remove(text.IndexOf(target4), target4.Length);
+                case TagPattern.cs    : return text.Remove(text.IndexOf(target5), target5.Length);
+                case TagPattern.CS    : return text.Remove(text.IndexOf(target6), target6.Length);
+                default               : return "";
             }
         }
 
@@ -283,11 +278,14 @@ namespace WebScraping
 
 public enum TagPattern
 {
+    c_hash,
     C_hash,
     csharp,
     Csharp,
+    cs,
+    CS,
     NULL
-} 
+}
 
 /*
  悪魔のコードです
