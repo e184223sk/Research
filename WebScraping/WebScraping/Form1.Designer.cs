@@ -49,9 +49,13 @@
             this.toolStripComboBox1 = new System.Windows.Forms.ToolStripMenuItem();
             this.preprocessingToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.exclusionToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.downloadHTMLSToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.downloadAsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.getSourceTargetToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.folderBrowser = new System.Windows.Forms.FolderBrowserDialog();
             this.reference = new System.Windows.Forms.Button();
             this.openFile = new System.Windows.Forms.OpenFileDialog();
+            this.saveFileDialog1 = new System.Windows.Forms.SaveFileDialog();
             this.menuStrip1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -185,28 +189,28 @@
             this.separateToolStripMenuItem1,
             this.datasetToolStripMenuItem1});
             this.extractModeToolStripMenuItem.Name = "extractModeToolStripMenuItem";
-            this.extractModeToolStripMenuItem.Size = new System.Drawing.Size(141, 22);
+            this.extractModeToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.extractModeToolStripMenuItem.Text = "ExtractMode";
             // 
             // testToolStripMenuItem1
             // 
             this.testToolStripMenuItem1.Name = "testToolStripMenuItem1";
-            this.testToolStripMenuItem1.Size = new System.Drawing.Size(119, 22);
-            this.testToolStripMenuItem1.Text = "Test";
+            this.testToolStripMenuItem1.Size = new System.Drawing.Size(180, 22);
+            this.testToolStripMenuItem1.Text = "Debug (Single Only)";
             this.testToolStripMenuItem1.Click += new System.EventHandler(this.testToolStripMenuItem_Click);
             // 
             // separateToolStripMenuItem1
             // 
             this.separateToolStripMenuItem1.Name = "separateToolStripMenuItem1";
-            this.separateToolStripMenuItem1.Size = new System.Drawing.Size(119, 22);
+            this.separateToolStripMenuItem1.Size = new System.Drawing.Size(180, 22);
             this.separateToolStripMenuItem1.Text = "Separate";
             this.separateToolStripMenuItem1.Click += new System.EventHandler(this.separateToolStripMenuItem_Click);
             // 
             // datasetToolStripMenuItem1
             // 
             this.datasetToolStripMenuItem1.Name = "datasetToolStripMenuItem1";
-            this.datasetToolStripMenuItem1.Size = new System.Drawing.Size(119, 22);
-            this.datasetToolStripMenuItem1.Text = "Dataset";
+            this.datasetToolStripMenuItem1.Size = new System.Drawing.Size(180, 22);
+            this.datasetToolStripMenuItem1.Text = "Dataset (Multi Only)";
             // 
             // readModeToolStripMenuItem
             // 
@@ -214,27 +218,28 @@
             this.uRLToolStripMenuItem,
             this.toolStripComboBox1});
             this.readModeToolStripMenuItem.Name = "readModeToolStripMenuItem";
-            this.readModeToolStripMenuItem.Size = new System.Drawing.Size(141, 22);
+            this.readModeToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
             this.readModeToolStripMenuItem.Text = "Read Mode";
             // 
             // uRLToolStripMenuItem
             // 
             this.uRLToolStripMenuItem.Name = "uRLToolStripMenuItem";
-            this.uRLToolStripMenuItem.Size = new System.Drawing.Size(95, 22);
-            this.uRLToolStripMenuItem.Text = "URL";
+            this.uRLToolStripMenuItem.Size = new System.Drawing.Size(164, 22);
+            this.uRLToolStripMenuItem.Text = "SinglePage (URL)";
             this.uRLToolStripMenuItem.Click += new System.EventHandler(this.ReadURL_Click);
             // 
             // toolStripComboBox1
             // 
             this.toolStripComboBox1.Name = "toolStripComboBox1";
-            this.toolStripComboBox1.Size = new System.Drawing.Size(95, 22);
-            this.toolStripComboBox1.Text = "CSV";
+            this.toolStripComboBox1.Size = new System.Drawing.Size(164, 22);
+            this.toolStripComboBox1.Text = "MultiPages (CSV)";
             this.toolStripComboBox1.Click += new System.EventHandler(this.ReadCSV_Click);
             // 
             // preprocessingToolStripMenuItem
             // 
             this.preprocessingToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.exclusionToolStripMenuItem});
+            this.exclusionToolStripMenuItem,
+            this.downloadHTMLSToolStripMenuItem});
             this.preprocessingToolStripMenuItem.Name = "preprocessingToolStripMenuItem";
             this.preprocessingToolStripMenuItem.Size = new System.Drawing.Size(93, 20);
             this.preprocessingToolStripMenuItem.Text = "Preprocessing";
@@ -242,9 +247,32 @@
             // exclusionToolStripMenuItem
             // 
             this.exclusionToolStripMenuItem.Name = "exclusionToolStripMenuItem";
-            this.exclusionToolStripMenuItem.Size = new System.Drawing.Size(124, 22);
-            this.exclusionToolStripMenuItem.Text = "Exclusion";
+            this.exclusionToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.exclusionToolStripMenuItem.Text = "Delete Extra URL";
             this.exclusionToolStripMenuItem.Click += new System.EventHandler(this.exclusionToolStripMenuItem_Click);
+            // 
+            // downloadHTMLSToolStripMenuItem
+            // 
+            this.downloadHTMLSToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.downloadAsToolStripMenuItem,
+            this.getSourceTargetToolStripMenuItem});
+            this.downloadHTMLSToolStripMenuItem.Name = "downloadHTMLSToolStripMenuItem";
+            this.downloadHTMLSToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.downloadHTMLSToolStripMenuItem.Text = "HTMLs";
+            // 
+            // downloadAsToolStripMenuItem
+            // 
+            this.downloadAsToolStripMenuItem.Name = "downloadAsToolStripMenuItem";
+            this.downloadAsToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.downloadAsToolStripMenuItem.Text = "download as...";
+            this.downloadAsToolStripMenuItem.Click += new System.EventHandler(this.downloadHTMLSToolStripMenuItem_Click);
+            // 
+            // getSourceTargetToolStripMenuItem
+            // 
+            this.getSourceTargetToolStripMenuItem.Name = "getSourceTargetToolStripMenuItem";
+            this.getSourceTargetToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.getSourceTargetToolStripMenuItem.Text = "GetSourceTarget";
+            this.getSourceTargetToolStripMenuItem.Click += new System.EventHandler(this.GetSourceTargetToolStripMenuItem_Click);
             // 
             // reference
             // 
@@ -265,6 +293,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.BackColor = System.Drawing.SystemColors.Control;
             this.ClientSize = new System.Drawing.Size(800, 574);
             this.Controls.Add(this.reference);
             this.Controls.Add(this.SentenceText);
@@ -316,6 +345,10 @@
         private System.Windows.Forms.ToolStripMenuItem readModeToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem uRLToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem toolStripComboBox1;
+        private System.Windows.Forms.SaveFileDialog saveFileDialog1;
+        private System.Windows.Forms.ToolStripMenuItem downloadHTMLSToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem downloadAsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem getSourceTargetToolStripMenuItem;
     }
 }
 

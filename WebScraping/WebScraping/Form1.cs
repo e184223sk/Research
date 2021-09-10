@@ -8,11 +8,13 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
+using System.Net;
+
 namespace WebScraping
 {
     public partial class Form1 : Form
     {
-        public bool _isCSV  =false;
+        public bool _isCSV = false;
 
         public string _csvText;
 
@@ -37,6 +39,7 @@ namespace WebScraping
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
 
+            form2.Dispose();
         }
 
 
@@ -50,16 +53,16 @@ namespace WebScraping
             labelView.Update();
 
             //------------------------------------------------------
-             PageScraper scraper = new PageScraper();
+            PageScraper scraper = new PageScraper();
 
-            string html ="", program ="", sentence = "" , title ="";
+            string html = "", program = "", sentence = "", title = "";
 
             if (_isCSV)
             {
 
                 string[] urls = CSVReader.Read(_URLText.Text);
 
-                foreach(string url in urls)
+                foreach (string url in urls)
                 {
                     html = scraper.GetHTML(url);
                     program += scraper.GetCode(html);
@@ -80,8 +83,8 @@ namespace WebScraping
                 html = scraper.GetHTML(url);
                 //_HTMLText.Text = html;
 
-                 program = scraper.GetCode(html);
-                 sentence = scraper.GetSentence(html);
+                program = scraper.GetCode(html);
+                sentence = scraper.GetSentence(html);
 
                 _ProgramText.Text = program;
                 SentenceText.Text = sentence;
@@ -94,12 +97,12 @@ namespace WebScraping
 
 
             labelView.Visible = false;
-            if(_mode == PerfomanceMode.Test)
+            if (_mode == PerfomanceMode.Test)
             {
                 MessageBox.Show("デバッグ中です", "デバッグ中", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 //MessageBox.Show(program ==""  ? "空っぽ" : "じゃない","ss", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-            else if(_mode == PerfomanceMode.Seperate)
+            else if (_mode == PerfomanceMode.Seperate)
             {
 
                 int count = WebScraping.Properties.Settings.Default._FileCount;
@@ -119,11 +122,11 @@ namespace WebScraping
                 }
                 WebScraping.Properties.Settings.Default._FileCount++;
             }
-            else if(_mode == PerfomanceMode.Dataset)
+            else if (_mode == PerfomanceMode.Dataset)
             {
 
             }
- 
+
         }
 
         // 参照ボタン押したときの挙動
@@ -137,7 +140,7 @@ namespace WebScraping
         }
 
 
-#region MenuButton Event
+        #region MenuButton Event
         private void ReadURL_Click(object sender, EventArgs e)
         {
             _isCSV = false;
@@ -156,6 +159,7 @@ namespace WebScraping
 
         #endregion
 
+        #region SwitchPlatform Event
         private void testToolStripMenuItem_Click(object sender, EventArgs e)
         {
             _mode = PerfomanceMode.Test;
@@ -174,56 +178,56 @@ namespace WebScraping
             _mode = PerfomanceMode.Dataset;
             this.Text = "Pagescraper  < DatasetMode >";
         }
+        #endregion
 
 
+        #region Preprosession
         private void exclusionToolStripMenuItem_Click(object sender, EventArgs e)
         {
             PageScraper scraper = new PageScraper();
-            
-            if (_URLText.Text == null)
+
+            if (_URLText.Text == "")
                 MessageBox.Show("URLを入力してください");
             else
             {
                 //CSVモード
                 if (_isCSV)
                 {
-                    
                     //URLの読み込み
                     string[] urls = CSVReader.Read(_URLText.Text);
 
                     //プログレスバーウィンドウの表示
                     form2.progressBar1.Minimum = 0;
                     form2.progressBar1.Maximum = urls.Length;
+                    form2.Text = "Exclusion";
                     form2.Show();
-                    
+
                     //プログラムと本文のいずれかが欠けてたら省く
                     List<string> after = new List<string>();
-                    foreach(string url in urls)
+                    foreach (string url in urls)
                     {
                         if (url == "") break;
 
-                        form2.label1.Text = form2.progressBar1.Value++.ToString()+" / " + urls.Length.ToString();
+                        form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + urls.Length.ToString();
                         form2.label1.Update();
                         string tmp_html = scraper.GetHTML(url);
                         string tmp_code = scraper.GetCode(tmp_html);
                         string tmp_sentence = scraper.GetSentence(tmp_html);
 
-                        if(tmp_code !="" && tmp_sentence != "")
+                        if (tmp_code != "" && tmp_sentence != "")
                         {
-                            after.Add(url);
+                            after.Add(url + "\n");
                         }
                     }
-
-                    //System.Threading.Thread.Sleep(5000);
                     form2.Close();
-                    form2.Dispose();
+                    form2.progressBar1.Value = 0;
                     string tmp_url = _URLText.Text.Replace(".csv", "");
 
-                    tmp_url += "_2.csv";
+                    tmp_url += "_1.csv";
 
                     using (StreamWriter sr = new StreamWriter(tmp_url))
                     {
-                        foreach(string s in after)
+                        foreach (string s in after)
                         {
                             sr.Write(s);
                         }
@@ -238,8 +242,163 @@ namespace WebScraping
 
                 }
             }
+
         }
+
+        private void GetSourceTargetToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            PageScraper scraper = new PageScraper();
+
+            string sentence = "";
+            string folder_path = "";
+            string save_path = "";
+
+
+            saveFileDialog1.Filter = "テキストファイル (*.txt) |*.txt |CSVファイル(*.csv)|*.csv |すべてのファイル(*.*) | *.*";
+            saveFileDialog1.FilterIndex = 0;
+
+
+
+            if (folderBrowser.ShowDialog() == DialogResult.OK)
+            {
+                folder_path = folderBrowser.SelectedPath;
+            }
+            else return;
+
+            if (saveFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                save_path = saveFileDialog1.FileName;
+            }
+            else return;
+
+            string[] htmls = Directory.GetFiles(folder_path, "*", SearchOption.TopDirectoryOnly);
+            MessageBox.Show(htmls.Length.ToString());
+            form2.progressBar1.Minimum = 0;
+            form2.progressBar1.Maximum = htmls.Length;
+            form2.Text = "GetAllSentence";
+            form2.Show();
+
+            foreach (string html in htmls)
+            {
+                form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + htmls.Length.ToString();
+                form2.label1.Update();
+                sentence += scraper.GetSentence( File.ReadAllText(html));
+            }
+
+            using (StreamWriter sw = new StreamWriter(save_path))
+            {
+                sw.Write(sentence);
+            }
+
+            form2.Close();
+            form2.progressBar1.Value = 0;
+            MessageBox.Show("完了しました");
+
+        }
+
         
+        WebClient wc = new WebClient();
+        private void downloadHTMLSToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string urlfile_path = "";
+            string save_path = @"C:\Users\konolab\Desktop\Research\url_Scraping\qiita\html2\";
+            int count = 0;
+
+            if (openFile.ShowDialog() == DialogResult.OK)
+            {
+                urlfile_path = openFile.FileName;
+            }
+            else return;
+
+
+            var data = CSVReader.Read(urlfile_path);
+
+
+            foreach (var d in data)
+            {
+                try
+                {
+                    wc.DownloadFile(d, save_path + "html_" + (++count).ToString() + ".html");
+                }
+                catch (Exception)
+                {
+
+                }
+
+            }
+        }
+
+        /*private void GetSourceTargetToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            PageScraper scraper = new PageScraper();
+
+            string sentence = "";
+
+            if(_URLText.Text == "")
+            {
+                MessageBox.Show("URLを入力してください");
+
+            }
+            else
+            {
+                if (_isCSV)
+                {
+                    string save_path = "";
+                    Stream stream;
+                    saveFileDialog1.Filter = "テキストファイル (*.txt) |*.txt |CSVファイル(*.csv)|*.csv |すべてのファイル(*.*) | *.*";
+                    saveFileDialog1.FilterIndex = 0;
+                    saveFileDialog1.FileName = "Source_1.txt";
+
+
+                    if (saveFileDialog1.ShowDialog() == DialogResult.OK)
+                    {
+                        save_path = saveFileDialog1.FileName;
+                        stream = saveFileDialog1.OpenFile();
+                    }
+                    else
+                    {
+                        return;
+                    }
+                    string[] urls = CSVReader.Read(_URLText.Text);
+
+
+                    form2.progressBar1.Minimum = 0;
+                    form2.progressBar1.Maximum = urls.Length;
+                    form2.Text = "GetAllSentence";
+                    form2.Show();
+                    foreach (string url in urls)
+                    {
+                        form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + urls.Length.ToString();
+                        form2.label1.Update();
+                        string tmp_html = scraper.GetHTML(url);
+                        string tmp_s = scraper.GetSentence(tmp_html);
+                        sentence += tmp_s;
+
+
+                    }
+                    form2.Close();
+                    form2.progressBar1.Value = 0;
+                    using (StreamWriter sw = new StreamWriter(save_path))
+                    {
+                        try
+                        {
+                            sw.Write(sentence);
+                        }
+                        catch (Exception exeption)
+                        {
+                            MessageBox.Show(exeption.Message);
+                        }
+
+
+                    }
+                    MessageBox.Show("完了しました");
+                }
+                else
+                    MessageBox.Show("CSVモードでのみ可能です \n [Switch Performance] → [CSV]よりCSVモードに変更して下さい");
+            }
+        }*/
+        #endregion
+
     }
 
     public enum PerfomanceMode
