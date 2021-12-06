@@ -1,0 +1,67 @@
+
+/*
+using MethodAttributes = System.Reflection.MethodAttributes;
+using MA = Mono.Cecil.MethodAttributes;
+using MethodBody = Mono.Cecil.Cil.MethodBody;
+using OpCodes = System.Reflection.Emit.OpCodes;
+using MTuple = System.ValueTuple&lt;System.Reflection.Emit.ModuleBuilder, Mono.Cecil.ModuleDefinition&gt;;
+using TTuple = System.ValueTuple&lt;System.Reflection.Emit.TypeBuilder, Mono.Cecil.TypeDefinition&gt;;
+using TyTuple = System.ValueTuple&lt;System.Type, Mono.Cecil.TypeDefinition&gt;;
+using MdTuple = System.ValueTuple&lt;System.Reflection.Emit.MethodBuilder, Mono.Cecil.MethodDefinition&gt;;
+using CTuple = System.ValueTuple&lt;System.Reflection.Emit.ConstructorBuilder, Mono.Cecil.MethodDefinition&gt;;
+using FieldAttributes = System.Reflection.FieldAttributes;
+using FTuple = System.ValueTuple&lt;System.Reflection.Emit.FieldBuilder, Mono.Cecil.FieldDefinition&gt;;
+using GenericParameterAttributes = System.Reflection.GenericParameterAttributes;
+*/
+
+private readonly AssemblyBuilder[] assemblyBuilders;
+public readonly MTuple[] ModuleArray;
+private readonly TTuple[][] typePairArrays;
+private readonly MdTuple[][][] methodPairArray2ds;
+private readonly CTuple[][][] constructorPairArray2ds;
+private readonly FTuple[][][] fieldPairArray2ds;
+private readonly FTuple[][][] staticFieldPairArray2ds;
+
+public readonly TyTuple[][] Type2dArray;
+
+private readonly IConverterWithGenericParameter converter;
+
+public ConstExprBuilder(ModuleDefinition[] moduleDefinitions)
+{
+    assemblyBuilders = new AssemblyBuilder[moduleDefinitions.Length];
+    for (var i = 0; i &lt; assemblyBuilders.Length; i++)
+        assemblyBuilders[i] = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ConstExpr" + i), AssemblyBuilderAccess.Run);
+    ModuleArray = new MTuple[moduleDefinitions.Length];
+    typePairArrays = new TTuple[ModuleArray.Length][];
+    methodPairArray2ds = new MdTuple[ModuleArray.Length][][];
+    constructorPairArray2ds = new CTuple[ModuleArray.Length][][];
+    fieldPairArray2ds = new FTuple[ModuleArray.Length][][];
+    staticFieldPairArray2ds = new FTuple[ModuleArray.Length][][];
+    Type2dArray = new TyTuple[ModuleArray.Length][];
+
+    ConstructTypeBuilders(moduleDefinitions);
+    converter = new NotCreatedConverter(ModuleArray, typePairArrays, methodPairArray2ds, constructorPairArray2ds, fieldPairArray2ds, staticFieldPairArray2ds);
+    ConstructFields();
+    ConstructMethodBuilderSignatures();
+    ConstructMethodBuilderBodies();
+    ConstructConstructorBuilderBodies();
+    Publish();
+}
+
+private void Publish()
+{
+    for (var moduleIndex = 0; moduleIndex &lt; Type2dArray.Length; moduleIndex++)
+    {
+        ref TyTuple[] typeArray = ref Type2dArray[moduleIndex];
+        ref TTuple[] sourceArray = ref typePairArrays[moduleIndex];
+        typeArray = sourceArray.Length == 0 ? Array.Empty&lt;TyTuple&gt;() : new TyTuple[sourceArray.Length];
+        for (var typeIndex = 0; typeIndex &lt; typeArray.Length; typeIndex++)
+        {
+            TTuple source = sourceArray[typeIndex];
+            TyTuple createType = source.Item1.CreateType();
+            if (createType is null) throw new NullReferenceException(source.Item2.FullName);
+            typeArray[typeIndex] = (createType, source.Item2);
+        }
+    }
+}
+

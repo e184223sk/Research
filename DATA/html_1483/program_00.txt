@@ -1,0 +1,41 @@
+/// &lt;summary&gt;
+/// 指定されたオブジェクトを含む行を親のItemsControlから削除する
+/// &lt;/summary&gt;
+public static void RemoveItemFromParent(DependencyObject elementInItem)
+{
+    DependencyObject parent = elementInItem;
+    var parentTree = new List&lt;DependencyObject&gt; { parent };
+
+    //指定されたオブジェクトのVisualTree上の親を順番に探索し、ItemsControlを探す。
+    //ただし、DataGridは中間にいるDataGridCellsPresenterは無視する
+    while (parent != null &amp;&amp; !(parent is ItemsControl) || parent is DataGridCellsPresenter)
+    {
+        parent = VisualTreeHelper.GetParent(parent);
+        parentTree.Add(parent);
+    }
+    if (!(parent is ItemsControl itemsControl))
+        return;
+
+    //ItemsControlの行にあたるオブジェクトを探索履歴の後ろから検索
+    var item = parentTree
+        .LastOrDefault(x =&gt; itemsControl.IsItemItsOwnContainer(x));
+
+    int? removeIndex = itemsControl.ItemContainerGenerator?.IndexFromContainer(item);
+
+    if (removeIndex == null || removeIndex &lt; 0)
+        return;
+
+    //Bindingしていた場合はItemsSource、違うならItemsから削除する
+    IEnumerable targetList = (itemsControl.ItemsSource ?? itemsControl.Items);
+
+switch (targetList)
+            {
+                case IList il:
+                    il.RemoveAt(index);
+                    return;
+                case IEditableCollectionView iECV:
+                    iECV.RemoveAt(index);
+                    return;
+            }
+}
+

@@ -1,0 +1,42 @@
+
+           GraphServiceClient graphClient = new GraphServiceClient(authProvider);
+
+            // Note の セクション一覧を取得
+            var notebooks = await graphClient.Me.Onenote.Sections
+                .Request()
+                .GetAsync();
+
+            var sectionIdList = notebooks.Select(r =&gt; r.Id);
+
+            List&lt;Entity&gt; getDocList = new List&lt;Entity&gt;();
+
+            foreach (string secId in sectionIdList)
+            {
+                // 指定の セクションのページ一覧を取得
+                var pageList = await graphClient.Me.Onenote.Sections[secId].Pages.Request()
+                    .GetAsync();
+                foreach (var page in pageList)
+                {
+                    // 指定のページの最終更新年月日を比較 新しい物を取得対象とする。
+                    Debug.WriteLine(page.Title + " " + page.LastModifiedDateTime);
+                    Debug.WriteLine(page.Links.OneNoteWebUrl.Href);
+                    Debug.WriteLine(page.ParentSection.Id);
+                    Debug.WriteLine(page.ParentSection.DisplayName);
+                    if (page.LastModifiedDateTime &gt; DateTime.Now.AddDays(-7))
+                    {
+                        getDocList.Add(page);
+                    }
+                }
+            }
+
+            // 指定の ページを取得する。
+            foreach (var doc in getDocList)
+            {
+                // ページ取得のループ
+                var contentSt = await graphClient.Me.Onenote.Pages[doc.Id].Content.Request().GetAsync();
+                var sr = new StreamReader(contentSt);
+                string s = await sr.ReadToEndAsync();
+                Debug.WriteLine(s);
+            }
+
+

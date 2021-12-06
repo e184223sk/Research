@@ -1,0 +1,50 @@
+
+    var realm = Realm.GetInstance();
+
+    // Use LINQ to query
+    var puppies = realm.All&lt;Dog&gt;().Where(d =&gt; d.Age &lt; 2);
+
+    Debug.WriteLine("カウント");
+    var cnt = puppies.Count(); // =&gt; 0 because no dogs have been added yet
+    Debug.WriteLine(cnt);
+
+    // Update and persist objects with a thread-safe transaction
+    realm.Write(() =&gt; 
+        {
+            var mydog = realm.CreateObject&lt;Dog&gt;();
+            mydog.Name = "Rex";
+            mydog.Age = 1;
+        });
+
+    realm.Write(() =&gt; 
+        {
+            var mydog = realm.CreateObject&lt;Dog&gt;();
+            mydog.Name = "30才の犬";
+            mydog.Age = 30;
+        });
+
+    Debug.WriteLine("カウント");
+    // Queries are updated in real-time
+    cnt = puppies.Count();
+    Debug.WriteLine(cnt); // =&gt; 2になるはず
+
+    // LINQ query syntax works as well
+    var oldDogs = from d in realm.All&lt;Dog&gt;() where d.Age &gt; 8 select d;
+
+    Debug.WriteLine("爺さん犬");
+    foreach (var d in oldDogs) 
+    {
+        Debug.WriteLine(d.Name);
+    }
+
+    // Query and update from any thread
+    // Threadは使えません！
+    // new Thread(() =&gt;
+    new Task(() =&gt;
+        {
+            var realm2 = Realm.GetInstance();
+
+            var theDog = realm2.All&lt;Dog&gt;().Where(d =&gt; d.Age == 1).First();
+            realm2.Write(() =&gt; theDog.Age = 3);
+        }).Start();
+

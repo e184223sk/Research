@@ -1,0 +1,68 @@
+
+using System;
+
+using Npgsql;
+using System.Transactions;
+using System.Data;
+
+
+namespace npgsql_test
+{
+    class Class1
+    {
+        static void Main(String[] args)
+        {
+            //SQL処理で用いる変数を予め宣言
+            NpgsqlCommand cmd = null;
+            string cmd_str = null;
+            DataTable dt = null;
+            NpgsqlDataAdapter da = null;
+
+            //接続文字列
+            string conn_str = "Server=123.45.67.89;Port=5432;User ID=postgres;Database=postgres;Password=password;Enlist=true";
+
+            //TransactionScopeの利用
+            using (TransactionScope ts = new TransactionScope()) 
+            {
+                //接続その1
+                using (NpgsqlConnection conn = new NpgsqlConnection(conn_str))
+                {
+                    //PostgreSQLへ接続後、INSERT、DELETE処理を実施し、SELECT結果を取得
+                    conn.Open();
+
+                    //test対象のテーブルをリセット(全データDELETE)
+                    cmd_str = "DELETE FROM test";
+                    cmd = new NpgsqlCommand(cmd_str, conn);
+                    cmd.ExecuteNonQuery();
+
+                    //INSERT処理
+                    cmd_str = "INSERT INTO test VALUES(1, 'AAA'), (2, 'BBB'), (3, 'CCC')";
+                    cmd = new NpgsqlCommand(cmd_str, conn);
+                    cmd.ExecuteNonQuery();
+
+                    //DELETE処理
+                    cmd_str = "DELETE FROM test WHERE col1 % 2 = 0";
+                    cmd = new NpgsqlCommand(cmd_str, conn);
+                    cmd.ExecuteNonQuery();
+
+                    //SELECT処理
+                    dt = new DataTable();
+                    cmd_str = "SELECT * FROM test";
+                    cmd = new NpgsqlCommand(cmd_str, conn);
+                    da = new NpgsqlDataAdapter(cmd);
+                    da.Fill(dt);
+
+                    //SELECT結果表示
+                    for (int i = 0; i &lt; dt.Rows.Count; i++) 
+                    {
+                        Console.WriteLine("(col1, col2) = (" + dt.Rows[i][0] + ", " + dt.Rows[i][1] + ")");
+                    }
+
+                }
+                //トランザクション完了
+                ts.Complete();
+            }
+        }
+    }
+}
+

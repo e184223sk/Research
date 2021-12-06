@@ -1,0 +1,166 @@
+using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+
+/// &lt;summary&gt;
+/// ステートマシン
+/// ジェネリックのパラメーターはEnumを指定して下さい
+/// &lt;/summary&gt;
+public class StateMachine&lt;T&gt; : IEqualityComparer&lt;T&gt; where T : struct
+{
+    /// &lt;summary&gt;
+    /// ステート
+    /// &lt;/summary&gt;
+    private class State
+    {
+        private readonly Action mEnterAct;  // 開始時に呼び出されるデリゲート
+        private readonly Action mUpdateAct; // 更新時に呼び出されるデリゲート
+        private readonly Action mExitAct;   // 終了時に呼び出されるデリゲート
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public State(Action enterAct = null, Action updateAct = null, Action exitAct = null)
+        {
+            mEnterAct = enterAct ?? delegate { };
+            mUpdateAct = updateAct ?? delegate { };
+            mExitAct = exitAct ?? delegate { };
+        }
+
+        /// &lt;summary&gt;
+        /// 開始します
+        /// &lt;/summary&gt;
+        public void Enter()
+        {
+            mEnterAct();
+        }
+
+        /// &lt;summary&gt;
+        /// 更新します
+        /// &lt;/summary&gt;
+        public void Update()
+        {
+            mUpdateAct();
+        }
+
+        /// &lt;summary&gt;
+        /// 終了します
+        /// &lt;/summary&gt;
+        public void Exit()
+        {
+            mExitAct();
+        }
+    }
+
+    private Dictionary&lt;T, State&gt; mStateTable;  // ステートのテーブル
+    private Dictionary&lt;T, Dictionary&lt;T, Action&gt;&gt; mSwitchTable;
+    private State mCurrentState;                              // 現在のステート
+    public T currentState { get; private set; }
+
+    public StateMachine()
+    {
+        System.Type type = typeof(T);
+        UnityEngine.Debug.AssertFormat(type.IsEnum, "ステートのKeyにEnumではない型が指定されています");
+
+        mStateTable = new Dictionary&lt;T, State&gt;(this);
+        mSwitchTable = new Dictionary&lt;T, Dictionary&lt;T, Action&gt;&gt;(this);
+    }
+
+    /// &lt;summary&gt;
+    /// ステートを追加します
+    /// &lt;/summary&gt;
+    public void Add(T key, Action enterAct = null, Action updateAct = null, Action exitAct = null)
+    {
+        mStateTable.Add(key, new State(enterAct, updateAct, exitAct));
+    }
+
+    public void AddSwitchCallBack(T prevState, T nextState, Action switchAct)
+    {
+        // すでにprevStateとnextStateの組み合わせでコールバックが仕込まれていたら
+        // prevStateとnextStateの組み合わせのコールバックは１つのみ
+        if (mSwitchTable.ContainsKey(prevState) &amp;&amp; mSwitchTable[prevState].ContainsKey(nextState))
+        {
+            UnityEngine.Debug.LogError(prevState.ToString() + " - " + nextState.ToString() + "には既にSwitchコールバックが登録されています。");
+            return;
+        }
+
+        if (!mSwitchTable.ContainsKey(prevState))
+        {
+            mSwitchTable.Add(prevState, new Dictionary&lt;T, Action&gt;(this));
+        }
+        mSwitchTable[prevState].Add(nextState, switchAct);
+    }
+
+    /// &lt;summary&gt;
+    /// 現在のステートを設定します
+    /// &lt;/summary&gt;
+    public void SetState(T key)
+    {
+        if (mCurrentState != null)
+        {
+            mCurrentState.Exit();
+        }
+
+        if (mSwitchTable.ContainsKey(currentState) &amp;&amp; mSwitchTable[currentState].ContainsKey(key))
+        {
+            mSwitchTable[currentState][key]();
+        }
+
+        mCurrentState = mStateTable[key];
+        currentState = key;
+        mCurrentState.Enter();
+    }
+
+    /// &lt;summary&gt;
+    /// 現在のステートを更新します
+    /// &lt;/summary&gt;
+    public void Update()
+    {
+        if (mCurrentState == null)
+        {
+            return;
+        }
+        mCurrentState.Update();
+    }
+
+    /// &lt;summary&gt;
+    /// すべてのステートを削除します
+    /// &lt;/summary&gt;
+    public void Clear()
+    {
+        mStateTable.Clear();
+        mCurrentState = null;
+    }
+
+    public bool Equals(T x, T y)
+    {
+        return CastTo&lt;int&gt;.From(x) == CastTo&lt;int&gt;.From(y);
+    }
+
+    public int GetHashCode(T obj)
+    {
+        return CastTo&lt;int&gt;.From(obj);
+    }
+}
+
+public static class CastTo&lt;T&gt;
+{
+    private static class Cache&lt;S&gt;
+    {
+        static Cache()
+        {
+            // 次のラムダ式を式木で構築
+            // (S s) =&gt; (T)s
+            var p = Expression.Parameter(typeof(S), "target");
+            var c = Expression.ConvertChecked(p, typeof(T));
+            Caster = Expression.Lambda&lt;Func&lt;S, T&gt;&gt;(c, p).Compile();
+        }
+        internal static readonly Func&lt;S, T&gt; Caster;
+    }
+
+    public static T From&lt;S&gt;(S source)
+    {
+        return Cache&lt;S&gt;.Caster(source);
+    }
+}
+

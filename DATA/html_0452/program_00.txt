@@ -1,0 +1,61 @@
+
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.DurableTask;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Extensions.Logging;
+
+namespace FunctionApp1
+{
+    public static class Function1
+    {
+        [FunctionName("Function1")]
+        public static async Task RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
+        {
+            var outputs = new List&lt;string&gt;();
+            for(var i = 0; i&lt;5; i++)
+            {
+                try
+                {
+                   await context.CallActivityAsync&lt;string&gt;("WaitTest", i);
+                }catch(Exception e)
+                {
+                    log.LogError($"error orcestration: {i}", e);
+                }
+            }
+        }
+
+        [FunctionName("Function1_Hello")]
+        public static string SayHello([ActivityTrigger] string name, ILogger log)
+        {
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Function1_HttpStart")]
+        public static async Task&lt;HttpResponseMessage&gt; HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            string instanceId = await starter.StartNewAsync("Function1", null);
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+
+
+        [FunctionName("WaitTest")]
+        public static void WaitTest([ActivityTrigger] int num, ILogger log)
+        {
+            log.LogInformation($"Wait start {num}.");
+            if (num == 3) throw new Exception($"wait test {num}");
+            System.Threading.Thread.Sleep(1000);
+            log.LogInformation($"Wait end {num}.");
+        }
+    }
+}
+

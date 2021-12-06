@@ -1,0 +1,48 @@
+
+ private void Start()
+{
+    // Channel作成
+    var channel = Channel.CreateSingleConsumerUnbounded&lt;int&gt;();
+
+    // Channelを読み取るときはReaderを使う
+    var reader = channel.Reader;
+
+    // メッセージの待受
+    WaitForChannelAsync(reader, this.GetCancellationTokenOnDestroy()).Forget();
+
+    // 書き込むときはWriteを使う
+    var writer = channel.Writer;
+
+    // IObserver&lt;T&gt;.OnNext() に相当
+    writer.TryWrite(1);
+    writer.TryWrite(2);
+    writer.TryWrite(3);
+
+    // IObserver&lt;T&gt;.OnCompleted() に相当
+    writer.TryComplete();
+
+    // TryComplete()に例外を渡すと IObserver&lt;T&gt;.OnError() に相当
+    // writer.TryComplete(new Exception(""));
+}
+
+private async UniTaskVoid WaitForChannelAsync(ChannelReader&lt;int&gt; reader, CancellationToken token)
+{
+    try
+    {
+        // 1回だけ読み取るならReadAsync
+        var result1 = await reader.ReadAsync(token); // UniTask&lt;int&gt;
+        Debug.Log(result1);
+
+        // 完了するまで読み続けるなら　ReadAllAsync
+        // IObservable&lt;T&gt;.Subscribe() に相当
+        await reader.ReadAllAsync() // IUniTaskAsyncEnumerable&lt;int&gt;
+            .ForEachAsync(x =&gt; Debug.Log(x), token);
+
+        Debug.Log("Done");
+    }
+    catch (Exception e)
+    {
+        Debug.LogException(e);
+    }
+}
+

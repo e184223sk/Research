@@ -1,0 +1,64 @@
+
+public class SampleLogger : ILogger
+{
+    public SampleLogger(string name)
+    {
+        m_Name = name;
+    }
+
+    private readonly string m_Name;
+
+    // 指定されたログレベルが出力対象かどうかを取得します。
+    bool ILogger.IsEnabled(LogLevel logLevel)
+    {
+        return true;
+    }
+    // 指定されたログを出力します。
+    void ILogger.Log&lt;TState&gt;(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func&lt;TState, Exception, string&gt; formatter)
+    {
+        string message = (メッセージをフォーマット。割愛します。)
+        WriteLogLine(message);
+    }
+    // 指定されたログを出力します。
+    private void WriteLogLine(string message)
+    {
+        Console.WriteLine(new string('\t', m_ScopeLevel) + message));
+    }
+
+    // スコープのレベル
+    // スレッドセーフは考慮していません
+    private int m_ScopeLevel = 0;
+
+    // スコープが開始されたときの処理を行います。
+    IDisposable ILogger.BeginScope&lt;TState&gt;(TState state)
+    {
+        WriteLogLine($"Begin {state}");
+        ++m_ScopeLevel;
+
+        return new Scope&lt;TState&gt;(state, () =&gt;
+        {
+            // スコープが終了されたときの処理
+            if (m_ScopeLevel &gt; 0) { --m_ScopeLevel; }
+            WriteLogLine("End");
+        });
+    }
+    // BeginScope の戻り値として返すオブジェクト。
+    // dispose されたときにスコープの終了処理を行います。
+    private struct Scope&lt;TState&gt; : IDisposable
+    {
+        internal Scope(TState state, Action onDispose)
+        {
+            m_State = state;
+            m_OnDispose = onDispose;
+        }
+        private readonly TState m_State;
+        private readonly Action m_OnDispose;
+
+        void IDisposable.Dispose()
+        {
+            m_OnDispose?.Invoke();
+        }
+    }
+
+}
+

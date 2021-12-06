@@ -1,0 +1,31 @@
+string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+//dynamicで型が取れるのはC#は便利ですねー
+dynamic data = JsonConvert.DeserializeObject(requestBody);
+var data0 = data[0];
+
+//BlobのURLを解析は少し厄介です...
+var url = new Uri(data0.data.url.ToString());
+var container = url.AbsolutePath.Split('/')[1];
+int startIndex = "/".Length + container.Length + "/".Length;
+int length = url.AbsolutePath.Length - startIndex;
+var blobname = url.AbsolutePath.Substring(startIndex, length);
+var blobNameArray = blobname.Split('/');
+var blobFileName = blobNameArray[blobNameArray.Length - 1];
+var tempPath = Path.GetTempPath();
+var tempFilePath = Path.Combine(Path.GetTempPath(), blobFileName);
+var accountName = url.Host.Split('.')[0];
+const string accessKey = "&lt;Blob AccessKey&gt;";
+var credential = new StorageCredentials(accountName, accessKey);
+var storageAccount = new CloudStorageAccount(credential, true);
+//blob
+CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
+//container
+CloudBlobContainer blobcontainer = blobClient.GetContainerReference(container);
+//ダウンロードするファイル名を指定
+CloudBlockBlob blockBlob_download = blobcontainer.GetBlockBlobReference(blobname);
+//ダウンロード処理
+//ダウンロード後のパスとファイル名を指定。
+var downloadFile = $"{tempFilePath}" ;
+await blockBlob_download.DownloadToFileAsync(downloadFile, System.IO.FileMode.OpenOrCreate);
+log.LogInformation("blob download successful.");
+

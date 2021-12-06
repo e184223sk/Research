@@ -1,0 +1,55 @@
+
+public class UnitTest1
+{
+    // fuzz.txt の１行を１テストケースとして定義
+    // ※後述の Parameters プロパティを参照
+    [Theory]
+    [MemberData(nameof(Parameters))]
+    public async Task SqlInjectionTest(string param)
+    {
+        // * Arrange
+        using (var db = new BlogDbContext())
+        {
+            // テーブルを空にしておく
+            db.Posts.RemoveRange(db.Posts.ToArray());
+
+            // SQL が正しく実行されれば、この Entity が帰ってくるはず
+            db.Posts.Add(new BlogPost() { Author = param, Title = "test" });
+
+            // こっちは帰ってこないはず
+            db.Posts.Add(new BlogPost() { Author = "Dummy", Title = "Dummy" });
+
+            db.SaveChanges();
+        }
+
+        using (var db = new BlogDbContext())
+        {
+            var controller = new BlogPostsController(db);
+            var sw = Stopwatch.StartNew();
+
+            // * Act
+            var result = await controller.QueryPosts(param);
+
+            // * Assert
+            // 実行に5秒以上かかったら Blind な SQL Injection が成功してるのでNG
+            Assert.True(sw.ElapsedMilliseconds &lt; 5000, "Blind SQL Injection");
+            // 正しいSQL文が発行されていれば１件の結果が返ってくるはず
+            Assert.Equal(param, result.Single().Author);
+        }
+    }
+
+    // SqlInjectionTest で使う入力データ列
+    public static IEnumerable&lt;object[]&gt; Parameters
+    {
+        get
+        {
+            var f = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fuzz.txt");
+            var r = File.ReadAllLines(f)
+                .Where(l =&gt; !string.IsNullOrWhiteSpace(l))
+                .Select(l =&gt; new object[] { l })
+                .ToArray();
+            return r;
+        }
+    }
+}
+

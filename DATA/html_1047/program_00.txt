@@ -1,0 +1,113 @@
+using System.IO;
+using Cysharp.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class SceneSwitcher : MonoBehaviour
+{
+    #region LifeCycle
+
+    private void Start()
+    {
+        var current = FindObjectsOfType&lt;SceneSwitcher&gt;();
+        if (current.Length &gt; 1)
+        {
+            GameObject.Destroy(this.gameObject);
+            return;
+        }
+
+        DontDestroyOnLoad(this.gameObject);
+
+        SceneManager.sceneLoaded += (scene, mode) =&gt;
+        {
+            if (scene.buildIndex == 0)
+            {
+                _base = true;
+            }
+        };
+
+        SceneManager.sceneUnloaded += scene =&gt;
+        {
+            if (scene.buildIndex == 0)
+            {
+                _base = false;
+            }
+        };
+    }
+
+    #endregion
+
+    #region LoadBase
+
+    [SerializeField, ContextMenuItem("Base", "LoadBase")]
+    private bool _base = false;
+
+    private void LoadBase()
+    {
+        SceneManager.LoadSceneAsync(0);
+    }
+
+    #endregion
+
+    #region LoadSceneFromAssetBundle
+
+    private AssetBundle _sceneBundle = null;
+    private string _sceneName;
+
+    [SerializeField, ContextMenuItem("loadScene", "Load")]
+    private bool loadScene = false;
+
+    private async void Load()
+    {
+        if (_sceneBundle == null)
+        {
+            var bundlePath = Path.Combine(Application.streamingAssetsPath, "bundlescene");
+            var buffer = File.ReadAllBytes(bundlePath);
+            using (var memoryStream = new MemoryStream(buffer))
+            {
+                // LoadFromFileだとAssetBundleに対するキャッシュの仕方が違うらしいので
+                // より実運用に近いと思われるメモリからの読み込みにします
+                _sceneBundle = await AssetBundle.LoadFromStreamAsync(memoryStream);
+            }
+
+            var scenePath = _sceneBundle.GetAllScenePaths()[0];
+            _sceneName = Path.GetFileNameWithoutExtension(scenePath);
+        }
+
+        SceneManager.LoadSceneAsync(_sceneName, loadScene ? LoadSceneMode.Additive : LoadSceneMode.Single);
+    }
+
+    #endregion
+
+    #region UnloadScene
+
+    [SerializeField, ContextMenuItem("unLoadScene", "Unload")]
+    private bool unloadScene = false;
+
+    private void Unload()
+    {
+        SceneManager.UnloadSceneAsync(_sceneName);
+    }
+
+    #endregion
+
+    #region UnloadAssetBundle
+
+    [SerializeField, ContextMenuItem("unloadBundle", "UnloadBundle")]
+    private bool unloadBundle;
+
+    private void UnloadBundle()
+    {
+        if (_sceneBundle != null)
+        {
+            _sceneBundle.Unload(unloadBundle);
+            _sceneBundle = null;
+        }
+
+        AssetBundle.UnloadAllAssetBundles(true);
+    }
+
+    #endregion
+}
+
+

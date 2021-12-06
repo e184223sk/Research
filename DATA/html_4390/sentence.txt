@@ -1,0 +1,18 @@
+ずいぶん前に Unity ECS の勉強をしたときにhecomiさんのBoidsシミュレーションを題材に使わせていただいたのですが、UnityのDOTS環境がどんどん変わっていって現行環境に合わせて大規模なリファクタリングが必要になったので、その際の情報を備忘録としてまとめます。GitHubたびたび Hybrid Renderer が使用する Component が追加されているようで、自力で ArchType を組み立てるやり方だと、適当にアップグレードしたときに描画されなくなります。
+また、 Hybrid Renderer も設定(V2を使うか否か)によって動かない場合があり、原因の特定に手間取りました。公式サンプルもそうですが、Hybrid ECS用のAPIを活用してGameObjectから必要な ArchType を構築すれば上記の仕様変更にも自動的に追従できることになり、ほんの少しリスクが減ります。PrefabなのでSystemの操作対象に紛れ込まないよう、空のコンポーネント BoidPrefabType をつけています。Entityの生成については元の実装と大して違いはありません。
+破棄については、今回は全体の数だけを考えて増減させるため、 BoidType に該当するもの全体の情報にアクセスする必要があり、そのために EntityQuery の生成 -&gt; 対象となる NativeArray&lt;Entity&gt; の取得という流れで処理しています。このへんは、状況に合わせて公式サンプルの SpawnFromMonoBehaviour , SpawnFromEntity, SpawnAndRemove あたりを参考にするのがよいでしょう。まず、entity 自身の情報が主な場合、今回の例でいえば MoveSystem の実装は下記のとおり。float や int など単純な struct は適当にOnUpdate() 関数のローカル変数においておけば、同じスコープで書くラムダ式でキャプチャしてくれるので簡単に使えます。ラムダ式の引数は、C#の仕様かEntitiesの仕様かはわかりませんが、
+値渡し(実質 Entity 型のみ)、ref 渡し、in 渡し
+の順番で並べる必要があります。また、Entity 型以外を値渡しすると、処理中で書き換える引数に ref を、書き換えない引数には in をつけるように警告されます。Entities と ForEach() の間にある With** 関数でエンティティクエリに属性を追加できます。
+主なものはReferenceによれば下表のとおり。上表中の &lt;T1, T2, T3&gt; は &lt;T&gt; または &lt;T1, T2&gt; に型パラメータを省略できます。(最大数は表中のとおり)次に、自身以外の Entity の情報も必要な処理の例として、 CohesionSystem の実装は下記のとおり。ここで、 Entity 経由で他の Boid の Translation を参照するため、全EntityのTranslationへのアクセサを SystemBase.GetComponentDataFromEntity&lt;Translation&gt;(isReadOnly) で取得しています。このSystemでは Translation は書き換えないので isReadOnly = true です。この場合代入先は [ReadOnly] アトリビュートが付加されている必要があり、そのままでは関数内の一時変数には代入できません。
+そのため、このデータの代入先として struct CohesionDataContainer の中に [ReadOnly] メンバを用意し、 CohesionDataContainer を一時変数として作ることでラムダ式にキャプチャさせることができます。IJobEntityBatch を使って CohesionSystem を書くと下記のようになります。上記は Entities.ForEach の例と同じ処理ですが、書かなければならないコードの量と複雑さが圧倒的です。
+そのため、公式でも
+「どうしてもIJobEntityBatchを使う必要がない限りEntities.ForEachを使おう」
+と言っています。Original implementation:
+Unity で Boids シミュレーションを作成して Entity Component System (ECS) を学んでみたQiita:
+ECSの簡単な実装と変更点について
+既存のUnityプロジェクトをUniversalRenderPipelineに移行する -サードインパクト修復-Official:
+Entities
+Hybrid Renderer
+EntityComponentSystemSamples
+
+

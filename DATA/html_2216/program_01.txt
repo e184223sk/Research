@@ -1,0 +1,68 @@
+
+
+public class ButtonBase : UIBehavior
+{
+    /// &lt;summary&gt;
+    /// クリック時の非同期コールバック
+    /// &lt;/summary&gt;
+    public Func&lt;Task&gt; onClickAsync;
+
+　　// ボタンのクリックを受け付けるかどうか
+    private bool _clickable = true;
+
+    private void Awake()
+    {
+        // 注意：　UIGestureは、EventSystemの各種イベントハンドラを実装したクラス
+        var gesture = GetComponent&lt;UIGesture&gt;();
+        if(gesture == null) gesture = gameObject.AddComponent&lt;UIGesture&gt;();
+        gesture.onClickedCallback += OnClickedHandler;
+    }
+
+    private void OnClickedHandler()
+    {
+        if(_clickable == false)
+        {
+            return;
+        }
+
+        _Execute().Forget();
+
+        async Task _Execute()
+        {
+            try
+            {
+                _clickable = false;
+
+                // クリックされた時の処理を実行
+                await onClickAsync?.Invoke();
+            }
+            finally
+            {
+                _clickable = true;
+            }
+        }
+    }
+}
+
+public static class TaskExtensions
+{
+    /// &lt;summary&gt;
+    /// タスクの完了を待たないことを明示的にする
+    /// 例外をログに出すためのもの
+    /// &lt;/summary&gt;
+    public static async void Forget(this Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogError(e);
+        }
+    }
+}
+

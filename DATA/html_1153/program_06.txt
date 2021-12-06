@@ -1,0 +1,51 @@
+
+[SerializeField] private GameObject _leftHandVisual;
+
+private readonly List&lt;Transform&gt; _bonesL = new List&lt;Transform&gt;();
+private List&lt;Transform&gt; _listOfChildren = new List&lt;Transform&gt;();
+private Quaternion _wristFixupRotation
+
+void Start()
+{
+    OVRSkeleton ovrSkeletonL = GameObject.Find("OVRHandL").GetComponent&lt;OVRSkeleton&gt;();
+    OVRSkeleton.IOVRSkeletonDataProvider dataProviderL =
+                ovrSkeletonL.GetComponent&lt;OVRSkeleton.IOVRSkeletonDataProvider&gt;();
+
+    //ボーンの情報をC#で利用可能にするラッパークラス
+    OVRPlugin.Skeleton skeleton = new OVRPlugin.Skeleton();
+
+    //ボーンの元データを生成
+    OVRPlugin.GetSkeleton((OVRPlugin.SkeletonType) dataProviderL.GetSkeletonType(), out skeleton);
+    InitializeBones(skeleton, _leftHandVisual);
+
+    //正しい順序で生成したボーンのリストを作成
+    ReadyHand(_leftHandVisual, _bonesL);
+
+    _wristFixupRotation = new Quaternion(0.0f, 1.0f, 0.0f, 0.0f);
+}
+
+void Update()
+{
+    //左手
+    if (_dataL.IsDataValid &amp;&amp; _dataL.IsDataHighConfidence)
+    {
+        //ルートのローカルポジションを適用
+        _leftHandVisual.transform.localPosition = _dataL.RootPose.Position.FromFlippedZVector3f();
+        _leftHandVisual.transform.localRotation = _dataL.RootPose.Orientation.FromFlippedZQuatf();
+
+        _leftHandVisual.transform.localScale =
+            new Vector3(_dataL.RootScale, _dataL.RootScale, _dataL.RootScale);
+
+        //ボーンのリストに受け取った値を反映
+        for (int i = 0; i &lt; _bonesL.Count; ++i)
+        {
+            _bonesL[i].transform.localRotation = _dataL.BoneRotations[i].FromFlippedXQuatf();
+
+            if (_bonesL[i].name == OVRSkeleton.BoneId.Hand_WristRoot.ToString())
+            {
+                _bonesL[i].transform.localRotation *= _wristFixupRotation;
+            }
+        }
+    }
+}
+

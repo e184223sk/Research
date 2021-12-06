@@ -1,0 +1,119 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.IO;
+
+namespace WindowsFormsApplication1
+{
+    class LogReader
+    {
+        private System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
+        private FileStream fs;
+        private long len;
+        private Encoding encoding;
+
+        public event EventHandler Renewted;
+        public event ReadedEventHandler Readed;
+
+        public LogReader()
+        {
+            timer.Tick += new System.EventHandler(timer_Tick);
+
+            //TODO:その内プロパティ化
+            encoding = System.Text.Encoding.GetEncoding(932);
+        }
+        ~LogReader()
+        {
+            if (fs != null)
+            {
+                fs.Close();
+                fs.Dispose();
+            }
+            timer.Dispose();
+        }
+
+        public int Interval
+        {
+            get
+            {
+                return timer.Interval;
+            }
+            set
+            {
+                timer.Interval = value;
+            }
+        }
+
+        public void ReadStart(string filePath, int interval = 100)
+        {
+            if (fs != null)
+            {
+                timer.Enabled = false;
+                fs.Close();
+                OnRenewted(new EventArgs());
+            }
+
+            //TODO: 必要そうならその内、開き方を指定できるようにする
+            fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+            Interval = interval;
+            timer.Enabled = true;
+        }
+        public void ReadStop()
+        {
+            timer.Enabled = false;
+        }
+        public void ReadRestart()
+        {
+            timer.Enabled = true;
+        }
+
+        protected virtual void OnRenewted(EventArgs e)
+        {
+            len = 0;
+
+            if (Renewted != null)
+                Renewted(this, e);
+        }
+
+        protected virtual void OnReaded(ReadedEventArgs e)
+        {
+            if (Readed != null)
+                Readed(this, e);
+        }
+
+        private void timer_Tick(object sender, EventArgs e)
+        {
+            long length = fs.Length;
+
+            //ファイルサイズが小さくなったら、ログが変わったと判断する
+            if (length &lt; len)
+                OnRenewted(new EventArgs());
+
+            //長さが大きくなっていたら、ログが追記されたと判断する
+            if (length &gt; len)
+            {
+                //TODO: 最初に大容量のファイルを開かれた場合、問題になるかもしれないので、その内検証する
+                byte[] bs = new byte[length - len];
+                fs.Seek(len, SeekOrigin.Begin);
+                if (0 &lt; fs.Read(bs, 0, bs.Length))
+                    OnReaded(new ReadedEventArgs(encoding.GetString(bs)));
+                len = length;
+            }
+        }
+    }
+
+    public delegate void ReadedEventHandler(object sender, ReadedEventArgs e);
+
+    public class ReadedEventArgs : EventArgs
+    {
+        public string Text { get; }
+        public ReadedEventArgs(string text)
+        {
+            Text = text;
+        }
+    }
+}
+

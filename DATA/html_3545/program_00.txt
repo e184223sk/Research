@@ -1,0 +1,89 @@
+using UnityEngine;
+using UnityEngine.Networking;
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+public static class DeeplFileTranslator
+{
+    [Serializable]
+    public class ResponseForUpload
+    {
+        public string document_id;
+        public string document_key;
+    }
+
+    [Serializable]
+    public class ResponseForCheck
+    {
+        public string document_id;
+        public string status;
+        public string seconds_remaining;
+        public string billed_characters;
+    }
+
+    private static readonly string auth_key = "XXX";
+
+    public static async Task&lt;string&gt; Upload(string path, string filename, string target_lang, string content_type)
+    {
+        // pathにあるファイルを読み込む
+        byte[] rawdata = File.ReadAllBytes(path);
+
+        List&lt;IMultipartFormSection&gt; requestData = new List&lt;IMultipartFormSection&gt;();
+        requestData.Add(new MultipartFormDataSection("auth_key",auth_key));
+        requestData.Add(new MultipartFormDataSection("target_lang",target_lang));
+        requestData.Add(new MultipartFormFileSection("file", rawdata, filename, content_type));
+
+        UnityWebRequest request = UnityWebRequest.Post("https://api.deepl.com/v2/document", requestData);
+        await request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.ProtocolError || request.result == UnityWebRequest.Result.ConnectionError)
+        {
+            Debug.LogError(request.error);
+            return "error";
+        }
+
+        return request.downloadHandler.text;
+    }
+
+    public static async Task&lt;string&gt; CheckStatus(string document_id, string document_key)
+    {
+        List&lt;IMultipartFormSection&gt; requestData = new List&lt;IMultipartFormSection&gt;();
+        requestData.Add(new MultipartFormDataSection("auth_key",auth_key));
+        requestData.Add(new MultipartFormDataSection("document_key",document_key));
+
+        UnityWebRequest request = UnityWebRequest.Post("https://api.deepl.com/v2/document/"+document_id, requestData);
+        await request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.ProtocolError || request.result == UnityWebRequest.Result.ConnectionError)
+        {
+            Debug.LogError(request.error);
+            return "error";
+        }
+
+        return request.downloadHandler.text;
+    }
+
+    public static async Task&lt;string&gt; Download(string document_id, string document_key, string output_path)
+    {
+        List&lt;IMultipartFormSection&gt; requestData = new List&lt;IMultipartFormSection&gt;();
+        requestData.Add(new MultipartFormDataSection("auth_key",auth_key));
+        requestData.Add(new MultipartFormDataSection("document_key",document_key));
+
+        UnityWebRequest request = UnityWebRequest.Post("https://api.deepl.com/v2/document/"+document_id+"/result", requestData);
+        await request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.ProtocolError || request.result == UnityWebRequest.Result.ConnectionError)
+        {
+            Debug.LogError(request.error);
+            return "error";
+        }
+
+        // output_pathにデータを書き込む
+        byte[] rawdata = request.downloadHandler.data;
+        File.WriteAllBytes(output_path, rawdata);
+        return "success";
+    }
+}
+

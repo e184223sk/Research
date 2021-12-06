@@ -1,0 +1,102 @@
+using System;
+using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+/// &lt;summary&gt;
+/// ブロックをランダムな位置にランダムなタイミングで表示
+/// 位置被りナシ
+/// &lt;/summary&gt;
+public class ActivateBlock : MonoBehaviour
+{
+    [SerializeField] private GameObject _blockParent;
+    [SerializeField] private BoxCollider _blockBoxCollider;
+
+    private const float _MIN_INTERVAL_VALUE = 0.5f;
+    private const float _MAX_INTERVAL_VALUE = 2.0f;
+    private const float _MIN_X_VALUE = -1.0f;
+    private const float _MAX_X_VALUE = 1.0f;
+    private const float _MIN_Y_VALUE = 0.5f;
+    private const float _MAX_Y_VALUE = 2.0f;
+    private const float _MIN_Z_VALUE = -1.0f;
+    private const float _MAX_Z_VALUE = 1.0f;
+
+    private bool _isGameStart = true;
+
+    private bool _isSetablePositionX;
+    private bool _isSetablePositionY;
+    private bool _isSetablePositionZ;
+
+    private int _randomNumber;
+    private float _randomInterval;
+    private float _randomValueX;
+    private float _randomValueY;
+    private float _randomValueZ;
+
+    private readonly List&lt;Vector3&gt; _usePositionList = new List&lt;Vector3&gt;();
+
+    void Start()
+    {
+        //空同然だけどリスト作っとく
+        foreach (Transform child in _blockParent.transform)
+        {
+            _usePositionList.Add(child.position);
+        }
+
+        DelayInitBlock();
+    }
+
+    private async UniTask DelayInitBlock()
+    {
+        while (_isGameStart)
+        {
+            //ランダムな値
+                _randomNumber = Random.Range(0, _blockParent.transform.childCount);
+                _randomInterval = Random.Range(_MIN_INTERVAL_VALUE, _MAX_INTERVAL_VALUE);
+                _randomValueX = Random.Range(_MIN_X_VALUE, _MAX_X_VALUE);
+                _randomValueY = Random.Range(_MIN_Y_VALUE, _MAX_Y_VALUE);
+                _randomValueZ = Random.Range(_MIN_Z_VALUE, _MAX_Z_VALUE);
+
+            //選ばれたブロックの位置
+            Vector3 selectedBlockPosition =
+                    _blockParent.transform.GetChild(_randomNumber).gameObject.transform.position;
+
+            //選ばれたブロックの位置は比較対象から一旦削除
+            _usePositionList.Remove(selectedBlockPosition);
+
+            //現在使用中のポジションのリストから今利用検討中のポジションが利用可能か判定
+            foreach (Vector3 position in _usePositionList)
+            {
+                //表示位置被りがないかオブジェクトの大きさでチェック
+                _isSetablePositionX =
+                    Mathf.Abs(position.x - _randomValueX) &gt; _blockBoxCollider.bounds.size.x ;
+                _isSetablePositionY =
+                    Mathf.Abs(position.y - _randomValueY) &gt; _blockBoxCollider.bounds.size.y;
+                _isSetablePositionZ =
+                    Mathf.Abs(position.z - _randomValueZ) &gt; _blockBoxCollider.bounds.size.z ;
+
+                //座標のうち、全ての軸で被っていたら置けないのでやり直し
+                if (!_isSetablePositionX &amp;&amp; !_isSetablePositionY &amp;&amp; !_isSetablePositionZ)
+                {
+                    _usePositionList.Add(selectedBlockPosition);
+                    break;
+                }
+            }
+
+            //位置被りがどれか1つの軸で無ければ実行する
+            if (_isSetablePositionX || _isSetablePositionY || _isSetablePositionZ)
+            { 
+                Vector3 randomPosition = new Vector3(_randomValueX, _randomValueY, _randomValueZ);
+
+                //ランダムな間隔でDelay
+                await UniTask.Delay(TimeSpan.FromSeconds(_randomInterval));
+                _blockParent.transform.GetChild(_randomNumber).gameObject.transform.position = randomPosition;
+
+                //新しい使用中のポジションをリストに追加
+                _usePositionList.Add(randomPosition);
+            }
+        }
+    }
+}
+

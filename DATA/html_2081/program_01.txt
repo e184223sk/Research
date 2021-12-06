@@ -1,0 +1,70 @@
+
+
+/// &lt;summary&gt;
+/// Upload files
+/// &lt;/summary&gt;
+/// &lt;param name="FileToUpload"&gt;&lt;/param&gt;
+/// &lt;param name="container"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+/// &lt;summary&gt;
+/// Upload files
+/// &lt;/summary&gt;
+/// &lt;param name="FileToUpload"&gt;&lt;/param&gt;
+/// &lt;param name="container"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+public async Task&lt;List&lt;string&gt;&gt; UploadFilesAsync(List&lt;IFormFile&gt; FileToUpload, string container)
+{
+  var AbsoluteUris = new List&lt;string&gt;();
+
+  // Get azure table storage connection string.  
+  string ConnectionString = _config.Value.AzureBlobSettings.connection;
+  CloudStorageAccount storageAccount = CloudStorageAccount.Parse(ConnectionString);
+
+  CloudBlobClient cloudBlobClient = storageAccount.CreateCloudBlobClient();
+
+  var blobContainer = cloudBlobClient.GetContainerReference(container);
+
+  // If container does not exist
+  if (!blobContainer.Exists())
+  {
+    await blobContainer.CreateAsync();
+
+    // Set the permissions so the blobs are public.
+    BlobContainerPermissions permissions = new BlobContainerPermissions
+    {
+      PublicAccess = BlobContainerPublicAccessType.Blob
+    };
+
+    await blobContainer.SetPermissionsAsync(permissions);
+  }
+
+  foreach (var formFile in FileToUpload)
+  {
+    if (formFile.Length &gt; 0)
+    {
+      try
+      {
+        string FileName = Path.GetFileName(formFile.FileName);
+
+        CloudBlockBlob blockBlob;
+        // Create a block blob  
+        blockBlob = blobContainer.GetBlockBlobReference(FileName);
+
+        // Set the object's content type  
+        blockBlob.Properties.ContentType = formFile.ContentType;
+
+        // upload to blob  
+        blockBlob.UploadFromStream(formFile.OpenReadStream());
+
+        // get file uri  
+        AbsoluteUris.Add(blockBlob.Uri.AbsoluteUri);
+      }
+      catch (Exception ExceptionObj)
+      {
+        throw ExceptionObj;
+      }
+    }
+  }
+  return AbsoluteUris;
+}
+

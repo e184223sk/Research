@@ -1,0 +1,80 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+public class Generator
+{
+    private readonly HashSet&lt;string&gt; usings = new HashSet&lt;string&gt;(new[] { "System" });
+
+    private readonly List&lt;ClassInfo&gt; classes = new List&lt;ClassInfo&gt;();
+
+    public void AddSource(string text)
+    {
+        var tree = CSharpSyntaxTree.ParseText(text);
+        var root = tree.GetRoot();
+
+        // usingの一覧を収集
+        foreach (var item in root
+            .DescendantNodes()
+            .OfType&lt;UsingDirectiveSyntax&gt;()
+            .Select(ud =&gt; ud.Name.ToString()))
+        {
+            usings.Add(item);
+        }
+
+        // 自動生成対象とするインターフェースの一覧及びそのメンバの一覧を収集
+        classes.AddRange(root
+            .DescendantNodes()
+            .OfType&lt;NamespaceDeclarationSyntax&gt;()
+            .SelectMany(nds =&gt; nds.DescendantNodes()
+                .OfType&lt;InterfaceDeclarationSyntax&gt;()
+                .Where(ids =&gt; ids.AttributeLists.SelectMany(als =&gt; als.Attributes).Any(IsApiAttribute))
+                .Select(interfaceNode =&gt; CreateClassInfo(nds, interfaceNode))));
+    }
+
+    private static bool IsApiAttribute(AttributeSyntax syntax)
+    {
+        // インターフェースが自動生成の対象かを判定、Syntaxのみでの判定なのでちょっと手抜き
+        var name = syntax.Name.ToString().Split('.').Last();
+        return ((name == "Api") || (name == "ApiAttribute")) &amp;&amp;
+            ((syntax.ArgumentList?.Arguments.Count ?? 0) == 0);
+    }
+
+    private static ClassInfo CreateClassInfo(NamespaceDeclarationSyntax nds, InterfaceDeclarationSyntax ids)
+    {
+        // 自動生成するクラスの元になる情報
+        return new ClassInfo
+        {
+            Namespace = nds.Name.ToString(),
+            Interface = ids.Identifier.Text,
+            Methods = ids.Members
+                .OfType&lt;MethodDeclarationSyntax&gt;()
+                .Select(CreateMethodInfo)
+                .ToArray()
+        };
+    }
+
+    private static MethodInfo CreateMethodInfo(MethodDeclarationSyntax mds)
+    {
+        // 自動生成するクラスのメソッドの元になる情報
+        return new MethodInfo
+        {
+            Name = mds.Identifier.Text,
+            ReturnType = mds.ReturnType.ToString(),
+            ParameterTypes = String.Join(", ", mds.ParameterList.Parameters.Select(ps =&gt; String.Format("typeof({0})", ps.Type.ToString()))),
+            ArgumentsWithTypes = String.Join( ",", mds.ParameterList.Parameters.Select(ps =&gt; String.Format("{0} {1}", ps.Type.ToString(), ps.Identifier.Text))),
+            Arguments = String.Join(", ", mds.ParameterList.Parameters.Select(ps =&gt; ps.Identifier.Text))
+        };
+    }
+
+    public string Generate()
+    {
+...
+    }
+}
+

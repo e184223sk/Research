@@ -1,0 +1,206 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Web;
+using System.Net;
+using System.Net.Sockets;
+using System.Xml;
+using System.IO;
+using System.Xml.Serialization;
+using System.Web.Services;
+using System.Web.Services.Protocols;
+using System.Windows.Forms;
+using test.cybz; //WSDL参照
+
+/// &lt;summary&gt;
+/// AdminAPISoap通信クラス
+/// WSDLで自動生成したソース(Reference.cs等)の一部が正常に動作しないため自作
+/// My○○クラスはこのクラスを継承して利用(○○はAPI関数名)
+/// &lt;/summary&gt;
+abstract class SoapAdmin
+{
+    // Admin系のsoap通信リクエストデータ
+    // 継承先でこのメンバにリクエストを代入
+    private Object adminRequest;
+    protected Object AdminRequest
+    {
+        get { return adminRequest; }
+        set { adminRequest = value; }
+    }
+
+    // Admin系のsoap通信レスポンスデータ
+    // 継承先でこのメンバにレスポンスを代入
+    private Object adminResponse;
+    protected Object AdminResponse
+    {
+        get { return adminResponse; }
+        set { adminResponse = value; }
+    }
+
+    private ActionElement actionElement;
+    public ActionElement ActionElement
+    {
+        get { return actionElement; }
+        set { actionElement = value; }
+    }
+
+    private SecurityElement securityElement;
+    public SecurityElement SecurityElement
+    {
+        get { return securityElement; }
+        set { securityElement = value; }
+    }
+
+    private UsernameTokenElement userNameTokenElement;
+    public UsernameTokenElement UserNameTokenElement
+    {
+        get { return userNameTokenElement; }
+        set { userNameTokenElement = value; }
+    }
+
+    private TimestampElement timeStampElement;
+    public TimestampElement TimeStampElement
+    {
+        get { return timeStampElement; }
+        set { timeStampElement = value; }
+    }
+
+    private string hostName;
+    public string HostName
+    {
+        get { return hostName; }
+        set { hostName = value; }
+    }
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    public SoapAdmin()
+    {
+        this.actionElement = new ActionElement();
+        this.securityElement = new SecurityElement();
+        this.userNameTokenElement = new UsernameTokenElement();
+        this.timeStampElement = new TimestampElement();
+    }
+
+    /// &lt;summary&gt;
+    /// Soap通信のメイン関数
+    /// &lt;/summary&gt;
+    public virtual void soapSendReceive()
+    {
+        //TimeStampElementクラスの生成
+        this.TimeStampElement.Created = DateTime.UtcNow;
+        this.TimeStampElement.Expires = TimeStampElement.Created.AddDays(8);
+
+        //送信するXmlデータ
+        XmlDocument soapEnvelopeXml = new XmlDocument();
+
+        //送信するXmlのベース生成(正しい方法が分からないので直書き)
+        soapEnvelopeXml.LoadXml(@"&lt;?xml version=""1.0"" encoding=""utf-8""?&gt;
+                &lt;soap:Envelope xmlns:soap=""http://www.w3.org/2003/05/soap-envelope"" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema""&gt;
+                    &lt;soap:Header&gt;
+                    &lt;/soap:Header&gt;
+                    &lt;soap:Body&gt;
+                    &lt;/soap:Body&gt;
+                &lt;/soap:Envelope&gt;");
+
+        //Header要素にActionタグ追加
+        XmlDocument headerActionXmlDocument = new XmlDocument();
+        headerActionXmlDocument = createSerializedXmlDocument(ActionElement, "Action");
+        XmlNode actionNode = soapEnvelopeXml.ImportNode(headerActionXmlDocument.DocumentElement, true);
+        soapEnvelopeXml["soap:Envelope"]["soap:Header"].AppendChild(actionNode);
+
+        //Header要素にSecurityタグ追加
+        XmlDocument headerSecurityXmlDocument = new XmlDocument();
+        headerSecurityXmlDocument = createSerializedXmlDocument(SecurityElement, "Security");
+        XmlNode securityNode = soapEnvelopeXml.ImportNode(headerSecurityXmlDocument.DocumentElement, true);
+        soapEnvelopeXml["soap:Envelope"]["soap:Header"].AppendChild(securityNode);
+
+        //Header要素にTimestampタグ追加
+        XmlDocument headerTimestampXmlDocument = new XmlDocument();
+        headerTimestampXmlDocument = createSerializedXmlDocument(TimeStampElement, "Timestamp");
+        XmlNode timestampNode = soapEnvelopeXml.ImportNode(headerTimestampXmlDocument.DocumentElement, true);
+        soapEnvelopeXml["soap:Envelope"]["soap:Header"].AppendChild(timestampNode);
+
+        //Body要素内のタグの生成
+        XmlDocument bodyNameXmlDocument = new XmlDocument();
+        bodyNameXmlDocument.LoadXml("&lt;" + ActionElement.actionValue + "&gt;&lt;/" + ActionElement.actionValue + "&gt;");
+        XmlDocument paramXmlDocument = new XmlDocument();
+        paramXmlDocument = createSerializedXmlDocument(AdminRequest, "parameters");
+        XmlNode bodyNode = bodyNameXmlDocument.ImportNode(paramXmlDocument.DocumentElement, true);
+        bodyNameXmlDocument[ActionElement.actionValue].AppendChild(bodyNode);
+        XmlNode actionNameNode = soapEnvelopeXml.ImportNode(bodyNameXmlDocument.DocumentElement, true);
+        soapEnvelopeXml["soap:Envelope"]["soap:Body"].AppendChild(actionNameNode);
+
+        //Httpリクエストクラスの作成
+        HttpWebRequest request = CreateWebRequest();
+
+        try
+        {
+            //HTTPリクエスト
+            using (Stream stream = request.GetRequestStream())
+            {
+                soapEnvelopeXml.Save(stream);
+            }
+
+            //HTTPレスポンス
+            using (WebResponse response = request.GetResponse())
+            {
+                using (StreamReader rd = new StreamReader(response.GetResponseStream()))
+                {
+                    //xmlDocumentに格納
+                    XmlDocument xmldoc = new XmlDocument();
+                    xmldoc.LoadXml(rd.ReadToEnd());
+                    //タグ&lt;admin:○○Response&gt;内の要素を抽出
+                    string tmp = xmldoc.GetElementsByTagName(ActionElement.actionValue.Replace("Admin", "admin:") + "Response")[0].InnerXml;
+                    //"2回以上続く空白"と"改行"を削除して整形
+                    tmp = System.Text.RegularExpressions.Regex.Replace(tmp, @"\n\s{2,}", "").Replace("\r", "").Replace("\n", "");
+                    StringReader reader = new StringReader(tmp);
+                    //ルートタグを"returns"としデシリアライズ
+                    System.Xml.Serialization.XmlSerializer serializer = new XmlSerializer(this.adminResponse.GetType(), new System.Xml.Serialization.XmlRootAttribute("returns"));
+                    this.adminResponse = serializer.Deserialize(reader);
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            //Console.WriteLine(e.Message);
+            System.Windows.Forms.MessageBox.Show(e.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Create a soap webrequest to [Url]
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private HttpWebRequest CreateWebRequest()
+    {
+        HttpWebRequest webRequest = (HttpWebRequest)WebRequest.Create(@"https://" + this.hostName + @"/cgi-bin/cbgrn/grn.cgi/sysapi/admin/api?");
+        webRequest.ContentType = "text/xml; charset=\"utf-8\"";
+        webRequest.Accept = "text/xml";
+        webRequest.Host = this.hostName;
+        webRequest.Method = "POST";
+        return webRequest;
+    }
+
+    /// &lt;summary&gt;
+    /// シリアライズされたデータの生成
+    /// &lt;/summary&gt;
+    /// &lt;param name="target"&gt;シリアライズするクラス&lt;/param&gt;
+    /// &lt;param name="rootTagName"&gt;ルートタグ名&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private XmlDocument createSerializedXmlDocument(Object target, string rootTagName)
+    {
+        XmlSerializer serializer = new XmlSerializer(target.GetType(), new System.Xml.Serialization.XmlRootAttribute(rootTagName));
+        XmlSerializerNamespaces ns = new XmlSerializerNamespaces();
+        ns.Add(string.Empty, string.Empty);
+        StringWriter st = new StringWriter();
+        serializer.Serialize(st, target, ns);
+        XmlDocument xmlDocument = new XmlDocument();
+        xmlDocument.LoadXml(st.ToString());
+        return xmlDocument;
+    }
+
+}
+

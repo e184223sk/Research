@@ -1,0 +1,93 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+
+class VbeDecoder
+{
+    static readonly int[] IndexTable = new int[]{0,1,2,0,1,2,1,2,2,1,2,1,0,2,1,2,0,2,1,2,0,0,1,2,2,1,0,2,1,2,2,1,0,0,2,1,2,1,2,0,2,0,0,1,2,0,2,1,0,2,1,2,0,0,1,2,2,0,0,1,2,0,2,1};
+
+    static readonly Dictionary&lt;char,string&gt; DecoderTable = new Dictionary&lt;char,string&gt;(){
+        {'\t', "Wn{"   }, {' '   , ".-2"   }, {'!' , "Gu0" }, {'\"', "zR!"   },
+        {'#' , "V`)"   }, {'$'   , "Bq["   }, {'%' , "j^8" }, {'&amp;' , "/I3"   },
+        {'\'', "&amp;\\="  }, {'('   , "IbX"   }, {')' , "A}:" }, {'*' , "4)5"   },
+        {'+' , "26e"   }, {','   , "[ 9"   }, {'-' , "v|\\"}, {'.' , "rzV"   },
+        {'/' , "C\x7fs"}, {'0'   , "8kf"   }, {'1' , "9cN" }, {'2' , "p3E"   },
+        {'3' , "E+k"   }, {'4'   , "hhb"   }, {'5' , "qQY" }, {'6' , "Ofx"   },
+        {'7' , "\tv^"  }, {'8'   , "b1}"   }, {'9' , "DdJ" }, {':' , "#Tm"   },
+        {';' , "uCq"   }, {'='   , "~:`"   }, {'?' , "^~S" }, {'A' , "wEB"   },
+        {'B' , "J,'"   }, {'C'   , "a*H"   }, {'D' , "]tr" }, {'E' , "\"'u"  },
+        {'F' , "K71"   }, {'G'   , "oD7"   }, {'H' , "NyM" }, {'I' , ";YR"   },
+        {'J' , "L/\""  }, {'K'   , "PoT"   }, {'L' , "g&amp;j" }, {'M' , "*rG"   },
+        {'N' , "}jd"   }, {'O'   , "t9-"   }, {'P' , "T{ " }, {'Q' , "+?\x7f"},
+        {'R' , "-8."   }, {'S'   , ",wL"   }, {'T' , "0g]" }, {'U' , "nS~"   },
+        {'V' , "kGl"   }, {'W'   , "f4o"   }, {'X' , "5xy" }, {'Y' , "%]t"   },
+        {'Z' , "!0C"   }, {'['   , "d#&amp;"   }, {'\\', "MZv" }, {']' , "R[%"   },
+        {'^' , "cl$"   }, {'_'   , "?H+"   }, {'`' , "{U(" }, {'a' , "xp#"   },
+        {'b' , ")iA"   }, {'c'   , "(.4"   }, {'d' , "sL\t"}, {'e' , "Y!*"   },
+        {'f' , "3$D"   }, {'g'   , "\x7fN?"}, {'h' , "mPw" }, {'i' , "U\t;"  },
+        {'j' , "SVU"   }, {'k'   , "|si"   }, {'l' , ":5a" }, {'m' , "_ac"   },
+        {'n' , "eKP"   }, {'o'   , "FXg"   }, {'p' , "X;Q" }, {'q' , "1WI"   },
+        {'r' , "i\"O"  }, {'s'   , "lmF"   }, {'t' , "ZMh" }, {'u' , "H%|"   },
+        {'v' , "'(6"   }, {'w'   , "\\Fp"  }, {'x' , "=Jn" }, {'y' , "$2z"   },
+        {'z' , "yA/"   }, {'{'   , "7=_"   }, {'|' , "`_K" }, {'}' , "QOZ"   },
+        {'~' , " B,"   }, {'\x7f', "6eW"   }
+    };
+
+    static string DecodeVbeCore(string s)
+    {
+        s = s.Replace("@&amp;", "\n")
+             .Replace("@#", "\r")
+             .Replace("@*", "&gt;")
+             .Replace("@!", "&lt;")
+             .Replace("@$", "@");
+
+        var sb = new StringBuilder();
+        int index = -1;
+
+        foreach( char c in s ) {
+            if ( 0 &lt;= (int)c &amp;&amp; (int)c &lt;= 127 ) {
+                index++;
+            }
+
+            if ( DecoderTable.ContainsKey(c) ) {
+                sb.Append(DecoderTable[c][IndexTable[index%64]]);
+            }
+            else {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
+    }
+
+    static string DecodeVbe(string s)
+    {
+        Regex r = new Regex(@"^#@~\^......==(.*)......==\^#~@\s*");
+        Match m = r.Match(s);
+        if (m.Success) {
+            return DecodeVbeCore(m.Groups[1].Value);
+        }
+        return null;
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if (args.Length==1 &amp;&amp; File.Exists(args[0])){
+            string s = File.ReadAllText(args[0], Encoding.GetEncoding("Shift_JIS"));
+            string result = DecodeVbe(s);
+
+            if (result!=null){
+                File.WriteAllText(Path.GetFileNameWithoutExtension(args[0])+".out.txt", result, Encoding.GetEncoding("Shift_JIS"));
+            }
+            else {
+                Console.WriteLine("Parse Error");
+            }
+        }
+    }
+}
+
+

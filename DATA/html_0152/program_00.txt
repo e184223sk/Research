@@ -1,0 +1,119 @@
+using UnityEngine;
+using System.IO.Ports;
+using System.Threading;
+
+
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+
+
+public class ArduinoWalker : MonoBehaviour
+{
+    private ChromeDriver _driver;
+    int count = 0;
+    public delegate void SerialDataReceivedEventHandler(string message);
+
+    string portName = "COM7"; // ポート名(接続しているポート名を入れる)
+    public int baudRate = 115200;  // ボーレート(Arduinoに記述したものに合わせる)
+
+    private SerialPort serialPort_;
+    private Thread thread_;
+    private bool isRunning_ = false;
+
+    private string message_;
+    float time = 0f;
+    float timeTheta = 0.3f;
+    bool isOne = false;
+    void Start()
+    {
+        var path = Application.streamingAssetsPath;
+        _driver = new ChromeDriver(path);
+
+        _driver.Navigate().GoToUrl(Application.dataPath + "/StreetView.html");
+
+    }
+    void Awake()
+    {
+        Open();
+    }
+
+    void Update()
+    {
+        time += Time.deltaTime;
+        if (message_ == "1" &amp;&amp; isOne == false)
+        {
+            Proceed();
+            time = 0f;
+            isOne = true;
+        }
+        else if (message_ == "0" &amp;&amp; isOne == true)
+        {
+            Proceed();
+            isOne = false;
+        }
+    }
+
+
+
+    private void Open()
+    {
+        serialPort_ = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
+        serialPort_.Open();
+
+        isRunning_ = true;
+
+        thread_ = new Thread(Read);
+        thread_.Start();
+    }
+
+    private void Close()
+    {
+        isRunning_ = false;
+
+        if (thread_ != null &amp;&amp; thread_.IsAlive)
+        {
+            thread_.Join();
+        }
+
+        if (serialPort_ != null &amp;&amp; serialPort_.IsOpen)
+        {
+            serialPort_.Close();
+            serialPort_.Dispose();
+        }
+    }
+
+    private void Read()
+    {
+        while (isRunning_ &amp;&amp; serialPort_ != null &amp;&amp; serialPort_.IsOpen)
+        {
+            try
+            {
+                message_ = serialPort_.ReadLine();
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning(e.Message);
+            }
+        }
+    }
+
+    void Proceed()
+    {
+        if (time &gt; timeTheta)
+        {
+            count++;
+            Debug.Log(count);
+            _driver.FindElement(By.Id("count")).Click();
+            time = 0f;
+        }
+
+
+    }
+
+    void OnDestroy()
+    {
+        Close();
+        _driver.Dispose();
+    }
+}
+

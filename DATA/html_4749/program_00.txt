@@ -1,0 +1,235 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Unity.Jobs;
+using Unity.Collections;
+
+/// &lt;summary&gt;
+/// 経路探索ジョブ
+/// &lt;/summary&gt;
+public struct JobRouter : IJob
+{
+    const int STATUS_FREE = 0;      //!&lt; 未探索
+    const int STATUS_OPEN = 1;      //!&lt; オープン
+    const int STATUS_CLOSE = 2; //!&lt; クローズ
+
+    // 配列確保数でも使うのでpublic
+    public const int MAX_WALKS = 1000;
+
+    const int MAX_TRIES = 100000;
+
+    /// &lt;summary&gt;
+    /// ノード
+    /// &lt;/summary&gt;
+    struct Node
+    {
+        public int status;          //!&lt; 状態
+        public int parentIndex;     //!&lt; 親の座標インデックス
+
+        public int cost;                //!&lt; コスト
+        public int heuristic;           //!&lt; ヒューリスティックコスト
+
+        //! スコア計算プロパティ
+        public int score
+        {
+            get { return cost + heuristic; }
+        }
+    }
+
+    //! フィールド配列
+    [ReadOnly]  // 共有する配列には、[ReadOnly]が必要
+    public NativeArray&lt;int&gt; costs;
+    //! フィールドサイズ
+    public Vector2Int fieldSize;
+    //! スタート地点
+    public Vector2Int start;
+    //! ゴール地点
+    public Vector2Int goal;
+
+    //! 経路出力配列
+    public NativeArray&lt;Vector2Int&gt; resultPath;
+    //! 歩数出力配列
+    public NativeArray&lt;int&gt; resultWalks;
+
+    /// &lt;summary&gt;
+    /// 経路探索
+    /// &lt;/summary&gt;
+    public void Execute()
+    {
+        // ジョブ内での確保は出来る
+        Node[] nodes = new Node[ fieldSize.x * fieldSize.y ];
+
+        // スタートとゴールをマーク
+        int start_index = Utility.ToIndex( start, fieldSize.x );
+        int goal_index = Utility.ToIndex( goal, fieldSize.x );
+        nodes[ start_index ].status = STATUS_OPEN;
+        nodes[ goal_index ].parentIndex = -1;
+
+        int tries = 0;
+        for ( ; tries &lt; MAX_TRIES; tries++ )
+        {
+            // 最小スコアのノードを選択
+            int node_index = -1;
+            int min_score = int.MaxValue;
+            for ( int i = 0; i &lt; fieldSize.y * fieldSize.x; i++ )
+            {
+                // 開いていないならスキップ
+                if ( nodes[ i ].status != STATUS_OPEN )
+                {
+                    continue;
+                }
+                // よりスコアが低いノードを選択
+                if ( nodes[ i ].score &lt; min_score )
+                {
+                    node_index = i;
+                    min_score = nodes[ i ].heuristic;
+                }
+            }
+            // 開いたノードがなかった
+            if ( node_index == -1 )
+            {
+                break;
+            }
+
+            OpenNode( nodes, node_index );
+        }
+
+        if ( tries == MAX_TRIES )
+        {
+            Debug.Log( "最大試行数到達" );
+        }
+
+        // ゴールにたどり着けず
+        if ( nodes[ goal_index ].parentIndex == -1 )
+        {
+            resultWalks[ 0 ] = -1;
+            return;
+        }
+
+        // ルート作成
+        Vector2Int[] buffer_path = new Vector2Int[ MAX_WALKS ];
+        int walks = 0;
+        // ゴールからスタートまでの道のりをたどる
+        for ( int index = goal_index; index != start_index; index = nodes[ index ].parentIndex )
+        {
+            buffer_path[ walks ] = Utility.ToPosition( index, fieldSize.x );
+            walks++;
+        }
+
+        // 逆からたどればスタート→ゴール
+        for ( int i = 0; i &lt; walks; i++ )
+        {
+            resultPath[ i ] = buffer_path[ walks - i - 1 ];
+        }
+        resultWalks[ 0 ] = walks;
+    }
+
+    /// &lt;summary&gt;
+    /// ノードオープン
+    /// &lt;/summary&gt;
+    /// &lt;param name="field"&gt;&lt;/param&gt;
+    /// &lt;param name="nodes"&gt;&lt;/param&gt;
+    /// &lt;param name="node_index"&gt;&lt;/param&gt;
+    /// &lt;param name="goal"&gt;&lt;/param&gt;
+    void OpenNode( Node[] nodes, int node_index )
+    {
+        // 添字から座標に
+        Vector2Int center = Utility.ToPosition( node_index, fieldSize.x );
+
+        int center_cost = nodes[ node_index ].cost;
+        int center_score = nodes[ node_index ].score;
+
+        for ( int i = 0; i &lt; Utility.Direction.Length; i++ )
+        {
+            Vector2Int open_position = center + Utility.Direction[ i ];
+
+            if ( Utility.IsOut( open_position, new Vector2Int( fieldSize.x, fieldSize.y ) ) )
+            {
+                continue;
+            }
+
+            // コスト計算
+            int cost = costs[ Utility.ToIndex( open_position, fieldSize.x ) ] + center_cost + 1;
+            int heuristic = System.Math.Abs( goal.x - open_position.x ) + System.Math.Abs( goal.y - open_position.y );
+            int score = cost + heuristic + 1;
+
+            int next_index = Utility.ToIndex( open_position, fieldSize.x );
+            if ( nodes[ next_index ].status == STATUS_FREE || nodes[ next_index ].score &gt; score )
+            {
+                nodes[ next_index ].status = STATUS_OPEN;
+                nodes[ next_index ].cost = cost;
+                nodes[ next_index ].heuristic = heuristic;
+                nodes[ next_index ].parentIndex = node_index;
+            }
+        }
+        nodes[ node_index ].status = STATUS_CLOSE;
+    }
+}
+
+/// &lt;summary&gt;
+/// 経路探索ジョブテスト
+/// &lt;/summary&gt;
+public class JobSystemRouter : IRouter
+{
+    public Route[] FindPath( Field field, Vector2Int start, Vector2Int[] goals )
+    {
+        // ゴールの数だけジョブを回す
+        JobHandle[] job_handles = new JobHandle[ goals.Length ];
+        NativeArray&lt;Vector2Int&gt;[] result_paths = new NativeArray&lt;Vector2Int&gt;[ goals.Length ];
+        NativeArray&lt;int&gt;[] result_walks = new NativeArray&lt;int&gt;[ goals.Length ];
+
+        // フィールドのコストをNativeArrayに
+        NativeArray&lt;int&gt; field_cost = new NativeArray&lt;int&gt;( field.size.x * field.size.y, Allocator.Temp );
+        for( int i = 0; i &lt; field.size.x * field.size.y; i ++ )
+        {
+            field_cost[ i ] = field.GetCell( Utility.ToPosition( i, field.size.x ) );
+        }
+
+        for( int i = 0; i &lt; goals.Length; i ++ )
+        {
+            result_paths[ i ] = new NativeArray&lt;Vector2Int&gt;( JobRouter.MAX_WALKS, Allocator.Temp );
+            result_walks[ i ] = new NativeArray&lt;int&gt;( 1, Allocator.Temp );
+
+            // ジョブを作成
+            var job_router = new JobRouter()
+            {   // コンストラクタで各種情報を設定
+                costs = field_cost,
+                fieldSize = field.size,
+                goal = goals[ i ],
+                start = start,
+                resultPath = result_paths[ i ],
+                resultWalks = result_walks[ i ],
+            };
+
+            // ジョブをスケジュール
+            job_handles[ i ] = job_router.Schedule();
+        }
+        // ジョブを開始
+        JobHandle.ScheduleBatchedJobs();
+        // 順番に経路探索ジョブを待って、結果を作成
+        Route[] results = new Route[ goals.Length ];
+        for( int i = 0; i &lt; goals.Length; i ++ )
+        {
+            // ジョブ待ち
+            job_handles[ i ].Complete();
+
+            // 結果をルートに変換
+            var route = new Route();
+            route.path = new Vector2Int[ result_walks[ i ][ 0 ] ];
+            for( int j = 0; j &lt; route.path.Length; j ++ )
+            {
+                route.path[ j ] = result_paths[ i ][ j ];
+            }
+            results[ i ] = route;
+
+            result_paths[ i ].Dispose();
+            result_walks[ i ].Dispose();
+        }
+
+        field_cost.Dispose();
+
+        return results;
+    }
+}
+
+

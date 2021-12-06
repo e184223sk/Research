@@ -1,0 +1,173 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using Microsoft.Web.WebView2.WinForms;
+
+//thx
+//https://docs.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
+//https://qiita.com/kob58im/items/5a9d909377272d74eefd
+//https://www.it-swarm-ja.com/ja/c%23/user32dll%e3%81%aesendinput%e3%82%92%e4%bb%8b%e3%81%97%e3%81%a6%e3%82%ad%e3%83%bc%e3%82%92%e9%80%81%e4%bf%a1%e3%81%99%e3%82%8b/1068919389/
+
+namespace Gamepad
+{
+    public class InputStructures {
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static int
+            SendInput(int length, ref InputEvent events, int size);
+
+        [DllImport("user32.dll", EntryPoint = "MapVirtualKeyA")]
+        public extern static int MapVirtualKey(int wCode, int wMapType);
+
+        public const int MOUSEEVENTF_MOVE       = 0x01;
+        public const int MOUSEEVENTF_LEFTDOWN   = 0x02;
+        public const int MOUSEEVENTF_LEFTUP     = 0x04;
+        public const int MOUSEEVENTF_RIGHTDOWN  = 0x08;
+        public const int MOUSEEVENTF_RIGHTUP    = 0x10;
+        public const int MOUSEEVENTF_MIDDLEDOWN = 0x20;
+        public const int MOUSEEVENTF_MIDDLEUP   = 0x40;
+
+        public const int KEYEVENTF_KEYUP        = 0x02;
+        public const int MAPVK_VK_TO_VSC        = 0;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct InputEvent{
+            public int Type;
+            public InputUnion Data;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        public struct InputUnion{
+            [FieldOffset(0)] public MouseInput Mouse;
+            [FieldOffset(0)] public KeyboardInput Keyboard;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MouseInput{
+            public int X;
+            public int Y;
+            public int MouseData;
+            public int Flags;
+            public int Time;
+            public IntPtr ExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct KeyboardInput{
+            public short VirtualKey;
+            public short ScanCode;
+            public int Flags;
+            public int Time;
+            public IntPtr ExtraInfo;
+        }
+    }
+
+    [ComVisible(true)]
+    public class Bridge : InputStructures {
+
+        public class ControllerEvent{
+            public string type  { get; set; }
+            public string key   { get; set; }
+            public int button   { get; set; }
+            public float x      { get; set; }
+            public float y      { get; set; }
+        }
+
+        public void dispatch(string s){
+            var e = JsonSerializer.Deserialize&lt;ControllerEvent&gt;(s);
+            switch(e.type){
+                case "mousemove":   SendMouseMove(e);   break;
+                case "mousedown":   SendMouse(e);       break;
+                case "mouseup":     SendMouse(e);       break;
+                case "keydown":     SendKeyboard(e);    break;
+                case "keyup":       SendKeyboard(e);    break;
+            }
+        }
+
+        static readonly Dictionary&lt;string,object&gt;
+            flag = new Dictionary&lt;string,object&gt;(){
+                {"keydown",     0},
+                {"keyup",       KEYEVENTF_KEYUP},
+                {"mousemove",   MOUSEEVENTF_MOVE},
+                {"mousedown",   new []{
+                    MOUSEEVENTF_LEFTDOWN,
+                    MOUSEEVENTF_MIDDLEDOWN,
+                    MOUSEEVENTF_RIGHTDOWN,
+                }},
+                {"mouseup",     new []{
+                    MOUSEEVENTF_LEFTUP,
+                    MOUSEEVENTF_MIDDLEUP,
+                    MOUSEEVENTF_RIGHTUP,
+                }}
+            };
+
+        static void SendMouseMove(ControllerEvent e){
+            var v = new InputEvent(){Type = 0};
+            v.Data.Mouse    = new MouseInput(){
+                Flags       = (int)flag[e.type],
+                X           = (int)Math.Round(e.x),
+                Y           = (int)Math.Round(e.y),
+            };
+            SendInput(1, ref v, Marshal.SizeOf(v));
+        }
+
+        static void SendMouse(ControllerEvent e){
+            var v = new InputEvent(){Type = 0};
+            v.Data.Mouse    = new MouseInput(){
+                Flags       = (int)(flag[e.type] as int[])[e.button]
+            };
+            SendInput(1, ref v, Marshal.SizeOf(v));
+        }
+
+        static void SendKeyboard(ControllerEvent e){
+            if (Keys.TryParse(e.key, out Keys k)){
+                var v = new InputEvent(){Type = 1};
+                v.Data.Keyboard = new KeyboardInput(){
+                    VirtualKey  = (short)k,
+                    ScanCode    = (short)MapVirtualKey((int)k,MAPVK_VK_TO_VSC),
+                    Flags       = (int)flag[e.type],
+                };
+                SendInput(1, ref v, Marshal.SizeOf(v));
+            }
+        }
+    }
+
+    public class Browser : Form {
+
+        public Browser(string html){
+            ClientSize = new System.Drawing.Size(600,400);
+            Text = "Gamepad";
+            var v = new WebView2(){
+                Source  = new Uri(GetPath()+"\\"+html),
+                Size    = ClientSize,
+            };
+            v.NavigationCompleted += (s,e) =&gt; 
+                v.CoreWebView2.AddHostObjectToScript("bridge",new Bridge());
+            SizeChanged += (s,e) =&gt; v.Size = ClientSize;
+            Controls.Add(v);
+        }
+
+        private static string GetPath(){
+            var p = System.Diagnostics.Process.GetCurrentProcess();
+            return System.IO.Path.GetDirectoryName(p.MainModule.FileName);
+        }
+    }
+
+    static class Program
+    {
+        [STAThread]
+        static void Main()
+        {
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new Browser("Gamepad.html"));
+        }
+    }
+}
+

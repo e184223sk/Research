@@ -1,0 +1,127 @@
+
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Flow
+{
+    public class FlowTrace
+    {
+        private Dictionary&lt;string, Node&gt; nodeMap = new Dictionary&lt;string, Node&gt;();
+        private Dictionary&lt;(string tailId,string headId),Edge&gt; edgeMap = new Dictionary&lt;(string tailId, string headId), Edge&gt;();
+        private Dictionary&lt;int, string&gt; funcMap = new Dictionary&lt;int, string&gt;();
+
+        public void AddNode(int funcId, string id, string shape, string label)
+        {
+            nodeMap[id] = new Node {FuncId = funcId, Id = id, Shape = shape, Label = label };
+        }
+
+        public void AddEdge(string tailId,string headId,string label)
+        {
+            edgeMap[(tailId, headId)] = new Edge {TailId = tailId,HeadId = headId , Label = label };
+        }
+
+        public void AddFunc(int id)
+        {
+            funcMap[id] = string.Empty;
+        }
+        public void TraceNode(string nodeId, bool reset = false)
+        {
+            if (nodeMap.ContainsKey(nodeId))
+            {
+                var node = nodeMap[nodeId];
+                if(funcMap[node.FuncId] != nodeId)
+                {
+                    nodeMap[nodeId].PassCount++;
+                    if (reset)
+                    {
+                        funcMap[node.FuncId] = string.Empty;
+                    }
+                    if (funcMap[node.FuncId] != string.Empty)
+                    {
+                        var edgeKey = (funcMap[node.FuncId], nodeId);
+                        if (!edgeMap.ContainsKey(edgeKey))
+                        {
+                            edgeMap[edgeKey] = new Edge { TailId = funcMap[node.FuncId], HeadId = nodeId, Label = "Unintended", LineStyle = "dashed" };
+                        }
+                        edgeMap[edgeKey].PassCount++;
+                    }
+                    funcMap[node.FuncId] = nodeId;
+                }                
+            }
+        }
+
+        public void WriteDot(string dotFilename)
+        {
+            using (System.IO.StreamWriter writer = new System.IO.StreamWriter(dotFilename, false))
+            {
+                writer.WriteLine("digraph G{");
+                writer.WriteLine("rankdir=TB;");
+                writer.WriteLine("node[fontname = \"MS GOTHIC\"]");
+                writer.WriteLine("edge[fontname = \"MS GOTHIC\"]");
+                var clusters = new List&lt;int&gt; { -1 };
+                clusters.InsertRange(0, funcMap.Keys);
+                foreach (var cluster in clusters)
+                {
+                    if(cluster != -1)
+                    {
+                        writer.WriteLine("subgraph cluster_" + cluster + "{");
+                    }                    
+                    foreach (Node node in nodeMap.Values.OrderBy((x) =&gt; x.Id))
+                    {                       
+                        if (node.FuncId == cluster)
+                        {
+                            string label = node.Label.Replace("\n", "\\n").Replace("\"", "\\\"");
+                            string countStr = string.Empty;
+                            string colorStr = string.Empty;
+                            if (node.PassCount &gt; 0)
+                            {
+                                countStr = "(" + node.PassCount + ")";
+                                colorStr = ", color=\"red\"";
+                            }
+                            writer.WriteLine("\"" + node.Id + "\"" + " [shape = \"" + node.Shape + "\""
+                                      + colorStr + ", label = \"" + label + countStr + "\"]");
+                        }
+                    }
+                    if (cluster != -1)
+                    {
+                        writer.WriteLine("}");
+                    }
+                }
+
+
+                foreach (Edge edge in edgeMap.Values.OrderBy((x) =&gt; x.TailId))
+                {
+                    string countStr = string.Empty;
+                    string colorStr = string.Empty;
+                    if (edge.PassCount &gt; 0)
+                    {
+                        countStr = "(" + edge.PassCount + ")";
+                        colorStr = ", color=\"red\"";
+                    }
+                        writer.WriteLine("\"" + edge.TailId + "\"  -&gt; \"" + edge.HeadId + "\""
+                         + " [label =\"" + edge.Label + countStr + "\"" + colorStr + "]");
+                }
+                writer.WriteLine("}");
+            }
+        }
+
+        private class Node
+        {
+            public int FuncId { get; set; }
+            public string Id {get;set;}
+            public string Shape { get; set; }
+            public string Label { get; set; }
+            public long PassCount { get; set; } = 0;
+        }
+
+        private class Edge
+        {
+            public string TailId { get; set; }
+            public string HeadId { get; set; }
+            public string Label { get; set; }
+            public long PassCount { get; set; }
+            public string LineStyle { get; set; } = string.Empty;
+        }
+    }
+}
+

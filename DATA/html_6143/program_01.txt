@@ -1,0 +1,87 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace PSharpSample
+{
+    event Ping; // Client sends this event to the Server
+    event Pong; // Server sends this event to the Client
+    event Unit; // Event used for local transitions
+
+    // Event used for configuration, can take a payload
+    event Config (target: machine);
+
+    machine Server
+    {
+        machine client;
+
+        start state Init
+        {
+            entry
+            {
+                // Instantiates the Client
+                this.client = create(Client);
+                // Sends event to client to configure it
+                send(this.client, Config, this);
+                raise(Unit); // Sends an event to itself
+            }
+
+            on Unit goto Active; // Performs a state transition
+        }
+
+        state Active
+        {
+            on Ping do async
+            {
+                // Sends a Pong event to the Client
+                Console.WriteLine("Receive Ping");
+                await Task.Delay(1000);
+                Console.WriteLine("Send Pong");
+                send(this.client, Pong);
+            }
+        }
+    }
+
+    machine Client
+    {
+        machine server;
+
+        start state Init
+        {
+            on Config do Configure; // Handles the event
+            on Unit goto Active; // Performs a state transition
+        }
+
+        void Configure()
+        {
+            // Receives reference to Server
+            this.server = (trigger as Config).target;
+            raise(Unit); // Sends an event to itself
+        }
+
+        state Active
+        {
+            entry
+            {
+                Console.WriteLine("Send Ping");
+                send(this.server, Ping);
+            }
+
+            on Pong do SendPing;
+        }
+
+        async Task SendPing()
+        {
+            // Sends a Ping event to the Server
+            Console.WriteLine("Receive Pong");
+            await Task.Delay(1000);
+            Console.WriteLine("Send Ping");
+            send(this.server, Ping);
+        }
+    }
+}
+
+

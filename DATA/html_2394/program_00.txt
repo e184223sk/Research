@@ -1,0 +1,120 @@
+
+using System;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+using System.Security.Permissions;
+
+public class ClipboardEventArgs : EventArgs
+{
+    private string text;
+    public string Text { get { return this.text; } }
+    public ClipboardEventArgs(string str) { this.text = str;}
+}
+
+public delegate void cbEventHandler(object sender, ClipboardEventArgs ev);
+
+
+[PermissionSet(SecurityAction.Demand,Name = "FullTrust")]
+internal class MyClipboardListener : NativeWindow
+{
+    class NativeMethods
+    {
+        [DllImport("user32")]
+        public static extern IntPtr SetClipboardViewer(IntPtr hWndNewViewer);
+
+        [DllImport("user32")]
+        public static extern bool ChangeClipboardChain(IntPtr hWndRemove, IntPtr hWndNewNext);
+
+        [DllImport("user32")]
+        public extern static int SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+        // 2019.12.27追記: SendMessageの戻り値の型LRESULTはintではなくIntPtrにすべき。気が向いたら直します。。
+    }
+    private const int WM_DRAWCLIPBOARD = 0x0308;
+    private const int WM_CHANGECBCHAIN = 0x030D;
+
+    private IntPtr nextHandle;
+    private IntPtr nwHandle;
+    //private Form parent;
+    public event cbEventHandler ClipboardHandler;
+
+    public MyClipboardListener(Form f)
+    {
+        f.HandleCreated   += OnHandleCreated;
+        f.HandleDestroyed += OnHandleDestroyed;
+        //this.parent = f;
+    }
+
+    internal void OnHandleCreated(object sender, EventArgs e)
+    {
+        AssignHandle(((Form)sender).Handle); // NativeWindowクラスへのForm登録(メッセージフック開始)
+        nwHandle = this.Handle;
+        nextHandle = NativeMethods.SetClipboardViewer(this.Handle); // クリップボードチェインに登録
+    }
+
+    internal void OnHandleDestroyed(object sender, EventArgs e)
+    {
+        NativeMethods.ChangeClipboardChain(this.Handle, nextHandle); // クリップボードチェインから削除
+        ReleaseHandle(); // NativeWindowクラスの後始末(Formに対してのメッセージフック解除)
+    }
+
+    // ハンドル変更されるシーンがあるか不明。
+    //override void OnHandleChange()
+    //{
+    //    ChangeClipboardChain(nwHandle, nextHandle); // クリップボードチェインから削除
+    //    nwHandle = this.Handle;
+    //    nextHandle = SetClipboardViewer(this.Handle); // クリップボードチェインに登録
+    //}
+
+    protected override void WndProc(ref Message msg)
+    {
+        switch (msg.Msg) {
+            case WM_DRAWCLIPBOARD:
+                if (Clipboard.ContainsText()) { // Note: ここを変更すれば、テキスト以外も通知可能
+                    // クリップボードの内容がテキストの場合のみ
+                    if (ClipboardHandler != null) {
+                        // クリップボードの内容を取得してハンドラを呼び出す
+                        ClipboardHandler(this, new ClipboardEventArgs(Clipboard.GetText()));
+                    }
+                }
+                if (nextHandle != IntPtr.Zero) {
+                    NativeMethods.SendMessage(nextHandle, msg.Msg, msg.WParam, msg.LParam);
+                }
+                break;
+
+            // クリップボード・ビューア・チェーンが更新された
+            case WM_CHANGECBCHAIN:
+                if (msg.WParam == nextHandle) {
+                    nextHandle = msg.LParam;
+                }
+                else if(nextHandle != IntPtr.Zero) {
+                    NativeMethods.SendMessage(nextHandle, msg.Msg, msg.WParam, msg.LParam);
+                }
+                break;
+        }
+        base.WndProc(ref msg);
+    }
+}
+
+public class ClipboardMonitorTest : Form
+{
+    MyClipboardListener viewer;
+
+    public ClipboardMonitorTest()
+    {
+        viewer = new MyClipboardListener(this);
+        viewer.ClipboardHandler += this.OnClipBoardChanged;        // イベントハンドラを登録
+    }
+
+    // クリップボードにテキストがコピーされると呼び出される
+    private void OnClipBoardChanged(object sender, ClipboardEventArgs args)
+    {
+        Console.WriteLine(args.Text);
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new ClipboardMonitorTest());
+    }
+}
+

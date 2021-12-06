@@ -1,0 +1,157 @@
+
+using IceMilkTea.Core;
+using UnityEngine;
+
+public class MainGameScene : MonoBehaviour
+{
+    // ステートマシンのイベントID列挙型
+    private enum StateEventId
+    {
+        Play,
+        Miss,
+        Retry,
+        Exit,
+        AllBlockBloken,
+        Finish,
+    }
+
+// 中略...
+
+    // ステートマシン変数の定義、もちろんコンテキストは MainGameScene クラス
+    private ImtStateMachine&lt;MainGameScene&gt; stateMachine;
+    private int missCount;
+
+    // コンポーネントの初期化
+    private void Awake()
+    {
+        // ステートマシンの遷移テーブルを構築（コンテキストのインスタンスはもちろん自分自身）
+        stateMachine = new ImtStateMachine&lt;MainGameScene&gt;(this);
+        stateMachine.AddTransition&lt;ResetState, StandbyState&gt;((int)StateEventId.Finish);
+        stateMachine.AddTransition&lt;StandbyState, PlayingState&gt;((int)StateEventId.Play);
+        stateMachine.AddTransition&lt;PlayingState, MissState&gt;((int)StateEventId.Miss);
+        stateMachine.AddTransition&lt;PlayingState, GameClearState&gt;((int)StateEventId.AllBlockBloken);
+        stateMachine.AddTransition&lt;MissState, StandbyState&gt;((int)StateEventId.Retry);
+        stateMachine.AddTransition&lt;MissState, GameOverState&gt;((int)StateEventId.Exit);
+        stateMachine.AddTransition&lt;GameClearState, ResetState&gt;((int)StateEventId.Finish);
+        stateMachine.AddTransition&lt;GameOverState, ResetState&gt;((int)StateEventId.Finish);
+
+
+        // 起動状態はReset
+        stateMachine.SetStartState&lt;ResetState&gt;();
+    }
+
+    private void Start()
+    {
+        // ステートマシンを起動
+        stateMachine.Update();
+    }
+
+    private void Update()
+    {
+        // ステートマシンの更新
+        stateMachine.Update();
+    }
+
+    public void MissSignal()
+    {
+        // ステートマシンにミスイベントを送る
+        stateMachine.SendEvent((int)StateEventId.Miss);
+    }
+
+    private class ResetState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Enter()
+        {
+            foreach (var block in Context.blocks)
+            {
+                block.Revive();
+            }
+
+            Context.player.GetComponent&lt;Transform&gt;().position = Context.playerStartTransform.position;
+            Context.player.DisableMove();
+            Context.ball.GetComponent&lt;Transform&gt;().position = Context.ballStartTransform.position;
+            Context.ball.GetComponent&lt;Rigidbody&gt;().velocity = Vector3.zero;
+
+            StateMachine.SendEvent((int)StateEventId.Finish);
+        }
+    }
+
+    private class StandbyState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                StateMachine.SendEvent((int)StateEventId.Play);
+            }
+        }
+    }
+
+    private class PlayingState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Enter()
+        {
+            var xDirection = Random.Range(-1.0f, 1.0f);
+            var zDirection = Random.Range(0.5f, 1.0f);
+            Context.ball.GetComponent&lt;Rigidbody&gt;().velocity = new Vector3(xDirection, 0.0f, zDirection).normalized * Context.ballSpeed;
+
+            Context.player.EnableMove();
+        }
+
+        protected override void Update()
+        {
+            var blockAllDead = true;
+            foreach (var block in Context.blocks)
+            {
+                if (block.IsAlive)
+                {
+                    blockAllDead = false;
+                    break;
+                }
+            }
+
+            if (blockAllDead)
+            {
+                StateMachine.SendEvent((int)StateEventId.AllBlockBloken);
+            }
+        }
+    }
+
+    private class MissState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Enter()
+        {
+            Context.player.DisableMove();
+            Context.ball.GetComponent&lt;Transform&gt;().position = Context.ballStartTransform.position;
+            Context.ball.GetComponent&lt;Rigidbody&gt;().velocity = Vector3.zero;
+
+            Context.missCount += 1;
+            if (Context.missCount == Context.availablePlayCount)
+            {
+                StateMachine.SendEvent((int)StateEventId.Exit);
+                return;
+            }
+
+            StateMachine.SendEvent((int)StateEventId.Retry);
+        }
+    }
+
+    private class GameClearState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Enter()
+        {
+            Debug.Log("GameClear!!!");
+            StateMachine.SendEvent((int)StateEventId.Finish);
+        }
+    }
+
+    private class GameOverState : ImtStateMachine&lt;MainGameScene&gt;.State
+    {
+        protected override void Enter()
+        {
+            Debug.Log("GameOver...");
+            StateMachine.SendEvent((int)StateEventId.Finish);
+        }
+    }
+}
+

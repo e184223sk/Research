@@ -1,0 +1,40 @@
+
+/// &lt;summary&gt;
+/// 指定されたコマンドの購読を開始します。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TCommand"&gt;コマンドの型&lt;/typeparam&gt;
+/// &lt;param name="streamName"&gt;ストリーム名&lt;/param&gt;
+/// &lt;param name="startPosition"&gt;読み込み開始位置&lt;/param&gt;
+/// &lt;param name="onReceiveAsync"&gt;コマンドを受信したときに実行するメソッド&lt;/param&gt;
+/// &lt;returns&gt;購読の状態を管理するオブジェクト&lt;/returns&gt;
+private async Task&lt;StreamSubscriptionState&gt; SubcribeCommandAsync&lt;TCommand&gt;(string streamName, StreamPosition startPosition, Func&lt;TCommand, Task&gt; onReceiveAsync)
+    where TCommand : IEventCommand
+{
+    // 購読をキャンセルするためのトークン
+    CancellationTokenSource cancellation = new CancellationTokenSource();
+
+    EventStoreClient client = CreateEventStoreClient();
+
+    // イベントを受け取ったときの処理
+    async Task OnEventAsync(StreamSubscription subscription, ResolvedEvent @event, CancellationToken cancellation)
+    {
+        // イベントからコマンドを取得する
+        // SubscribeToStreamAsync メソッドの引数にはイベントタイプがない
+        // 購読対象でない型のコマンドである可能性がある
+        if (TryGetCommand(@event, out TCommand cmd))
+        {
+            await onReceiveAsync(cmd).ConfigureAwait(false);
+        }
+    }
+
+    var subscription = await client.SubscribeToStreamAsync(
+        streamName
+        , startPosition
+        , OnEventAsync
+        , cancellationToken: cancellation.Token
+        ).ConfigureAwait(false);
+
+    // 購読に関連するオブジェクトをまとめた状態オブジェクトを返す
+    return new StreamSubscriptionState(client, subscription, cancellation);
+}
+

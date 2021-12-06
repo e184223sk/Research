@@ -1,0 +1,80 @@
+public class SocialTableEntry : TableEntity
+{
+    public SocialTableEntry(string dataType, string date)
+    {
+        this.PartitionKey = dataType;
+        this.RowKey = date;
+    }
+    public SocialTableEntry() { }
+    public string Count { get; set; }
+}
+class Program
+{
+    static string _storageAccountName = "{your storage account name}";
+    static string _storageAccessKey = "{your storage key}";
+    static string _tableName = "{your table name}";
+
+    static string _twitterUrl = "{your twitter account url}";
+
+    static void Main(string[] args)
+    {
+        try
+        {
+
+            var twitterDic = accessWebSiteAsync(_twitterUrl,(doc)=&gt;
+            {
+                var result = new Dictionary&lt;string, string&gt;();
+                var aLinkTweets = doc.DocumentNode.Descendants("a").Single(q =&gt; q.GetAttributeValue("data-nav", string.Empty) == "tweets");
+                var tweets = aLinkTweets.Descendants("span").Single(q=&gt;q.GetAttributeValue("class",string.Empty)== "ProfileNav-value").InnerText;
+                result.Add("twi_tweets",tweets.ToString());
+
+                var aLinkFollow = doc.DocumentNode.Descendants("a").Single(q =&gt; q.GetAttributeValue("data-nav", string.Empty) == "following");
+                var follow = aLinkFollow.Descendants("span").Single(q =&gt; q.GetAttributeValue("class", string.Empty) == "ProfileNav-value").InnerText;
+                result.Add("twi_following", follow.ToString());
+
+                var aLinkFollower = doc.DocumentNode.Descendants("a").Single(q =&gt; q.GetAttributeValue("data-nav", string.Empty) == "followers");
+                var follower = aLinkFollower.Descendants("span").Single(q =&gt; q.GetAttributeValue("class", string.Empty) == "ProfileNav-value").InnerText;
+                result.Add("twi_follower", follower.ToString());
+
+                return result;
+            }).Result;
+
+            //Azure Storageにデータを入れる
+            var storageAccount = new CloudStorageAccount(new StorageCredentials(_storageAccountName,_storageAccessKey),false);
+
+            var tableClient = storageAccount.CreateCloudTableClient();
+            var table = tableClient.GetTableReference(_tableName);
+
+            var allData = twitterDic;
+            foreach(var data in allData)
+            {
+                var entry = new SocialTableEntry(data.Key, DateTime.Now.ToString("yyyy-MM-dd"))
+                {
+                    Count = data.Value
+                };
+
+                var insertOperation = TableOperation.InsertOrReplace(entry);
+                table.Execute(insertOperation);
+            }
+            Console.WriteLine("Complete [{0}]"+DateTime.Now.ToString());
+
+        }
+        catch(Exception e)
+        {
+            Console.WriteLine("Exception threw [{0}][{1}][{2}]",e.Message,e.InnerException.Message,e.StackTrace);
+        }
+    }
+
+    private static async Task&lt;Dictionary&lt;string,string&gt;&gt; accessWebSiteAsync(string url,Func&lt;HtmlAgilityPack.HtmlDocument,Dictionary&lt;string,string&gt;&gt; analyzeCallback)
+    {
+        var doc = new HtmlAgilityPack.HtmlDocument();
+        using (var client = new HttpClient())
+        using (var stream = await client.GetStreamAsync(new Uri(url)))
+        {
+            doc.Load(stream, Encoding.UTF8);
+        }
+        return analyzeCallback(doc);
+    }
+}
+
+

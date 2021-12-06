@@ -1,0 +1,100 @@
+
+/// &lt;summary&gt;
+/// セル編集用テキストボックス
+/// &lt;/summary&gt;
+internal class ListViewTextBox : TextBox
+{
+    internal class ListViewTextEditingEventArgs : EventArgs
+    {
+        /// &lt;summary&gt;テキスト編集がキャンセルされたか？&lt;/summary&gt;
+        public bool Cancel { get; set; }
+        /// &lt;summary&gt;編集確定後テキスト&lt;/summary&gt;
+        public string Text { get; set; }
+    }
+    /// &lt;summary&gt;テキスト編集終了&lt;/summary&gt;
+    internal event EventHandler&lt;ListViewTextEditingEventArgs&gt; AfterTextEditing;
+
+    internal class ListViewTabMovedEventArgs : EventArgs
+    {
+        /// &lt;summary&gt;タブ移動前の行index&lt;/summary&gt;
+        public int Row { get; set; }
+        /// &lt;summary&gt;タブ移動前の列index&lt;/summary&gt;
+        public int Column { get; set; }
+        /// &lt;summary&gt;「次」への移動か？&lt;/summary&gt;
+        public bool Next { get; set; }
+    }
+    /// &lt;summary&gt;タブ移動&lt;/summary&gt;
+    internal event EventHandler&lt;ListViewTabMovedEventArgs&gt; TabMoved;
+
+    private readonly ListViewItem item;
+    private readonly ListViewItem.ListViewSubItem subItem;
+    private readonly int column;
+
+    internal int Row =&gt; item.Index;
+    internal int Column =&gt; column;
+
+    internal ListViewTextBox(ListViewEx parent, ListViewItem item, ListViewItem.ListViewSubItem subItem)
+    {
+        int border = 0;
+        if (parent.BorderStyle == BorderStyle.FixedSingle) border = 1;
+        else if (parent.BorderStyle == BorderStyle.Fixed3D) border = 2;
+
+        this.Parent = parent;
+        this.item = item;
+        this.subItem = subItem;
+        for (int i = 0; i &lt; item.SubItems.Count; ++i)
+            if (item.SubItems[i] == subItem)
+            {
+                this.column = i;
+                break;
+            }
+
+        // font
+        this.Font = parent.Font;
+        this.Text = subItem?.Text;
+        // size
+        this.Width = parent.Columns[Column].Width;
+        this.Height = subItem.Bounds.Height - border;
+        this.Left = border + subItem.Bounds.Left;
+        this.Top = subItem.Bounds.Top;
+        // focus
+        this.BringToFront();
+        this.Select();
+        this.SelectAll();
+
+        this.Leave += (sender, e) =&gt; HideTextBox(this.Text, false);
+        this.PreviewKeyDown += (sender, e) =&gt;
+            {
+                // Enter
+                if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Return) {
+                    e.IsInputKey = true;
+                    HideTextBox(this.Text, false);
+                }
+                // Escape
+                else if (e.KeyCode == Keys.Escape) {
+                    e.IsInputKey = true;
+                    HideTextBox(subItem.Text, true);
+                }
+                // Shift + Tab
+                else if (e.KeyCode == Keys.Tab &amp;&amp; (e.Modifiers &amp; Keys.Shift) == Keys.Shift) {
+                    e.IsInputKey = true;
+                    TabMoved?.Invoke(this, new ListViewTabMovedEventArgs() { Row = this.Row, Column = this.Column, Next = false });
+                }
+                // Tab
+                else if (e.KeyCode == Keys.Tab) {
+                    e.IsInputKey = true;
+                    TabMoved?.Invoke(this, new ListViewTabMovedEventArgs() { Row = this.Row, Column = this.Column, Next = true });
+                }
+            };
+    }
+
+    private void HideTextBox(string text, bool cancel)
+    {
+        // テキストボックス非表示
+        this.Visible = false;
+        this.Dispose();
+        // 編集終了イベント送信
+        AfterTextEditing?.Invoke(this, new ListViewTextEditingEventArgs() { Text = text, Cancel = cancel });
+    }
+}
+

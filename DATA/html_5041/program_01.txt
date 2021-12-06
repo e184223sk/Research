@@ -1,0 +1,131 @@
+
+
+        public void LoadStage(int stageId)
+        {
+            // 指定されたステージファイルを読み込んで1行ずつ処理
+            string filePath = "stage_" + stageId;
+            TextAsset textAsset = Resources.Load(filePath) as TextAsset;
+            string text = textAsset.text;
+            string line;
+            using (TextReader reader = new StringReader(text)) // usingとは、処理終わりにstreamの解放を自動で行う構文（finally句でDisposeを実行するコードと同じ）
+            {
+                while ((line = reader.ReadLine()) != null)
+                {
+                    // ステージサイズ
+                    if (line.StartsWith("@size"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] mapSize = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        mStageX = int.Parse(mapSize[1]);
+                        mStageY = int.Parse(mapSize[2]);
+                        mStageMap = new int[mStageY, mStageX];
+                        InstantiateFloor();
+                        continue;
+                    }
+
+                    // ステージ構造（ブッシュ）
+                    if (line.StartsWith("@bush"))
+                    {
+                        // ステージ構造は16進数表記の文字列なため、10進数のint配列に変換
+                        StringBuilder sbStage = new StringBuilder();
+                        for (int y = 0; y &lt; mStageY; y++)
+                        {
+                            sbStage.Append(reader.ReadLine());
+                        }
+                        int start = 0;
+                        for (int y = 0; y &lt; mStageY; y++)
+                        {
+                            for (int x = 0; x &lt; mStageX; x++)
+                            {
+                                mStageMap[y, x] = Convert.ToInt32(sbStage.ToString(start, 2), 16);
+                                start += 2;
+                            }
+                        }
+                        // ステージ構造を元にブッシュを生成
+                        InstantiateBushs();
+                        continue;
+                    }
+
+                    // プレイヤー初期位置
+                    if (line.StartsWith("@player"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] strPlayerPos = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        InstantiatePlayer(int.Parse(strPlayerPos[1]), int.Parse(strPlayerPos[2]));
+                        continue;
+                    }
+
+                    // ポップアップポイント
+                    if (line.StartsWith("@popup"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] strPopupPos = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        InstantiatePopup(int.Parse(strPopupPos[1]), int.Parse(strPopupPos[2]));
+                    }
+
+                    // ゴールエリア
+                    if (line.StartsWith("@goal"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] goalData = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        InstantiateGoalArea(goalData);
+                        continue;
+                    }
+
+以下、チェイサー読み込みを追加
+
+                    // チェイサー配置
+                    if (line.StartsWith("@chaser"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] chaserData = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        InstantiateChaser(chaserData);
+                        continue;
+                    }
+
+ここまで：チェイサー読み込み
+
+                }
+            }
+        }
+
+        //-------------
+        // チェイサー //
+        //---------------------------------------------------------------------------------
+
+        [SerializeField]
+        private GameObject prefabChaserBlue;
+        [SerializeField]
+        private GameObject prefabChaserYellow;
+        [SerializeField]
+        private GameObject prefabChaserRed;
+
+        private List&lt;ChaserModel&gt; mChaserList = new List&lt;ChaserModel&gt;();
+
+        private void InstantiateChaser(string[] ChaserData)
+        {
+            int modelId = int.Parse(ChaserData[1]);
+            float speed = float.Parse(ChaserData[2]);
+            float incSpeed = float.Parse(ChaserData[3]);
+            int posX = int.Parse(ChaserData[4]);
+            int posY = int.Parse(ChaserData[5]);
+            Vector3 pos = new Vector3(posX * BLOCK_SIZE + BLOCK_SIZE, 0.0f, posY * -BLOCK_SIZE - BLOCK_SIZE);
+            GameObject obj = null;
+            switch (modelId)
+            {
+                case 1:
+                    obj = Instantiate(prefabChaserBlue, pos, Quaternion.identity);
+                    break;
+                case 2:
+                    obj = Instantiate(prefabChaserYellow, pos, Quaternion.identity);
+                    break;
+                default:
+                    obj = Instantiate(prefabChaserRed, pos, Quaternion.identity);
+                    break;
+            }
+            ChaserModel chaser = obj.GetComponent&lt;ChaserModel&gt;();
+            chaser.Init(speed, incSpeed);
+            mChaserList.Add(chaser);
+        }
+
+

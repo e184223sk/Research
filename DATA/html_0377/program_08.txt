@@ -1,0 +1,111 @@
+
+using System;
+using System.IO;
+using System.Net;
+using System.Text;
+using System.Threading;
+
+namespace CSharp1
+{
+    class Program
+    {
+        // このスコープにセマフォもってくるの負けた気がする
+        private static Semaphore semaphore = new Semaphore(0, 1);
+        static void Main(string[] args)
+        {
+            // TLS1.2
+            ServicePointManager.Expect100Continue = true;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+
+            using (semaphore)
+            {
+                // 進捗報告と完了報告はイベントで受け取る
+                Downloader d = new Downloader();
+                d.TitleTagDetected += new TitleTagDetectedEventHandler(Downloader_TitleTagDetected);
+                d.Completed += new EventHandler(Downloader_Completed);
+                d.Start();
+
+                // イベントハンドラーの先でReleaseが呼ばれることを信じて待つ
+                semaphore.WaitOne();
+            }
+        }
+
+        private static void Downloader_Completed(object sender, EventArgs e)
+        {
+            // 完了したのでリリース
+            semaphore.Release();
+        }
+
+        private static void Downloader_TitleTagDetected(object sender, TitleTagDetectedEventArgs args)
+        {
+            // 進捗を表示
+            Console.WriteLine(args.Url);
+            Console.WriteLine(args.Title);
+        }
+    }
+
+    class TitleTagDetectedEventArgs : EventArgs
+    {
+        private string _url;
+        public string Url { get { return _url; } }
+
+        private string _title;
+        public string Title { get { return _title; } }
+
+        public TitleTagDetectedEventArgs(string url, string title)
+        {
+            _url = url;
+            _title = title;
+        }
+    }
+
+    delegate void TitleTagDetectedEventHandler(object sender, TitleTagDetectedEventArgs args);
+
+    class Downloader
+    {
+        public event TitleTagDetectedEventHandler TitleTagDetected;
+        public event EventHandler Completed;
+
+        public void Start()
+        {
+            // スレッドプールで処理をやって呼び出し元をブロックしない作戦
+            ThreadPool.QueueUserWorkItem(new WaitCallback(StartImpl));
+        }
+
+        private void StartImpl(object state)
+        {
+            // ファイル名は urllist.txt 決め打ちでとりあえず。
+            using (StreamReader sr = new StreamReader("urllist.txt"))
+            using (WebClient client = new WebClient())
+            {
+                // 同期処理のオンパレード
+                client.Encoding = Encoding.UTF8;
+                for (string url; (url = sr.ReadLine()) != null;)
+                {
+                    string data = client.DownloadString(url);
+                    foreach (string line in data.Split('\n'))
+                    {
+                        // 雑に対応
+                        if (line.Contains("&lt;title&gt;"))
+                        {
+                            // title タグがあったらイベント発行
+                            TitleTagDetectedEventHandler h = TitleTagDetected;
+                            if (h != null)
+                            {
+                                h(this, new TitleTagDetectedEventArgs(url, line));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 終了時も通知
+            EventHandler completedHandlers = Completed;
+            if (completedHandlers != null)
+            {
+                completedHandlers(this, EventArgs.Empty);
+            }
+        }
+    }
+}
+

@@ -1,0 +1,251 @@
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Globalization;
+using System.Windows.Forms;
+
+class SampleUsage : Form
+{
+    CustomComponent.ListViewOwnerDraw lsv;
+
+    SampleUsage()
+    {
+        ClientSize = new Size(500,500);
+
+        lsv = new CustomComponent.ListViewOwnerDraw();
+        lsv.Dock = DockStyle.Fill;
+        lsv.GridLines = true;
+        lsv.View = View.Details;
+        lsv.FullRowSelect = true;
+
+        lsv.Columns.Add("Path"  , 100, HorizontalAlignment.Left);
+        lsv.Columns.Add("Name"  , 80, HorizontalAlignment.Left);
+        lsv.Columns.Add("LineNo", 50, HorizontalAlignment.Center);
+        lsv.Columns.Add("Text"  , 250, HorizontalAlignment.Left);
+
+        CustomComponent.ListViewItemOwnerDraw listViewItem1 = new CustomComponent.ListViewItemOwnerDraw(new string[] { @"c:\src"    , "sample.c"  , "10", "#define THIS_IS_SAMPLE ((unsigned short)5)"  });
+        CustomComponent.ListViewItemOwnerDraw listViewItem2 = new CustomComponent.ListViewItemOwnerDraw(new string[] { @"c:\src\doc", "sample.txt", "5" , "change THIS_IS_SAMPLE value to ..."     });
+        CustomComponent.ListViewItemOwnerDraw listViewItem3 = new CustomComponent.ListViewItemOwnerDraw(new string[] { @"c:\src\tmp", "dummy.txt" , "20", "THIS_IS_SAMPLE THIS_ISNOT_SAMPLE THIS_IS_SAMPLE hoge" });
+        lsv.Items.AddRange(new CustomComponent.ListViewItemOwnerDraw[] { listViewItem1, listViewItem2, listViewItem3 });
+        lsv.SetWord("THIS_IS_SAMPLE");
+        lsv.SetSubIndex(3);
+
+        Controls.Add(lsv);
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new SampleUsage());
+    }
+}
+
+
+
+
+namespace CustomComponent
+{
+    public class ListViewItemOwnerDraw : ListViewItem
+    {
+        public bool _InvalidationFlag;
+
+        void _init()
+        {
+        }
+
+        public ListViewItemOwnerDraw(String[] a1, String a2, Color a3, Color a4, Font a5):base(a1,a2,a3,a4,a5){_init();}
+        public ListViewItemOwnerDraw(String[] a1, Int32 a2, Color a3, Color a4, Font a5):base(a1,a2,a3,a4,a5){_init();}
+        public ListViewItemOwnerDraw(ListViewItem.ListViewSubItem[] a1, String a2):base(a1,a2){_init();}
+        public ListViewItemOwnerDraw(String[] a1, String a2):base(a1,a2){_init();}
+        public ListViewItemOwnerDraw(String[] a1, Int32 a2):base(a1,a2){_init();}
+        public ListViewItemOwnerDraw(String a1, String a2):base(a1,a2){_init();}
+        public ListViewItemOwnerDraw(String a1, Int32 a2):base(a1,a2){_init();}
+        public ListViewItemOwnerDraw(String[] a1):base(a1){_init();}
+        public ListViewItemOwnerDraw(String a1):base(a1){_init();}
+        public ListViewItemOwnerDraw(ListViewItem.ListViewSubItem[] a1, Int32 a2):base(a1,a2){_init();}
+    }
+
+    public class ListViewOwnerDraw : ListView
+    {
+        string _word;
+        int _subIndex;
+
+        public void SetWord(string word)
+        {
+            _word = word;
+        }
+        public void SetSubIndex(int subIndex)
+        {
+            _subIndex = subIndex;
+        }
+
+        public ListViewOwnerDraw()
+        {
+            this.View = View.Details;
+
+            this.OwnerDraw = true;
+            this.DrawItem           += this_DrawItem;
+            this.DrawSubItem        += this_DrawSubItem;
+            this.DrawColumnHeader   += this_DrawColumnHeader;
+            this.MouseUp            += this_MouseUp;
+            this.MouseMove          += this_MouseMove;
+            this.ColumnWidthChanged += this_ColumnWidthChanged;
+            this.Invalidated        += this_Invalidated;
+        }
+
+        // Selects and focuses an item when it is clicked anywhere along its width.
+        // The click must normally be on the parent item text.
+        private void this_MouseUp(object sender, MouseEventArgs e)
+        {
+            ListViewItem clickedItem = this.GetItemAt(5, e.Y);
+            if (clickedItem != null) {
+                clickedItem.Selected = true;
+                clickedItem.Focused = true;
+            }
+        }
+
+        static void MyDrawFocusRectangle(DrawListViewItemEventArgs e)
+        {
+            Rectangle rect = e.Bounds;
+            int w = rect.Width-1;
+            int h = rect.Height-2;
+            if(w&lt;0){w=0;}
+            if(h&lt;0){h=0;}
+            rect = new Rectangle(rect.X,rect.Y,w,h);
+            Pen pen = new Pen(Color.Black, 1.0f);
+            pen.DashStyle = DashStyle.Dot;
+
+            e.Graphics.DrawRectangle(pen, rect);
+        }
+
+        void MyFillMatchedRect(DrawListViewSubItemEventArgs e, Font fnt, StringFormat sf)
+        {
+            var cr = CalcCharRanges(e);
+            sf.SetMeasurableCharacterRanges(cr);
+
+            Region[] regions = e.Graphics.MeasureCharacterRanges(e.SubItem.Text, fnt, e.Bounds, sf);
+
+            foreach(Region sr in regions) {
+                RectangleF rect = sr.GetBounds(e.Graphics);
+                rect.Y++;
+                rect.Height-=3;
+                e.Graphics.FillRectangle(Brushes.Yellow, rect);
+            }
+        }
+
+        // Draws the backgrounds for entire ListView items.
+        private void this_DrawItem(object sender, DrawListViewItemEventArgs e)
+        {
+            if ((e.State &amp; ListViewItemStates.Selected) != 0) {
+                // Draw the background and focus rectangle for a selected item.
+
+                //e.DrawBackground();
+                e.Graphics.FillRectangle(Brushes.LightBlue, e.Bounds);
+
+                //e.DrawFocusRectangle();
+                MyDrawFocusRectangle(e);
+            }
+            else {
+                e.DrawBackground();
+            }
+
+            // Draw the item text for views other than the Details view.
+            // if (this.View != View.Details) { e.DrawText(); }
+        }
+
+        // Draws subitem text and applies content-based formatting.
+        private void this_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            TextFormatFlags flags = TextFormatFlags.Left;
+
+            using (StringFormat sf = new StringFormat()) {
+                switch (e.Header.TextAlign) {
+                case HorizontalAlignment.Center:
+                    sf.Alignment = StringAlignment.Center;
+                    flags = TextFormatFlags.HorizontalCenter;
+                    break;
+                case HorizontalAlignment.Right:
+                    sf.Alignment = StringAlignment.Far;
+                    flags = TextFormatFlags.Right;
+                    break;
+                }
+
+                if (e.ColumnIndex == _subIndex) {
+                    MyFillMatchedRect(e, this.Font, sf);
+                }
+                else if ((e.ItemState &amp; ListViewItemStates.Selected) == 0) {
+                    e.DrawBackground();
+                }
+
+                if ( e.ColumnIndex == _subIndex ) {
+                    e.Graphics.DrawString(e.SubItem.Text, this.Font, Brushes.Black, e.Bounds, sf);
+                }
+                else {
+                    e.DrawText(flags);
+                }
+            }
+        }
+
+
+        CharacterRange[] CalcCharRanges(DrawListViewSubItemEventArgs e)
+        {
+            var ret = new List&lt;CharacterRange&gt;();
+            if ( _word != null &amp;&amp; _word.Length &gt;= 1 ) {
+                string s = e.SubItem.Text;
+                for ( int i = 0 ; i &lt; s.Length ; i += _word.Length ) {
+                    i = s.IndexOf(_word, i);
+                    if ( i &lt; 0 ) { break; }
+                    ret.Add(new CharacterRange(i,_word.Length));
+                }
+            }
+            return ret.ToArray();
+        }
+
+        // Draws column headers.
+        private void this_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using (StringFormat sf = new StringFormat())
+            {
+                switch (e.Header.TextAlign) {
+                case HorizontalAlignment.Center: sf.Alignment = StringAlignment.Center; break;
+                case HorizontalAlignment.Right:  sf.Alignment = StringAlignment.Far;    break;
+                }
+
+                e.DrawBackground();
+
+                e.Graphics.DrawString(e.Header.Text, this.Font, Brushes.Black, e.Bounds, sf);
+            }
+            return;
+        }
+
+        // Forces each row to repaint itself the first time the mouse moves over 
+        // it, compensating for an extra DrawItem event sent by the wrapped 
+        // Win32 control. This issue occurs each time the ListView is invalidated.
+        private void this_MouseMove(object sender, MouseEventArgs e)
+        {
+            ListViewItemOwnerDraw item = this.GetItemAt(e.X, e.Y) as ListViewItemOwnerDraw;
+            if (item != null &amp;&amp; !item._InvalidationFlag) {
+                this.Invalidate(item.Bounds);
+                item._InvalidationFlag = true;
+            }
+        }
+
+        // Resets the item tags. 
+        void this_Invalidated(object sender, InvalidateEventArgs e)
+        {
+            foreach (ListViewItem itemTmp in this.Items) {
+                ListViewItemOwnerDraw item = itemTmp as ListViewItemOwnerDraw;
+                if (item == null) return;
+                item._InvalidationFlag = false;
+            }
+        }
+
+        void this_ColumnWidthChanged(object sender, ColumnWidthChangedEventArgs e)
+        {
+            this.Invalidate(); // to repaint
+        }
+    }
+}
+

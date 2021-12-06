@@ -1,0 +1,74 @@
+
+public class ReservationDataQuery : IReservationDataQuery
+{
+    private readonly MyDbContext _dbContext;
+
+    public ReservationDataQuery(MyDbContext dbContext)
+    {
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+    }
+
+    public ReservationData FindReservationData(ReservationId reservationId)
+    {
+        var reservation = _dbContext.Reservations.Find(reservationId.Value);
+
+        return CreateReservationData(reservation);
+    }
+
+    public IEnumerable&lt;ReservationListData&gt; FindAllReservationListData()
+    {
+        return _dbContext.Reservations.
+            Include(_ =&gt; _.accounts).
+            Include(_ =&gt; _.equipments).
+            Include(_ =&gt; _.reservations_status).
+            Where(_ =&gt; _.reservations_status.status == (int)ReservationStatus.Reserved).
+            Select(_ =&gt; CreateReservationListData(_)).ToArray();
+    }
+
+    public ReservationListData FindReservationListData(ReservationId reservationId)
+    {
+        var reservation = _dbContext.Reservations.
+            Include(_ =&gt; _.accounts).
+            Include(_ =&gt; _.equipments).
+            Where(_ =&gt; _.id == reservationId.Value).
+            SingleOrDefault();
+
+        return CreateReservationListData(reservation);
+    }
+
+    private ReservationData CreateReservationData(RESERVATIONS reservation)
+    {
+        if (reservation == null)
+            return null;
+
+        return new ReservationData()
+        {
+            Id = reservation.id,
+            AccountId = reservation.accounts.id,
+            EquipmentId = reservation.equipments_id,
+            StartDateTime = reservation.start_date_time,
+            EndDateTime = reservation.end_date_time,
+            PurposeOfUse = reservation.purpose_of_use,
+        };
+    }
+
+    private ReservationListData CreateReservationListData(RESERVATIONS reservation)
+    {
+        if (reservation == null)
+            return null;
+
+        return new ReservationListData()
+        {
+            Id = reservation.id,
+            AccountId = reservation.accounts.id,
+            EquipmentId = reservation.equipments_id,
+            StartDateTime = reservation.start_date_time,
+            EndDateTime = reservation.end_date_time,
+            PurposeOfUse = reservation.purpose_of_use,
+            AccountName = reservation.accounts.account_name,
+            EquipmentType = reservation.equipments.equipment_type,
+            EquipmentName = reservation.equipments.equipment_name
+        };
+    }
+}
+

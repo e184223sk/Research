@@ -1,0 +1,117 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+
+namespace ImagingUtil
+{
+    // RGBA のバイト情報をピクセル単位で扱えるようにするためのクラス
+    public class Pixel
+    {
+        public byte a;
+        public byte r;
+        public byte g;
+        public byte b;
+
+        public Pixel(byte b, byte g, byte r, byte a)
+        {
+            this.a = a;
+            this.r = r;
+            this.g = g;
+            this.b = b;
+        }
+    }
+
+    // ビットマップとピクセルデータ間の変換処理を行うクラス
+    public static class BitmapConverter
+    {
+        // ビットマップをピクセルデータに変換する
+        public static IList&lt;Pixel&gt; ConvertBitmapToPixels(Bitmap bitmap)
+        {
+            byte[] byteArray = null;
+            using (bitmap)
+            {
+                byteArray = ConvertBitmapToByteArray(bitmap);
+            }
+
+            var ret = new List&lt;Pixel&gt;();
+            for (var i = 0; i &lt; byteArray.Length; i += 4)
+            {
+                ret.Add(new Pixel(byteArray[i + 0],
+                                  byteArray[i + 1],
+                                  byteArray[i + 2],
+                                  byteArray[i + 3]));
+            }
+            return ret;
+        }
+
+        // ビットマップをバイト配列に変換する
+        private static byte[] ConvertBitmapToByteArray(Bitmap bitmap)
+        {
+            var ret = new byte[bitmap.Width * bitmap.Height * 4];
+
+            BitmapData bitmapData = bitmap.LockBits(
+                    new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                    ImageLockMode.ReadOnly,
+                    PixelFormat.Format32bppArgb);
+
+            Marshal.Copy(bitmapData.Scan0, ret, 0, ret.Length);
+
+            bitmap.UnlockBits(bitmapData);
+
+            return ret;
+        }
+
+        // ピクセルデータをビットマップに戻す
+        public static Bitmap ConvertPixelsToBitmap(IList&lt;Pixel&gt; pixels, int width, int height)
+        {
+            var byteArray = new byte[width * height * 4];
+            var index = 0;
+            foreach (var pixel in pixels)
+            {
+                byteArray[index++] = pixel.b;
+                byteArray[index++] = pixel.g;
+                byteArray[index++] = pixel.r;
+                byteArray[index++] = pixel.a;
+            }
+            return ConvertByteArrayToBitmap(byteArray, width, height);
+        }
+
+        // バイト配列をビットマップに戻す
+        private static Bitmap ConvertByteArrayToBitmap(byte[] byteArray, int width, int height)
+        {
+            Bitmap ret = new Bitmap(width, height);
+
+            BitmapData bitmapData = ret.LockBits(
+                    new Rectangle(0, 0, ret.Width, ret.Height),
+                    ImageLockMode.ReadWrite,
+                    PixelFormat.Format32bppArgb);
+
+            Marshal.Copy(byteArray, 0, bitmapData.Scan0, byteArray.Length);
+
+            ret.UnlockBits(bitmapData);
+
+            return ret;
+        }
+    }
+
+    // 画像ファイルの保存形式 ImageFormat を決定するクラス
+    public static class ImageFormatResolver
+    {
+        // 画像ファイルの拡張子から決定する
+        public static ImageFormat ResolveFromExtension(string extension)
+        {
+            switch (extension.ToLower())
+            {
+                case ".bmp": return ImageFormat.Bmp;
+                case ".gif": return ImageFormat.Gif;
+                case ".jpg":
+                case ".jpeg": return ImageFormat.Jpeg;
+                case ".png":
+                default: return ImageFormat.Png;
+            }
+        }
+    }
+}
+

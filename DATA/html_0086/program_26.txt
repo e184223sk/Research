@@ -1,0 +1,172 @@
+
+
+using System;
+using UnityUtility;
+using UnityEngine;
+using Xunit;
+using System.Linq;
+using System.Collections.Generic;
+
+namespace AngleStructUnitTest
+{
+    public class UnitTest1
+    {
+        [Fact]
+        public void CreateInstance()
+        {
+            Angle.FromDegree(180).Is(Angle.FromRadian(Mathf.PI));
+            Angle.FromRadian(-4 * Mathf.PI).Is(Angle.FromDegree(-720));
+            Angle.FromDegree(-1, -180).Is(Angle.FromDegree(-360 + -180));
+            Angle.FromRadian(-10, Mathf.PI).Is(Angle.FromDegree(-3600 + 180));
+            Angle.Zero.Is(Angle.FromRadian(0));
+            Assert.ThrowsAny&lt;ArithmeticException&gt;(() =&gt; Angle.FromDegree(float.NaN));
+            Assert.ThrowsAny&lt;ArithmeticException&gt;(() =&gt; Angle.FromDegree(float.NegativeInfinity));
+            Assert.ThrowsAny&lt;ArithmeticException&gt;(() =&gt; Angle.FromDegree(float.PositiveInfinity));
+        }
+
+        [Fact]
+        public void Normalize()
+        {
+            Angle.Zero.Normalize().Is(Angle.Zero);
+            Angle.FromDegree(180).Normalize().Is(Angle.FromDegree(180));
+            Angle.FromDegree(270).Normalize().Is(Angle.FromDegree(-90));
+            Angle.FromDegree(360).Normalize().Is(Angle.FromDegree(0));
+            Angle.FromDegree(360 * 4 + 20).Normalize().Is(Angle.FromDegree(20));
+            Angle.FromDegree(-360 * 80 + 20).Normalize().Is(Angle.FromDegree(20));
+        }
+
+        [Fact]
+        public void PositiveNormalize()
+        {
+            Angle.FromDegree(0).PositiveNormalize().Is(Angle.Zero);
+            Angle.FromDegree(180).PositiveNormalize().Is(Angle.FromDegree(180));
+            Angle.FromDegree(270).PositiveNormalize().Is(Angle.FromDegree(270));
+            Angle.FromDegree(360).PositiveNormalize().Is(Angle.FromDegree(0));
+            Angle.FromDegree(380).PositiveNormalize().Is(Angle.FromDegree(20));
+            Angle.FromDegree(-90).PositiveNormalize().Is(Angle.FromDegree(270));
+            Angle.FromDegree(-360 - 90).PositiveNormalize().Is(Angle.FromDegree(270));
+            Angle.FromDegree(-360 * 5 + 90).PositiveNormalize().Is(Angle.FromDegree(90));
+        }
+
+        [Fact]
+        public void Reverse()
+        {
+            Angle.Zero.Reverse().Is(Angle.Zero);
+            Angle.FromDegree(45).Reverse().Is(Angle.FromDegree(-315));
+            Angle.FromDegree(-90).Reverse().Is(Angle.FromDegree(270));
+            Angle.FromDegree(180).Reverse().Is(Angle.FromDegree(-180));
+            Angle.FromDegree(360).Reverse().Is(Angle.FromDegree(-360));
+            Angle.FromDegree(359).Reverse().Is(Angle.FromDegree(-1));
+            Angle.FromDegree(361).Reverse().Is(Angle.FromDegree(-1, -359));
+            Angle.FromDegree(-450).Reverse().Is(Angle.FromDegree(360 + 270));
+            Angle.FromDegree(2, 90).Reverse().Is(Angle.FromDegree(-2, -270));
+        }
+
+        [Fact]
+        public void SignReverse()
+        {
+            Angle.Zero.SignReverse().Is(Angle.Zero);
+            Angle.FromDegree(60).SignReverse().Is(Angle.FromDegree(-60));
+            Angle.FromDegree(-120).SignReverse().Is(Angle.FromDegree(120));
+            Angle.FromDegree(-2, 60).SignReverse().Is(Angle.FromDegree(2, -60));
+        }
+
+        [Fact]
+        public void Absolute()
+        {
+            Angle.Zero.Absolute().Is(Angle.Zero);
+            Angle.FromDegree(60).Absolute().Is(Angle.FromDegree(60));
+            Angle.FromDegree(-120).Absolute().Is(Angle.FromDegree(120));
+            Angle.FromDegree(-4, 60).Absolute().Is(Angle.FromDegree(4, -60));
+            Angle.FromDegree(4, -60).Absolute().Is(Angle.FromDegree(4, -60));
+        }
+
+        [Fact]
+        public void StandardMethods()
+        {
+            Angle.FromDegree(3, 270).ToString().Is("3x + 270°");
+            Angle.FromDegree(90).Equals(Angle.FromDegree(1, 90).Normalize()).IsTrue();
+            Angle.FromDegree(45).Equals(45).IsFalse();
+
+            object o = Angle.FromDegree(135);
+            Angle.FromDegree(135).Equals(o).IsTrue();
+            Angle.Round.Equals(null).IsFalse();
+        }
+
+        [Fact]
+        public void Operator()
+        {
+            (Angle.FromDegree(45) + Angle.FromDegree(90)).Is(Angle.FromDegree(135));
+            (Angle.FromDegree(30) - Angle.FromDegree(90)).Is(Angle.FromDegree(-60));
+            (Angle.FromDegree(90) * 4.5f).Is(Angle.FromDegree(90 * 4.5f));
+            (Angle.FromDegree(45) * -1).Reverse().Is(Angle.FromDegree(315));
+            (Angle.FromDegree(90) * 0).Is(Angle.Zero);
+            (Angle.FromDegree(4, 90) / 2).Is(Angle.FromDegree(2, 45));
+            (Angle.FromDegree(5, 10).Normalize() == Angle.FromDegree(10)).IsTrue();
+            (Angle.FromDegree(-5, 10).PositiveNormalize() == Angle.FromDegree(10)).IsTrue();
+            (Angle.FromDegree(90).Reverse() != Angle.FromDegree(-90)).IsTrue();
+            (Angle.FromDegree(45) &gt; Angle.FromDegree(90)).IsFalse();
+            (Angle.FromDegree(-1, 0) &gt; Angle.FromDegree(-360)).IsFalse();
+            (Angle.FromDegree(-1, 0) &gt;= Angle.FromDegree(-360)).IsTrue();
+            (Angle.FromDegree(-1, 20) &lt; Angle.FromDegree(-360)).IsFalse();
+            (Angle.FromDegree(1, 45).Normalize() &lt;= Angle.FromDegree(45)).IsTrue();
+            (Angle.FromDegree(1, 45).Normalize() &lt;= Angle.FromDegree(90)).IsTrue();
+
+            Assert.Throws&lt;NotFiniteNumberException&gt;(() =&gt; Angle.FromDegree(float.MaxValue) + Angle.FromDegree(float.MaxValue));
+            Assert.Throws&lt;NotFiniteNumberException&gt;(() =&gt; Angle.Zero - Angle.FromDegree(float.MaxValue) * 2);
+            Assert.Throws&lt;NotFiniteNumberException&gt;(() =&gt; Angle.Round / 0);
+
+        }
+
+        [Fact]
+        private void Getter()
+        {
+            Angle.FromDegree(2, 90).TotalDegree.Is(810);
+            Angle.FromDegree(2, 90).Normalize().TotalRadian.Is(Mathf.PI / 2);
+            Angle.Zero.NormalizedDegree.Is(0);
+            Angle.FromDegree(2, 90).NormalizedDegree.Is(90);
+            Angle.FromDegree(-1, -90).NormalizedRadian.Is(-1 * Mathf.PI / 2);
+            Angle.Zero.PositiveNormalizedDegree.Is(0);
+            Angle.FromDegree(1, 90).Reverse().PositiveNormalizedDegree.Is(90);
+            Angle.FromDegree(-2, 90).PositiveNormalizedRadian.Is(Mathf.PI / 2);
+            Angle.FromDegree(3, 90).Lap.Is(3);
+            Angle.FromDegree(360).Lap.Is(1);
+            Angle.FromDegree(-180).Lap.Is(0);
+            Angle.FromDegree(-750).Lap.Is(-2);
+            Angle.FromDegree(-360).IsCircled.IsTrue();
+            Angle.FromDegree(1, -1).IsCircled.IsFalse();
+            Angle.FromDegree(1).IsPositive.IsTrue();
+            (Angle.FromDegree(1) * -1).IsPositive.IsFalse();
+            Angle.Round.IsTrueCircle.IsTrue();
+            Angle.Zero.IsTrueCircle.IsFalse();
+            Angle.FromDegree(180).IsTrueCircle.IsFalse();
+            Angle.FromDegree(-720).IsTrueCircle.IsTrue();
+        }
+
+        [Fact]
+        private void Compare()
+        {
+            var collection = new List&lt;Angle&gt;
+            {
+                Angle.FromRadian(MathF.PI / 2),
+                Angle.FromDegree(45),
+                Angle.FromDegree(-90),
+                Angle.Zero,
+                Angle.Round
+            };
+
+            collection.OrderBy(a =&gt; a).SequenceEqual(new List&lt;Angle&gt;
+            {
+                Angle.FromDegree(-90),
+                Angle.Zero,
+                Angle.FromDegree(45),
+                Angle.FromRadian(MathF.PI / 2),
+                Angle.Round
+            }).IsTrue();
+            collection.Max().Is(Angle.Round);
+            collection.Min().Is(Angle.FromDegree(-90));
+        }
+    }
+}
+
+

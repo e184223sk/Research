@@ -1,0 +1,8 @@
+More than 1 year has passed since last update.今更ながら、Entity Framework の DB 接続の解放方法について、usingステートメントを使用した場合と ASP.NET Core 組み込みの DI コンテナを使った場合の違いについて調べました。DB 接続など.NETの管理外の外部リソース1は、使い終わったら破棄する必要があります。
+EF Coreでは DbContextを継承したクラスを使用してDB 接続を行います。DB 接続を破棄するにはDbContext.Disposeメソッドを呼び出します。確実にDisposeするには、方法があります。2usingステートメントを使用するとブロック{}を抜けた際に自動でDisposeが呼ばれます。
+途中でreturnしたり、例外がスローされても確実にDisposeされます。アプリケーションでDbContextを使用する場合、後述のASP.NET Coreの DI コンテナに任せるので、usingはユニットテストなどで使用することが多いです。ASP.NET Coreの DI コンテナを使用すると、DbContextのインスタンスの管理はフレームワークに任されます。
+DI されたDbContextのインスタンスのライフタイムは利用側のスコープと同等で、利用側のスコープを抜けた時にDbContext.Disposeが呼ばれます。3DI コンテナにDbContextを設定するにはStartupクラスでAddDbContextを使います。データベースコンテキストを利用するクラスのコンストラクタでDbContextを引数にとるとDbContextのインスタンスが DI コンテナによって注入されます。
+以下のBarsControllerのインスタンスが破棄された時に自動でDbContextのDisposeが呼ばれ破棄されます。DI コンテナーで注入したデータベースコンテキストをusing（Dispose）してはいけません。
+インスタンスが破棄されたにも関わらず、DI コンテナー側でDisposeが呼ばれて例外が発生します。不要なオブジェクトは.NETのガーベジコレクタによって破棄されますが、DB 接続やファイル IO は明示的にリソースを開放する必要があります。 ↩try {...} finally {...}のfinallyブロックでDbContext.Dispose()しでも確実に破棄できます。 ↩ライフタイムがシングルトンでない理由はASP.NET Coreが一度読んだレコードを（AsNoTrackingで無効にしない限り）変更を感知するために追跡し、メモリが膨れるためです。 ↩
+
+

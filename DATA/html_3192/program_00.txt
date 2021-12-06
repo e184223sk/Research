@@ -1,0 +1,101 @@
+using System.Threading;
+using System.Threading.Tasks;
+using System;
+
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+using System.Text;
+
+using System.Collections.Generic;
+
+using System.Net;
+using WebSocketSharp;
+
+class AuthedResult {
+    public string url { get; set;}
+}
+
+class ReceivedResult {
+    public string type { get; set;}
+    public string subtype { get; set;}
+    public string text { get; set;}
+
+
+
+    public JArray attachments { get; set;}
+    public string channel { get; set;}
+    public string user { get; set;}
+    public string username { get; set;}
+}
+
+
+class Slack {
+    static void Main() {
+        try {
+            string url = GetWsUrl();
+            using (var ws = new WebSocket (url)) {
+            bool ConnectedFlag = false;
+
+            ws.OnMessage += (sender, e) =&gt; {
+                if (!ConnectedFlag) {
+                    // おそらくOnMessageイベントでやる処理ではないが、メッセージがきちゃうので弾きついでに。
+                    ConnectedFlag = true;
+                    if (e.Data !="{\"type\": \"hello\"}") {
+                        throw new Exception("ws connection failed: " + e.Data);
+                    }
+                    Console.WriteLine ("ws connection success");
+                    return;
+                }
+
+                Console.WriteLine ("OnMessage: " + e.Data);
+
+                ReceivedResult json = JsonConvert.DeserializeObject&lt;ReceivedResult&gt;(e.Data);
+                Console.WriteLine ("OnMessage json: " + json.text);
+                if (json.type == "error") {
+                    throw new Exception("received type:error: " + e.Data);
+                }
+
+                // LINQ覚えたら書き直すかも ただ用途によっては適さない気もする
+
+                if (json.attachments == null) {
+                    return;
+                }
+
+                foreach( JObject attachment in json.attachments) {
+                    JArray fields = (JArray)attachment["fields"];
+                    foreach (JObject field in fields) {
+                        JValue title = (JValue) field["title"];
+                        JValue value = (JValue) field["value"];
+                        Console.WriteLine(title.Value);
+                        Console.WriteLine(value.Value);
+                    }
+                }
+            };
+            ws.Connect ();
+
+            Console.ReadKey (true);
+            }
+        } catch (Exception e) {
+            Console.WriteLine (e.Data);
+
+        }
+    }
+
+    static string GetWsUrl() {
+        using (WebClient client = new WebClient ()) {
+            client.QueryString.Add("token", "xoxp-hogehoge");
+            string sresult = client.DownloadString("https://slack.com/api/rtm.connect");
+            AuthedResult json = JsonConvert.DeserializeObject&lt;AuthedResult&gt;(sresult);
+
+            //Console.WriteLine(sresult);
+            //Console.WriteLine(json.url);
+            //Console.ReadKey (true);
+            return json.url;
+        }
+
+    }
+
+}
+
+

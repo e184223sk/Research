@@ -1,0 +1,40 @@
+
+using Microsoft.Azure.KeyVault;
+using Microsoft.IdentityModel.Clients.ActiveDirectory;
+using System.Threading.Tasks;
+
+namespace KeyVault
+{
+    public class KeyVaultHelper
+    {
+        private KeyVaultClient keyClient;
+        private string vaultBaseUrl;
+
+        public KeyVaultHelper()
+        {
+            const string applicationId = "SOME APPLICATION ID";
+            const string applicationSecret = "SOME APPLICATION SECRET";
+            const string vaultBaseUrl = "https://xxxxx.vault.azure.net";
+            SetUp(applicationId, applicationSecret, vaultBaseUrl);
+        }
+        private void SetUp(string applicationId, string applicationSecret, string vaultBaseUrl)
+        {
+            this.vaultBaseUrl = vaultBaseUrl;
+            keyClient = new KeyVaultClient(async (authority, resource, scope) =&gt;
+            {
+                var adCredential = new ClientCredential(applicationId, applicationSecret);
+                var authenticationContext = new AuthenticationContext(authority, null);
+                return (await authenticationContext.AcquireTokenAsync(resource, adCredential)).AccessToken;
+            });
+        }
+
+        public async Task&lt;string&gt; GetSecretValueAsync(string name)
+        {
+            var identifier = $"{vaultBaseUrl}/secrets/{name}/";
+            var secret = await keyClient.GetSecretAsync(identifier);
+            return secret.Value;
+        }
+
+    }
+}
+

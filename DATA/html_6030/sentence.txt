@@ -1,0 +1,45 @@
+More than 3 years have passed since last update.Microsoft Cognitive Services の Custom Vision Service は、オリジナルの画像判定エンジンを作成して API で推定値を取得できるサービスです。また、駅すぱあとwebサービス は、国内初の乗換案内ソフト 駅すぱあと がもつ様々な情報をWebAPIで提供しているサービスです。今回は Custom Vision Service で作成した画像判定エンジンを利用して、
+鉄道の路線を画像から判別し、 駅すぱあとwebサービス を利用して路線に含まれる駅を検索し、それを返す BOT を作成する方法を紹介します。Microsoft Cognitive Services の Custom Vision Service は、オリジナルの画像判定エンジンを作成して API で推定値を取得できるサービスです。
+機械学習などで画像判定ロジックを構築しなくても、画像をアップロードしてタグ付けを行うことで、画像判定エンジンを構築できます。駅すぱあとwebサービス は、国内初の乗換案内ソフト 駅すぱあと がもつ様々な情報をWebAPIで提供しているサービスです。
+経路探索はもちろん、駅データや時刻表などの情報を取得することができます。 
+無料で使えるフリープランを用意しており、企業にかぎらず個人でもご利用いただけます。ベースは Microsoft Bot Framework (V3.0 以降) テンプレートを利用し、Cognitive Services Custom Vision (Prediction) C# クラスライブラリーを用いて呼び出しを行います。この BOT アプリは Bot Framework Channel Emulator を使ってローカル環境で稼働確認することが可能です。また、Web 公開 &amp; Bot Framework に登録すると、埋め込み可能な Web Chat が利用できます。駅すぱあと x Cognitive Services で 画像DE路線当てBOT を作ろう！
+(1) Custom Vision 編
+(2) Bot実装編 
+- Node.js ver 編
+- C# ver 編 ※このページCustom Vision 編、Bot実装 編を通して作成できる 画像DE路線当てBOT↓
+無償の Visual Studio 2017 Community or 2015 Community でOKなので、既存の環境がない場合は、ダウンロードしてインストールします。
+Visual Studio 2017 Community ダウンロードサイト
+Visual Studio 用の Bot Framework C# テンプレート
+Bot Framework Channel Emulator (Windows版) ※Mac/Linux は Console版 をご利用くださいBot Framework 開発環境の作り方は、Microsoft Bot Framework v3.0 からはじめる BOT 開発: Bot Framework を使うための開発環境 をご覧ください。駅すぱあと Webサービス のフリープランをお申込みいただき、アクセスキーを取得してください。
+https://ekiworld.net/service/sier/webservice/free_provision.htmlCustom Vision 編 を実施していない場合はMicrosoft アカウントを準備してください。([Custom Vision 編] と同じもので問題ありません。)Cognitive Services (と必要に応じて Azure) サブスクリプションの申し込みに必要ですので、持っていない場合は取得しておきます。Microsoft アカウント登録手続きVisual Studio テンプレートから Bot アプリケーションの作成 と同じ手順で、新規 Bot アプリケーションを作成します。今回は TrainFinderBot という名称で作成しています。
+ソリューションエクスプローラーでプロジェクト名 (ソリューションの下) を右クリックして、NuGet パッケージの管理 を選択します。
+このソリューションに一部のNuGetパッケージが見つかりません・・・ というメッセージが表示される場合は、その横にある [復元] をクリックしてインストールします。(表示されない場合はそのまま次に進んでください)
+参照 をクリックし、custom vision と入力して検索します。Microsoft.Cognitive.CustomVision.Prediction を選択し、インストール をクリックしてインストールします。
+Custom Vision (Prediction) のライブラリーと、依存関係のあるライブラリーが合わせて表示されますので、OK をクリックしてインストールします。
+
+インストールが終了したら、NuGet のウインドウを閉じます。Dialogs フォルダー をクリックして開きます。RootDialog.cs をクリックして表示し、こちらを編集していきます。RootDialog.cs にはメッセージを受信したときの動作を記述します。冒頭に、先ほど追加した Microsoft.Cognitive.CustomVision を追加します。合わせて System.Net.Http も追加しておきます。メッセージを受信したとき最初に StartAsync が呼びだされ、StartAsync から MessageReceivedAsync が呼び出されます。
+MessageReceivedAsync 呼び出し前に初期メッセージを追加します。 MessageReceivedAsync に Custom Vision の画像分析エンジンを呼び出すコードを追加していきます。
+下記コードの YOUR_PREDICTION_KEY には Custom Vision の Prediction URL 表示画面で表示される Prediction-key、YOUR_PROJECT_ID には URL に含まれている Project ID をコピーします。
+Custom Vision 編 の API アクセス情報画面から取得できます。画像を Stream として取得し、Custom Vision を呼び出します。Probability (≒信頼度) の高いものからリストされるため、最初にリストされるタグのみを取得します。返答メッセージにタグをセットします。忘れずに RootDialog.cs を保存しておきます。ここで一旦 BOT の動作確認を行います。、F5 または デバック＞デバックの開始 をクリックして、プロジェクトのビルドおよび起動を行います。ブラウザが起動して Bot Framework のデフォルト画面が表示されたら、Bot Framework Channel Emulator を起動してアクセスを行います。
+Bot Framework Channel Emulator の上部中央にある Bot Url に、起動しているブラウザと同じ URL (デフォルトでは http://localhost:xxxx) に /api/messages を追加したアドレス (http://localhost:xxxx/api/messages) を指定します。何か文字を入力して送信すると、StartAsync で指定したデフォルトの回答が返信されることを確認してください。
+入力エリアの画像アイコンをクリックして、分析した画像を選択、BOT に送信すると、判定されたタグが返信されるのを確認してください。画像を判定して取得できたタグに応じてメッセージを変更します。
+今回は、駅すぱあと Web サービス を利用して、路線名から停車駅を取得し、表示するようにします。路線名、停車駅はこちらの API を利用して取得できます。今回は予め路線コードはアプリ内に保持し、停車駅のみを API で取得しています。
+- 路線名の取得: http://api.ekispert.jp/v1/xml/operationLine?name=路線名&amp;key=アクセスキー
+- 停車駅の取得: http://api.ekispert.jp/v1/json/station?&amp;operationLineCode=路線コード&amp;key=アクセスキー駅すぱあと API で取得した情報は XML または JSON で取得できます。
+今回は JSON でデータを取得し、その後利用しやすくするためのクラスを作成します。プロジェクトを右クリックして [追加]＞[新しいフォルダー] をクリック、Models というフォルダーを作成します。
+作成した Models フォルダーを右クリックして、[追加]＞[クラス]をクリックします。
+名前に StationModel.cs と入力して、[追加] をクリックして新規クラスファイルを作成します。
+StationModel.cs を開き、デフォルトで作成されている StationModel クラスを一旦削除します。
+API のフォーマットを取得するため、ブラウザーを起動して API にアクセスを行います。
+http://api.ekispert.jp/v1/json/station?&amp;operationLineCode=113&amp;direction=down&amp;key=アクセスキー表示される結果をすべて選択して、コピーします。
+Visual Studio に戻り、namespace .Models 内をクリックして選択してから、上部ツールバーから [編集]＞[形式を選択して貼り付け]＞[JSON をクラスとして貼り付ける] を選択して、コピーした内容を貼り付けます。
+
+class Rootobject は class StationModel に変更します。
+適時ファイルの保存を行っておきます。画像を判定して取得できたタグによって、路線名と路線コードをセットします。
+まず、変数定義のところで、路線名と路線コードを扱う変数 (lineName, lineCode) を追加します。次に取得したタグに応じて lineName と lineCode をセットするように変更します。lineCode を使って停車駅情報を取得して (line に代入)、表示する内容に変更します。停車駅を取得してセットします。
+JSON を扱えるように　Newtonsoft.JSON と、前の項目で作成した Model を RootDialog.cs の冒頭に追加しておきます。GetStationList を追加し、路線情報を取得します。
+取得できた停車駅は "→" で繋いで 1 行にします。F5 または デバック＞デバックの開始 をクリックして、プロジェクトのビルドおよび起動を行います。ブラウザが起動して Bot Framework のデフォルト画面が表示されたら、Bot Framework Channel Emulator を起動してアクセスを行います。入力エリアの画像アイコンをクリックして、分析した画像を選択、BOT に送信します。
+設定したメッセージが返答されたら完成です。完成形のソースコードを GitHub にて公開しました。
+https://github.com/a-n-n-i-e/CognitiveCustomVision-TrainFinderBot
+
+

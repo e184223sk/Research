@@ -1,0 +1,43 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace Util
+{
+    public static class StringFormatExtension
+    {
+        public static string Format(this string templateText, object args)
+        {
+            var Matches = new Regex(@"\{(.+?)\}").Matches(templateText);//{～} の間を抽出
+
+            var index = 0;
+            var objectList = new List&lt;object&gt;();
+            foreach (Match match in Matches)
+            {
+                //指定されている変数名を取得する ,　や : などの書式指定されている場合もあるので、考慮する
+                var paramName = match.Value.Substring(1, match.Value.Length - 2).Trim(); //{~}の中の中身だけ(Trim済み)
+                var variableName = paramName.Split(new[] {":", ","}, StringSplitOptions.RemoveEmptyEntries)[0]; //書式文字列を抜いた、純粋な変数名
+                var formatParam = paramName.Substring(variableName.Length); //変数名を抜いて書式文字列のみを取得する
+
+                //引数 args から Reflectionを使って プロパティ or フィールド の中身を取得
+                var replaceValue = args.GetType().GetProperties().Where(info =&gt; info.CanRead).FirstOrDefault(info =&gt; info.Name == variableName)?.GetValue(args)
+                                   ?? args.GetType().GetFields().FirstOrDefault(info =&gt; info.Name == variableName)?.GetValue(args);
+
+                if (replaceValue != null)
+                {
+                    templateText = templateText.Replace(match.Value, "{"+ index++ + formatParam + "}"); // {0}..{n}のFormat置換文字に変換
+                    objectList.Add(replaceValue); //実際の値はListに入れておいて最後にstring.Formatで返却する
+                }
+                else
+                {
+                    templateText = templateText.Replace(match.Value, string.Empty);
+                }
+            }
+            return string.Format(templateText,objectList.ToArray());
+        }
+    }
+}
+
+

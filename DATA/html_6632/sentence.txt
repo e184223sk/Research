@@ -1,0 +1,118 @@
+More than 1 year has passed since last update.前記事
+に記載した具体例は以下のとおり。(ソースコードはC#)
+仕様）
+掲示板のコメント管理を考える。
+コメント一覧に、投稿されたコメントが表示され、１コメント毎に編集、削除、承認、差し戻し、詳細表示、各ボタンを以下の条件で制御する。
+1. ログイン者が投稿者であればコメントの編集および削除、詳細表示が可能。承認後は編集、削除は不可。
+2. 第一管理者は投稿後のコメントを承認(1次承認）、あるいは差し戻し、詳細表示が可能。承認後は詳細表示のみ可能。
+3. 第二管理者は第一管理者が承認したコメントのみ承認(2次承認)、差し戻し、詳細表示が可能。承認後は詳細表示のみ可能。ソースコード）※条件分岐だけ見たいので、ボタン活性制御は省略した。
+java
+
+
+    private static final String AUTHOR_ID = "投稿者ID";
+    private static final String FIRST_MANAGER_ID = "第一管理者ID";
+    private static final String SECOND_MANAGER_ID = "第二管理者ID";
+
+    protected void setButtonControls(String loginUserId, String firstApproverId, String secondApproverId) {
+        // 各ボタンを非活性で初期化済み。
+
+        if (AUTHOR_ID.equals(loginUserId) &amp;&amp; firstApproverId == null &amp;&amp; secondApproverId == null) {
+            // 編集ボタン、削除ボタン、詳細表示ボタン、活性
+        } else if (FIRST_MANAGER_ID.equals(loginUserId) &amp;&amp; firstApproverId == null) {
+            // 承認ボタン、差し戻しボタン、詳細表示ボタン活性
+        } else if (FIRST_MANAGER_ID.equals(loginUserId) &amp;&amp; firstApproverId != null) {
+            // 詳細表示ボタン活性
+        } else if (SECOND_MANAGER_ID.equals(loginUserId) &amp;&amp; firstApproverId != null &amp;&amp; secondApproverId == null) {
+            // 承認ボタン、差し戻しボタン、詳細表示ボタン活性
+        } else if (SECOND_MANAGER_ID.equals(loginUserId) &amp;&amp; firstApproverId == null &amp;&amp; secondApproverId != null) {
+            // 詳細表示ボタン活性
+        }
+
+    }
+
+
+
+よく言えば仕様のとおりだけど、全てelse ifにしているせいで、読みずらい。また、同じ条件文の否定文をif文内に書いているため、冗長になっている。
+同列のif文同士を並べたほうが良い。
+java
+
+
+    private static final String AUTHOR_ID = "投稿者ID";
+    private static final String FIRST_MANAGER_ID = "第一管理者ID";
+    private static final String SECOND_MANAGER_ID = "第二管理者ID";
+
+    protected void setButtonControls(String loginUserId, String firstApproverId, String secondApproverId) {
+        // 各ボタンを非活性で初期化済み。
+
+        boolean firstApproved = firstApproverId != null;
+        boolean secondApproved = secondApproverId != null;
+
+        if (AUTHOR_ID.equals(loginUserId)) {
+
+            if (!firstApproved &amp;&amp; !secondApproved) {
+                // 編集ボタン、削除ボタン、活性
+            }
+
+            // 詳細表示ボタン 活性
+
+        } else if (FIRST_MANAGER_ID.equals(loginUserId)) {
+
+            if (!firstApproved) {
+                // 承認ボタン、差し戻しボタン、活性
+            }
+
+            // 承認詳細ボタン活性
+
+        } else if (SECOND_MANAGER_ID.equals(loginUserId)) {
+
+            if (firstApproved &amp;&amp; !secondApproved) {
+                // 承認ボタン、差し戻しボタン
+            }
+
+            // 詳細表示ボタン活性
+        }
+    }
+
+
+ソースコードの書き方に関する問題は、基本的に「こんな書き方思いつかない」という個々のスキル差で発生している。
+ソースコードの見直しの意味もこめて、サンプルコードを定期的に書いていきたい。コメント欄で参考になるコードをいただいたので、載せておく。尚、Bool型の扱いについて別の記事と統一がとれるように変数名を一部修正している。
+if文が無く、ボタンの活性制御が分かりやすい。
+java
+
+
+    private static final String AUTHOR_ID = "投稿者ID";
+    private static final String FIRST_MANAGER_ID = "第一管理者ID";
+    private static final String SECOND_MANAGER_ID = "第二管理者ID";
+
+    protected void setButtonControls(String loginUserId, String firstApproverId,
+            String secondApproverId) {
+
+        // 第一承認済み
+        boolean firstApproved = firstApproverId != null;
+
+        // 第二承認済み
+        boolean secondApproved = firstApproved &amp;&amp; secondApproverId != null;
+
+        boolean isAuthor = AUTHOR_ID.equals(loginUserId);
+        boolean isFirstManager = FIRST_MANAGER_ID.equals(loginUserId);
+        boolean isSecoundManager = SECOND_MANAGER_ID.equals(loginUserId);
+
+        // ボタン活性制御
+
+        // 編集ボタン
+        boolean editButtonEnabled = isAuthor &amp;&amp; !firstApproved;
+
+        // 削除ボタン
+        boolean deleteButtonEnabled = isAuthor &amp;&amp; !firstApproved;
+
+        // 承認ボタン
+        boolean approvalButtonEnabled = (isFirstManager &amp;&amp; !firstApproved) || (isSecoundManager &amp;&amp; !secondApproved);
+
+        // 詳細ボタン
+        boolean detailButtonEnabled = isAuthor || isFirstManager || isSecoundManager;
+    }
+
+
+次の記事(ちょっと気になるコード集)目次
+
+

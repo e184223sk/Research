@@ -1,0 +1,275 @@
+
+namespace AudioSpectrum_ver._2
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        /// &lt;summary&gt;
+        /// 60(fps)の逆数 (100ns)
+        /// &lt;/summary&gt;
+        private readonly long reciprocal_of_FPS = 167000;
+
+        /// &lt;summary&gt;
+        /// 音楽プレーヤー
+        /// &lt;/summary&gt;
+        private WaveOutEvent outputDevice;
+
+        /// &lt;summary&gt;
+        /// フーリエ変換前の音楽データ
+        /// &lt;/summary&gt;
+        private AudioFileReader audioStream;
+
+        /// &lt;summary&gt;
+        /// フーリエ変換後の音楽データ
+        /// &lt;/summary&gt;
+        private float[,] result;
+
+        /// &lt;summary&gt;
+        /// タイマー割込みに使用するタイマー
+        /// &lt;/summary&gt;
+        private DispatcherTimer timer = null;
+
+        /// &lt;summary&gt;
+        /// 再生する音楽ファイルのパス
+        /// &lt;/summary&gt;
+        private string fileName;
+
+        /// &lt;summary&gt;
+        /// 音声波形表示に使用するLine(バー)
+        /// &lt;/summary&gt;
+        private Line[] bar;
+
+        /// &lt;summary&gt;
+        /// 音声波形表示のLine(バー)に使用するブラシ
+        /// &lt;/summary&gt;
+        private Brush brush;
+
+        /// &lt;summary&gt;
+        /// 1秒当たりのバイト数
+        /// &lt;/summary&gt;
+        private int bytePerSec;
+
+        /// &lt;summary&gt;
+        /// 音楽の長さ (秒)
+        /// &lt;/summary&gt;
+        private int musicLength_s;
+
+        /// &lt;summary&gt;
+        /// 再生位置 (秒)
+        /// &lt;/summary&gt;
+        private int playPosition_s;
+
+        /// &lt;summary&gt;
+        /// 音声波形表示位置
+        /// &lt;/summary&gt;
+        private int drawPosition;
+
+        /// &lt;summary&gt;
+        /// 描画済みのLine(バー)があるかを示すフラグ (生成済み = true, 未生成 = false)
+        /// &lt;/summary&gt;
+        private bool barDrawn = false;
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            // ウィンドウをマウスのドラッグで移動できるようにする 
+            this.MouseLeftButtonDown += (sender, e) =&gt; this.DragMove();
+
+            // Loaded(要素のレイアウトやレンダリングが完了し、操作を受け入れる準備が整ったときに発生)イベントの登録
+            this.Loaded += new RoutedEventHandler(MainWindow_Loaded);
+        }
+
+        /// &lt;summary&gt;
+        /// MainWindowの初期化が終わったとき (Loadedが発生したとき) のイベントハンドラ
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベント送信元&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベント引数&lt;/param&gt;
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            // タイマーの生成
+            timer = new DispatcherTimer(DispatcherPriority.Normal);
+            // Tickの発生間隔の設定
+            timer.Interval = new TimeSpan(reciprocal_of_FPS);
+            // タイマーイベントの登録
+            timer.Tick += new EventHandler(timer_Tick);
+
+            // 再生するファイル名
+            fileName = "music\\sample.wav";
+
+            // ファイル名の拡張子によって、異なるストリームを生成
+            audioStream = new AudioFileReader(fileName);
+
+            // ハミング窓をかけ、高速フーリエ変換を行ったデータを配列resultに格納
+            result = FFT_HammingWindow_ver1();
+
+            // 音声波形表示に使用するLine(バー)の配列を確保 (この時点では、コンストラクタは呼び出されていない)
+            bar = new Line[result.GetLength(1)];
+            for (int i = 0; i &lt; result.GetLength(1); i++)
+            {
+                bar[i] = new Line(); // 各要素のコンストラクタを明示的に呼び出す
+            }
+            // Line(バー)に使用するブラシ
+            brush = new SolidColorBrush(Color.FromArgb(128, 61, 221, 200));
+
+            // コンストラクタを呼んだ際に、Positionが最後尾に移動したため、0に戻す
+            audioStream.Position = 0;
+
+            // プレーヤーの生成
+            outputDevice = new WaveOutEvent();
+            // 音楽ストリームの入力
+            outputDevice.Init(audioStream);
+
+            // 1秒あたりのバイト数を計算
+            bytePerSec = (audioStream.WaveFormat.BitsPerSample / 8) * audioStream.WaveFormat.SampleRate * audioStream.WaveFormat.Channels;
+            // 音楽の長さ (秒)を計算
+            musicLength_s = (int)audioStream.Length / bytePerSec;
+
+            // 音楽の再生 (おそらく非同期処理)
+            outputDevice.Play();
+
+            // タイマーの実行開始
+            timer.Start();
+        }
+
+        /// &lt;summary&gt;
+        /// Timer.Tickが発生したときのイベントハンドラ
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベント送信元&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベント引数&lt;/param&gt;
+        private void timer_Tick(object sender, EventArgs e)
+        {
+            // この中の処理はメインスレッドで行われる
+
+            // 再生位置 (秒)を計算
+            playPosition_s = (int)audioStream.Position / bytePerSec;
+
+            // 音声波形表示を描画する配列のオフセット(インデックス)を計算
+            drawPosition = (int)(((double)audioStream.Position / (double)audioStream.Length) * result.GetLength(0));
+            Make_AudioSpectrum();
+        }
+
+        /// &lt;summary&gt;
+        /// 音楽の波形データにハミング窓をかけ、高速フーリエ変換する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;フーリエ変換後の音楽データ&lt;/returns&gt;
+        private float[,] FFT_HammingWindow_ver1()
+        {
+            // 波形データを配列samplesに格納
+            float[] samples = new float[audioStream.Length / audioStream.BlockAlign * audioStream.WaveFormat.Channels];
+            audioStream.Read(samples, 0, samples.Length);
+
+            //1サンプルのデータ数
+            int fftLength = 256;
+            //1サンプルごとに実行するためのイテレータ用変数
+            int fftPos = 0;
+
+            // フーリエ変換後の音楽データを格納する配列
+            float[,] result = new float[samples.Length / fftLength, fftLength / 2];
+
+            // 波形データにハミング窓をかけたデータを格納する配列
+            Complex[] buffer = new Complex[fftLength];
+            for (int i = 0; i &lt; samples.Length; i++)
+            {
+                // ハミング窓をかける
+                buffer[fftPos].X = (float)(samples[i] * FastFourierTransform.HammingWindow(fftPos, fftLength));
+                buffer[fftPos].Y = 0.0f;
+                fftPos++;
+
+                // 1サンプル分のデータが溜まったとき
+                if (fftLength &lt;= fftPos)
+                {
+                    fftPos = 0;
+
+                    // サンプル数の対数をとる (高速フーリエ変換に使用)
+                    int m = (int)Math.Log(fftLength, 2.0);
+                    // 高速フーリエ変換
+                    FastFourierTransform.FFT(true, m, buffer);
+
+                    for (int k = 0; k &lt; result.GetLength(1); k++)
+                    {
+                        // 複素数の大きさを計算
+                        double diagonal = Math.Sqrt(buffer[k].X * buffer[k].X + buffer[k].Y * buffer[k].Y);
+                        double intensityDB = 10.0 * Math.Log10(diagonal);
+
+                        const double minDB = -60.0;
+
+                        // 音の大きさを百分率に変換
+                        double percent = (intensityDB &lt; minDB) ? 1.0 : intensityDB / minDB;
+                        // 結果を代入
+                        result[i / fftLength, k] = (float)diagonal;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// &lt;summary&gt;
+        /// 音声波形表示を描画
+        /// &lt;/summary&gt;
+        private void Make_AudioSpectrum()
+        {
+            // 描画済みのLine(バー)がある場合
+            if (barDrawn)
+            {
+                for (int j = 0; j &lt; result.GetLength(1); j++)
+                {
+                    // 画面からLine(バー)を削除
+                    grid.Children.Remove(bar[j]);
+                }
+            }
+
+            if (drawPosition &gt;= result.GetLength(0))    // マネージリソース(Line bar[])の解放は自動でガベージコレクションが行う
+                return;
+
+            for (int j = 0; j &lt; result.GetLength(1);)
+            {
+                // 描画する方法 (Brush)を設定
+                bar[j].Stroke = brush;  // System.Windows.Media.Brushes.LightBlue;
+                // (親要素内に作成されるときに適用される)水平方向の配置特性を、(親要素のレイアウトのスロットの)左側に設定
+                bar[j].HorizontalAlignment = HorizontalAlignment.Left;
+                // (親要素内に作成されるときに適用される)垂直方向の配置特性を、(親要素のレイアウトのスロットの)中央に設定
+                bar[j].VerticalAlignment = VerticalAlignment.Center;
+
+                // 始点のx座標を設定
+                bar[j].X1 = j * 7 + 32;
+                // 終点のx座標を設定
+                bar[j].X2 = j * 7 + 32;
+
+                // 始点のy座標を設定
+                bar[j].Y1 = 0;
+                // 終点のy座標を設定 (result[,]は、0 ~ 1の値)
+                bar[j].Y2 = 7700 * result[drawPosition, j];
+                // 長さが400より大きい場合は長さを400にする
+                if (bar[j].Y2 &gt;= 400)
+                    bar[j].Y2 = 400;
+                // 幅を設定
+                bar[j].StrokeThickness = 5;
+
+                // 画面にLine(バー)を追加
+                grid.Children.Add(bar[j]);
+                j += 1;
+            }
+            // 描画済みにする
+            barDrawn = true;
+
+        }
+
+        /// &lt;summary&gt;
+        /// コンテキストメニューのExitが押されたときのイベントハンドラ
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベント送信元&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベント引数&lt;/param&gt;
+        private void Quit_Clicked(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+    }
+}
+

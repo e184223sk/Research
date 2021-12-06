@@ -1,0 +1,52 @@
+
+/// &lt;summary&gt;
+/// DataTemplateを元にView型から対応するViewModelを供給するMarkupExtension
+/// &lt;/summary&gt;
+public class ViewModelProviderExtension : MarkupExtension
+{
+    /// &lt;summary&gt;
+    /// 検索するView型
+    /// &lt;/summary&gt;
+    public Type ViewType { get; set; }
+
+    public ViewModelProviderExtension() { }
+
+    public ViewModelProviderExtension(Type viewType)
+    {
+        this.ViewType = viewType;
+    }
+
+    public override object ProvideValue(IServiceProvider provider)
+    {
+        //現在のアプリケーションのResourceDictionaryと入れ子になっているResourceDictionaryを平坦化
+        var resources = new List&lt;ResourceDictionary&gt; { Application.Current.Resources };
+        resources.AddRange(Application.Current.Resources.MergedDictionaries);
+
+        var dataTemplateExs = resources
+            //ResourceからValueを取り出しDataTemplate型だけ抽出して平坦化
+            .SelectMany(x =&gt; x.Values.OfType&lt;DataTemplate&gt;())
+            //DataTemplateを匿名型に変換
+            .Select(x =&gt;
+                new
+                {
+                    //Contentを生成してView型情報に変換
+                    viewType = x.LoadContent().GetType(),
+                    //DataTypeをViewModel型情報に変換
+                    viewModelType = x.DataType as Type
+                });
+
+        //一致するView型を探し、対応するViewModel型を選択
+        var selectViewModelType = dataTemplateExs
+            .FirstOrDefault(a =&gt; a.viewType == ViewType)
+            ?.viewModelType;
+
+        if (selectViewModelType == null)
+        {
+            return null;
+        }
+        //該当するViewModel型を作成
+        var vm = Activator.CreateInstance(selectViewModelType);
+        return vm;
+    }
+}
+

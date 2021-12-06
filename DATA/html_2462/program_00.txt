@@ -1,0 +1,1222 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.IO.Compression;
+//using System.Reflection;
+//using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using System.Security.Cryptography; // MD5CryptoServiceProvider
+
+using MyUtil;
+
+
+class PdfStructViewer : Form
+{
+    ListView lsv;
+    TreeView trv;
+    SplitContainer spl;
+    SplitContainer splL;
+    SplitContainer splR;
+    RichTextBox rtxt;   // object view
+    RichTextBox rtxtSt; // stream...endstream
+
+    FileStream _pdfFs;
+    MD5CryptoServiceProvider _md5sp;
+    byte[] _baseKey;
+    int[] _xref;
+    int _rootObjRef;
+    bool _lsvEventByProgram;
+
+    class PageObjId
+    {
+        public int idContents;
+        public int idResources;
+        public PageObjId()
+        {
+            idContents = -1;
+            idResources = -1;
+        }
+    }
+
+    PdfStructViewer(string path)
+    {
+        Text = "PDF Struct viewer";
+        ClientSize = new Size(700,500);
+
+        spl = new SplitContainer();
+        spl.Dock = DockStyle.Fill;
+        spl.Orientation = Orientation.Vertical;
+        Controls.Add(spl);
+
+
+        splL = new SplitContainer();
+        splL.Dock = DockStyle.Fill;
+        splL.Orientation = Orientation.Horizontal;
+        spl.Panel1.Controls.Add(splL);
+
+        splR = new SplitContainer();
+        splR.Dock = DockStyle.Fill;
+        splR.Orientation = Orientation.Horizontal;
+        spl.Panel2.Controls.Add(splR);
+
+
+        lsv = new ListView();
+        lsv.View = View.Details;
+        lsv.FullRowSelect = true;
+        lsv.HideSelection = false;
+        lsv.MultiSelect = false;
+        lsv.GridLines = true;
+        lsv.Dock = DockStyle.Fill;
+        lsv.Columns.Add("No.",     100, HorizontalAlignment.Left);
+        lsv.Columns.Add("Address", 400, HorizontalAlignment.Left);
+        splL.Panel1.Controls.Add(lsv);
+
+        trv = new TreeView();
+        trv.HideSelection = false;
+        trv.Dock = DockStyle.Fill;
+        splL.Panel2.Controls.Add(trv);
+
+
+        rtxt = new RichTextBox();
+        rtxt.ReadOnly = true;
+        rtxt.Multiline = true;
+        rtxt.WordWrap = false;
+        rtxt.ScrollBars = RichTextBoxScrollBars.Both;
+        rtxt.Dock = DockStyle.Fill;
+        splR.Panel1.Controls.Add(rtxt);
+
+
+        rtxtSt = new RichTextBox();
+        rtxtSt.ReadOnly = true;
+        rtxtSt.Multiline = true;
+        rtxtSt.WordWrap = false;
+        rtxtSt.ScrollBars = RichTextBoxScrollBars.Both;
+        rtxtSt.Dock = DockStyle.Fill;
+        splR.Panel2.Controls.Add(rtxtSt);
+
+
+        // -----------------
+        ParsePdfStruct(path);
+        ParseTreeFromRoot();
+
+        lsv.SelectedIndexChanged += Lsv_SelectedIndexChanged;
+        trv.AfterSelect += Trv_AfterSelect;
+    }
+
+    void Trv_AfterSelect(object sender, EventArgs e)
+    {
+        TreeNode node = trv.SelectedNode;
+        if (node==null){return;}
+        int id = (int)node.Tag;
+
+        _lsvEventByProgram = true;
+        try{
+            lsv.Items[id].Selected = true;
+            lsv.EnsureVisible(id);
+        }
+        finally{
+            _lsvEventByProgram = false;
+        }
+    }
+
+    void Lsv_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        var items = lsv.SelectedItems;
+        if ( !_lsvEventByProgram ) {trv.SelectedNode = null;}
+        if ( items.Count != 1 ) {
+            return;
+        }
+        ListViewItem item = items[0];
+        Console.WriteLine(item.SubItems[0].Text);
+
+        int addr = Convert.ToInt32(item.SubItems[1].Text.Substring(2),16);
+
+        _pdfFs.Position = addr;
+        string objData = GetPreviewData(_pdfFs);
+        rtxt.Text = objData;
+
+
+        _pdfFs.Position = addr;
+        byte[] streamData = ParseStreamBlock(_pdfFs, _baseKey, _md5sp);
+        rtxtSt.Text = ConvertBytesToString(streamData);
+    }
+
+
+    TreeNode MakeTreeNode(string name, int id)
+    {
+        return MakeTreeNode(name, id, 0);
+    }
+    TreeNode MakeTreeNode(string name, int id, int pageOffset)
+    {
+        string pageInfo = "";
+        if(pageOffset&gt;0){pageInfo="("+pageOffset.ToString()+")";}
+        TreeNode node = new TreeNode("["+id.ToString()+"]"+name + pageInfo);
+        node.Tag = id;
+        return node;
+    }
+
+    int _tmpCallDepth;
+    void ParseTreeFromRoot()
+    {
+        TreeNode rootNode = MakeTreeNode("Root", _rootObjRef);
+        trv.Nodes.Add(rootNode);
+
+        var rootDict = ParseRootObj(_pdfFs, _xref[_rootObjRef]);
+
+        int objRef = (int)rootDict["/Pages"];
+        TreeNode pagesNode = MakeTreeNode("Pages", objRef);
+        rootNode.Nodes.Add(pagesNode);
+
+        _tmpCallDepth = 0;
+        ParseKidsRecursive(pagesNode, objRef, 1);
+    }
+
+
+    int ParseKidsRecursive(TreeNode parentNode, int parentId, int pageOffset)
+    {
+        int pageCount = 0;
+        _tmpCallDepth++;
+
+        if ( _tmpCallDepth &lt;= 7 ) {
+            PageObjId contentId;
+            int[] pagesKids = ParsePagesObj(_pdfFs, _xref[parentId], out pageCount, out contentId);
+            if (contentId.idContents&gt;=0) {
+                TreeNode pageNode = MakeTreeNode("Contents", contentId.idContents);
+                parentNode.Nodes.Add(pageNode);
+            }
+            if (contentId.idResources&gt;=0) {
+                TreeNode pageNode = MakeTreeNode("Resources", contentId.idResources);
+                parentNode.Nodes.Add(pageNode);
+            }
+            foreach(int subObjRef in pagesKids ) {
+                TreeNode pageNode = MakeTreeNode("Kids", subObjRef, pageOffset);
+                parentNode.Nodes.Add(pageNode);
+                pageOffset += ParseKidsRecursive(pageNode, subObjRef, pageOffset);
+            }
+        }
+        else{
+            Console.WriteLine("Skipped:"+parentId.ToString());
+        }
+
+        _tmpCallDepth--;
+        return pageCount;
+    }
+
+    void ParsePdfStruct(string path)
+    {
+        _pdfFs = new FileStream(path, FileMode.Open, FileAccess.Read);
+
+        int trailerAddr;
+        long pos = GetXRefAddress(_pdfFs, out trailerAddr, 500);
+        Console.WriteLine("xref address: 0x" + pos.ToString("X"));
+
+        _xref = ParseXRefTable(_pdfFs, (int)pos);
+        var trailerDict = ParseTrailer(_pdfFs, trailerAddr);
+
+        lsv.BeginUpdate();
+        try{
+            lsv.Items.Clear();
+            for(int i=0;i&lt;_xref.Length;i++){
+                lsv.Items.Add(new ListViewItem(new string[]{i.ToString(),"0x"+_xref[i].ToString("X")}));
+            }
+        }
+        finally{
+            lsv.EndUpdate();
+        }
+
+        _baseKey = null;
+        _md5sp = new MD5CryptoServiceProvider();
+
+
+        if (trailerDict.ContainsKey("/Encrypt")) {
+            byte[] id = (byte[])trailerDict["/ID"];
+            int encObjNum = (int)trailerDict["/Encrypt"];
+            Console.Write("Encrypt obj num:");
+            Console.WriteLine(encObjNum.ToString());
+            _pdfFs.Position = _xref[encObjNum];
+            Dictionary&lt;string, object&gt; encryptionDict;
+            ParseEncryptObj(_pdfFs, out encryptionDict);
+
+            _baseKey = CalcBaseKey(encryptionDict, id, _md5sp);
+        }
+
+        _rootObjRef = (int)trailerDict["/Root"];
+
+        //DumpIntArrayWithIndex(pagesKids,false);
+    }
+
+
+    // read /-?[0-9]+/ in binary
+    // てきとう
+    static bool ReadIntegerDigits(FileStream fs, out long digits)
+    {
+        var sb = new StringBuilder();
+        int b = fs.ReadByte();
+        bool retCode = false;
+        if ( b == '-' ) {
+            sb.Append((char)b);
+            b = fs.ReadByte();
+        }
+
+        if ( IsDigit(b) ) {
+            retCode = true;
+        }
+
+        do {
+            sb.Append((char)b);
+            b = fs.ReadByte();
+        }
+        while( IsDigit(b) );
+
+        if ( b &gt;= 0 ) { // EOFでなければ1文字戻す
+            fs.Position--;
+        }
+
+        string s = sb.ToString();
+        if (retCode) {
+            digits = Convert.ToInt64(s);
+        }
+        else {
+            digits = 0;
+        }
+        return retCode;
+    }
+
+    // read /\/[A-Za-z_][A-Za-z0-9]*/ in binary
+    // てきとう
+    static bool ReadKeyword(FileStream fs, out string ret)
+    {
+        var sb = new StringBuilder();
+        int b = fs.ReadByte();
+
+        if ( b == '/' ) {
+            sb.Append((char)b);
+        }
+        else {
+            if ( b &gt;= 0 ) { // EOFでなければ1文字戻す
+                fs.Position--;
+            }
+            ret = null;
+            return false;
+        }
+
+        b = fs.ReadByte();
+        if ( IsAlphabet(b) ) {
+            sb.Append((char)b);
+        }
+        else {
+            ret = null;
+            return false;
+        }
+
+        b = fs.ReadByte();
+        while ( IsAlphabet(b) || IsDigit(b) ) {
+            sb.Append((char)b);
+            b = fs.ReadByte();
+        }
+
+        if ( b &gt;= 0 ) { // EOFでなければ1文字戻す
+            fs.Position--;
+        }
+
+        ret = sb.ToString();
+
+        return true;
+    }
+
+    // read /([ \t\r\n]+|\b)/
+    // 空白文字を読み捨てる
+    static bool ReadSpaces(FileStream fs)
+    {
+        int b;
+        do {
+            b = fs.ReadByte();
+        } while ( b ==' ' || b =='\t' || b=='\r' || b=='\n' );
+
+        if ( b&gt;=0 ) { // EOFでなければ1文字戻す
+            fs.Position--;
+        }
+        return true;
+    }
+
+    static bool ReadFixedSequence(FileStream fs, string s)
+    {
+        byte[] a = Encoding.ASCII.GetBytes(s); // expected data
+
+        for(int i=0;i&lt;a.Length;i++) {
+            int b = fs.ReadByte();
+            if ( b != a[i] ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // read postscript string object (...) in binary
+    // e.g.:
+    //  (xxx)
+    //  (xxx(xxx)xxx)
+    //  (xxx\)xxx)
+    static bool ReadPsString(FileStream fs, out byte[] ret)
+    {
+        int nCount = 0;// Count of open '('
+        bool escape = false;
+        var t = new List&lt;byte&gt;();
+
+        int b = fs.ReadByte();
+        if ( b != '(' ) {
+            if ( b&gt;=0 ) { // EOFでなければ1文字戻す
+                fs.Position--;
+            }
+            ret = null;
+            return false;
+        }
+
+        nCount++;
+        while ( nCount &gt; 0 ) {
+            b = fs.ReadByte();
+            if ( b &lt; 0 ) { // EOF
+                ret = null;
+                return false;
+            }
+            if (!escape) {
+                switch(b) {
+                    case '(':
+                        nCount++;
+                        t.Add((byte)b);
+                        break;
+                    case ')':
+                        nCount--;
+                        if ( nCount &gt; 0 ) { t.Add((byte)b); }
+                        break;
+                    case '\\':
+                        escape = true;
+                        break;
+                    default:
+                        t.Add((byte)b);
+                        break;
+                }
+            }
+            else {
+                escape = false;
+                // \000 - \377 がケアできていない
+                switch(b) {
+                    case 't': t.Add((byte)'\t'); break;
+                    case 'r': t.Add((byte)'\r'); break;
+                    case 'n': t.Add((byte)'\n'); break;
+                    case 'b': t.Add((byte)'\b'); break;
+                    case 'f': t.Add((byte)'\f'); break;
+                    default:  t.Add((byte)b);    break;
+                }
+            }
+        }
+        ret = t.ToArray();
+        return true;
+    }
+
+    // 未実装: read /&lt;([ \r\n\t]*[0-9A-Fa-f]{2}[ \r\n\t]*)*&gt;/ in binary
+    // read /&lt;([0-9A-Fa-f]{2})+&gt;/ in binary
+    static bool ReadHexString(FileStream fs, out byte[] ret)
+    {
+        int b1 = fs.ReadByte();
+        if ( b1 != '&lt;' ) {
+            if ( b1&gt;=0 ) { // EOFでなければ1文字戻す
+                fs.Position--;
+            }
+            ret = null;
+            return false;
+        }
+
+        var t = new List&lt;byte&gt;();
+
+        while ( true ) {
+            b1 = fs.ReadByte();
+            if ( b1 == '&gt;' ) { // end mark (正常終了)
+                break;
+            }
+            if ( b1 &lt; 0 ) { ret = null; return false; } // EOF
+
+            int b2 = fs.ReadByte();
+
+            if ( b2 &lt; 0 ) { ret = null; return false; } // EOF
+
+            int x = DecodeHexChar(b1, b2);
+            if (x &lt; 0) { // invalid format
+                ret = null;
+                return false; 
+            }
+
+            t.Add((byte)x);
+        }
+        ret = t.ToArray();
+        return true;
+    }
+
+    static bool ReadPsOrHexString(FileStream fs, out byte[] ret)
+    {
+        ret = null;
+        int b = fs.ReadByte();
+
+        if ( b &gt;= 0 ) {fs.Position--;}
+        if ( b == '(') {
+            return ReadPsString(fs, out ret);
+        }
+        else if (b=='&lt;') {
+            return ReadHexString(fs, out ret);
+        }
+        else {
+            return false;
+        }
+    }
+
+    static bool IsSpacerChar(int x) { return (x==' ')||(x=='\t')||(x=='\r')||(x=='\n'); }
+    static bool IsDigit(int x) { return  ('0'&lt;= x &amp;&amp; x &lt;='9'); }
+    static bool IsAlphabet(int x) { return  ('A'&lt;= x &amp;&amp; x &lt;='Z') || ('a'&lt;= x &amp;&amp; x &lt;='z'); }
+
+    static bool IsPrintableChar(byte b)
+    {
+        if (b=='\t'||b=='\n'||b=='\n'){return true;}
+        if (0x20&lt;=b &amp;&amp; b&lt;=0x7E){return true;}
+        return false;
+    }
+
+    static int DecodeHexChar(int x)
+    {
+        if ('0'&lt;= x &amp;&amp; x &lt;='9') {return  x-'0';}
+        if ('A'&lt;= x &amp;&amp; x &lt;='F') {return (x-'A')+10;}
+        if ('a'&lt;= x &amp;&amp; x &lt;='f') {return (x-'a')+10;}
+        return -1;
+    }
+    static int DecodeHexChar(int x1, int x2)
+    {
+        x1 = DecodeHexChar(x1);
+        if ( x1 &lt; 0 ) {return -1;}
+        x2 = DecodeHexChar(x2);
+        if ( x2 &lt; 0 ) {return -1;}
+        return (x1&lt;&lt;4) | x2;
+    }
+
+    static string ConvertBytesToString(byte[] data)
+    {
+        if (data==null){return "";}
+
+        var sb = new StringBuilder(data.Length);
+        foreach(byte b in data){
+            if (IsPrintableChar(b)){
+                sb.Append((char)b);
+            }
+            else {
+                sb.Append('?');
+            }
+        }
+        return sb.ToString();
+    }
+
+
+    static bool ParseEncryptObj(FileStream fs, out Dictionary&lt;string, object&gt; dict)
+    {
+        dict = null;
+
+        long objId;
+        long genId;
+        bool retCode;
+
+        if (!ReadIntegerDigits(fs, out objId)){return false;}
+        ReadSpaces(fs);
+        if (!ReadIntegerDigits(fs, out genId)){return false;}
+        ReadSpaces(fs);
+        if (!ReadFixedSequence(fs, "obj")){return false;}
+        ReadSpaces(fs);
+        if (!ReadFixedSequence(fs, "&lt;&lt;")){return false;}
+        ReadSpaces(fs);
+
+        dict = new Dictionary&lt;string, object&gt;();
+        dict["/Length"] = 40;
+        while (true) {
+            string kwd;
+            retCode = ReadKeyword(fs, out kwd);
+            if ( !retCode ) {
+                break;
+            }
+            Console.Write(kwd??"null");
+            Console.Write(" ");
+
+            ReadSpaces(fs);
+            switch (kwd) {
+                case "/Filter":
+                    {
+                        string kwd2;
+                        if (!ReadKeyword(fs, out kwd2)){
+                            return false;
+                        }
+                        Console.WriteLine(kwd2??"null");
+                        dict[kwd] = kwd2;
+                        ReadSpaces(fs);
+                    }
+                    break;
+                case "/V":
+                case "/R":
+                case "/P":
+                case "/Length":
+                    {
+                        long numValue;
+                        if(!ReadIntegerDigits(fs, out numValue)){
+                            return false;
+                        }
+                        if (kwd == "/Length" &amp;&amp; (numValue&lt;40 || numValue%8!=0) ) {
+                            return false;
+                        }
+                        Console.WriteLine(numValue);
+                        dict[kwd] = numValue;
+                        ReadSpaces(fs);
+                    }
+                    break;
+                case "/O":
+                case "/U":
+                    {
+                        byte[] content;
+                        if(!ReadPsOrHexString(fs, out content)){
+                            return false;
+                        }
+                        dict[kwd] = content;
+                        ReadSpaces(fs);
+                        Console.Write("#");
+                        Console.WriteLine(content.Length);
+                        if (content.Length != 32) {
+                            return false;
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (!dict.ContainsKey("/O")) { return false; }
+        if (!dict.ContainsKey("/P")) { return false; }
+        if (!dict.ContainsKey("/R")) { return false; }
+
+        return true;
+    }
+
+    static byte[] Int32ToBytesLE(uint x)
+    {
+        byte[] a = new byte[4];
+        a[0] = (byte)( x      &amp; 0xFF);
+        a[1] = (byte)((x&gt;&gt;8)  &amp; 0xFF);
+        a[2] = (byte)((x&gt;&gt;16) &amp; 0xFF);
+        a[3] = (byte)((x&gt;&gt;24) &amp; 0xFF);
+        return a;
+    }
+
+
+    static byte[] CalcBaseKey(Dictionary&lt;string, object&gt; encryptDict, byte[] id, MD5CryptoServiceProvider md5sp)
+    {
+        if (id.Length != 16) {return null;}
+
+        byte[] pswdPadding = new byte[]{
+            0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,  0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
+            0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,  0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A
+        };
+
+        // 32 + O 32 + P 4 + ID 16
+        byte[] data = new byte[200];
+        int pos = 0;
+        int n = 0;
+
+        n = pswdPadding.Length;
+        Array.Copy(pswdPadding, 0, data, pos, n);
+        pos += n;
+
+        n = 32;
+        Array.Copy((byte[])encryptDict["/O"], 0, data, pos, n);
+        pos += n;
+
+        n = 4;
+        Array.Copy(Int32ToBytesLE((uint)(long)encryptDict["/P"]), 0, data, pos, n);
+        pos += n;
+
+        n = 16;//id.Length;
+        Array.Copy(id, 0, data, pos, n);
+        pos += n;
+
+        Array.Resize(ref data, pos);
+
+        byte[] baseKey = md5sp.ComputeHash(data);
+
+        for (int i=0;i&lt;50;i++) {
+            Array.Resize(ref baseKey, (int)(long)encryptDict["/Length"]/8);
+            baseKey = md5sp.ComputeHash(baseKey);
+        }
+
+        Array.Resize(ref baseKey, (int)(long)encryptDict["/Length"]/8);
+
+        return baseKey;
+    }
+
+
+    static byte[] CalcObjKey(byte[] baseKey, uint objId, uint genId, MD5CryptoServiceProvider md5sp)
+    {
+        //byte[] sAlT = Encoding.ASCII.GetBytes("sAlT"); // AES使用時
+        byte[] data = new byte[baseKey.Length+5];//+sAlT.Length];
+        int pos=0;
+        int n;
+
+        n = baseKey.Length;
+        Array.Copy(baseKey,0,data,pos,n);
+        pos += n;
+
+        n = 3;
+        Array.Copy(Int32ToBytesLE(objId),0,data,pos,n);
+        pos += n;
+
+        n = 2;
+        Array.Copy(Int32ToBytesLE(genId),0,data,pos,n);
+        pos += n;
+
+        //n = sAlT.Length;
+        //Array.Copy(sAlT,0,data,pos,n);
+        //pos += n;
+
+        //Console.Write("objkey before hash:");
+        //DumpByteArray(data,data.Length);
+
+        byte[] objKey = md5sp.ComputeHash(data); // 16byte
+
+        if ( objKey.Length &gt; baseKey.Length + 5 ) {
+            Array.Resize(ref objKey, baseKey.Length + 5);
+        }
+
+        Console.Write("ObjKeyLen:");
+        Console.WriteLine(objKey.Length);
+
+        return objKey;
+    }
+
+
+    static int GetXRefAddress(FileStream fs, out int trailerAddress, int searchBytesLen)
+    {
+        byte[] buf = new byte[searchBytesLen];
+
+        fs.Seek(-searchBytesLen, SeekOrigin.End);
+        long tmpPos = fs.Position;
+        int n = fs.Read(buf, 0, buf.Length);
+
+        int iEof = SearchBackward(buf, "%%EOF");
+        int iStartXref = SearchBackward(buf, "startxref");
+        trailerAddress = SearchBackward(buf, "trailer");
+        if (trailerAddress&gt;=0) {trailerAddress += (int)tmpPos;}
+
+        if ( iEof &gt;= 0 &amp;&amp; iStartXref &gt;= 0 &amp;&amp; iEof &gt;= iStartXref ) {
+            iStartXref += "startxref".Length;
+            if (buf[iStartXref]=='\r') {
+                iStartXref++;
+            }
+            if (buf[iStartXref]=='\n') {
+                iStartXref++;
+            }
+        }
+        else {
+            return -1;
+        }
+
+        return ParseBufferInt32(buf, iStartXref);
+    }
+
+    // 負数非対応
+    static int ParseBufferInt32(byte[] buf, int index)
+    {
+        var sb = new StringBuilder();
+        while( index&lt;buf.Length &amp;&amp; IsDigit(buf[index]) ) {
+            sb.Append((char)buf[index]);
+            index++;
+        }
+        string s = sb.ToString();
+        if (s.Length==0){return -1;}
+
+        return Convert.ToInt32(s);
+    }
+
+
+    static int[] ParseXRefTable(FileStream fs, int headPos)
+    {
+        int[] offsetTable;
+        fs.Position = headPos + 4; // +4 : length of "xref"
+
+        bool retCode;
+        long n;
+
+        {
+            long startIndex;
+            ReadSpaces(fs);
+            retCode = ReadIntegerDigits(fs, out startIndex);
+            if ( !retCode || startIndex != 0 ) {
+                Console.WriteLine("not supported xref data.");
+                return null;
+            }
+            ReadSpaces(fs);
+            retCode = ReadIntegerDigits(fs, out n);
+            if (n &lt;= 0) {
+                Console.WriteLine("not supported xref data.");
+                return null;
+            }
+        }
+
+        offsetTable = new int[n];
+
+        ReadSpaces(fs);
+        for (int i=0;i&lt;n;i++) {
+            long pos;
+            long genId;
+            retCode = ReadIntegerDigits(fs, out pos);
+            if ( !retCode || pos&lt;0 ) { return null; }
+            offsetTable[i] = (int)pos;
+            ReadSpaces(fs);
+
+            retCode = ReadIntegerDigits(fs, out genId);
+            if ( !retCode || genId&lt;0 ) { return null; }
+            ReadSpaces(fs);
+
+            int b = fs.ReadByte();
+            if ( b!='n' &amp;&amp; b!='f' ) {
+                return null;
+            }
+            ReadSpaces(fs);
+        }
+
+        return offsetTable;
+    }
+
+
+    static int[] ParsePagesObj(FileStream fs, int pagesPos, out int pageCount, out PageObjId subObjIds)
+    {
+        //var dict = new Dictionary&lt;string,object&gt;();
+        pageCount = 1;
+        subObjIds = new PageObjId();
+        const int BufSize = 1000;
+        byte[] buf = new byte[BufSize];
+
+        fs.Position = pagesPos;
+        int n = fs.Read(buf, 0, buf.Length);
+        if (n&lt;=0) {return null;}
+        Array.Resize(ref buf, n);
+
+        int endobjPos = Search(buf, 0, "endobj");
+        if (endobjPos &gt;= 0){
+            Array.Resize(ref buf, endobjPos+"endobj".Length);
+        }
+
+        //  /Kids[nnnnn 0 R nnnnn 0 R ...]
+
+        int[] ret = new int[0];
+        {
+            const string KeyName = "/Kids";
+            int iKids = Search(buf, 0, KeyName);
+            if (iKids&gt;=0) {
+                iKids += KeyName.Length;
+                while ( IsSpacerChar(buf[iKids]) ) {
+                    iKids++;
+                }
+                if (buf[iKids]=='[') {
+                    iKids++;
+
+                    int iRight = Search(buf, iKids, "]");
+                    if (iRight &gt;= iKids+1) {
+                        string s = Encoding.ASCII.GetString(buf,iKids,iRight-iKids);
+                        //Console.WriteLine(s);
+                        Regex r = new Regex(@"([0-9]+)[ \r\n\t]+([0-9]+)[ \r\n\t]+R\b");
+                        MatchCollection mc = r.Matches(s);
+                        ret = new int[mc.Count];
+                        for(int i=0;i&lt;mc.Count;i++) {
+                            ret[i] = Convert.ToInt32(mc[i].Groups[1].Value);
+                        }
+                    }
+                }
+            }
+        }
+
+        int tmp;
+        if ( FindUIntOfKeyInBuffer(buf, "/Count", out tmp) ) {
+            pageCount = tmp;
+        }
+        if ( FindUIntOfKeyInBuffer(buf, "/Contents", out tmp) ) {
+            subObjIds.idContents = tmp;
+        }
+        if ( FindUIntOfKeyInBuffer(buf, "/Resources", out tmp) ) {
+            subObjIds.idResources = tmp;
+        }
+
+        return ret;
+    }
+
+
+    static Dictionary&lt;string,object&gt; ParseRootObj(FileStream fs, int pagesPos)
+    {
+        var dict = new Dictionary&lt;string,object&gt;();
+        const int BufSize = 1000;
+        byte[] buf = new byte[BufSize];
+
+        fs.Position = pagesPos;
+        int n = fs.Read(buf, 0, buf.Length);
+        if (n&lt;=0) {return null;}
+        Array.Resize(ref buf, n);
+
+        int tmp;
+        if ( FindUIntOfKeyInBuffer(buf, "/Pages", out tmp) ) {
+            dict["/Pages"] = tmp;
+        }
+
+        return dict;
+    }
+
+    static Dictionary&lt;string,object&gt; ParseTrailer(FileStream fs, int trailerPos)
+    {
+        if (trailerPos&lt;0){return null;}
+        var dict = new Dictionary&lt;string,object&gt;();
+
+        const int BufSize = 1000;
+        byte[] buf = new byte[BufSize];
+        //Console.WriteLine(trailerPos.ToString("X"));
+        fs.Position = trailerPos;
+
+        int n = fs.Read(buf, 0, buf.Length);
+        if (n&lt;=0) {return null;}
+        Array.Resize(ref buf, n);
+
+        int tmp;
+        if ( FindUIntOfKeyInBuffer(buf, "/Encrypt", out tmp) ) {
+            dict["/Encrypt"] = tmp;
+        } else {
+            Console.WriteLine("enc not found");
+        }
+        if ( FindUIntOfKeyInBuffer(buf, "/Root", out tmp) ) {
+            dict["/Root"] = tmp;
+        }
+        if ( FindUIntOfKeyInBuffer(buf, "/Info", out tmp) ) {
+            dict["/Info"] = tmp;
+        }
+
+        {
+            const string KeyName = "/ID";
+            int iID = Search(buf, 0, KeyName);
+            if ( iID &gt;= 0 ) { // /ID [&lt;HexStr&gt;
+                iID += KeyName.Length;
+                while ( IsSpacerChar(buf[iID]) ) {
+                    iID++;
+                }
+                if (buf[iID]=='['){iID++;}
+
+                byte[] idData1;
+                fs.Position = trailerPos + iID;
+                bool retCode = ReadHexString(fs, out idData1);
+                if (retCode) {
+                    dict[KeyName] = idData1;
+                }
+                else{
+                    Console.WriteLine("id parse failed");
+                }
+            }
+            else{
+                Console.WriteLine("id not found");
+            }
+        }
+
+        return dict;
+    }
+
+    static bool FindUIntOfKeyInBuffer(byte[] buf, string keyName, out int ret)
+    {
+        int index = Search(buf, 0, keyName);
+        if (index&gt;=0) {
+            index += keyName.Length;
+            while ( IsSpacerChar(buf[index]) ) {
+                index++;
+            }
+            ret = ParseBufferInt32(buf, index);
+            if (ret&gt;=0) {
+                return true;
+            }
+        }
+        ret = -1;
+        return false;
+    }
+
+    static int Search(byte[] data, int startI, string s)
+    {
+        if (s == "") {return -1;}
+        byte[] w = Encoding.ASCII.GetBytes(s);
+        int pos = 0;
+
+        int i = startI;
+        while ( i &lt; data.Length ) {
+            if ( data[i] == w[pos] ) {
+                pos++;
+                i++;
+                if ( pos == w.Length) {
+                    return i-w.Length;
+                }
+            }
+            else {
+                i -= pos;
+                i++;
+                pos = 0;
+            }
+        }
+        return -1;
+    }
+
+    static int SearchBackward(byte[] data, string s)
+    {
+        if (s == "") {return -1;}
+        byte[] w = Encoding.ASCII.GetBytes(s);
+        int pos = 0;
+
+        int i = data.Length-1;
+        while ( i &gt;= 0 ) {
+            if ( data[i] == w[(w.Length-1)-pos] ) {
+                pos++;
+                if ( pos == w.Length) {
+                    return i;
+                }
+                i--;
+            }
+            else {
+                i += pos-1;
+                pos = 0;
+            }
+        }
+        return -1;
+    }
+
+    static byte[] ParseStreamBlock(FileStream fs, byte[] baseKey, MD5CryptoServiceProvider md5sp)
+    {
+        //nnnn 0 obj &lt;&lt;/Filter/FlateDecode/Length
+        var dict = new Dictionary&lt;string,object&gt;();
+
+        long objId;
+        long genId;
+        bool retCode;
+        if ( !ReadIntegerDigits(fs, out objId) ) {return null;}
+        ReadSpaces(fs);
+        if ( !ReadIntegerDigits(fs, out genId) ) {return null;}
+        ReadSpaces(fs);
+        if ( !ReadFixedSequence(fs, "obj") ) {return null;}
+        ReadSpaces(fs);
+        if ( !ReadFixedSequence(fs, "&lt;&lt;") ) {return null;}
+        ReadSpaces(fs);
+
+        while (true) {
+            string kwd;
+            retCode = ReadKeyword(fs, out kwd);
+            if ( !retCode ) {
+                break;
+            }
+            //Console.Write(kwd??"null");
+            //Console.Write(" ");
+
+            ReadSpaces(fs);
+            switch (kwd) {
+                case "/Filter":
+                    {
+                        string kwd2;
+                        if (!ReadKeyword(fs, out kwd2)) {
+                            return null;
+                        }
+                        //Console.WriteLine(kwd2??"null");
+                        dict[kwd] = kwd2;
+                        ReadSpaces(fs);
+                    }
+                    break;
+                case "/Length":
+                case "/Length1":
+                    {
+                        long numValue;
+                        if (!ReadIntegerDigits(fs, out numValue)) {
+                            return null;
+                        }
+                        dict[kwd] = numValue;
+                        //Console.WriteLine(numValue);
+                        ReadSpaces(fs);
+                    }
+                    break;
+                default:
+                    {
+                        // 未知のパラメータ
+                        return null;
+                    }
+                    //break;
+            }
+        }
+        if (!ReadFixedSequence(fs, "&gt;&gt;")){return null;}
+        ReadSpaces(fs);
+        if (!ReadFixedSequence(fs, "stream")){return null;}
+        ReadSpaces(fs); // &lt;-- 読み捨てるべきではないデータも読み捨ててしまいそう
+
+        if ( !dict.ContainsKey("/Length") ){return null;}
+        int length = (int)(long)dict["/Length"];
+
+        byte[] decrypted;
+        if ( baseKey == null ) { // no encryption
+            decrypted = new Byte[length];
+            fs.Read(decrypted,0,length);
+        }
+        else {
+            decrypted = DecryptStream(fs, baseKey, (int)objId, (int)genId, length, md5sp);
+        }
+
+        byte[] ret;
+        if ( dict.ContainsKey("/Filter") &amp;&amp; (string)dict["/Filter"] == "/FlateDecode" ) {
+            ret = new byte[0];
+            using (var ms = new MemoryStream(decrypted)) {
+                int header1 = ms.ReadByte();
+                int header2 = ms.ReadByte();
+                if ( header1 &lt; 0 || header2 &lt; 0 ) { return null; }
+                if ( (header1 &amp; 0x0F) != 0x08 ) { return null; }
+                if ( ((header1&lt;&lt;8) + header2) % 31 != 0 ) { return null; }
+
+                byte[] buffer = new byte[1000];
+                using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress)) {
+                    while (true) {
+                        int nRead;
+                        try{
+                            nRead = ds.Read(buffer, 0, buffer.Length);
+                        }
+                        catch(Exception e) {
+                            Console.WriteLine(e);
+                            return null;
+                        }
+
+                        if (nRead &lt;= 0) {
+                            break;
+                        }
+                        int nSize = ret.Length;
+                        Array.Resize(ref ret, nSize + nRead);
+                        Array.Copy(buffer, 0, ret, nSize, nRead);
+                    }
+                }
+            }
+        }
+        else {
+            ret = decrypted;
+        }
+        return ret;
+    }
+
+
+    static byte[] DecryptStream(FileStream fs, byte[] baseKey, int objId, int genId, int length, MD5CryptoServiceProvider md5sp)
+    {
+        byte[] objKey = CalcObjKey(baseKey, (uint)objId, (uint)genId, md5sp);
+        //Console.WriteLine(objKey.Length);
+
+        byte[] buf = new byte[length];
+        fs.Read(buf,0,length);
+
+        byte[] plain = new byte[length];
+
+        using (MemoryStream ms = new MemoryStream(buf))
+        using (MemoryStream msDest = new MemoryStream(plain))
+        {
+            Arcfour arcfour = Arcfour.CreateArcfour(objKey);
+
+            arcfour.Encrypt(ms, msDest, buf.Length);//decrypt
+        }
+
+        //Console.Write("mod31: ");
+        //Console.WriteLine((plain[0]*256 + plain[1])%31);
+        //DumpByteArray(plain,50);
+
+        return plain;
+    }
+
+    // endobjが見つかるまでのデータをASCIIにして出力。(単語単位では検索してないのでよくない)
+    // 可読でない文字は ? に置き換える。
+    // stream...endstreamはそのまま出力。
+    static string GetPreviewData(FileStream fs)
+    {
+        const int MaxBufSize = 1000;
+        byte[] buf = new byte[MaxBufSize];
+        byte[] endobj = Encoding.ASCII.GetBytes("endobj");
+        int n = fs.Read(buf,0,buf.Length);
+
+        if ( n &lt; endobj.Length ) {
+            return "";
+        }
+
+        var sb = new StringBuilder(n);
+        int pos = 0;
+        for ( int i=0 ; i&lt;n ; i++ ) {
+            if ( IsPrintableChar(buf[i]) ) {
+                sb.Append((char)buf[i]);
+            }
+            else {
+                sb.Append('?');
+            }
+
+            if ( buf[i] == endobj[pos] ) {
+                pos++;
+                if ( pos == endobj.Length ) {
+                    break;
+                }
+            }
+            else {
+                // たまたま "endobj" を構成する文字がすべて別の文字なので、検索アンマッチ時は単純に pos=0に戻しているだけでよいが、
+                // "aab"とかだと "aaab"から検索していると"aa"のあと"ab"から検索が始まってとりこぼすおそれがある。
+                pos = 0;
+            }
+        }
+        return sb.ToString();
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if ( args.Length != 1 ) {
+            Console.WriteLine("Argument error.");
+            return;
+        }
+
+        Application.Run(new PdfStructViewer(args[0]));
+
+    }
+
+    static void DumpIntArrayWithIndex(int[] a, bool hex)
+    {
+        DumpIntArrayWithIndex(a,0,a.Length-1,hex);
+    }
+
+    static void DumpIntArrayWithIndex(int[] a, int fromI, int endI, bool hex)
+    {
+        if (fromI&lt;0){fromI=0;}
+        for(int i=fromI;i&lt;a.Length&amp;&amp;i&lt;=endI;i++) {
+            Console.Write(i.ToString());
+            if (hex) {
+                Console.Write(": 0x");
+                Console.WriteLine(a[i].ToString("X"));
+            }
+            else {
+                Console.Write(": ");
+                Console.WriteLine(a[i].ToString(""));
+            }
+        }
+    }
+
+
+    static void DumpByteArray(byte[] a, int n)
+    {
+        int cnt=0;
+        foreach(byte b in a) {
+            cnt++;
+            Console.Write(b.ToString("X2"));
+            if(cnt&gt;=n)break;
+        }
+        Console.WriteLine();
+    }
+}
+
+

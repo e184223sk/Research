@@ -1,0 +1,81 @@
+
+    public class InputManager
+    {
+        // 追加と修正のあるメンバ以外は省略
+
+        // 方向キーとボタンの押し下げ持続時間を保持するフィールド
+        private int directionDuration = 0;
+        private int[] buttonsDuration = new int[4];
+
+        // テンキー表記変換をメソッド化
+        private static int ToDirection(int x, int y)
+        {
+            var value = 5;
+            if (x &gt; 300) value += 1;
+            if (x &lt; -300) value -= 1;
+            if (y &lt; -300) value += 3;
+            if (y &gt; 300) value -= 3;
+            return value;
+        }
+
+        public void Update()
+        {
+            if (this.pad == null) return;
+
+            this.pad.Acquire();
+            this.pad.Poll();
+
+            var state = this.pad.GetCurrentState();
+            if (state == null) return;
+
+            if (state.X != this.prevState.X || state.Y != this.prevState.Y)
+            {
+                // 方向切り替わり時に持続フレームを通知
+                this._keyStream.OnNext(new KeyInfo
+                {
+                    Key = ToDirection(this.prevState.X, this.prevState.Y).ToString()[0],
+                    Duration = this.directionDuration,
+                    Frame = this.frame,
+                });
+                // 持続フレームをリセットしつつ新たな方向を押し下げ通知
+                this._keyStream.OnNext(new KeyInfo
+                {
+                    Key = ToDirection(state.X, state.Y).ToString()[0],
+                    Duration = this.directionDuration = 0,
+                    Frame = this.frame,
+                });
+            }
+            else
+            {
+                // 方向に変化がなかった場合は持続フレームをインクリメント
+                ++this.directionDuration;
+            }
+
+            char[] buttonName = { 'A', 'B', 'C', 'D' };
+            for (int i = 0; i &lt; 4; ++i)
+            {
+                if (state.Buttons[i] != this.prevState.Buttons[i])
+                {
+                    // 押し下げ時は0を、離し時は持続フレームを通知
+                    this._keyStream.OnNext(new KeyInfo
+                    {
+                        Key = buttonName[i],
+                        Duration = state.Buttons[i] ? 0 : this.buttonsDuration[i],
+                        Frame = this.frame,
+                    });
+                    this.buttonsDuration[i] = 0;
+                }
+
+                if (state.Buttons[i])
+                {
+                    // 押し下げ継続時は持続フレームをインクリメント
+                    ++this.buttonsDuration[i];
+                }
+            }
+
+            this.prevState = state;
+            ++this.frame;
+        }
+    }
+
+

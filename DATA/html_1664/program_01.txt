@@ -1,0 +1,64 @@
+
+
+//項数1の戻り値有り・無しで一つずつ例示します。
+public readonly struct FuncPointer&lt;TResult, T0&gt; : IEquatable&lt;FuncPointer&lt;TResult, T0&gt;&gt;
+{
+    public static bool operator ==(FuncPointer&lt;TResult, T0&gt; left, FuncPointer&lt;TResult, T0&gt; right) =&gt; left.Equals(right);
+    public static bool operator !=(FuncPointer&lt;TResult, T0&gt; left, FuncPointer&lt;TResult, T0&gt; right) =&gt; !(left == right);
+    public static int Arity =&gt; 1;
+
+    public RuntimeMethodHandle Handle { get; }
+    readonly IntPtr ptr;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public TResult Invoke(T0 arg0) =&gt; FunctionPointerUtility.Call&lt;TResult, T0&gt;(this.ptr, arg0);
+    public override bool Equals(object obj) =&gt; obj is FuncPointer&lt;TResult, T0&gt; pointer &amp;&amp; this.Equals(pointer);
+    public bool Equals(FuncPointer&lt;TResult, T0&gt; other) =&gt; this.Handle.Equals(other.Handle);
+    public override int GetHashCode() =&gt; HashCode.Combine(this.Handle);
+
+
+    public FuncPointer(Func&lt;TResult, T0&gt; func)
+    {
+        FunctionPointersHelper.ValidateFunction(func, Arity);
+        this.Handle = func.Method.MethodHandle;
+        this.ptr = this.Handle.GetFunctionPointer();
+    }
+}
+
+public readonly struct ActionPointer&lt;T0&gt; : IEquatable&lt;ActionPointer&lt;T0&gt;&gt;
+{
+    public static bool operator ==(ActionPointer&lt;T0&gt; left, ActionPointer&lt;T0&gt; right) =&gt; left.Equals(right);
+    public static bool operator !=(ActionPointer&lt;T0&gt; left, ActionPointer&lt;T0&gt; right) =&gt; !(left == right);
+    public static int Arity =&gt; 1;
+
+    public RuntimeMethodHandle Handle { get; }
+    readonly IntPtr ptr;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Invoke(T0 arg0) =&gt; FunctionPointerUtility.Call(this.ptr, arg0);
+    public override bool Equals(object obj) =&gt; obj is ActionPointer&lt;T0&gt; pointer &amp;&amp; this.Equals(pointer);
+    public bool Equals(ActionPointer&lt;T0&gt; other) =&gt; this.Handle.Equals(other.Handle);
+    public override int GetHashCode() =&gt; HashCode.Combine(this.Handle);
+
+
+    public ActionPointer(Action&lt;T0&gt; action)
+    {
+        FunctionPointersHelper.ValidateFunction(action, Arity);
+        this.Handle = action.Method.MethodHandle;
+        this.ptr = this.Handle.GetFunctionPointer();
+    }
+}
+
+
+//ResourceStringsは特に重要でないので出しません。
+internal static class FunctionPointersHelper
+{
+    public static void ValidateFunction(Delegate func, int arity)
+    {
+        if (func is null) throw new ArgumentNullException(ResourceStrings.ExceptionMessage_FunctionIsNull);
+        if (!func.Method.IsStatic) throw new ArgumentException(ResourceStrings.ExceptionMessage_FunctionIsNotStatic);
+        //拡張メソッドだと項数が一致しない。
+        if (func.Method.GetParameters().Length != arity) throw new ArgumentException(ResourceStrings.ExceptionMessage_FunctionArityMismatch);
+    }
+}
+

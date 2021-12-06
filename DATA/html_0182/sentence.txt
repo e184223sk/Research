@@ -1,0 +1,60 @@
+C#のnull条件演算子?.を利用して、無効化されたログ出力のオーバーヘッドを回避します。よくあるロガーはこんな感じだと思います。呼び出し側：これを実行するとログ出力が無効になっているにもかかわらず、"value: " + 1が評価されてしまいます。
+"value: " + 1は、int型の数値1をToStringして"value: "文字列と結合する、というそれなりにコストがかかる処理です。
+今回はこれを回避します。呼び出し側：まずVerboseメソッドをLogFuncデリゲートに置き換えました。そして、呼び出し側にて?.を使用します。
+Verboseはデリゲートになったので、?.の後にInvokeメソッドでデリゲートを実行します。（本当は?.()としたいところですが文法上不可能です。）このコードをコンパイルすると以下のように展開されます。展開されたコードを見た通り、Verboseがnullの場合は、"value: " + 1もVerboseの呼び出しそのものも回避されます。
+絶対速いですよね！！！BenchmarkDotNetでベンチマークしてみます。ベンチマークコード
+
+    [MemoryDiagnoser]
+    [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
+    [CategoriesColumn]
+    public class LoggingTest
+    {
+        static void Main()
+        {
+            BenchmarkRunner.Run&lt;LoggingTest&gt;();
+        }
+
+        [Params(true, false)]
+        public bool Enabled;
+
+        [GlobalSetup]
+        public void Setup()
+        {
+            NormalLogger.Init(this.Enabled);
+            FastLogger.Init(this.Enabled);
+        }
+
+        [Benchmark(Baseline = true), BenchmarkCategory("結合")]
+        public void Normal()
+        {
+            NormalLogger.Verbose("value: " + 1);
+        }
+
+        [Benchmark, BenchmarkCategory("結合")]
+        public void Fast__()
+        {
+            FastLogger.Verbose?.Invoke("value: " + 1);
+        }
+
+        [Benchmark(Baseline = true), BenchmarkCategory("文字列のみ")]
+        public void NormalSimple()
+        {
+            NormalLogger.Verbose("verbose!");
+        }
+
+        [Benchmark, BenchmarkCategory("文字列のみ")]
+        public void FastSimple__()
+        {
+            FastLogger.Verbose?.Invoke("verbose!");
+        }
+    }
+
+
+CallerMemberNameの影響を無くすため、Fast__のようにアンダーバーを追加してNormalと同じ文字数になるようにしています。20.3541 / 0.3115 ≒ 65倍速くなっています。
+え？タイトルの100倍は？
+・・・よく考えてみてください。このベンチマークは"value: " + 1という単純なログです。実際のログならもっと複雑になり、100倍どころでは済まないはずです。（希望的観測）文字列のみの場合ToStringや結合のコストは一切かからないはずですが、staticなVerboseメソッドの呼び出しにオーバーヘッドがそこそこあるのは意外でした。スタック領域の確保や各引数のコピーなども馬鹿になりません。
+?.演算子によりメソッドの呼び出し自体を回避できるため、1.8130 / 0.0388 ≒ 47倍も高速になるようです。Verboseはデリゲートのため、次のように呼び出せます。うっかり書いてしまうと、NullReferenceExceptionが発生してしまいます。FastLoggerのコードで既に使用していますが、Verboseの型をLogFunc?のように後ろに?を付けることで、null許容参照型とすることができます。
+こうすることで、Verbose(...)と書いてしまった時にコンパイラーが警告を出してくれます。
+null許容参照型はC#8以降で使用可能です。これでVerboseログを書きまくれます。ありがとうC#。
+
+

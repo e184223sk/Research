@@ -1,0 +1,113 @@
+
+using System;
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains.CsProj;
+
+
+_ = BenchmarkRunner.Run(typeof(Benchmark).Assembly);
+
+
+public class BenchmarkConfig : ManualConfig
+{
+    public BenchmarkConfig()
+    {
+        AddExporter(BenchmarkDotNet.Exporters.MarkdownExporter.GitHub);
+        AddJob(Job.ShortRun);
+    }
+}
+[Config(typeof(BenchmarkConfig))]
+public unsafe class Benchmark
+{
+
+    public static double F(double x) =&gt; 2 * x * x + 4 * x + 5;
+
+    [Benchmark(Baseline = true)]
+    public double Direct()
+    {
+        double ok = 100000000000;
+        double ng = -100000000000;
+        while (Math.Abs(ok - ng) &gt; 1e-8)
+        {
+            var m = (ok + ng) / 2;
+            if (F(m) &lt; F(m + 1e-8)) ok = m;
+            else ng = m;
+        }
+        return ok;
+    }
+
+    public static double BinarySearch(double ok, double ng, Predicate&lt;double&gt; isOk)
+    {
+        while (Math.Abs(ok - ng) &gt; 1e-8)
+        {
+            var m = (ok + ng) / 2;
+            if (isOk(m)) ok = m;
+            else ng = m;
+        }
+        return ok;
+    }
+    public static double BinarySearch(double ok, double ng, delegate*&lt;double, bool&gt; isOk)
+    {
+        while (Math.Abs(ok - ng) &gt; 1e-8)
+        {
+            var m = (ok + ng) / 2;
+            if (isOk(m)) ok = m;
+            else ng = m;
+        }
+        return ok;
+    }
+    public static double BinarySearch(double ok, double ng, IOk&lt;double&gt; op)
+    {
+        while (Math.Abs(ok - ng) &gt; 1e-8)
+        {
+            var m = (ok + ng) / 2;
+            if (op.Ok(m)) ok = m;
+            else ng = m;
+        }
+        return ok;
+    }
+    public static double BinarySearch&lt;TOk&gt;(double ok, double ng, TOk op) where TOk : IOk&lt;double&gt;
+    {
+        while (Math.Abs(ok - ng) &gt; 1e-8)
+        {
+            var m = (ok + ng) / 2;
+            if (op.Ok(m)) ok = m;
+            else ng = m;
+        }
+        return ok;
+    }
+    public interface IOk&lt;T&gt;
+    {
+        bool Ok(T value);
+    }
+    struct OkStruct : IOk&lt;double&gt;
+    {
+        public bool Ok(double v) =&gt; F(v) &lt; F(v + 1e-8);
+    }
+    class OkClass : IOk&lt;double&gt;
+    {
+        public bool Ok(double v) =&gt; F(v) &lt; F(v + 1e-8);
+    }
+
+
+    [Benchmark]
+    public double Lambda() =&gt; BinarySearch(100000000000, -100000000000, v =&gt; F(v) &lt; F(v + 1e-8));
+    [Benchmark]
+    public double FunctionPointer() =&gt; BinarySearch(100000000000, -100000000000, &amp;Fp);
+    private static bool Fp(double v) =&gt; F(v) &lt; F(v + 1e-8);
+
+    [Benchmark]
+    public double OperatorStruct() =&gt; BinarySearch(100000000000, -100000000000, new OkStruct());
+
+    [Benchmark]
+    public double OperatorClass() =&gt; BinarySearch(100000000000, -100000000000, new OkClass());
+    [Benchmark]
+    public double OperatorInterfaceStruct() =&gt; BinarySearch(100000000000, -100000000000, (IOk&lt;double&gt;)new OkStruct());
+
+    [Benchmark]
+    public double OperatorInterfaceClass() =&gt; BinarySearch(100000000000, -100000000000, (IOk&lt;double&gt;)new OkClass());
+}
+

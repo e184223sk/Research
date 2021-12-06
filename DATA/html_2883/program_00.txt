@@ -1,0 +1,149 @@
+
+using System;
+using System.IO;
+using System.Reflection;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+// ↓これを消すと、System.Runtime.InteropServicesにある同名の古い定義をうっかり引き当ててしまうおそれがあるので残す
+using System.Runtime.InteropServices.ComTypes;
+
+using ComTypes = System.Runtime.InteropServices.ComTypes;
+
+
+public static class ShowComInfo
+{
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("00020400-0000-0000-c000-000000000046")]
+    private interface IDispatch
+    {
+        [PreserveSig]
+        int GetTypeInfoCount(out int count);
+        [PreserveSig]
+        int GetTypeInfo([In] int itinfo, [In] int lcid, out IntPtr typeinfo);
+        [PreserveSig]
+        int GetIDsOfNames();//dummy. don't call this method
+        [PreserveSig]
+        int Invoke();//dummy. don't call this method
+    }
+
+    static Guid? GetGuidFromIType(ITypeInfo typ)
+    {
+        Guid? guid = null;
+        IntPtr ptr;
+        try {
+            typ.GetTypeAttr(out ptr);
+        }
+        catch ( COMException ) { return null; }
+
+        try {
+            var attr = Marshal.PtrToStructure&lt;ComTypes.TYPEATTR&gt;(ptr);
+            guid = attr.guid;
+        }
+        finally {
+            typ.ReleaseTypeAttr(ptr);
+        }
+
+        return guid;
+    }
+
+    static void ShowNamesOfTypeInfo(ITypeInfo typ)
+    {
+        string strName;
+        string strDocString;
+        int dwHelpContext;
+        string strHelpFile;
+
+        typ.GetDocumentation(-1, out strName, out strDocString, out dwHelpContext, out strHelpFile);
+        Console.Write("InterfaceName: ");
+        Console.WriteLine(strName??"&lt;&lt;NULL&gt;&gt;");
+        Console.Write("InterfaceDocString: ");
+        Console.WriteLine(strDocString??"&lt;&lt;NULL&gt;&gt;");
+        Console.Write("InterfaceHelpFile: ");
+        Console.WriteLine(strHelpFile??"&lt;&lt;NULL&gt;&gt;");
+    }
+
+    static void ShowNamesOfTypeLib(ITypeLib typ)
+    {
+        string strName;
+        string strDocString;
+        int dwHelpContext;
+        string strHelpFile;
+
+        typ.GetDocumentation(-1, out strName, out strDocString, out dwHelpContext, out strHelpFile);
+        Console.Write("TypeLibName: ");
+        Console.WriteLine(strName??"&lt;&lt;NULL&gt;&gt;");
+        Console.Write("TypeLibDocString: ");
+        Console.WriteLine(strDocString??"&lt;&lt;NULL&gt;&gt;");
+        Console.Write("TypeLibHelpFile: ");
+        Console.WriteLine(strHelpFile??"&lt;&lt;NULL&gt;&gt;");
+    }
+
+    public static void ShowInterfaceIdFromComObject(object obj)
+    {
+        Guid? guid = null;
+        ComTypes.ITypeInfo typeInfo = null;
+        IntPtr ptr = IntPtr.Zero;
+
+        try {
+            if ( obj is IDispatch ) {
+                var idisp = (IDispatch)obj;
+                int count;
+                int hResult = idisp.GetTypeInfoCount(out count);
+                if ( hResult &gt;= 0 ) { // Succeeded
+                    if ( count &lt; 1 ) { // no type info
+                        return;
+                    }
+
+                    idisp.GetTypeInfo(0, 0, out ptr);
+                    if ( ptr == IntPtr.Zero ) {
+                        return;
+                    }
+
+                    typeInfo = (ComTypes.ITypeInfo)
+                       (Marshal.GetTypedObjectForIUnknown(ptr, typeof(ComTypes.ITypeInfo)));
+
+                    if ( typeInfo == null ) {
+                        return;
+                    }
+                    ShowNamesOfTypeInfo(typeInfo);
+                    guid = GetGuidFromIType(typeInfo);
+                    Console.Write("InterfaceGUID: ");
+                    Console.WriteLine(guid);
+
+                    ITypeLib typLib;
+                    int indexOfLib;
+                    typeInfo.GetContainingTypeLib(out typLib, out indexOfLib);
+                    ShowNamesOfTypeLib(typLib);
+                }
+            }
+            else { // unknown type
+                return;
+            }
+        }
+        finally {
+            if ( ptr != IntPtr.Zero ) {
+                Marshal.Release(ptr);
+                ptr = IntPtr.Zero;
+            }
+        }
+    }
+}
+
+class Test
+{
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Type comType = Type.GetTypeFromProgID("Shell.Application");
+        dynamic o = Activator.CreateInstance(comType);
+
+        try {
+            ShowComInfo.ShowInterfaceIdFromComObject(o);
+        }
+        finally {
+            Marshal.ReleaseComObject(o);
+        }
+    }
+}
+
+

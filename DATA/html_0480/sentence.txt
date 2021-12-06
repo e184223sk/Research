@@ -1,0 +1,16 @@
+RxはObserverパターンを基にしていると説明されているものが多いですが、Publisher-Subscriber(Pub/Sub)パターンで解釈した方が整理しやすい場面もあるのかなというお話です。
+Rx全般に適用可能だとは思いますが、ここではUniRxのみを対象にして書きます。まず、Observerパターンの購読と通知部分を抜き出すと、以下のようになっています。Rxをこれで整理しよう考えたときに、ここには登場しないObservableをどう扱うべきか戸惑ってしまいました。
+そこで、Publisher-Subscriber(Pub/Sub)パターンをベースに考えた方が整理しやすいかもしれないと考えました。  Pub/Subパターンの購読と通知部分を抜き出すと、以下のようになっています。メソッド名は一例。SubscriberがBrokerに対して「あの雑誌の定期購読に申し込んでおいて。私やり方知らないし。」と頼んでいる構図を思い浮かべましょう。それではRxをPub/Subパターンに当て嵌めてみます。
+Pub/Subパターンで考えると、各クラスの役割は以下のようになります。Observableの役割が定義されたので整理しやすくなりました。UniRxでしかRxに触れていないと「Observerなんて出てこないけど？」と思うかもしれません。
+実は、頻繁に使っています。
+以下のコードのSubscribe()の引数からObserver&lt;T&gt;が生成されるのです。上記のコードは下記と同じになります。詳細は以下の記事を参考にして下さい。
+【連載：Reactive Extensions（Rx）入門】第2回 イベント・プログラミングとRxSubjcetはnew Subject&lt;T&gt;()で自分でインスタンスを生成するし、Observerも上記の通りインスタンスを生成していることがわかりました。
+では、以下の形でよく登場するObservableの実体は何者なのでしょうか。これは、「RxのSubjectはObserverとObservableを内包している」という定義がヒントになります。Subjectの購読、通知部分のみを簡易実装してみます。
+ObserverとObservableがあると見間違えやすいのでBrokerにしておきます。Subjectは内部にBroker（つまりObservable）を抱えているのですね。
+そして、内部にObserverも抱えています。
+IObservable&lt;T&gt; someObservable =&gt; this.someSubjectの形で登場するObservableは、Subjcetの内部Observableのラッパーということになります。実際には内部クラスである必要もないので、SubjcetがIObservableとIObserverを実装することになりますが、整理するときは内部クラスに分けて考えた方がわかりやすいと思います。Pub/Subパターンで考えるとObserver = Subscriberなので、やっぱり購読するのはObserverなのだと思います。
+Observableは中継役なので、こんな整理が良さそうです。命令している。自作のSubjectからメッセージを通知させるときにはSubject.OnNext()を呼び出します。
+これが、「Observer.OnNext()は『次の通知が来たから処理して』という命令であるのに対し、Subject.OnNext()はどういう意図の命名なのだろうか」と疑問でした。
+これには以下のように処理を行っていると考えれば辻褄を合わせられそうです。Subject.OnNext()と考えるのではなく、「Subjectの内部ObserverがSubject利用クラスを観測しているので、然るべき時が来たら利用クラスからObserver.OnNext()を呼び出して発行通知を行う」と捉えます。つまりこういうこと。命令している。ここまでの話を踏まえ、購読から通知までの処理の流れを整理します。各クラスの役割や、メソッドの主語が明確になって理解しやすくなりました。これはあくまで一つの解釈の仕方ですが、Rxの理解で混乱している方のヒントになれば幸いです。
+
+

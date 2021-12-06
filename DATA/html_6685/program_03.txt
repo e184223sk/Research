@@ -1,0 +1,63 @@
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Program prg = new Program();
+            prg.Execute(args);
+
+            Console.ReadLine();
+        }
+
+        private const string MQ_NAME = @".\private$\MyQueue";
+
+        private string baseDir;
+
+        private void Execute(string[] args)
+        {
+            baseDir = Environment.CurrentDirectory;
+            Receive();
+        }
+
+        private static void Receive()
+        {
+            MessageQueue queue = new MessageQueue(MQ_NAME);
+            Message msg = queue.Receive();
+            msg.Formatter = new BinaryMessageFormatter();
+
+            byte[] asyncData = (byte[])msg.Body;
+
+            IMethodCallMessage callMsg = null;
+
+            using (MemoryStream stream = new MemoryStream(asyncData))
+            {
+                BinaryFormatter bf = new BinaryFormatter();
+                callMsg = (IMethodCallMessage)bf.Deserialize(stream);
+            }
+
+            Type typ = Type.GetType(callMsg.TypeName);
+            object target = Activator.CreateInstance(typ);
+
+            callMsg.MethodBase.Invoke(target, callMsg.Args);
+        }
+
+        private Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs eArgs)
+        {
+            string asmPath = Path.Combine(baseDir, eArgs.Name.Split(',')[0] + ".dll");
+            if (File.Exists(asmPath))
+            {
+                Assembly asm = Assembly.LoadFrom(asmPath);
+                return asm;
+            }
+
+            asmPath = Path.Combine(baseDir, eArgs.Name.Split(',')[0] + ".exe");
+            if (File.Exists(asmPath))
+            {
+                Assembly asm = Assembly.LoadFrom(asmPath);
+                return asm;
+            }
+
+            return null;
+        }
+    }
+

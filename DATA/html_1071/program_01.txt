@@ -1,0 +1,33 @@
+
+public class ExpComparer&lt;T, K&gt; : IComparer&lt;T&gt; where K : IComparable&lt;K&gt;
+{
+    private class ParameterReplaceVisitor : ExpressionVisitor
+    {
+        private readonly ParameterExpression from;
+        private readonly ParameterExpression to;
+        public ParameterReplaceVisitor(ParameterExpression from, ParameterExpression to)
+        {
+            this.from = from;
+            this.to = to;
+        }
+        protected override Expression VisitParameter(ParameterExpression node) =&gt; node == from ? to : base.VisitParameter(node);
+    }
+
+    private readonly Comparison&lt;T&gt; func;
+    public ExpComparer(Expression&lt;Func&lt;T, K&gt;&gt; expression)
+    {
+        var paramA = expression.Parameters[0];
+        var paramB = Expression.Parameter(typeof(T));
+        var exp2 = (Expression&lt;Func&lt;T, K&gt;&gt;)new ParameterReplaceVisitor(paramA, paramB).Visit(expression);
+        var compExp = Expression.Lambda&lt;Comparison&lt;T&gt;&gt;(Expression.Call(
+                expression.Body,
+                typeof(K).GetMethod(nameof(IComparable&lt;K&gt;.CompareTo), new[] { typeof(K) }),
+                exp2.Body),
+                paramA, paramB);
+        this.func = compExp.Compile();
+    }
+    public int Compare(T x, T y) =&gt; func(x, y);
+    public override bool Equals(object obj) =&gt; obj != null &amp;&amp; GetType() == obj.GetType();
+    public override int GetHashCode() =&gt; GetType().GetHashCode();
+}
+

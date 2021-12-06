@@ -1,0 +1,130 @@
+
+
+        /// &lt;summary&gt;
+        /// 置き換え処理を実施
+        /// &lt;/summary&gt;
+        /// &lt;param name="pptFilePath"&gt;テンプレートPPTファイルパス&lt;/param&gt;
+        /// &lt;param name="pptGenerateFilePath"&gt;生成PPT保存ファイルパス&lt;/param&gt;
+        private void doReplace(string pptFilePath,string pptGenerateFilePath)
+        {
+            List&lt;string&gt; notes = new List&lt;string&gt;();
+            Microsoft.Office.Interop.PowerPoint.Application app = null;
+            Microsoft.Office.Interop.PowerPoint.Presentation ppt = null;
+
+            try
+            {
+                // PPTのインスタンス作成
+                app = new Microsoft.Office.Interop.PowerPoint.Application();
+
+                // PPTファイルオープン
+                ppt = app.Presentations.Open(
+                    pptFilePath,
+                    Microsoft.Office.Core.MsoTriState.msoTrue,
+                    Microsoft.Office.Core.MsoTriState.msoTrue,
+                    Microsoft.Office.Core.MsoTriState.msoFalse
+               );
+
+                // スライドのインデックスは１から　順にループする
+                for (int i = 1; i &lt;= ppt.Slides.Count; i++)
+                {
+                    foreach (Microsoft.Office.Interop.PowerPoint.Shape shape in ppt.Slides[i].Shapes)
+                    {
+                        getShapeText(shape);
+                    }
+                }
+
+                //生成PPTファイルの保存を実行
+                ppt.SaveAs(pptGenerateFilePath,
+                    PpSaveAsFileType.ppSaveAsDefault,
+                    Microsoft.Office.Core.MsoTriState.msoFalse);
+            }
+            finally
+            {
+                // PPTファイルを閉じる
+                if (ppt != null)
+                {
+                    ppt.Close();
+                    ppt = null;
+                }
+
+                // PPTインスタンスを閉じる
+                if (app != null)
+                {
+                    app.Quit();
+                    app = null;
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// PPTオブジェクト内文字列を置き換え（再帰呼び出しでも使用）
+        /// &lt;/summary&gt;
+        /// &lt;param name="shape"&gt;PPTのShape&lt;/param&gt;
+        private void getShapeText(Microsoft.Office.Interop.PowerPoint.Shape shape)
+        {
+            if (shape.HasTextFrame == Microsoft.Office.Core.MsoTriState.msoTrue
+                &amp;&amp; shape.TextFrame.HasText == Microsoft.Office.Core.MsoTriState.msoTrue)
+            {
+                if (shape.TextFrame.TextRange.Text != "")
+                {
+                    //PPT内の文字列置き換えを実施
+                    shape.TextFrame.TextRange.Text = replaceStr(shape.TextFrame.TextRange.Text);
+                }
+            }
+
+            // 構造が入れ子になっている場合を考慮し、再帰検索を実施
+            if (shape.Type == Microsoft.Office.Core.MsoShapeType.msoGroup)
+            {
+                foreach (Microsoft.Office.Interop.PowerPoint.Shape childShape in shape.GroupItems)
+                {
+                    //項目設定文字列を置き換え（再帰呼び出し）
+                    getShapeText(childShape);
+                }
+            }
+
+            //テーブル情報取得
+            if (shape.Type == Microsoft.Office.Core.MsoShapeType.msoTable)
+            {
+                foreach (Row row in shape.Table.Rows)
+                {
+                    foreach (Cell cell in row.Cells)
+                    {
+                        getShapeTextForTable(cell.Shape);
+                    }
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// テーブル用文字列置き換え
+        /// &lt;/summary&gt;
+        /// &lt;param name="shape"&gt;PPTのShape&lt;/param&gt;
+        private void getShapeTextForTable(Microsoft.Office.Interop.PowerPoint.Shape shape)
+        {
+            if (shape.HasTextFrame == Microsoft.Office.Core.MsoTriState.msoTrue
+                &amp;&amp; shape.TextFrame.HasText == Microsoft.Office.Core.MsoTriState.msoTrue)
+            {
+                if (shape.TextFrame.TextRange.Text != "")
+                {
+                    shape.TextFrame.TextRange.Text = replaceStr(shape.TextFrame.TextRange.Text);
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 文字列置き換え
+        /// &lt;/summary&gt;
+        /// &lt;param name="targetStr"&gt;置き換え対象文字列&lt;/param&gt;
+        /// &lt;returns&gt;置き換え後文字列&lt;/returns&gt;
+        private String replaceStr(String targetStr)
+        {
+            foreach (string replaceKeyValKey in replaceKeyValDic.Keys)
+            {
+                //PPTテンプレートに「[置き換え対象文字列]」の書式で設定したものを変換
+                targetStr = targetStr.Replace("[" + replaceKeyValKey + "]", replaceKeyValDic[replaceKeyValKey]);
+            }
+
+            return targetStr;
+        }
+
+

@@ -1,0 +1,26 @@
+
+public interface IErrorMessageProvider {
+}
+
+public class ErrorMessageProvider&lt;TErrorCode&gt; : IErrorMessageProvider {
+  private readonly Dictionary&lt;TErrorCode, ErrorMessageAttribute&gt; cache;
+
+  public ErrorMessageProvider() {
+    var type = typeof(TErrorCode);
+    var lookup = type.GetFields()
+      .Where(x =&gt; x.FieldType == type)
+      .SelectMany(x =&gt; x.GetCustomAttributes(false), (x, attribute) =&gt; new {code = x.GetValue(null), attribute})
+      .ToLookup(x =&gt; x.attribute.GetType());
+
+    cache = lookup[typeof(ErrorMessageAttribute)].ToDictionary(x =&gt; (TErrorCode) x.code, x =&gt; (ErrorMessageAttribute) x.attribute);
+  }
+
+  public string ErrorMessage(TErrorCode key) {
+    if (cache.TryGetValue(key, out var errorMessageAttribute)) {
+      return errorMessageAttribute.Message;
+    } else {
+      return "";
+    }
+  }
+}
+

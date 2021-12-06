@@ -1,0 +1,276 @@
+
+using System;
+
+using Android.App;
+using Android.Content;
+using Android.Graphics;
+using Android.Graphics.Drawables;
+using Android.OS;
+using Android.Service.Wallpaper;
+using Android.Support.V4.Content;
+using Android.Support.Wearable.Watchface;
+using Android.Text.Format;
+using Android.Views;
+
+namespace WatchFaceTest {
+
+    [Service( Label = "@string/watch_name", Permission = "android.permission.BIND_WALLPAPER" )]
+    [MetaData( "android.service.wallpaper", Resource = "@xml/watch_face" )]
+    [MetaData( "com.google.android.wearable.watchface.preview", Resource = "@drawable/preview" )]
+    [MetaData( "com.google.android.wearable.watchface.preview_circular", Resource = "@drawable/preview_circular" )]
+    [IntentFilter( new[] { "android.service.wallpaper.WallpaperService" }, Categories = new[] { "com.google.android.wearable.watchface.category.WATCH_FACE" } )]
+    public class AnalogWatchFaceService : CanvasWatchFaceService {
+
+        private static readonly long InteractiveUpdateRateMilliseconds = Java.Util.Concurrent.TimeUnit.Seconds.ToMillis( 1 );
+
+        private const int MessageUpdateTime = 0;
+
+        public override WallpaperService.Engine OnCreateEngine() {
+            return new AnalogWatchFaceEngine( this );
+        }
+
+        private class AnalogWatchFaceEngine : CanvasWatchFaceService.Engine {
+
+            private CanvasWatchFaceService owner;
+
+            private readonly Handler updateTimeHandler;
+
+            private Java.Util.Calendar nowTime;
+
+            private Paint backgroundPaint;
+
+            private Paint hourHandPaint;
+            private Paint minuteHandPaint;
+            private Paint secondHandPaint;
+
+            private bool isAmbient;
+
+            private bool isRequiredLowBitAmbient;
+
+            private bool isReqiredBurnInProtection;
+
+            private bool isMute;
+
+            private TimeZoneReceiver timeZoneReceiver;
+
+            private bool timeZoneReceiverRegistered = false;
+
+            public AnalogWatchFaceEngine( CanvasWatchFaceService owner ) : base( owner ) {
+                this.owner = owner;
+                updateTimeHandler = new Handler(
+                    message =&gt; {
+                        switch( message.What ) {
+                            case MessageUpdateTime:
+                                Invalidate();
+                                if( ShouldTimerBeRunning ) {
+                                    long timeMillseconds = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                                    long delayMilliseconds = InteractiveUpdateRateMilliseconds - ( timeMillseconds % InteractiveUpdateRateMilliseconds );
+                                    updateTimeHandler.SendEmptyMessageDelayed( MessageUpdateTime, delayMilliseconds );
+                                }
+                                break;
+                        }
+                    }
+                );
+
+                timeZoneReceiver = new TimeZoneReceiver(
+                    intent =&gt; {
+                        nowTime.TimeZone = Java.Util.TimeZone.Default;
+                    }
+                );
+            }
+
+            public override void OnCreate( ISurfaceHolder holder ) {
+
+                SetWatchFaceStyle(
+                    new WatchFaceStyle.Builder( owner )
+                        .SetCardPeekMode( WatchFaceStyle.PeekModeShort )
+                        .SetBackgroundVisibility( WatchFaceStyle.BackgroundVisibilityInterruptive )
+                        .SetShowSystemUiTime( false )
+                        .Build()
+                );
+
+                base.OnCreate( holder );
+
+                var resources = owner.Resources;
+
+                backgroundPaint = new Paint();
+                backgroundPaint.Color = resources.GetColor( Resource.Color.background );
+
+                hourHandPaint = new Paint();
+                hourHandPaint.Color = resources.GetColor( Resource.Color.analog_hands );
+                hourHandPaint.StrokeWidth = resources.GetDimension( Resource.Dimension.hour_hand_stroke );
+                hourHandPaint.AntiAlias = true;
+                hourHandPaint.StrokeCap = Paint.Cap.Round;
+
+                minuteHandPaint = new Paint();
+                minuteHandPaint.Color = hourHandPaint.Color;
+                minuteHandPaint.StrokeWidth = resources.GetDimension( Resource.Dimension.minute_hand_stroke );
+                minuteHandPaint.AntiAlias = true;
+                minuteHandPaint.StrokeCap = Paint.Cap.Round;
+
+                secondHandPaint = new Paint();
+                secondHandPaint.Color = resources.GetColor( Resource.Color.analog_second_hand );
+                secondHandPaint.StrokeWidth = resources.GetDimension( Resource.Dimension.second_hand_stroke );
+                secondHandPaint.AntiAlias = true;
+                secondHandPaint.StrokeCap = Paint.Cap.Round;
+
+                nowTime = Java.Util.Calendar.GetInstance( Java.Util.TimeZone.Default );
+            }
+
+            public override void OnDestroy() {
+                updateTimeHandler.RemoveMessages( MessageUpdateTime );
+
+                base.OnDestroy();
+            }
+
+            public override void OnApplyWindowInsets( WindowInsets insets ) {
+                base.OnApplyWindowInsets( insets );
+
+                //bool isRound = insets.IsRound;
+            }
+
+            public override void OnPropertiesChanged( Bundle properties ) {
+                base.OnPropertiesChanged( properties );
+
+                isRequiredLowBitAmbient = properties.GetBoolean( PropertyLowBitAmbient, false );
+                isReqiredBurnInProtection = properties.GetBoolean( PropertyBurnInProtection, false );
+            }
+
+            public override void OnTimeTick() {
+                base.OnTimeTick();
+
+                Invalidate();
+            }
+
+            public override void OnAmbientModeChanged( bool inAmbientMode ) {
+                base.OnAmbientModeChanged( inAmbientMode );
+
+                if( isAmbient != inAmbientMode ) {
+                    isAmbient = inAmbientMode;
+                    if( isRequiredLowBitAmbient ) {
+                        bool antiAlias = !inAmbientMode;
+
+                        hourHandPaint.AntiAlias = antiAlias;
+                        minuteHandPaint.AntiAlias = antiAlias;
+                        secondHandPaint.AntiAlias = antiAlias;
+                        Invalidate();
+                    }
+                    UpdateTimer();
+                }
+            }
+
+            public override void OnInterruptionFilterChanged( int interruptionFilter ) {
+                base.OnInterruptionFilterChanged( interruptionFilter );
+
+                bool inMuteMode = ( interruptionFilter == InterruptionFilterNone );
+
+                if( isMute != inMuteMode ) {
+                    isMute = inMuteMode;
+
+                    Invalidate();
+                }
+            }
+
+            public override void OnTapCommand( int tapType, int xValue, int yValue, long eventTime ) {
+                switch( tapType ) {
+                    case TapTypeTouch:
+                        break;
+                    case TapTypeTouchCancel:
+                        break;
+                    case TapTypeTap:
+                        break;
+                }
+            }
+
+            public override void OnDraw( Canvas canvas, Rect bounds ) {
+
+                nowTime = Java.Util.Calendar.GetInstance( nowTime.TimeZone );
+
+                if( isAmbient ) {
+                    canvas.DrawColor( Color.Black );
+                }
+                else {
+                    canvas.DrawRect( 0, 0, canvas.Width, canvas.Height, backgroundPaint );
+                }
+
+                float centerX = bounds.Width() / 2.0f;
+                float centerY = bounds.Height() / 2.0f;
+
+                float hourHandLength = centerX - 80;
+                float minuteHandLength = centerX - 40;
+                float secondHandLength = centerX - 20;
+
+                float hourHandRotation = ( ( nowTime.Get( Java.Util.CalendarField.Hour ) + ( nowTime.Get( Java.Util.CalendarField.Minute ) / 60f ) ) / 6f ) * ( float )Math.PI;
+                float hourHandX = ( float )Math.Sin( hourHandRotation ) * hourHandLength;
+                float hourHandY = ( float )-Math.Cos( hourHandRotation ) * hourHandLength;
+                canvas.DrawLine( centerX, centerY, centerX + hourHandX, centerY + hourHandY, hourHandPaint );
+
+                float minuteHandRotation = nowTime.Get( Java.Util.CalendarField.Minute ) / 30f * ( float )Math.PI;
+                float minuteHandX = ( float )Math.Sin( minuteHandRotation ) * minuteHandLength;
+                float minuteHandY = ( float )-Math.Cos( minuteHandRotation ) * minuteHandLength;
+                canvas.DrawLine( centerX, centerY, centerX + minuteHandX, centerY + minuteHandY, minuteHandPaint );
+
+                if( !isAmbient ) {
+                    float secondHandRotation = nowTime.Get( Java.Util.CalendarField.Second ) / 30f * ( float )Math.PI;
+                    float secondHandX = ( float )Math.Sin( secondHandRotation ) * secondHandLength;
+                    float secondHandY = ( float )-Math.Cos( secondHandRotation ) * secondHandLength;
+                    canvas.DrawLine( centerX, centerY, centerX + secondHandX, centerY + secondHandY, secondHandPaint );
+                }
+            }
+
+            public override void OnVisibilityChanged( bool visible ) {
+                base.OnVisibilityChanged( visible );
+
+                if( visible ) {
+                    if( timeZoneReceiver == null ) {
+                        timeZoneReceiver = new TimeZoneReceiver(
+                            intent =&gt; {
+                                nowTime.TimeZone = Java.Util.TimeZone.Default;
+                            }
+                        );
+                    }
+                    if( !timeZoneReceiverRegistered ) {
+                        var intentFilter = new IntentFilter( Intent.ActionTimezoneChanged );
+                        Application.Context.RegisterReceiver( timeZoneReceiver, intentFilter );
+                        timeZoneReceiverRegistered = true;
+                    }
+
+                    nowTime = Java.Util.Calendar.GetInstance( Java.Util.TimeZone.Default );
+                }
+                else {
+                    if( timeZoneReceiverRegistered ) {
+                        Application.Context.UnregisterReceiver( timeZoneReceiver );
+                        timeZoneReceiverRegistered = false;
+                    }
+
+                }
+
+                UpdateTimer();
+            }
+
+            private void UpdateTimer() {
+                updateTimeHandler.RemoveMessages( MessageUpdateTime );
+                if( ShouldTimerBeRunning ) {
+                    updateTimeHandler.SendEmptyMessage( MessageUpdateTime );
+                }
+            }
+
+            private bool ShouldTimerBeRunning =&gt;
+                IsVisible &amp;&amp; !IsInAmbientMode;
+        }
+    }
+
+    public class TimeZoneReceiver : BroadcastReceiver {
+
+        private Action&lt;Intent&gt; receiver;
+
+        public TimeZoneReceiver( Action&lt;Intent&gt; _receiver ) {
+            receiver = _receiver;
+        }
+
+        public override void OnReceive( Context context, Intent intent ) {
+            receiver?.Invoke( intent );
+        }
+    }
+}
+

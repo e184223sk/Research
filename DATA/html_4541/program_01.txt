@@ -1,0 +1,95 @@
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+class SqlHighlighter : SyntaxHighlighter
+{
+    /// &lt;summary&gt;予約語の色&lt;/summary&gt;
+    public Color WordColor { get; set; } = Color.Blue;
+
+    /// &lt;summary&gt;記号の色&lt;/summary&gt;
+    public Color SignColor { get; set; } = Color.Gray;
+
+    /// &lt;summary&gt;文字列の色&lt;/summary&gt;
+    public Color StringColor { get; set; } = Color.DarkRed;
+
+    /// &lt;summary&gt;コメントの色&lt;/summary&gt;
+    public Color CommentColor { get; set; } = Color.Green;
+
+    /// &lt;summary&gt;予約語&lt;/summary&gt;
+    public string[] Words { get; set; }
+
+    /// &lt;summary&gt;
+    /// 予約語を列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private IEnumerable&lt;string&gt; EnumerateWords() =&gt; this.Words ?? this.EnumerateDefaultWords();
+
+    private IEnumerable&lt;string&gt; EnumerateDefaultWords()
+    {
+        yield return "SELECT";
+        yield return "FROM";
+        yield return "WHERE";
+        yield return "AND";
+        yield return "OR";
+        yield return "DISTINCT";
+        yield return "IS NULL";
+        yield return "IS NOT NULL";
+        yield return "BETWEEN";
+        yield return "IN";
+        yield return "LIKE";
+        yield return "AS";
+        yield return "ORDER BY";
+        yield return "ASC";
+        yield return "DESC";
+
+        yield return "JOIN";
+        yield return "INNER";
+        yield return "LEFT";
+        yield return "RIGHT";
+        yield return "FULL";
+        yield return "CROSS";
+    }
+
+    //
+    protected override IEnumerable&lt;Syntax&gt; EnumerateSyntaxes()
+    {
+        // 予約語
+        var words = this.EnumerateWords();
+        foreach (var pattern in words.Select(item =&gt; this.ToPattern(item, true)))
+        {
+            yield return new Syntax(pattern, this.WordColor);
+        }
+
+        // 記号
+        var signs = new[] { ",", ";", ":", "=", "+", "-", "*", "/", "%", "&amp;", "|", "^", "~", "(", ")", "!" };
+        foreach (var pattern in signs.Select(item =&gt; this.ToPattern(item, false)))
+        {
+            yield return new Syntax(pattern, this.SignColor);
+        }
+
+        // 文字列
+        yield return new Syntax(@"'(\.|[^'])*'", this.StringColor);
+
+        // コメント
+        yield return new Syntax(@"--.*[$\r\n]*", this.CommentColor);
+        yield return new Syntax(@"/\*[\s\S]*?\*/|//.*", this.CommentColor);
+    }
+
+    /// &lt;summary&gt;
+    /// 単語を正規表現パターンに変換します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="word"&gt;&lt;/param&gt;
+    /// &lt;param name="whole"&gt;完全一致フラグ&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private string ToPattern(string word, bool whole)
+    {
+        var pattern = Regex.Escape(word).Replace(" ", @"\s+");
+        if (whole) pattern = @"\b" + pattern + @"\b";
+        return pattern;
+    }
+}
+

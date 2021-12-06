@@ -1,0 +1,216 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Windows.Forms;
+
+using System.Speech.Recognition;
+
+
+namespace MMFrame.Media
+{
+    public static class SpeechRecognition
+    {
+        public static SpeechRecognitionEngine Engine;
+
+        public static bool IsAvailable
+        {
+            get { return (Engine != null &amp;&amp; !IsDestroyed); }
+        }
+
+        public static bool IsRecognizing
+        {
+            get { return (IsAvailable &amp;&amp; Engine.AudioState != AudioState.Stopped); }
+        }
+
+        public static System.Collections.ObjectModel.ReadOnlyCollection&lt;RecognizerInfo&gt; InstalledRecognizers
+        {
+            get { return SpeechRecognitionEngine.InstalledRecognizers(); }
+        }
+
+        //public static System.Action&lt;SpeechHypothesizedEventArgs&gt; SpeechHypothesizedEvent;
+        public static System.Action&lt;SpeechRecognizedEventArgs&gt; SpeechRecognizedEvent;
+        //public static System.Action&lt;SpeechRecognitionRejectedEventArgs&gt; SpeechRecognitionRejectedEvent;
+        public static System.Action&lt;RecognizeCompletedEventArgs&gt; SpeechRecognizeCompletedEvent;
+
+        private static bool IsDestroyed;
+
+        static SpeechRecognition()
+        {
+            IsDestroyed = true;
+        }
+
+        public static void DestroyEngine()
+        {
+            if (!IsAvailable) { return; }
+
+            //Engine.SpeechHypothesized -= SpeechHypothesized;
+            Engine.SpeechRecognized -= SpeechRecognized;
+            //Engine.SpeechRecognitionRejected -= SpeechRecognitionRejected;
+            Engine.RecognizeCompleted -= SpeechRecognizeCompleted;
+            Engine.UnloadAllGrammars();
+            Engine.Dispose();
+
+            IsDestroyed = true;
+        }
+
+        public static void AddGrammar(string grammarName, params string[] words)
+        {
+            Choices choices = new Choices();
+            choices.Add(words);
+
+            GrammarBuilder grammarBuilder = new GrammarBuilder();
+            grammarBuilder.Append(choices);
+
+            Grammar grammar = new Grammar(grammarBuilder) {
+                Name = grammarName
+            };
+
+            if (!IsAvailable) { return; }
+
+            Engine.LoadGrammar(grammar);
+        }
+
+        public static void ClearGrammar()
+        {
+            if (!IsAvailable) { return; }
+
+            Engine.UnloadAllGrammars();
+        }
+
+        public static void RecognizeAsync(bool multiple)
+        {
+            if (IsRecognizing || Engine.Grammars.Count &lt;= 0) {
+                return;
+            }
+
+            RecognizeMode mode = (multiple) ? RecognizeMode.Multiple : RecognizeMode.Single;
+            Engine.RecognizeAsync(mode);
+        }
+
+        public static void RecognizeAsyncCancel()
+        {
+            if (!IsRecognizing) { return; }
+
+            Engine.RecognizeAsyncCancel();
+        }
+
+        public static void RecognizeAsyncStop()
+        {
+            if (!IsRecognizing) { return; }
+
+            Engine.RecognizeAsyncStop();
+        }
+
+        public static void CreateEngine()
+        {
+            if (IsAvailable) { return; }
+
+            Engine = new SpeechRecognitionEngine();
+
+            IsDestroyed = false;
+
+            Engine.SetInputToDefaultAudioDevice();
+
+            //Engine.SpeechHypothesized += SpeechHypothesized;
+            Engine.SpeechRecognized += SpeechRecognized;
+            //Engine.SpeechRecognitionRejected += SpeechRecognitionRejected;
+            Engine.RecognizeCompleted += SpeechRecognizeCompleted;
+        }
+
+        private static void SpeechRecognized(object sender, SpeechRecognizedEventArgs e)
+        {
+            if (e.Result != null &amp;&amp; SpeechRecognizedEvent != null) {
+                SpeechRecognizedEvent(e);
+            }
+        }
+
+        private static void SpeechRecognizeCompleted(object sender, RecognizeCompletedEventArgs e)
+        {
+            if (e.Result != null &amp;&amp; SpeechRecognizeCompletedEvent != null) {
+                SpeechRecognizeCompletedEvent(e);
+            }
+        }
+    }
+}
+
+namespace TestClass
+{
+    public class Form1 : System.Windows.Forms.Form
+    {
+        Dictionary&lt;string,Action&gt; myActions;
+
+        public Form1()
+        {
+            myActions = new Dictionary&lt;string,Action&gt;();
+            myActions.Add("めもちょう", ()=&gt;{
+                var pInfo = new System.Diagnostics.ProcessStartInfo();
+                pInfo.FileName = "notepad";
+                System.Diagnostics.Process.Start(pInfo);
+            });
+            myActions.Add("ぺいんと", ()=&gt;{
+                var pInfo = new System.Diagnostics.ProcessStartInfo();
+                pInfo.FileName = "mspaint";
+                System.Diagnostics.Process.Start(pInfo);
+            });
+            myActions.Add("きゃぷちゃ", ()=&gt;{
+                var pInfo = new System.Diagnostics.ProcessStartInfo();
+                pInfo.FileName = "snippingtool";
+                System.Diagnostics.Process.Start(pInfo);
+            });
+            myActions.Add("だみー", ()=&gt;{
+            });
+
+            MMFrame.Media.SpeechRecognition.CreateEngine();
+
+            foreach (RecognizerInfo ri in MMFrame.Media.SpeechRecognition.InstalledRecognizers) {
+                Console.WriteLine(ri.Name + "(" + ri.Culture + ")");
+            }
+
+            MMFrame.Media.SpeechRecognition.SpeechRecognizedEvent = (e) =&gt;
+            {
+                Console.WriteLine("確定：" + e.Result.Grammar.Name + " " + e.Result.Text + "(" + e.Result.Confidence + ")");
+
+                if (myActions.ContainsKey(e.Result.Text)) {
+                    Action act = myActions[e.Result.Text];
+                    act();
+                }
+            };
+
+            MMFrame.Media.SpeechRecognition.SpeechRecognizeCompletedEvent = (e) =&gt;
+            {
+                if (e.Cancelled) {
+                    Console.WriteLine("キャンセルされました。");
+                }
+
+                Console.WriteLine("認識終了");
+            };
+
+            Load += (s,e)=&gt;{
+                AddGrammar();
+                MMFrame.Media.SpeechRecognition.RecognizeAsync(true); // falseにすると、一回認識すると終了する
+            };
+
+            Closed += (s,e)=&gt;{
+                //MMFrame.Media.SpeechRecognition.ClearGrammar();
+                MMFrame.Media.SpeechRecognition.RecognizeAsyncCancel();
+                MMFrame.Media.SpeechRecognition.RecognizeAsyncStop();
+                MMFrame.Media.SpeechRecognition.DestroyEngine();
+            };
+        }
+
+        private void AddGrammar()
+        {
+            var tmp = myActions.Keys;
+            string[] words = new string[tmp.Count]; //new string[] { "めもちょう","ぺいんと" };
+            tmp.CopyTo(words,0);
+            MMFrame.Media.SpeechRecognition.AddGrammar("words", words);
+        }
+
+        static void Main(string[] args)
+        {
+            Application.Run(new Form1());
+        }
+    }
+}
+

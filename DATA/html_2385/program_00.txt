@@ -1,0 +1,74 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Windows.Forms;
+
+class ShortcutTest : Form
+{
+    public static string GetTargetPath(string fullPath)
+    {
+        dynamic shell = null;   // IWshRuntimeLibrary.WshShell
+        dynamic lnk = null;     // IWshRuntimeLibrary.IWshShortcut
+        try {
+            var type = Type.GetTypeFromProgID("WScript.Shell");
+            shell = Activator.CreateInstance(type);
+            lnk = shell.CreateShortcut(fullPath);
+
+            if (string.IsNullOrEmpty(lnk.TargetPath)) {
+                return "lnk file does not exists.";
+            }
+
+            //lnk.Arguments,
+            //lnk.Description,
+            //lnk.FullName,
+            //lnk.Hotkey,
+            //lnk.IconLocation,
+            //lnk.TargetPath,
+            //lnk.WindowStyle,
+            //lnk.WorkingDirectory
+
+            return lnk.TargetPath;
+        }
+        finally {
+            if (lnk != null) Marshal.ReleaseComObject(lnk);
+            if (shell != null) Marshal.ReleaseComObject(shell);
+        }
+    }
+
+    ShortcutTest()
+    {
+        this.AllowDrop = true;
+
+        this.DragEnter += (sender,e) =&gt; {
+            // e は DragEventArgs
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                e.Effect = DragDropEffects.Copy;
+            }
+            else {
+                e.Effect = DragDropEffects.None;
+            }
+        };
+        this.DragDrop += (sender,e) =&gt; {
+            var fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+            if (fileNames != null) {
+                foreach(string s in fileNames){
+                    if ( s.EndsWith(".lnk", true, null) ) {// Note: 第2引数はignoreCase
+                        Console.WriteLine(s);
+                        Console.WriteLine(" -&gt; " + GetTargetPath(s));
+                    }
+                    else {
+                        Console.WriteLine(s);
+                    }
+                }
+            }
+        };
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new ShortcutTest());
+    }
+}
+

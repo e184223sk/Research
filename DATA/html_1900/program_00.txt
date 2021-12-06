@@ -1,0 +1,45 @@
+private Texture2D GetUVMap(Mesh mesh, int subMeshIndex, Texture2D texture)
+{
+    var triangles = mesh.GetTriangles(subMeshIndex);
+    var uvs = mesh.uv;
+
+    if (uvs.Count() &lt;= 0) return null;
+
+    ComputeShader cs = Instantiate(Resources.Load&lt;ComputeShader&gt;("getUVMap")) as ComputeShader;
+    int kernel = cs.FindKernel("CSMain");
+
+    RenderTexture uvMapRT = new RenderTexture(texture.width, texture.height, 0);
+    uvMapRT.enableRandomWrite = true;
+    uvMapRT.Create();
+
+    var triangleBuffer = new ComputeBuffer(triangles.Count(), sizeof(int));
+    var uvBuffer = new ComputeBuffer(uvs.Count(), Marshal.SizeOf(typeof(Vector2)));
+    triangleBuffer.SetData(triangles);
+    uvBuffer.SetData(uvs);
+
+    cs.SetTexture(kernel, "UVMap", uvMapRT);
+    cs.SetInt("Width", texture.width);
+    cs.SetInt("Height", texture.height);
+    cs.SetBuffer(kernel, "Triangles", triangleBuffer);
+    cs.SetBuffer(kernel, "UVs", uvBuffer);
+
+    cs.Dispatch(kernel, triangles.Length / 3, 1, 1);
+
+    triangleBuffer.Release();
+    uvBuffer.Release();
+
+    var uvMapTex = new Texture2D(texture.width, texture.height, TextureFormat.RGB24, false);
+    uvMapTex.name = texture.name;
+
+    // RenderTextureからTexture2Dに変換
+    var original = RenderTexture.active;
+    RenderTexture.active = uvMapRT;
+    uvMapTex.ReadPixels(new Rect(0, 0, uvMapRT.width, uvMapRT.height), 0, 0);
+    uvMapTex.Apply();
+    RenderTexture.active = original;
+
+    uvMapRT.Release();
+
+    return uvMapTex;
+}
+

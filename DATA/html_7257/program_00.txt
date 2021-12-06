@@ -1,0 +1,52 @@
+using ClosedXML.Excel;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+
+class EncodingInfo
+{
+    public int CodePage { get; set; }
+    public string Name { get; set; }
+    public string DisplayName { get; set; }
+}
+
+class Sample
+{
+    public static void SetProperty&lt;T&gt;(T obj, string name, object value)
+    {
+        PropertyInfo property = typeof(T).GetProperty(name,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+
+        property?.SetValue(obj, Convert.ChangeType(value, property.PropertyType));
+    }
+
+    public static IEnumerable&lt;T&gt; ConvertExcelTable&lt;T&gt;(IXLTable table) where T : new()
+    {
+        var names = table.Fields.Select(field =&gt; field.Name).ToArray();
+
+        foreach (var row in table.DataRange.Rows())
+        {
+            var obj = new T();
+            foreach (var name in names)
+            {
+                SetProperty(obj, name, row.Field(name).Value);
+            }
+            yield return obj;
+        }
+    }
+
+    public static void Main(string[] args)
+    {
+        var path = @"C:\encodings.xlsx";
+        var workbook = new XLWorkbook(path);
+        var worksheet = workbook.Worksheet(1);
+
+        foreach(var encoding
+            in ConvertExcelTable&lt;EncodingInfo&gt;(worksheet.RangeUsed().AsTable()))
+        {
+            Console.WriteLine(encoding.DisplayName);
+        }
+    }
+}
+

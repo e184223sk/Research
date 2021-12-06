@@ -1,0 +1,48 @@
+using System;
+using System.Linq;
+using System.Runtime.Serialization;
+using System.IO;
+using System.Diagnostics;
+using Utf8Json;
+
+namespace csharp
+{
+    class Program
+    {
+        private static readonly string _csvPath = @"C:\Users\****\Documents\work\private\real-test\test.csv";
+
+        static void Main(string[] args)
+        {
+            var outPath = Path.Combine(Path.GetDirectoryName(_csvPath), "result_csharp.json");
+            if (File.Exists(outPath))
+            {
+                File.Delete(outPath);
+            }
+
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            var lines = File.ReadLines(_csvPath)
+                .Skip(1)
+                .Select(line =&gt; {
+                    var parts = line.Split(",");
+                    float x = float.Parse(parts[2]);
+                    float y = float.Parse(parts[3]);
+                    int z = x &gt; 0
+                            ? (int)(x * y + 0.0000001)
+                            : (int)(x * y - 0.0000001);
+                    return (a: parts[0], z: z);
+                })
+                .GroupBy(i =&gt; i.a, i =&gt; i.z)
+                .Select(g =&gt; (a: g.Key, z: g.Sum()));
+
+            var json = JsonSerializer.SerializeUnsafe(lines);
+            using (var fileStream = File.OpenWrite(outPath))
+            {
+                fileStream.Write(json.Array, 0, json.Count);
+            }
+            Console.WriteLine($"{stopwatch.Elapsed}sec");
+        }
+    }
+}
+

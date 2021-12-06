@@ -1,0 +1,187 @@
+        /// &lt;summary&gt;
+        /// 機能1ボタン Click
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void btnFunction1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string path = @"C:\Users\hogehoge\Desktop\"; // ファイルの置き場所を記載
+                string[] sourceCode;
+                using (StreamReader sr = new StreamReader(path + "テキストファイル.txt", Encoding.UTF8))
+                {
+                    string strData = sr.ReadToEnd();
+                    sourceCode = strData.Replace("\n", string.Empty).Split('\r');
+                }
+
+                List&lt;VBDesignInfo&gt; listVB = new List&lt;VBDesignInfo&gt;();
+                List&lt;int&gt; list階層 = new List&lt;int&gt;();
+                int i階層 = 0;
+                int targetIndex = 0;
+
+                for (int i = 0; i &lt; sourceCode.Length; i++)
+                {
+                    if (CheckData(sourceCode[i], "Begin "))
+                    {
+                        listVB.Add(new VBDesignInfo());
+                        targetIndex = listVB.Count - 1;
+
+                        i階層++;
+                        if (listVB.Count &lt;= 1 || listVB[targetIndex - 1].階層List.Count &lt;= i階層 - 1)
+                        {
+                            list階層.Add(1);
+                        }
+                        else
+                        {
+                            list階層.Add(listVB[targetIndex - 1].階層List[i階層 - 1] + 1);
+                        }
+
+                        // クラス名、項目名を取得
+                        string[] sourceWords = sourceCode[i].Trim().Substring(6).Split(' ');
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.階層, i階層.ToString());
+                        for (int j = 0; j &lt; list階層.Count; j++)
+                        {
+                            listVB[targetIndex].階層List.Add(int.Parse(list階層[j].ToString()));
+                        }
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.ClassName, sourceWords[0]);
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.Name, sourceWords[1]);
+
+                        continue;
+                    }
+
+                    // 終了時
+                    if (sourceCode[i].Trim().Equals("End"))
+                    {
+                        i階層--;
+                        list階層.RemoveAt(list階層.Count - 1);
+                        if (list階層.Count &gt; 0)
+                        {
+                            targetIndex = listVB.IndexOf(listVB.Where(a =&gt; CheckEqualsIntList(a.階層List, list階層)).ToList()[0]);
+                        }
+
+                        continue;
+                    }
+
+                    // 階層なし=データ無し
+                    if (list階層.Count &lt;= 0)
+                    {
+                        continue;
+                    }
+
+                    // 対象行の前後の空白と2つ以上続く空白を全て削除し、1つの空白しか残らないようにする
+                    string sourceWord = sourceCode[i].Trim();
+                    while (true)
+                    {
+                        if (sourceWord.Replace("  ", " ").Equals(sourceWord))
+                        {
+                            break;
+                        }
+                        sourceWord = sourceWord.Replace("  ", " ");
+                    }
+
+                    // TabIndexの取得
+                    if (CheckData(sourceWord, "TabIndex ="))
+                    {
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.TabIndex, sourceWord.Substring(11));
+                    }
+
+                    // Indexの取得
+                    if (CheckData(sourceWord, "Index ="))
+                    {
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.Index, sourceWord.Substring(8));
+                    }
+
+                    // Tagの取得
+                    if (CheckData(sourceWord, "Tag ="))
+                    {
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.Tag, sourceWord.Substring(6));
+                    }
+
+                    // Topの取得
+                    if (CheckData(sourceWord, "Top ="))
+                    {
+                        listVB[targetIndex].SetData(VBDesignInfo.項目一覧.Top, sourceWord.Substring(6));
+                    }
+                }
+
+                // ファイル出力
+                DateTime dtNow = DateTime.Now;
+                string filePath = path + "テキストファイル_" + dtNow.ToString("yyyyMMdd_HHmmss") + ".csv";
+
+                string titleText
+                    = "Name" + ","
+                    + "ClassName" + ","
+                    + "階層リスト" + ","
+                    + "階層" + ","
+                    + "TabIndex" + ","
+                    + "Index" + ","
+                    + "Tag" + ","
+                    + "Top";
+                File.AppendAllText(filePath, titleText + Environment.NewLine);
+
+                for (int i = 0; i &lt; listVB.Count; i++)
+                {
+                    string kaisou = string.Empty;
+                    for (int j = 0; j &lt; listVB[i].階層List.Count; j++)
+                    {
+                        if (!j.Equals(0))
+                        {
+                            kaisou += "-";
+                        }
+                        kaisou += listVB[i].階層List[j];
+                    }
+
+                    string appendText = string.Empty;
+                    appendText
+                        = listVB[i].Name + ","
+                        + listVB[i].ClassName + ","
+                        + kaisou + ","
+                        + listVB[i].階層 + ","
+                        + listVB[i].TabIndex + ","
+                        + listVB[i].Index + ","
+                        + listVB[i].Tag + ","
+                        + listVB[i].Top;
+                    File.AppendAllText(filePath, appendText + Environment.NewLine);
+                }
+
+                MessageBox.Show("やったで");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private bool CheckData(string sourceCode, string targetWord)
+        {
+            int codeLength = targetWord.Length;
+            return (sourceCode.Trim().Length &gt; codeLength &amp;&amp; sourceCode.Trim().Substring(0, codeLength).Equals(targetWord));
+        }
+
+        private bool CheckEqualsIntList(List&lt;int&gt; list1, List&lt;int&gt; list2)
+        {
+            // どちらかがNULLの場合
+            if (list1 == null || list2 == null)
+            {
+                return false;
+            }
+
+            // 件数が不一致の場合
+            if (!list1.Count.Equals(list2.Count))
+            {
+                return false;
+            }
+
+            // 値が不一致の場合
+            for (int i = 0; i &lt; list1.Count; i++)
+            {
+                if (!list1[i].Equals(list2[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+

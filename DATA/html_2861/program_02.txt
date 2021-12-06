@@ -1,0 +1,86 @@
+
+public void ConfigureServices(IServiceCollection services)
+        {
+            services.Configure&lt;CookiePolicyOptions&gt;(options =&gt;
+            {
+                // This lambda determines whether user consent for non-essential cookies is needed for a given request.
+                options.CheckConsentNeeded = context =&gt; true;
+                options.MinimumSameSitePolicy = SameSiteMode.None;
+            });
+
+            services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
+                options.UseNpgsql(
+                    Configuration.GetConnectionString("DefaultConnection")));
+
+            // この部分を下の内容で置き換える
+            //services.AddDefaultIdentity&lt;IdentityUser&gt;()
+            //    //.AddDefaultUI(UIFramework.Bootstrap4)
+            //    .AddRoles&lt;IdentityRole&gt;()                                   // ロールを利用するためにのサービスを追加
+            //    .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;();
+
+            // ここからが「AddDefaultIdentity」を置き換えたもの
+            services.AddAuthentication(o =&gt;
+            {
+                o.DefaultScheme = IdentityConstants.ApplicationScheme;
+                o.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+            })
+            .AddIdentityCookies(o =&gt; { });
+
+            var builder = services.AddIdentityCore&lt;IdentityUser&gt;(o =&gt;       // 返り値のビルダーを利用するために取得
+            {
+                o.Stores.MaxLengthForKeys = 128;
+                o.User.RequireUniqueEmail = false;
+            })
+                //.AddDefaultUI()                                           // これは削除する
+                .AddDefaultTokenProviders()
+                .AddRoles&lt;IdentityRole&gt;()                                   // ロールを利用するためにのサービスを追加
+                .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;();
+
+            // AddDefaultUIのページ作成部分を削除したメソッドを呼びたし（後ろに記載）
+            AddDefaultUIExceptPages(builder);
+
+            // ページ作成時に設定されているらしい値をここで設定しておく（LoginPathなどがデフォルトから変更されているらしい）
+            services.ConfigureApplicationCookie(options =&gt;
+            {
+                options.LoginPath = "/Identity/Account/Login";
+                options.AccessDeniedPath = "/Identity/Account/AccessDenied";
+                options.Cookie.Name = "YourAppCookieName";
+                options.Cookie.HttpOnly = true;
+                options.ReturnUrlParameter = CookieAuthenticationDefaults.ReturnUrlParameter;
+                // ReturnUrlParameter requires 
+                //using Microsoft.AspNetCore.Authentication.Cookies;
+                options.ExpireTimeSpan = TimeSpan.FromMinutes(60);
+                options.SlidingExpiration = true;
+            });
+            //　ここまでが書き換えた内容　
+
+            services.AddMvc(config =&gt;
+            {
+                // ASP.NET Core MVC で認証の機能を追加する
+                var policy = new AuthorizationPolicyBuilder()
+                                 .RequireAuthenticatedUser()
+                                 .Build();
+                config.Filters.Add(new AuthorizeFilter(policy));
+            }).SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+        }
+
+        /// &lt;summary&gt;
+        /// AddDefaultUIでページ作成を外した処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="builder"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        void AddDefaultUIExceptPages(IdentityBuilder builder)
+        {
+            builder.AddSignInManager();     // こいつがないとサインインができない
+
+            // AddRelatedParts(builder, framework);    &lt;&lt;= おそらくここですべてのページを作っているのでコメントアウト
+
+            //builder.Services.ConfigureOptions(                &lt;&lt;= なにやらいろいろしているようですが、「IdentityDefaultUIConfigureOptions」がinnerなのでコメントアウト、将来使うかも
+            //    typeof(IdentityDefaultUIConfigureOptions&lt;&gt;)
+            //        .MakeGenericType(builder.UserType));
+
+            builder.Services.TryAddTransient&lt;IEmailSender, EmailSender&gt;();  // この部分はメールを利用しないなら消してもよさそう、消す場合はclass「EmailSender」も不要
+
+            builder.Services.Configure&lt;DefaultUIOptions&gt;(o =&gt; o.UIFramework = UIFramework.Bootstrap3);  // これは将来的にIdentity画面を変更してBootstrapを利用しないなら不要かと思う
+        }
+

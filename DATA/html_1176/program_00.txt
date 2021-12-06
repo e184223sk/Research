@@ -1,0 +1,141 @@
+private void btnRun_Click(object sender, EventArgs e)
+{
+    Task.Run(() =&gt; Play());
+}
+
+private void Play()
+{
+    using (var video = new VideoCapture(@".\768x576.avi"))
+    {
+        var color_diff = new Mat();
+        var gray_diff = new Mat();
+        var black_diff = new Mat();
+        var hist_color = new Mat();
+        var hist_gray = new Mat();
+        var mask = new Mat();
+        var orientation = new Mat();
+
+        double duration = 1.0;
+
+        var LINE_LENGTH_ALL = 60;
+        var LINE_LENGTH_GRID = 20;
+        var GRID_WIDTH = 40;
+        var CIRCLE_RADIUS = 2;
+
+        var frame_next = new Mat();
+
+        var end_flag = video.Read(frame_next);
+        var frame_pre = frame_next.Clone();
+
+        var width = video.FrameWidth;
+        var height = video.FrameHeight;
+
+        var motion_history = new Mat&lt;float&gt;(height, width);
+
+        int count = 0;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        while (end_flag)
+        {
+            Cv2.Absdiff(frame_next, frame_pre, color_diff);
+
+            Cv2.CvtColor(color_diff, gray_diff, ColorConversionCodes.BGR2GRAY);
+
+            Cv2.Threshold(gray_diff, black_diff, 30, 1, ThresholdTypes.Binary);
+
+            var timestamp = sw.Elapsed.TotalSeconds;
+
+            // 履歴画像の更新
+            CvOptFlow.UpdateMotionHistory(black_diff, motion_history, timestamp, duration);
+
+            Cv2.Normalize(motion_history, hist_gray, 0, 255, NormTypes.MinMax, MatType.CV_8UC1);
+
+            Cv2.CvtColor(hist_gray, hist_color, ColorConversionCodes.GRAY2BGR);
+
+            // 履歴画像のモーション方向の計算
+            double delta1 = 0.25;
+            double delta2 = 0.05;
+            int apertureSize = 5;
+            CvOptFlow.CalcMotionGradient(motion_history, mask, orientation, delta1, delta2, apertureSize);
+
+            double angle_deg;
+            double angle_rad;
+
+            // 各座標のモーション方向を緑色の線で描画
+            var width_i = GRID_WIDTH;
+            while (width_i &lt; width)
+            {
+                var height_i = GRID_WIDTH;
+
+                while (height_i &lt; height)
+                {
+                    Cv2.Circle(hist_color,
+                                width_i, height_i,
+                                CIRCLE_RADIUS,
+                                new Scalar(0, 255, 0),
+                                2,
+                                LineTypes.AntiAlias);
+
+                    angle_deg = orientation.At&lt;float&gt;(height_i - 1, width_i - 1);
+
+                    if (angle_deg &gt; 0)
+                    {
+                        angle_rad = angle_deg * Math.PI / 180;
+
+                        Cv2.Line(hist_color,
+                                    width_i, height_i,
+                                    (int)(width_i + Math.Cos(angle_rad) * LINE_LENGTH_GRID),
+                                    (int)(height_i + Math.Sin(angle_rad) * LINE_LENGTH_GRID), 
+                                    new Scalar(0, 255, 0),
+                                    2,
+                                    LineTypes.AntiAlias);
+                    }
+
+                    height_i += GRID_WIDTH;
+                }
+
+                width_i += GRID_WIDTH;
+            }
+
+            // 全体的なモーション方向を計算
+            angle_deg = CvOptFlow.CalcGlobalOrientation(orientation, mask, motion_history, timestamp, duration);
+
+            // 全体のモーション方向を黄色い線で描画
+            Cv2.Circle(hist_color,
+                       width / 2, height / 2,
+                       CIRCLE_RADIUS,
+                       new Scalar(0, 215, 255),
+                       2,
+                       LineTypes.AntiAlias);
+
+            angle_rad = angle_deg * Math.PI / 180;
+
+            Cv2.Line(hist_color,
+                     width / 2, height / 2,
+                     (int)(width / 2 + Math.Cos(angle_rad) * LINE_LENGTH_ALL),
+                     (int)(height / 2 + Math.Sin(angle_rad) * LINE_LENGTH_ALL),
+                     new Scalar(0, 215, 255),
+                     2,
+                     LineTypes.AntiAlias);
+
+            Invoke(new Action(() =&gt;
+            {
+                Cv2.ImShow("hist_color", hist_color);
+            }));
+
+            var time = (int)(count * (1000 / video.Fps) - sw.Elapsed.TotalMilliseconds);
+
+            if (time &gt; 0)
+            {
+                System.Threading.Thread.Sleep(time);
+            }
+
+            frame_pre = frame_next.Clone();
+            end_flag = video.Read(frame_next);
+
+            ++count;
+        }
+    }
+}
+

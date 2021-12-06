@@ -1,0 +1,227 @@
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+using System.IO;
+using System.Runtime.Serialization.Formatters.Binary;
+using UnityEditor;
+
+/// &lt;summary&gt;
+/// .jsonファイルでプレイヤーデータを保存する
+/// &lt;/summary&gt;
+[Serializable]
+public class PlayerDataInstance : ISerializationCallbackReceiver
+{
+    //プレイヤーデータの実態、初アクセス時にデータをロード
+    private static PlayerDataInstance _instance = null;
+    public static PlayerDataInstance Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                Load();
+            }
+            return _instance;
+        }
+    }
+
+    [SerializeField]
+    private static string _jsonText = "";
+
+    //================================================
+    //保存されるデータ
+    //================================================
+
+    [SerializeField]
+    int                             money;         // 所持金
+    [SerializeField]
+    string                          lanceName;  // 装備しているLanceStatusDataの名前
+    [SerializeField]
+    private string                  _fishDictJson = "";
+    public Dictionary&lt;string, Fish&gt; FishDict = new Dictionary&lt;string,Fish&gt;();// 銛で突いた魚の名前と数を保存
+
+    //================================================
+    //シリアライズ、デシリアライズ時のコールバック
+    //================================================
+
+    /// &lt;summary&gt;
+    /// PlayerData-&gt;Jsonに変換される前に実行される。
+    /// &lt;/summary&gt;
+    public void OnBeforeSerialize()
+    {
+        //Dictionaryはそのまま保存されないので、個別にシリアライズしてテキストで保存
+        _fishDictJson = Serialize(FishDict);
+    }
+
+
+    /// &lt;summary&gt;
+    /// Json-&gt;PlayerDataに変換された後に実行される。
+    /// &lt;/summary&gt;
+    public void OnAfterDeserialize()
+    {
+        //保存されているテキストがあればDictionaryにデシリアライズ
+        if (!string.IsNullOrEmpty(_fishDictJson))
+        {
+            FishDict = Deserialize&lt;Dictionary&lt;string, Fish&gt;&gt;(_fishDictJson);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 引数のオブジェクトをシリアライズして返す
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+    /// &lt;param name="obj"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private static string Serialize&lt;T&gt;(T obj)
+    {
+        BinaryFormatter binaryFormatter = new BinaryFormatter();
+        MemoryStream memoryStream       = new MemoryStream();
+        binaryFormatter.Serialize(memoryStream, obj);
+        return Convert.ToBase64String(memoryStream.GetBuffer());
+    }
+    /// &lt;summary&gt;
+    /// 引数のテキストを指定されたクラスにデシリアライズして返す。
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+    /// &lt;param name="str"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private static T Deserialize&lt;T&gt;(string str)
+    {
+        BinaryFormatter binaryFormatter = new BinaryFormatter();
+        MemoryStream memoryStream       = new MemoryStream(Convert.FromBase64String(str));
+        return (T)binaryFormatter.Deserialize(memoryStream);
+    }
+
+    //================================================
+    //取得
+    //================================================
+
+    /// &lt;summary&gt;
+    /// データを再読み込みする。
+    /// &lt;/summary&gt;
+    public void Reload()
+    {
+        JsonUtility.FromJsonOverwrite(GetJson(), this);
+    }
+
+    /// &lt;summary&gt;
+    /// データを読み込む。
+    /// &lt;/summary&gt;
+    private static void Load()
+    {
+        _instance = JsonUtility.FromJson&lt;PlayerDataInstance&gt;(GetJson());
+    }
+
+
+    private static string GetJson()
+    {
+        //既にJsonを取得している場合はそれを返す。
+        if (!string.IsNullOrEmpty(_jsonText))
+        {
+            return _jsonText;
+        }
+
+        //Jsonを保存している場所のパスを取得
+        string filePath = GetSaveFilePath();
+
+        //Jsonが存在するか調べてから取得し変換する。存在しなければ新たなクラスを作成し、それをJsonに変換する。
+        if (File.Exists(filePath))
+        {
+            _jsonText = File.ReadAllText(filePath);
+        }
+        else
+        {
+            _jsonText = JsonUtility.ToJson(new PlayerDataInstance());
+        }
+
+        return _jsonText;
+    }
+
+    //================================================
+    //保存
+    //================================================
+
+    /// &lt;summary&gt;
+    /// データをJsonにして保存する。
+    /// &lt;/summary&gt;
+    public void Save()
+    {
+        _jsonText = JsonUtility.ToJson(this);
+        File.WriteAllText(GetSaveFilePath(), _jsonText);
+    }
+
+    //================================================
+    //削除
+    //================================================
+
+    /// &lt;summary&gt;
+    /// データをすべて削除し、初期化する。
+    /// &lt;/summary&gt;
+    public void Delete()
+    {
+        _jsonText = JsonUtility.ToJson(new PlayerDataInstance());
+        Reload();
+    }
+
+    //================================================
+    //保存先のパス
+    //================================================
+
+    private static string GetSaveFilePath()
+    {
+        string filePath = "PlayerDataInstance";
+        //確認しやすいようにエディタではAssetsと同じ階層に保存
+        //それ以外ではApplication.persistentDataPath以下に保存するように。
+#if UNITY_EDITOR
+        filePath += ".json";
+#else
+        filePath = Application.persistentDataPath + "/" + filePath;
+#endif
+        Debug.Log(filePath);
+        return filePath;
+    }
+
+    //================================================
+    //PlayerDataUtility
+    //================================================
+
+    /// &lt;summary&gt;
+    /// 所持金を取得する。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public int GetMoney()
+    {
+        return money;
+    }
+
+    /// &lt;summary&gt;
+    /// 装備品の名前を取得する
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public string GetLanceName()
+    {
+        return lanceName;
+    }
+
+    /// &lt;summary&gt;
+    /// 銛で獲った魚の名前と数を取得する
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public Dictionary&lt;string,Fish&gt; GetFish()
+    {
+        return FishDict;
+    }
+
+    /// &lt;summary&gt;
+    /// 保存するデータを設定する。
+    /// &lt;/summary&gt;
+    /// &lt;param name="data"&gt;&lt;/param&gt;
+    public void SetPlayerData(PlayerData data)
+    {
+        LanceStatusData _lsd = data.GetLance();
+        lanceName            = _lsd.GetEquipmentName();
+        money                = data.GetMoney();
+        FishDict             = data.GetFish();
+    }
+}
+

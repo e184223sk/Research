@@ -1,0 +1,39 @@
+
+        static void Main()
+        {
+            // HttpClientを使うための準備。今回はあまり関係ない
+            // HTTPConnectionFactoryを使うため、DI設定を行う
+            var serviceCollection = new ServiceCollection()
+                .AddHttpClient()                                         // IHttpClientFactoryの依存設定
+                .AddSingleton&lt;IHttpConnection, HttpConnectionSample&gt;()    // IHTTPConnectionの依存設定
+                .BuildServiceProvider();
+
+            // DI設定済みのIHttpConnectionを実装したクラスを取得
+            var connector = serviceCollection.GetService&lt;IHttpConnection&gt;();
+
+
+            // 大石泉すき
+            string plainText = "大石泉すき";
+            Console.WriteLine($"PlainText\r\n{plainText}\r\n");
+
+            // サーバから公開鍵を取得する
+            // SendGetメソッドの中身はただのHttpClient.GetAsyncです
+            var publicKey = connector.SendGet($"https://{メッセージ受信側HTTPサーバのIP:Port}/Alice/cert").Result;
+
+            // RSA暗号標準オブジェクト(PKCS#1)を生成
+            var rsa = new Pkcs1Encoding(new RsaEngine());
+
+            // 暗号化
+            var encrypted = Encrypt(plainText, publicKey, rsa);
+
+            // byte配列は化けるのでBase64でエンコードしておく
+            Console.WriteLine($"Encrypted(Base64 Encoded)\r\n{Convert.ToBase64String(encrypted)}\r\n");
+
+            // 暗号文(配列)を復号するべく、サーバに暗号文を送信
+            // SendPostメソッドの中身はただのHttpClient.PostAsyncです
+            var decrypted = connector.SendPost($"https://{メッセージ受信側HTTPサーバのIP:Port}/rsaremote/", encrypted).Result;
+
+            // サーバで復号した結果を表示
+            Console.WriteLine($"Decrypted\r\n{decrypted}\r\n");
+        }
+

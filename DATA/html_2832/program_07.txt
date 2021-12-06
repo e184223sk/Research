@@ -1,0 +1,78 @@
+
+using System;
+using UnityEngine;
+using UniRx;
+
+namespace BMIApp {
+    public interface IUseCase {
+        void Begin();
+    }
+    public class BMIUseCase : IUseCase {
+        readonly IBMIPresenter bmiPresenter;
+        readonly Component disposableComponent;
+        readonly BMIDomain bmiDomain;
+        public BMIUseCase(IBMIPresenter bmiPresenter, Component disposableComponent) {
+            this.bmiPresenter = bmiPresenter;
+            this.disposableComponent = disposableComponent;
+            this.bmiDomain = new BMIDomain();
+        }
+        public void Begin() {
+            var dto = new BMIDataTransferObject();
+            bmiPresenter.Bind();
+            bmiPresenter
+                .NameInput
+                .Subscribe(x =&gt; {
+                    dto.Name = x;
+                })
+                .AddTo(disposableComponent);
+            bmiPresenter
+                .HeightInput
+                .Subscribe(x =&gt; {
+                    if (float.TryParse(x, out var val)) {
+                        dto.Height = val;
+                        dto.BMI = bmiDomain.CalcBMI(dto);
+                        bmiPresenter.SetBMIResult($"{dto.BMI:F1}");
+                    }
+                })
+                .AddTo(disposableComponent);
+            bmiPresenter
+                .WeightInput
+                .Subscribe(x =&gt; {
+                    if (float.TryParse(x, out var val)) {
+                        dto.Weight = val;
+                        dto.BMI = bmiDomain.CalcBMI(dto);
+                        bmiPresenter.SetBMIResult($"{dto.BMI:F1}");
+                    }
+                })
+                .AddTo(disposableComponent);
+            bmiPresenter
+                .AgeInput
+                .Subscribe(x =&gt; {
+                    if (int.TryParse(x, out var val)) {
+                        dto.Age = val;
+                    }
+                })
+                .AddTo(disposableComponent);
+            Observable
+                .CombineLatest(bmiPresenter.GenderMaleSelect,  bmiPresenter.GenderFemaleSelect)
+                .Subscribe(x =&gt; {
+                    if (x[0]) {
+                        dto.Gender = Gender.Male;
+                    } else if (x[1]) {
+                        dto.Gender = Gender.Female;
+                    } else {
+                        dto.Gender = Gender.None;
+                    }
+                })
+                .AddTo(disposableComponent);
+        }
+    }
+    public enum Gender { None = 0, Male, Female }
+    public class BMIDataTransferObject : IBMIDomainObject {
+        public string Name { set; get; }
+        public int Age { set; get; }
+        public Gender Gender { set; get; }
+        public float BMI { set; get; }
+    }
+}
+

@@ -1,0 +1,38 @@
+
+// HTTPクライアントを生成
+using (var client = new HttpClient())
+{
+    using (var uploadResponse = await client.GetAsync(pdfUrl))
+    {
+        // URL先からストリームを取得
+        var temp = await uploadResponse.Content.ReadAsStreamAsync();
+
+        if (temp.AsRandomAccessStream().Size == 0)
+        {
+            var err = new TextBlock();
+            err.Text = "PDFファイルを読み込めませんでした。";
+            this.listView.Items.Add(err);
+            return;
+        }
+
+        // 一時ファイルストリームをPDFドキュメントとしてパース
+        pdfDoc = await PdfDocument.LoadFromStreamAsync(temp.AsRandomAccessStream());
+
+        // PDFを1ページずつ画像に変換し、リストビューに挿入
+        for (uint i = 0; i &lt; pdfDoc.PageCount; i++)
+        {
+            PdfPage page = pdfDoc.GetPage(i);
+
+            var stream = new InMemoryRandomAccessStream();
+            await page.RenderToStreamAsync(stream);
+
+            var image = new BitmapImage();
+            await image.SetSourceAsync(stream);
+            var img = new Image();
+            img.Source = image;
+
+            this.listView.Items.Add(img);
+        }
+    }
+}
+

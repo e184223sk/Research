@@ -1,0 +1,121 @@
+
+using System;
+using System.Diagnostics;
+using UnityEngine;
+using Unity.Burst;
+using Unity.Jobs;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using System.Reflection;
+using System.Reflection.Emit;
+
+using static System.Reflection.Emit.OpCodes;
+
+public class TestManager : MonoBehaviour
+{
+    public unsafe interface IAccessor : IJobParallelFor
+    {
+        int* GetPtr();
+        void SetPtr(int* value);
+        JobHandle Schedule();
+    }
+
+    private const int COUNT = 50000;
+    IAccessor accessor;
+
+    void Start()
+    {
+        const string ModuleName = "Hoge";
+        const string FileName = ModuleName + ".dll";
+        AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(ModuleName), AssemblyBuilderAccess.RunAndSave);
+        var moduleBulder = assemblyBuilder.DefineDynamicModule(ModuleName, FileName);
+        var typeBuilder = moduleBulder.DefineType("BURSTJOB",
+            TypeAttributes.Public | TypeAttributes.AnsiClass | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+            typeof(System.ValueType),
+            new Type[] { typeof(IAccessor), typeof(IJobParallelFor) });
+        typeBuilder.SetCustomAttribute(new CustomAttributeBuilder(typeof(BurstCompileAttribute).GetConstructor(Type.EmptyTypes), Array.Empty&lt;object&gt;()));
+        var intPtrType = typeof(int).MakePointerType();
+        var ptr = typeBuilder.DefineField("ptr",
+            intPtrType,
+            FieldAttributes.Public);
+        ptr.SetCustomAttribute(new CustomAttributeBuilder(typeof(NativeDisableUnsafePtrRestrictionAttribute).GetConstructor(Type.EmptyTypes), Array.Empty&lt;object&gt;()));
+        const MethodAttributes Attributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot | MethodAttributes.HideBySig;
+        var schedule = typeBuilder.DefineMethod("Schedule", Attributes, typeof(JobHandle), Type.EmptyTypes);
+        {
+            var il = schedule.GetILGenerator();
+            var local = il.DeclareLocal(typeof(JobHandle));
+            il.Emit(Ldarg_0);
+            il.Emit(Ldobj, typeBuilder);
+            il.Emit(Ldc_I4, COUNT);
+            il.Emit(Ldc_I4, 1024);
+            il.Emit(Ldloca_S, 0);
+            il.Emit(Initobj, typeof(JobHandle));
+            il.Emit(Ldloc_0);
+            il.EmitCall(Call, typeof(IJobParallelForExtensions).GetMethod(nameof(IJobParallelForExtensions.Schedule)).MakeGenericMethod(typeBuilder), Type.EmptyTypes);
+            il.Emit(Ret);
+        }
+        var execute = typeBuilder.DefineMethod("Execute", Attributes, typeof(void), new Type[] { typeof(int) });
+        {
+            var il = execute.GetILGenerator();
+            il.Emit(Ldarg_0);
+            il.Emit(Ldfld, ptr);
+            il.Emit(Ldarg_1);
+            il.Emit(Conv_I);
+            il.Emit(Ldc_I4_4);
+            il.Emit(Mul);
+            il.Emit(Add);
+            il.Emit(Ldarg_1);
+            il.Emit(Stind_I4);
+            il.Emit(Ret);
+        }
+        var setPtr = typeBuilder.DefineMethod("SetPtr", Attributes+, typeof(void), new[] { intPtrType });
+        {
+            var il = setPtr.GetILGenerator();
+            il.Emit(Ldarg_0);
+            il.Emit(Ldarg_1);
+            il.Emit(Stfld, ptr);
+            il.Emit(Ret);
+        }
+        var getPtr = typeBuilder.DefineMethod("GetPtr", Attributes, intPtrType, Type.EmptyTypes);
+        {
+            var il = getPtr.GetILGenerator();
+            il.Emit(Ldarg_0);
+            il.Emit(Ldfld, ptr);
+            il.Emit(Ret);
+        }
+        accessor = (IAccessor)Activator.CreateInstance(typeBuilder.CreateType());
+        assemblyBuilder.Save(FileName);
+        Verify(assemblyBuilder);
+    }
+
+    unsafe void Update()
+    {
+        using (var array = new NativeArray&lt;int&gt;(COUNT, Allocator.TempJob))
+        {
+            accessor.SetPtr((int*)array.GetUnsafePtr());
+            accessor.Schedule().Complete();
+        }
+    }
+
+    static void Verify(params AssemblyBuilder[] builders)
+    {
+        var path = @"C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.7.2 Tools\x64\PEVerify.exe";
+
+        foreach (var targetDll in builders)
+        {
+            var psi = new ProcessStartInfo(path, targetDll.GetName().Name + ".dll")
+            {
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+
+            var p = Process.Start(psi);
+            var data = p.StandardOutput.ReadToEnd();
+            Console.WriteLine(data);
+        }
+    }
+}
+

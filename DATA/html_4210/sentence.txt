@@ -1,0 +1,52 @@
+More than 1 year has passed since last update.大学院で数学を学んでいる者です．本記事では前回書いたQISKitでJones多項式の量子アルゴリズムをもとにQ#でJones多項式の量子アルゴリズムを実装してみます．プログラミング歴はまだ一年も満たず，特にQ#とC#にいたっては学び始めて一か月も経っていないため，もっと工夫してコードを書ける等ありましたら，コメントいただけると幸いです．Jones多項式の量子アルゴリズムの本質的な部分はHadamardテストとよばれる量子計算で，一般の$2 \times 2$のユニタリ行列に対する制御ゲートをどのように実装するかが課題でした．前回実装するのに必要となった量子ゲートとして，$U_1(\alpha) := \begin{pmatrix}1 &amp; 0\\ 0 &amp; e^{i \alpha} \end{pmatrix}$と以下の制御ゲート${\rm c}U_3(\gamma, \beta, \delta)$がありました：これらを使って，どんな$2 \times 2$のユニタリ行列$U$に対する制御ゲートも実数$\alpha$, $\gamma$, $\beta$, $\delta$を使って次のように表わせました：$$\begin{align}
+{\rm controlled}\text{-}U &amp;= \left(U_1 \left(\alpha \right) \otimes I_2 \right) \cdot {\rm c}U_3 \left(\gamma, \beta, \delta \right).
+\end{align}$$$U_1(\alpha)$についてはQ#では$R_1(\alpha)$として準備されています．${\rm c}U_3(\gamma, \beta, \delta)$や$U_3^{\prime}(\gamma, \beta, \delta)$についてはQ#では（2018年12月時点，ver. 0.3ではおそらく）準備されていないため，自分で作る必要があります．ここではQ#ですでに準備されている回転を表わす以下の二つの量子ゲートとCNOT(controlled-$X$)を使って，${\rm c}U_3(\gamma, \beta, \delta)$を実装することを考えます．上の二つの量子ゲートと$X := \begin{pmatrix}0 &amp; 1 \\ 1 &amp; 0 \end{pmatrix}$をうまく組み合わせることによって，$U_3^{\prime}(\gamma, \beta, \delta)$は以下のように表わせます：$$U_3^{\prime}(\gamma, \beta, \delta) = R_z (\beta) R_y \left(\frac{\gamma}{2} \right) \cdot X \cdot R_y \left(- \frac{\gamma}{2} \right) R_z \left(- \frac{\beta +\delta}{2} \right) \cdot X \cdot R_z \left(- \frac{\beta -\delta}{2} \right). $$また，$R_z (\beta) R_y \left(\frac{\gamma}{2} \right) \cdot R_y \left(- \frac{\gamma}{2} \right) R_z \left(- \frac{\beta +\delta}{2} \right) \cdot R_z \left(- \frac{\beta -\delta}{2} \right) = I$より，制御ゲート${\rm c}U_3(\gamma, \beta, \delta)$は次のように表わせます(cf. [Nielsen-Chuang; Section 4.2])： ${\Huge =}$ これらの等式を使ってQ#で実装することを試みます．前回の記事にならって，８の字結び目のJones多項式の虚数単位$i$での近似値を求めてみます．目標は，二つのユニタリ行列$$
+A_1 :=
+e^{\frac{\pi i}{8}}
+\begin{pmatrix}
+1 &amp; 0 \ \\
+0 &amp; -i
+\end{pmatrix}, \
+A_2 :=
+\frac{1}{\sqrt{2}} \begin{pmatrix}
+e^{-\frac{\pi i}{8}} &amp; e^{\frac{3 \pi i}{8}} \\
+e^{\frac{3 \pi i}{8}} &amp; e^{-\frac{\pi i}{8}}
+\end{pmatrix},
+$$に対して，行列の積$A_2^{\dagger} A_1 A_2^{\dagger} A_1$のトレース（つまり，$(1,1)$-成分と $(2,2)$-成分の和）が$-1$に近似することを確かめることでした．$R_1(\alpha)$と${\rm c}U_3(\gamma, \beta, \delta)$の$\alpha$, $\gamma$, $\beta$, $\delta$ については，前回の$\alpha$, $\theta$, $\phi$, $\lambda$をそれぞれ対応させるだけです．$A_1$と$A_2^{\dagger}$の制御ゲートは以下のように表わせます：$$\begin{align}
+{\rm controlled}\text{-}A_1 &amp;= \left(R_1 \left(-\frac{\pi}{8} \right) \otimes I_2 \right) \cdot {\rm c}U_3 \left(0, -\frac{\pi}{2}, 0 \right), \\
+{\rm controlled}\text{-}A_2^{\dagger} &amp;= \left(R_1 \left(\frac{\pi}{8} \right) \otimes I_2 \right) \cdot {\rm c}U_3 \left(\frac{\pi}{2}, -\frac{\pi}{2}, \frac{\pi}{2} \right).
+\end{align}$$よって，$A_2^{\dagger} A_1 A_2^{\dagger} A_1$の$(1,1)$-成分の実部・虚部を求めるHadamardテストの量子回路はそれぞれ以下のようになります：また，$A_2^{\dagger} A_1 A_2^{\dagger} A_1$の$(2,2)$-成分の実部・虚部を求めるHadamard テストの量子回路はそれぞれ以下のようになります：さらに，制御ゲート${\rm c}U_3 \left(0, -\frac{\pi}{2}, 0 \right)$，${\rm c}U_3 \left(\frac{\pi}{2}, -\frac{\pi}{2}, \frac{\pi}{2} \right)$については$R_y(\theta)$, $R_z(\theta)$, CNOTを使って以下のように表わせます： ${\Huge =}$  ${\Huge =}$ 以上をもとにQ#とC#でコードを愚直に書いてみます．Q#については，Hadamard テストを上の順番通りに実装すると，以下のようになります：C#の方では古典計算，つまりショット数が1000で一つ目の量子ビットだけを測定したとき$| 0 \rangle$が出力される確率$p_0$の計算，求めたい行列の対角成分の実部・虚部を表わす$2 p_0 - 1$のリストの作成，そして求めたい行列のトレースの実部・虚部の計算を行います．以上をまとめると，上のQ#に付随するC#のコードは以下のようになります：これらを（ビルドして）走らせることにより，以下のような結果が得られます：以上より，$A_2^{\dagger} A_1 A_2^{\dagger} A_1$のトレースの値の一番近い整数 $^{\ast 1}$ は$-1 + 0 \cdot i$となることが分かり，８の字結び目のJones多項式の$i$での値が$-1$になることを確認できました．$\ast 1$
+一般の結び目$K$に対し，Arf 不変量とよばれる，0または1に値をとる結び目の不変量 ${\rm Arf}(K)$ を使って，結び目$K$のJones多項式の$i$での値$J_K(i)$は$(-1)^{{\rm Arf}(K)}$で与えられます(cf. [Murakami])．よって$J_K(i)$ は整数になるため，実装で得られた結果に近い整数を見つければよいことが分かります．逆に言えば，得られた結果からArf 不変量を求めることができ，$K$ が8の字結び目の場合は${\rm Arf}(K) = 1$ になることが分かります．
+最後に８の字結び目のJones 多項式の1の5乗根 $e^{\frac{2 \pi i}{5}}$ での近似値を同様の方法で求めてみます．$\begin{align} \eta := 2 \cos\frac{\pi}{5} = \frac{1 + \sqrt{5}}{2} \end{align}$とおくと，目標は二つのユニタリ行列$$\begin{align}
+B_1 :=
+\begin{pmatrix}
+e^{-\frac{4 \pi i}{5}} &amp; 0 &amp; 0\ \\
+0 &amp; e^{\frac{3 \pi i}{5}} &amp; 0\ \\
+0 &amp; 0 &amp; e^{\frac{3 \pi i}{5}}
+\end{pmatrix}, \
+B_2 :=
+\begin{pmatrix}
+\eta^{-1} e^{\frac{4 \pi i}{5}} &amp; \eta^{-\frac{1}{2}} e^{-\frac{3 \pi i}{5}} &amp; 0\ \\
+\eta^{-\frac{1}{2}} e^{-\frac{3 \pi i}{5}} &amp; -\eta^{-1} &amp; 0\ \\
+0 &amp; 0 &amp; e^{\frac{3 \pi i}{5}}
+\end{pmatrix}
+\end{align}$$に対し，行列の積$B_2^{\dagger} B_1 B_2^{\dagger} B_1$の対角成分$b_{ii}$ で表わされる値$$\begin{align} \eta^2 \cdot \frac{1}{\sin\frac{2 \pi}{5} + \sin\frac{2 \pi}{5} + \sin\frac{4 \pi}{5}} \cdot \left( \sin\frac{2 \pi}{5} \cdot b_{11} + \sin\frac{2 \pi}{5} \cdot b_{22} + \sin\frac{4 \pi}{5} \cdot b_{33} \right) \end{align}
+$$を求めることです．まず$B_2^{\dagger} B_1 B_2^{\dagger} B_1$の $(3,3)$-成分$b_{33}$ については直接計算することにより，$1$になることが分かります．残りの$(1,1)$-成分$b_{11}$，$(2,2)$-成分$b_{22}$を求めるためには，$B_1$，$B_2$から第3行と第3列を取り除いた以下の二つの2行2列のユニタリ行列を考えます：$$\begin{align}
+B_1^{\prime} :=
+\begin{pmatrix}
+e^{-\frac{4 \pi i}{5}} &amp; 0 \\
+0 &amp; e^{\frac{3 \pi i}{5}}
+\end{pmatrix}, \
+B_2^{\prime} :=
+\begin{pmatrix}
+\eta^{-1} e^{\frac{4 \pi i}{5}} &amp; \eta^{-\frac{1}{2}} e^{-\frac{3 \pi i}{5}}\ \\
+\eta^{-\frac{1}{2}} e^{-\frac{3 \pi i}{5}} &amp; -\eta^{-1}
+\end{pmatrix}.
+\end{align}
+$$行列の積${B_2^{\dagger}}^{\prime} B_1 {B_2^{\dagger}}^{\prime} B_1$の$(1,1)$-成分，$(2,2)$-成分がそれぞれ$b_{11}$，$b_{22}$ になります．前回は$B_1^{\prime}$ と$B_2^{\prime}$に対して，近似値 $\eta^{-1} = \frac{\sqrt{5} - 1}{2} = 0.618 \cdots \approx \cos 51.8^{\circ} = \cos\left(\frac{1}{2} \cdot \frac{103.6 \pi}{180}\right)$ と$\eta^{-\frac{1}{2}} \approx \sin 51.8^{\circ} = \sin\left(\frac{1}{2} \cdot \frac{103.6 \pi}{180}\right)$を使って$\alpha$, $\gamma$, $\beta$, $\delta$を求めました．Q#でも量子ゲートの合成・随伴，さらには制御ゲートについても簡潔に書くことができるため，これらを使って実装します．一般の$2 \times 2$のユニタリ行列を実装するには準備でも述べた以下の等式を使います：$$U_3^{\prime}(\gamma, \beta, \delta) = R_z (\beta) R_y \left(\frac{\gamma}{2} \right) \cdot X \cdot R_y \left(- \frac{\gamma}{2} \right) R_z \left(- \frac{\beta +\delta}{2} \right) \cdot X \cdot R_z \left(- \frac{\beta -\delta}{2} \right)$$実は$X \cdot R_y \left(- \frac{\gamma}{2} \right) R_z \left(- \frac{\beta +\delta}{2} \right) \cdot X  = R_y \left(\frac{\gamma}{2} \right) R_z \left(\frac{\beta +\delta}{2} \right)$ より，$U_3^{\prime}(\gamma, \beta, \delta)$ は $R_y(\theta)$ と $R_z (\theta)$ のみで表わすことができます：$$U_3^{\prime}(\gamma, \beta, \delta) = R_z(\beta) R_y(\gamma) R_z(\delta). $$一般の$2 \times 2$のユニタリ行列は$e^{i \alpha} U_3^{\prime}(\gamma, \beta, \delta)$と表わされるため，$e^{i \alpha}$倍についても考える必要があります．これをユニタリ行列として表わすには，Q#で準備されている以下の量子ゲートを使ってみます（符号と2で割ることに注意．コードでは R(PauliI, theta, qubit)のように書きます．）：すると，$B_1^{\prime}$と$B_2^{\prime}$はそれぞれ以下のように表わされます：$$\begin{align}
+B_1^{\prime} &amp;= R_I \left(\frac{\pi}{5} \right) \cdot U_3^{\prime} \left(0, \frac{7}{5}\pi, 0 \right)，\\
+B_2^{\prime} &amp;\approx R_I \left(-\frac{9 \pi}{5} \right) \cdot U_3^{\prime} \left( \frac{103.6 \pi}{180}, \frac{3 \pi}{5}, -\frac{2 \pi}{5} \right).
+\end{align}
+$$以上より，目標をまとめて書くと，Q#については以下のように見やすく書くことができます：また，今回もより正確な値（目標は上4桁）を得るためにHadamardテストを1000回繰り返し，得られた結果の平均を取ることを考えます．すると，C#については以下のようになります：以上を走らせると，以下のような結果が得られます（筆者の安いPCのWindows上のVSCodeでは4時間ほど掛かりました）：以上より，８の字結び目のJones多項式の$e^{\frac{2 \pi i}{5}}$での値$\begin{align} (-\sqrt{5} + 1) + 0 \cdot i = -1.23606 \cdots \end{align}$と近い値を得ることができました．・H. Murakami, A recursive calculation of the Arf invariant of a link, J. Math. Soc. Japan 38 (1986) 335--338.・M. A. Nielsen and I. L. Chuang, Quantum Computation and Quantum Information: 10th Anniversary Edition, Cambridge University Press (2010).
+
+

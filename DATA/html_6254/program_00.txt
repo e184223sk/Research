@@ -1,0 +1,46 @@
+IEnumerator Check()
+{
+    while (true)
+    {
+        if (Application.internetReachability == NetworkReachability.NotReachable)
+        {
+            // ネットワークが無効な場合.
+            Available = false;
+        }
+        else if (Time.realtimeSinceStartup - LastReceived &gt;= CheckIntervalSeconds)
+        {
+            // メッセージをしばらく受信していない場合.
+            var ok = false;
+
+            // 確認メッセージに対する返信の Consumer を定義.
+            Action&lt;byte[]&gt; replyConsumer =
+                a =&gt;
+                {
+                    if (a.Length == 1 &amp;&amp; a[0] == 0)
+                    {
+                        // 正式な返信なら OK.
+                        ok = true;
+                    }
+                };
+
+            AddConsumer(replyConsumer);
+
+            // 確認メッセージを送信.
+            Send(new byte[] { 0 });
+
+            // 返信を待機.
+            yield return new WaitForSeconds(CheckTimeoutSeconds);
+
+            if (Time.realtimeSinceStartup - LastReceived &gt;= CheckIntervalSeconds)
+            {
+                // 引き続きメッセージを受信していない場合、結果を反映.
+                Available = ok;
+            }
+
+            Consumers.Remove(replyConsumer);
+        }
+
+        yield return null;
+    }
+}
+

@@ -1,0 +1,34 @@
+
+[UpdateAfter(typeof(BoidSystemGroup))]
+public class MoveSystem : SystemBase
+{
+    protected override void OnUpdate()
+    {
+        // パラメータをローカル変数として置いておき、ラムダ式にキャプチャさせる
+        float dt = Time.DeltaTime;
+        float minSpeed = Bootstrap.Param.maxSpeed;
+        float maxSpeed = Bootstrap.Param.maxSpeed;
+
+        // ジョブの定義
+        Dependency = Entities.
+            WithName("MoveJob").
+            WithAll&lt;BoidType&gt;().
+            WithBurst().
+            ForEach((ref Translation pos, ref Rotation rotate, ref Velocity vel, ref Acceleration accel) =&gt;
+        {
+            vel.Value += accel.Value * dt;
+
+            var dir = math.normalize(vel.Value);
+            var speed = math.length(vel.Value);
+            vel.Value = math.clamp(speed, minSpeed, maxSpeed) * dir;
+
+            pos.Value += vel.Value * dt;
+
+            var rot = quaternion.LookRotationSafe(dir, new float3(0, 1, 0));
+
+            rotate.Value = rot;
+            accel.Value = float3.zero;
+        }).ScheduleParallel(Dependency);
+    }
+}
+

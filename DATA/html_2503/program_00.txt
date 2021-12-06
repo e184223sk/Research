@@ -1,0 +1,63 @@
+[TestMethod]
+public void SomebodyShouldGiveMeLike_WebDriver_ByText()
+{
+    const string QiitaRootUrl = "https://qiita.com/";
+    const string QiitaNotificationsUrl = "https://qiita.com/notifications";
+
+    var edgeDriver = new EdgeDriver();
+
+    // Qiita にアクセス
+    try
+    {
+        edgeDriver.Url = QiitaRootUrl;
+    }
+    catch (NoSuchWindowException ex)
+    {
+        Console.WriteLine(ex.Message);
+        Assert.Fail("Edge を閉じてから再試行してください。");
+    }
+
+    new WebDriverWait(edgeDriver, TimeSpan.FromSeconds(20))
+        .Until(SeleniumExtras.WaitHelpers.ExpectedConditions.UrlToBe(QiitaRootUrl));
+
+    // 新着はあるか
+    var notificationDiv = edgeDriver.FindElement(By.ClassName("st-Header_notifications"));
+    int notificationCount = int.Parse(notificationDiv.Text);
+    if (notificationCount == 0)
+    {
+        Assert.Fail("新着通知はありません。");
+        return;
+    }
+
+    Console.WriteLine($"新着通知が{notificationCount}件ありました。");
+
+    // 新着の中に「いいね」はあるか
+    const int PageItemCount = 10;
+    int newLikeCount = 0;
+
+    for (int pageIndex = 0; pageIndex &lt;= notificationCount / PageItemCount; pageIndex++)
+    {
+        string url = QiitaNotificationsUrl + $"?page={pageIndex + 1}";
+        edgeDriver.Url = url;
+
+        new WebDriverWait(edgeDriver, TimeSpan.FromSeconds(20))
+            .Until(SeleniumExtras.WaitHelpers.ExpectedConditions.UrlToBe(url));
+
+        newLikeCount += edgeDriver.FindElements(By.CssSelector("li.notification"))
+            .Take(notificationCount - (pageIndex * PageItemCount))
+            .Count(notification =&gt;
+            {
+                // &lt;span class="bold"&gt;いいね&lt;/span&gt; を探す。
+                return notification.FindElements(By.CssSelector("span.bold"))
+                    .Any(e =&gt; e.Text == "いいね");
+            });
+    }
+
+    if (newLikeCount == 0)
+    {
+        Assert.Fail("「いいね」はありませんでした。");
+    }
+
+    Console.WriteLine($"{newLikeCount}件の「いいね」がつきました。");
+}
+

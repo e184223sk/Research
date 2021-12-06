@@ -1,0 +1,60 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+using Amazon.Runtime;
+using Amazon.Runtime.CredentialManagement;
+using Amazon.SecurityToken;
+using Amazon.SecurityToken.Model;
+
+using Sample.Signers;
+using Sample.Util;
+
+namespace Sample
+{
+    class Program
+    {
+        private static async Task Run()
+        {
+            InstanceProfileAWSCredentials instanceCredentials = new InstanceProfileAWSCredentials();
+            var credentials = await instanceCredentials.GetCredentialsAsync();
+
+            var uri = new Uri("https://xxxxxxxxxx.execute-api.ap-northeast-1.amazonaws.com/Prod/hello");
+
+            // 署名するためのソースとなるヘッダ情報
+            var headers = new Dictionary&lt;string, string&gt;
+            {
+                {AWS4SignerBase.X_Amz_Content_SHA256, AWS4SignerBase.EMPTY_BODY_SHA256},
+                {"content-type", "text/plain"},
+                {"x-amz-security-token", credentials.Token}, // IAMロールではこれが必要
+            };
+
+            // 署名を作成
+            var signer = new AWS4SignerForAuthorizationHeader
+            {
+                EndpointUri = uri,
+                HttpMethod = "GET",
+                Service = "execute-api",
+                Region = "ap-northeast-1"
+            };
+            var authorization = signer.ComputeSignature(headers,
+                                                        "",   // no query parameters
+                                                        AWS4SignerBase.EMPTY_BODY_SHA256,
+                                                        credentials.AccessKey,
+                                                        credentials.SecretKey);
+
+            // リクエストヘッダに署名を追加
+            headers.Add("Authorization", authorization);
+
+            // リクエスト実行
+            // HttpHelpers はUtilで定義
+            HttpHelpers.InvokeHttpRequest(uri, "GET", headers, null);
+        }
+
+        static void Main(string[] args)
+        {
+            Run().Wait();
+        }
+    }
+}
+

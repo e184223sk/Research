@@ -1,0 +1,134 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+//using System.Numerics;
+
+public class moveObject : MonoBehaviour
+{
+    public GameObject model;
+    public GameObject head;
+    static List&lt;Vector3&gt; listGyro = new List&lt;Vector3&gt;();
+    static List&lt;Vector3&gt; listAcceleration = new List&lt;Vector3&gt;();
+    bool flg = false;
+    float angle;
+    static int currentPOV = 0;
+    static List&lt;string&gt; strPOVkey = new List&lt;string&gt; { "TPS", "FPS", "nulmodel" };
+    Dictionary&lt;string, Vector3&gt; dicPOV = new Dictionary&lt;string, Vector3&gt;()
+    {
+        {"TPS",new Vector3(0f,0f,0f)},
+        {"FPS",new Vector3(0f,-2f,-64f)},
+        {"nulmodel",new Vector3(0f,0f,-350f)}
+    };
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        //model = GameObject.Find("Model");
+        //head = GameObject.Find("Head");
+        model.transform.localPosition = dicPOV[strPOVkey[currentPOV]];
+        listAcceleration.Add(model.transform.position);
+        listGyro.Add(model.transform.rotation.eulerAngles);
+    }
+
+    [System.Obsolete]
+    void Update()
+    {
+        if (strPOVkey[currentPOV] != "FPS")
+        {
+            model.transform.localPosition =
+            Vector3.Lerp(
+                listAcceleration.Last(),
+                SetPosition(getSensor.Acceleration) + dicPOV[strPOVkey[currentPOV]],
+                0.5f);
+            model.transform.Rotate(SetRotate(getSensor.Gyro));
+
+            head.transform.localEulerAngles = new Vector3(
+                0f, 0f, model.transform.localEulerAngles.z);
+
+        }
+
+        listAcceleration.Add(model.transform.position);
+        listGyro.Add(model.transform.rotation.eulerAngles);
+
+    }
+
+    public void OnResetObjectClick()
+    {
+        model.transform.localPosition = dicPOV[strPOVkey[currentPOV]];
+        do
+        {
+            model.transform.Rotate(listGyro[0] - model.transform.rotation.eulerAngles);
+        }
+        while (model.transform.eulerAngles != new Vector3(0f, 0f, 0f));
+    }
+
+    private Vector3 SetPosition(Vector3 vec)
+    {
+        return new Vector3(vec.x, vec.y, vec.z) * 5f;
+    }
+
+    private Vector3 SetRotate(Vector3 vec)
+    {
+        //ピッチ角は０度で固定
+        //ヨー角は端末の動きに追従
+        return new Vector3(
+            0f,
+            //Mathf.Clamp(-vec.x, -30f, 30f),
+            Mathf.Clamp(-vec.y * listGyro[0].y, -30f, 30f),
+            Mathf.Clamp(vec.z, -30f, 30f)) / 5;
+
+            //0f,
+            ////Mathf.Clamp(-vec.x, -30f, 30f),
+            //Mathf.Clamp(vec.z * listGyro[0].z, -30f, 30f),
+            //Mathf.Clamp(-vec.y, -30f, 30f)) / 5;
+    }
+
+    //視線（頭）の向き
+    private Vector3 HeadOrientation(Vector3 vec)
+    {
+        //ピッチ,ロール軸の調整
+        float limOri = 45f;
+        float threshold = 20f;
+
+        Debug.Log(vec.z);
+
+        if (vec.z &gt; threshold)
+        {
+            return new Vector3(
+                0f,
+                Mathf.Clamp(Mathf.Abs(vec.z), -limOri, limOri),
+                0f);
+        }
+
+        if (vec.z &lt; -threshold)
+        {
+            return new Vector3(
+                0f,
+                Mathf.Clamp(-Mathf.Abs(vec.z), -limOri, limOri),
+                0f);
+        }
+
+        return new Vector3(0f, 0f, 0f);
+
+    }
+
+    //バイクのロール角に応じて体や膝の角度の調整
+    private Vector3 LeanIn(Vector3 vec)
+    {
+        return new Vector3(0f, 0f, 0f);
+    }
+
+
+    public void ChangePOV()
+    {
+        if (currentPOV &lt; strPOVkey.Count - 1)
+            currentPOV++;
+        else
+            currentPOV = 0;
+
+        OnResetObjectClick();
+    }
+}
+

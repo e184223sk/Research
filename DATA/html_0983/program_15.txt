@@ -1,0 +1,50 @@
+
+using Reactive.Bindings.Extensions;
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Security.Cryptography.X509Certificates;
+
+namespace RxPropLab
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var person = new Person();
+
+            // 同期するプロパティを指定して ReactiveProperty を生成する
+            var rp = person.ToReactivePropertyAsSynchronized(x =&gt; x.Name,
+                (IObservable&lt;string&gt; ox) =&gt; ox.Select(x =&gt; x?.ToUpper()), // Person クラスから ReactiveProperty に行く途中で大文字に変換する
+                // ReactiveProperty から Person クラスに行く途中で小文字に変換するが xin9le の場合は Person クラスに戻さない
+                (IObservable&lt;string&gt; ox) =&gt; ox.Where(x =&gt; x != "xin9le").Select(x =&gt; x?.ToLower()));
+
+            // ReactiveProperty を更新すると
+            rp.Value = "OKAZUKI";
+            // 生成元のオブジェクトのプロパティは小文字に変換された値が設定されます
+            Console.WriteLine(person.Name); // okazuki
+
+            // 生成元のオブジェクトのプロパティが更新されると
+            rp.Value = "xin9le";
+            // xin9le は Where でフィルタリングされるので Person 側には表示されない
+            Console.WriteLine(person.Name); // okazuki のまま
+        }
+    }
+
+    class Person : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+        private string _name;
+        public string Name
+        {
+            get =&gt; _name;
+            set
+            {
+                _name = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+            }
+        }
+    }
+}
+

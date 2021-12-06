@@ -1,0 +1,36 @@
+More than 1 year has passed since last update.C#のアプリケーション設定は便利ですよね。
+取得・変更・保存が簡単にできます。
+ところが、編集画面やインポート/エクスポートを作ろうとしたら結構ハマってしまいました。
+解決策がなかなか見つからなかったので、書き残しておきます。以下に実際に動作するコードを置いてます。
+https://github.com/minoru-nagasawa/SampleApplicationSettingsDialog以下のような画面でアプリケーション設定を変更できます。
+PropertyGridにアプリケーション設定の実体(Settings.Default)をセットすると、保存しなくても実体が変更されてしまいます。
+それを防ぐため、コピーを作成して設定します。ただし、StringCollection型は注意が必要です。
+これをコピーしただけでは、その中の個々のstringは同じ実体を参照してしまいます。
+それにより、コピーしたテキストを変更したつもりが、本物の設定が変更されてしまいます。
+それを防ぐためにディープコピーしたオブジェクトを設定します。以下のように、Settings.Defaultに変更を反映してSvae()すれば保存できます。
+ただし、この時もStringCollection型の問題があるため、ディープコピーしたオブジェクトを設定します。PropertyGridにはプロパティのCategoryとHelpを表示する機能があります。
+CategoryにはプロパティのCategory属性、HelpにはDescription属性が表示されます。ですが、Settingsのプロパティが書かれているコードは自動生成のため、この方法では指定できません。
+その対処として、以下のようにSettingsのコンストラクタで動的にCategoryAttributeとDescriptionAttributeを追加します。StringCollection型のプロパティを変更しようとした場合、以下のダイアログが表示されます。
+ですが、このダイアログでは「追加」を押すとエラーになってしまいます。
+その対処として以下を実行します。これにより表示されるダイアログも以下のように変わります。
+設定のエクスポートがあった方がいいので作ります。まず、ユーザスコープの設定ファイルのパスを取得できるようにするため、
+[プロパティを右クリック] → [追加] → [参照]としてダイアログを開きます。
+その後、System.Configurationを選択してOKします。
+そして、ユーザスコープの設定ファイルを、SaveFileDialogで選んだパスにコピーすれば完了です。
+ただし、保存を1度も実行してない場合はファイルが存在しないため、その場合は保存を実行します。エクスポートを作ったのでインポートも作ります。
+インポートは、設定を読み込んで反映させるだけですが、なかなか癖があります。まず、設定の読み込みは以下のコードになります。
+読み込みはConfigurationManager.OpenMappedExeConfigurationで行います。
+その引数としてファイルパスを指定するのですが、アプリの設定＋現在の設定＋読み込んだ設定、の3つを読み込ますと自然な動作になります。
+読み込んだ後は、GetSectionでアプリケーション設定が取得できます。続いて、データの更新は以下のコードになります。
+読み込んだ設定の値はSettingElementのValue.ValueXml.InnerXmlに入ってます。
+それを、画面に表示している変数(SettingsPropertyValue型)のSerializedValueに設定すればいいです。ただし、SettingsPropertyValueを一度も参照していないと、値を更新しても元の値に戻ってしまいます。
+そのため、_ChangedSinceLastSerializedを無理やりfalseに変更しています。
+以下の実装を見るとわかると思います。
+https://referencesource.microsoft.com/#System/sys/system/configuration/SettingsPropertyValue.cs,69さらに、Deserializedにfalseを設定しておきます。
+これにより、PropertyValueにアクセスしたときにDeserializeされます。
+https://referencesource.microsoft.com/#System/sys/system/configuration/SettingsPropertyValue.cs,40これらをつなげて、結局インポートは以下のコードとなります。これで汎用的なアプリケーション設定の編集画面ができました。
+今まで直接XMLを変更させてたアプリに組み込んでみてください。Helpのテキストを変更する方法は、以下を参考にしました。
+https://www.codeproject.com/Articles/415070/Dynamic-Type-Description-Framework-for-PropertyGriStringCollection型のプロパティを変更できるようにする方法は、以下を参考にしました
+https://stackoverflow.com/questions/2043579/adding-editor-editorattribute-at-run-time-dynamically-to-an-objects-propert
+
+

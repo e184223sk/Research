@@ -1,0 +1,118 @@
+
+public class TextChainEx : IStringBuilderProvider
+{
+    public TextChainEx(IStringBuilderProvider? origin, TextChainEx.IOperation operation)
+    {
+        Origin = origin;
+        Operation = operation ?? throw new ArgumentNullException(nameof(operation));
+    }
+
+    public IStringBuilderProvider? Origin { get; protected set; } = null;
+
+    public IOperation Operation { get; private set; }
+
+    public StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+    {
+        var sb = Origin?.GetStringBuilder(stringBuilder) ?? stringBuilder ?? new StringBuilder();
+        Operation?.Operate(sb);
+        return sb;
+    }
+
+    public interface IOperation
+    {
+        void Operate(StringBuilder stringBuilder);
+    }
+
+    public static TextChain operator +(TextChainEx origin, string append) =&gt; new TextChain(origin, append);
+    public static TextChainEx operator +(string append, TextChainEx origin) =&gt; new TextChainEx(origin, new Operations.Insert(0, append));
+    public static TextChainCombined operator +(TextChainEx left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+
+
+    public static explicit operator string(TextChainEx from) =&gt; from.ToString();
+    public override string ToString() =&gt; GetStringBuilder().ToString();
+
+    public static TextChainEx Append(IStringBuilderProvider stringBuilder, string text) =&gt; new TextChainEx(stringBuilder, new Operations.Append(text));
+    public static TextChainEx AppendLine(IStringBuilderProvider stringBuilder, string text) =&gt; new TextChainEx(stringBuilder, new Operations.AppendLine(text));
+    public static TextChainEx Insert(IStringBuilderProvider stringBuilder, string text, int index) =&gt; new TextChainEx(stringBuilder, new Operations.Insert(index, text));
+    public static TextChainEx ReplaceString(IStringBuilderProvider stringBuilder, string oldValue, string newValue) =&gt; new TextChainEx(stringBuilder, new Operations.ReplaceString(oldValue, newValue));
+
+
+    public class Operations
+    {
+        public class Append : IOperation
+        {
+            public string Appended { get; private set; }
+
+            public Append(string appended)
+            {
+                Appended = appended ?? throw new ArgumentNullException(nameof(appended));
+            }
+
+            public void Operate(StringBuilder stringBuilder)
+            {
+                stringBuilder.Append(Appended);
+            }
+        }
+
+        public class AppendLine : IOperation
+        {
+            public string Appended { get; private set; }
+
+            public AppendLine(string appended)
+            {
+                Appended = appended ?? throw new ArgumentNullException(nameof(appended));
+            }
+
+            public void Operate(StringBuilder stringBuilder)
+            {
+                stringBuilder.AppendLine(Appended);
+            }
+        }
+
+        public class Insert : IOperation
+        {
+            public Insert(int index, string value)
+            {
+                Value = value ?? throw new ArgumentNullException(nameof(value));
+                Index = index;
+            }
+
+            public string Value { get; private set; }
+            public int Index { get; private set; }
+
+            public void Operate(StringBuilder stringBuilder)
+            {
+                stringBuilder.Insert(Index, Value);
+            }
+        }
+
+        public class ReplaceString : IOperation
+        {
+            public ReplaceString(string oldValue, string newValue, int? startIndex, int? count)
+            {
+                OldValue = oldValue ?? throw new ArgumentNullException(nameof(oldValue));
+                NewValue = newValue ?? throw new ArgumentNullException(nameof(newValue));
+                StartIndex = startIndex;
+                Count = count;
+            }
+
+            public ReplaceString(string oldValue, string newValue)
+            {
+                OldValue = oldValue ?? throw new ArgumentNullException(nameof(oldValue));
+                NewValue = newValue ?? throw new ArgumentNullException(nameof(newValue));
+            }
+
+            public string OldValue { get; private set; }
+            public string NewValue { get; private set; }
+            public int? StartIndex { get; private set; }
+            public int? Count { get; private set; }
+
+            public void Operate(StringBuilder stringBuilder)
+            {
+                if (StartIndex is null || Count is null) stringBuilder.Replace(OldValue, NewValue);
+                else stringBuilder.Replace(OldValue, NewValue, StartIndex ?? 0, Count ?? 0);
+            }
+        }
+    }
+}
+

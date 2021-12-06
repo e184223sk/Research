@@ -1,0 +1,64 @@
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Profiling;
+
+public class GetComponentTest : MonoBehaviour
+{
+    private readonly Dictionary&lt;Type, object&gt; _componentCache = new Dictionary&lt;Type, object&gt;();
+
+    public new T GetComponent&lt;T&gt;() where T : Component
+    {
+        var type = typeof(T);
+        if (_componentCache.ContainsKey(type) == false)
+        {
+            var component = base.GetComponent&lt;T&gt;();
+            if (component == null) component = gameObject.AddComponent&lt;T&gt;();
+
+            _componentCache.Add(type, component);
+        }
+
+        return (T) _componentCache[type];
+    }
+
+    private readonly int max = 10000;
+    private CustomSampler samplerNormal;
+    private CustomSampler samplerDefaultGetComponent;
+    private CustomSampler samplerOverrideGetComponent;
+    private CustomSampler samplerCache;
+    private Transform cacheTransform;
+
+    private void Awake()
+    {
+        samplerNormal = CustomSampler.Create("Normal");
+        samplerDefaultGetComponent = CustomSampler.Create("GetComponentおじさん");
+        samplerOverrideGetComponent = CustomSampler.Create("貼るだけで速くなる");
+        samplerCache = CustomSampler.Create("NormalCache");
+        cacheTransform = base.GetComponent&lt;Transform&gt;();
+    }
+
+    private void Update()
+    {
+        //普通の使い方
+        samplerNormal.Begin();
+        for (var i = 0; i &lt; max; ++i) transform.Rotate(0,0,Time.deltaTime);
+        samplerNormal.End();
+
+        //GetComponentおじさん
+        samplerDefaultGetComponent.Begin();
+        for (var i = 0; i &lt; max; ++i) base.GetComponent&lt;Transform&gt;().Rotate(0,0,Time.deltaTime);
+        samplerDefaultGetComponent.End();
+
+        //貼るだけで速くなるコード(?)
+        samplerOverrideGetComponent.Begin();
+        for (var i = 0; i &lt; max; ++i) GetComponent&lt;Transform&gt;().Rotate(0,0,Time.deltaTime);
+        samplerOverrideGetComponent.End();
+
+        //メンバ変数でキャッシュ
+        samplerCache.Begin();
+        for (var i = 0; i &lt; max; ++i) cacheTransform.Rotate(0,0,Time.deltaTime);
+        samplerCache.End();
+    }
+}
+

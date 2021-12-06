@@ -1,0 +1,179 @@
+
+public class CardMethods
+{
+    public static CardGame.GameEnvironment Environment { get; set; }
+    public static string NUMBER = "Number";
+    public static string TRUMPTYPE = "TrumpType";
+    public static string TRUMPS = "Trumps";
+    public static Trump[] Trumps
+    {
+        get { return (Trump[])Environment.Dictionary[TRUMPS]; }
+    }
+    public static Stack&lt;RuleCard&gt; GStack
+    {
+        get { return Environment.Stack; }
+    }
+    public static Dictionary&lt;string,RuleCard&gt; Universe
+    {
+        get { return Environment.Universe; }
+    }
+
+    /// &lt;summary&gt;
+    /// ゲーム開始時に使用されるカード。神経衰弱に必要なカードを生成し、必要なルールをスタックに積む。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    [CardMethod("開始",true)]
+    public static bool FirstCard()
+    {
+        Console.OutputEncoding = System.Text.Encoding.Unicode;
+        Console.WriteLine("神経衰弱を開始します。");
+        GStack.Push(Universe["底"]);
+        GStack.Push(Universe["シャッフル"]);
+        GStack.Push(Universe["生成"]);
+        return true;
+
+    }
+
+    /// &lt;summary&gt;
+    /// スタックの一番下に常に置かれているカード。トランプが全て表になっていなければ、底と選択のカードをスタックに積む。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    [CardMethod("底")]
+    public static bool Bottom()
+    {
+        if (Trumps.All((v) =&gt; v.IsOmote))
+        {
+            Console.WriteLine("ゲームクリア！");
+        }
+        else
+        {
+            GStack.Push(Universe["底"]);
+            GStack.Push(Universe["選択"]);
+        }
+        return true;
+    }
+
+    /// &lt;summary&gt;
+    /// 伏せているカードを二枚選んで両方の数字が同じならそれらのカードを表にする。違うなら裏に戻す。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    [CardMethod("選択")]
+    public static bool Choice()
+    {
+        View();
+        var input1 = ValidateChoice(true,-1);
+        var input2 = ValidateChoice(false,input1);
+
+        var card1 = Trumps[input1];
+        var card2 = Trumps[input2];
+        Console.WriteLine("一つ目のカードは{0}です", card1.TypeAndNumber);
+        Console.WriteLine("二つ目のカードは{0}です", card2.TypeAndNumber);
+        if (card1.Number == card2.Number)
+        {
+            Console.WriteLine("数字が一致しました。");
+            card1.IsOmote = true;
+            card2.IsOmote = true;
+        }
+        else
+        {
+            Console.WriteLine("残念、外れでした。");
+        }
+        return true;
+    }
+    public static int ValidateChoice(bool isFirst, int preNumber)
+    {
+        if (isFirst)
+        {
+            Console.WriteLine("一つ目のカードを選んでください。");
+        }else
+        {
+            Console.WriteLine("二つ目のカードを選んでください。");
+        }
+        while (true)
+        {
+            var input1 = Console.ReadLine();
+            int num = -1;
+            var result = Int32.TryParse(input1, out num);
+            if (!result)
+            {
+                Console.WriteLine("数字を入力してください");
+            }
+            else if (num &lt; 0 || num &gt;= Trumps.Length)
+            {
+                Console.WriteLine("範囲外の数字です");
+            }
+            else if (Trumps[num].IsOmote)
+            {
+                Console.WriteLine("選択したカードは既に表です。");
+            }
+            else if(!isFirst &amp;&amp; preNumber == num)
+            {
+                Console.WriteLine("一つ目のカードと同じカードを選択しています。");
+            }
+            else
+            {
+                return num;
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// トランプの生成
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    [CardMethod("生成")]
+    public static bool Generate()
+    {
+        Console.WriteLine("カードを生成します。");
+        var p = new List&lt;Trump&gt;();
+        foreach(var type in new[] { TrumpType.Heart, TrumpType.Diamond, TrumpType.Club, TrumpType.Spade })
+        {
+            for (int i=1;i&lt;= 4; i++)
+            {
+                p.Add(new Trump() { Type = type, Number = i, IsOmote = false });
+            }
+        }
+        Environment.Dictionary[TRUMPS] = p.ToArray();
+
+        return true;
+    }
+    public static void Shuffle&lt;T&gt;(T[] items)
+    {
+        var seed = System.Environment.TickCount;
+        var rand = new System.Random(seed);
+        var count = items.Length * 10;
+        for (int k = 0; k &lt; 10; k++)
+        {
+            for (int i = 0; i &lt; items.Length; i++)
+            {
+                var j = rand.Next(items.Length);
+                var tmp = items[i];
+                items[i] = items[j];
+                items[j] = tmp;
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// トランプをシャッフルする
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    [CardMethod("シャッフル")]
+    public static bool CardShuffle()
+    {
+        Console.WriteLine("カードをシャッフルします。");
+        Shuffle(Trumps);
+        return true;
+    }
+    public static bool View()
+    {
+        for(int i = 0; i &lt; Trumps.Length; i++)
+        {
+            Console.Write("[{0}:{1}]", i, Trumps[i]);
+        }
+        Console.WriteLine("");
+        return true;
+    }
+}
+return typeof(CardMethods);
+

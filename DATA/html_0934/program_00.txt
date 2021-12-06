@@ -1,0 +1,113 @@
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Windows.Forms;
+
+
+class MainForm : Form
+{
+    DataGridView dgv;
+    BindingList&lt;ExampleItem&gt; items;
+    BindingSource wrapper;
+
+    // DataGridViewに表示する項目
+    public class ExampleItem
+    {
+        // フィールドは表示されない。プロパティにする必要がある。
+        public string FileName {get;set;}
+
+        public ExampleItem()
+        {
+            Console.WriteLine("ExampleItem() called.");
+            FileName="xxx";
+        }
+
+        public static ExampleItem CreateItem(string fileName)
+        {
+            var item = new ExampleItem(){ FileName = fileName };
+            Console.WriteLine(" by CreateItem.");
+            return item;
+        }
+    }
+
+    MainForm(string fileName)
+    {
+        items = new BindingList&lt;ExampleItem&gt;();
+
+        Controls.Add(
+            dgv = new DataGridView() {
+                Dock = DockStyle.Fill,
+                //AllowUserToAddRows = false,
+                //AutoGenerateColumns = false,
+                AllowDrop = true,
+            }
+        );
+        wrapper = new BindingSource();
+        wrapper.AddingNew       += (s,e)=&gt;{Console.WriteLine("[BindingSource Event] AddingNew");};
+        wrapper.BindingComplete += (s,e)=&gt;{Console.WriteLine("[BindingSource Event] BindingComplete");};
+        wrapper.DataSource = items;
+        dgv.DataSource = wrapper;
+
+        dgv.DragEnter += Control_DragEnter;
+        dgv.DragDrop += Control_DragDrop;
+
+        if ( fileName != null ) {
+            RegisterItem(fileName);
+        }
+    }
+
+    void Control_DragEnter(Object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    void Control_DragDrop(Object sender, DragEventArgs e)
+    {
+        Console.WriteLine("[Event] DragDrop");
+        var fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+        foreach ( var s in fileNames ) {
+            RegisterItem(s);
+        }
+    }
+
+    void RegisterItem(string filePath)
+    {
+        var item = ExampleItem.CreateItem(filePath);
+        if ( item != null ) {
+
+            Console.Write("DataGridView's Row Count: ");
+            Console.WriteLine(dgv.Rows.Count);
+            Console.Write("Internal data's Row Count: ");
+            Console.WriteLine(items.Count);
+
+            Console.WriteLine("Add...");
+            if ( dgv.Rows.Count &gt;= items.Count &amp;&amp; items.Count &gt;= 1 ) { // 対策コード
+                wrapper.Insert(items.Count-1, item);                   // 対策コード
+            }                                                          // 対策コード
+            else {                                                     // 対策コード
+                wrapper.Add(item);
+            }                                                          // 対策コード
+            Console.WriteLine("completed");
+
+            Console.Write("DataGridView's Row Count: ");
+            Console.WriteLine(dgv.Rows.Count);
+            Console.Write("Internal data's Row Count: ");
+            Console.WriteLine(items.Count);
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm((args.Length==1)?args[0]:null));
+    }
+}
+
+

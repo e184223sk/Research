@@ -1,0 +1,20 @@
+
+const string RegionsUri = "https://earthquake.usgs.gov/ws/geoserve/regions.json";
+const string FeRegionsFile = "FeRegions.csv";
+
+static async Task&lt;string&gt; GetJapaneseEpicenterNameAsync(float latitude, float longitude)
+{
+    var uri = $"{RegionsUri}?latitude={latitude}&amp;longitude={longitude}&amp;type=fe";
+    await using var stream = await HttpClient.GetStreamAsync(uri);
+    var options = new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+    var json = await JsonSerializer.DeserializeAsync&lt;FeJson&gt;(stream, options);
+
+    var lines = await File.ReadAllLinesAsync(FeRegionsFile);
+    return lines.Select(line =&gt; line.Split(','))
+                .Where(line =&gt; int.Parse(line[0]) == json.Fe.Features.First(feature =&gt; feature.Properties.Number is not null).Properties.Number)
+                .Select(line =&gt; line[1]).FirstOrDefault();
+}
+

@@ -1,0 +1,630 @@
+More than 1 year has passed since last update.IT業界では必須？のテストのエビデンス保存を少しでも楽にするため、[Prt Sc] キーや [Alt] + [Prt Sc] キーの組み合わせで取得したスクリーンショット（画面のキャプチャ）を自動的にファイルに保存します1。１秒間隔でクリップボードをチェック。クリップボードに画像が存在し、前回取得のスクリーンショットと内容が異なる場合にファイルに保存します。（PowerShellで実装）
+　当初、System.Drawing.Image オブジェクトの変化を検知するために GetHashCode() メソッドが返すハッシュ値を利用しようとしましたが、画像自体は変化していなくても画面をキャプチャする度にハッシュ値が変化してしまうので、オブジェクト中の画像データ部分のハッシュ値を計算する関数を自作しています。スクリプトを表示（39行）
+
+
+AutoSaveSS-1.ps1
+#@Powershell -NoP -C "$PSScriptRoot='%~dp0'.TrimEnd('\');&amp;([ScriptBlock]::Create((gc '%~f0'|?{$_.ReadCount -gt 1}|Out-String)))" %* &amp; exit/b
+#################### EDIT HERE ####################
+$imageDir   = $script:PSScriptRoot
+$balloonTip = $True
+###################################################
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+$sha1 = New-Object System.Security.Cryptography.SHA1CryptoServiceProvider
+Function Get-ImageHash($Image) {
+    $stream = New-Object -TypeName System.IO.MemoryStream
+    $Image.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    [void]$stream.Seek(0,'Begin')
+    $hashString = ($sha1.ComputeHash($stream.ToArray()) | %{ "{0:x2}" -f $_ }) -Join
+    $stream.Dispose()
+    return $hashString
+}
+if ($balloonTip) {
+    $PSPath = (Get-Process -PID $PID).Path
+    $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($PSPath)
+}
+while ($True) {
+    $image = [System.Windows.Forms.Clipboard]::GetImage()
+    if ($image) {
+        $hash = Get-ImageHash $image
+        if ($hash -ne $hash_old) {
+            $hash_old = $hash
+            $filename = Join-Path $imageDir ("ScreenShot-" + (Get-Date -Format "yyyyMMddHHmmss") + ".png")
+            $image.Save($filename, [System.Drawing.Imaging.ImageFormat]::Png)
+            if ($balloonTip) {
+                $notifyIcon.Visible = $True
+                $notifyIcon.ShowBalloonTip(1000,"","Screenshot saved!","Info")
+                $notifyIcon.Visible = $False
+            } else { 
+                [console]::beep(500,200)
+            }
+        }
+    }
+    Start-Sleep 1
+}
+
+
+
+タスクトレイに常駐し、クリップボードの変更イベントを受けて（C#利用）スクリーンショットをファイルに保存します2。おまけ機能として、１個のキー（F11）のみでアクティブなウィンドウのスクリーンショットを保存することが出来ます。スクリプトを表示（104行）
+
+
+AutoSaveSS-2a.ps1
+#@Powershell -NoP -W Hidden -C "$PSCP='%~f0';$PSSR='%~dp0'.TrimEnd('\');&amp;([ScriptBlock]::Create((gc '%~f0'|?{$_.ReadCount -gt 1}|Out-String)))" %* &amp; exit/b
+# by earthdiver1
+if ($PSCommandPath) {
+    $PSCP = $PSCommandPath
+    $PSSR = $PSScriptRoot
+    $code = '[DllImport("user32.dll")]public static extern bool ShowWindowAsync(IntPtr hWnd,int nCmdShow);'
+    $type = Add-Type -MemberDefinition $code -Name Win32ShowWindowAsync -PassThru
+    [void]$type::ShowWindowAsync((Get-Process -PID $PID).MainWindowHandle,0) # SW_HIDE =&gt; hide window
+}
+$syncHash = [hashtable]::Synchronized(@{})
+#################### EDIT HERE ####################
+$syncHash.minImageSize = 200
+$syncHash.imageDir     = $PSSR
+$syncHash.balloonTip   = $True
+###################################################
+Add-Type -AssemblyName System.Windows.Forms
+$menuItem = New-Object System.Windows.Forms.MenuItem "Exit"
+$menuItem.add_Click({ $notifyIcon.Visible = $False; $form.Close() })
+$contextMenu = New-Object System.Windows.Forms.ContextMenu
+$contextMenu.MenuItems.AddRange($menuItem)
+$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+$notifyIcon.ContextMenu = $contextMenu
+$notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($PSCP)
+$notifyIcon.Text = (Get-ChildItem $PSCP).BaseName
+$notifyIcon.Visible = $True
+$syncHash.notifyIcon = $notifyIcon
+$runspace = [RunspaceFactory]::CreateRunspace()
+$runspace.ApartmentState = "STA"
+$runspace.ThreadOptions  = "ReuseThread"
+$runspace.Open()
+$runspace.SessionStateProxy.SetVariable("syncHash",$syncHash)
+$PS = [PowerShell]::Create()
+$PS.Runspace = $runspace
+$PS.AddScript({
+    $global:MinImageSize = $syncHash.minImageSize
+    $global:ImageDir     = $syncHash.imageDir
+    $global:BalloonTip   = $syncHash.balloonTip
+    $global:NotifyIcon   = $syncHash.notifyIcon
+    while (-not $syncHash.form) { Start-Sleep 1 }
+    Register-ObjectEvent -InputObject $syncHash.form -EventName ClipboardImageUpdate -Action {
+        Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+        $image = [System.Windows.Forms.Clipboard]::GetImage()
+        if ($image -and $image.Height -ge $global:MinImageSize -and $image.Width -ge $global:MinImageSize) {
+            $filename = Join-Path $global:ImageDir ("ScreenShot-" + (Get-Date -Format "yyyyMMddHHmmss") + ".png")
+            $image.Save($filename, [System.Drawing.Imaging.ImageFormat]::Png)
+            if ($global:BalloonTip) {
+                $global:NotifyIcon.ShowBalloonTip(1000,"","Screenshot saved!","Info")
+            } else {
+                [console]::beep(500,200)
+            }
+        }
+    } | Out-Null
+    while ($global:NotifyIcon.Visible) { Wait-Event -Timeout 1 }
+}) | Out-Null
+$PS.BeginInvoke() | Out-Null
+Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @"
+    using System;
+    using System.Drawing;
+    using System.Runtime.InteropServices;
+    using System.Windows.Forms;
+    public class ClipboardWatcherForm : Form {
+        [DllImport("user32.dll")]private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+        [DllImport("user32.dll")]private static extern bool AddClipboardFormatListener(IntPtr hWnd);
+        [DllImport("user32.dll")]private static extern bool RemoveClipboardFormatListener(IntPtr hWnd);
+        [DllImport("user32.dll")]private static extern bool RegisterHotKey(IntPtr hWnd, int id, int modKey, int key);
+        [DllImport("user32.dll")]private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        [DllImport("user32.dll")]private static extern uint GetClipboardSequenceNumber();
+        bool _disposed;
+        int  _id = (new Random()).Next(0x1000, 0xc000);
+        uint _lastSeq = 0;
+        public ClipboardWatcherForm() {
+            _disposed = false;
+            SetParent(Handle, new IntPtr(-3));        // HWND_MESSAGE =&gt; message-only window
+            AddClipboardFormatListener(Handle);
+            RegisterHotKey(Handle, _id, 0x4000, 122); // 122 =&gt; F11
+        }
+        protected override void Dispose(bool disposing) {
+            if (_disposed) return;
+            RemoveClipboardFormatListener(Handle);
+            UnregisterHotKey(Handle, _id);
+            _disposed = true;
+            base.Dispose(disposing);
+        }
+        protected override void WndProc(ref Message m) {
+            if (m.Msg == 0x312 &amp;&amp; (int)m.WParam == _id) WindowScreenshot.SetClipboard(); // WM_HOTKEY
+            if (m.Msg == 0x31D &amp;&amp; Clipboard.ContainsImage()) OnClipboardImageUpdate();   // WM_CLIPBOARDUPDATE
+            base.WndProc(ref m);
+        }
+        public event EventHandler ClipboardImageUpdate = delegate {};
+        protected virtual void OnClipboardImageUpdate() {
+            uint seq = GetClipboardSequenceNumber();
+            if (seq == _lastSeq) return;
+            _lastSeq = seq;
+            ClipboardImageUpdate(this, EventArgs.Empty);
+        }
+    }
+    public static class WindowScreenshot {
+        public static void SetClipboard() { SendKeys.SendWait("%{PRTSC}"); }
+    }
+"@
+$form = New-Object ClipboardWatcherForm
+$syncHash.form = $form
+$form.ShowDialog()
+$form.Dispose()
+
+
+
+実装 2-1 では F11 キーを押下した際に sendkey() を用いて [Alt] + [Prt Sc] を送出しますが、こちらは F11 押下時にアクティブウィンドウをキャプチャしてクリップボードにセットする処理を独自に行ないます（WindowScreenshotクラスを参照）。これにより、（エクスプローラー等の）右クリックで表示されるコンテキストメニューのスクリーンショットも取得できるようになっています3。アクティブウィンドウとコンテキストメニューを多重露光のように重ねて描画しているため、メニューがウィンドウの枠からはみ出ても背景の映り込みはありません。他にもマニュアル作成等に便利なおまけ機能（マウスポインタのキャプチャ、遅延キャプチャ）を追加しました。＜コンテキストメニューのキャプチャ例＞
+スクリプトを表示（237行）
+
+
+AutoSaveSS-2b.ps1
+#@Powershell -NoP -W Hidden -C "$PSCP='%~f0';$PSSR='%~dp0'.TrimEnd('\');&amp;([ScriptBlock]::Create((gc '%~f0'|?{$_.ReadCount -gt 1}|Out-String)))" %* &amp; exit/b
+# by earthdiver1
+if ($PSCommandPath) {
+    $PSCP = $PSCommandPath
+    $PSSR = $PSScriptRoot
+    $code = '[DllImport("user32.dll")]public static extern bool ShowWindowAsync(IntPtr hWnd,int nCmdShow);'
+    $type = Add-Type -MemberDefinition $code -Name Win32ShowWindowAsync -PassThru
+    [void]$type::ShowWindowAsync((Get-Process -PID $PID).MainWindowHandle,0) # SW_HIDE =&gt; hide window
+}
+#################### EDIT HERE ####################
+$imageDir = $PSSR
+$minImageSize = 200
+###################################################
+$syncHash = [hashtable]::Synchronized(@{})
+$syncHash.minImageSize = $minImageSize
+Add-Type -AssemblyName System.Windows.Forms
+$menuItem0 = New-Object System.Windows.Forms.MenuItem "Auto Save as PNG"
+$menuItem0.add_Click({ $menuItem0.Checked = !$menuItem0.Checked
+                       $menuItem1.Enabled = $menuItem0.Checked  
+                       $menuItem2.Enabled = $menuItem0.Checked })
+$menuItem0.Checked = $True
+$menuItem1 = New-Object System.Windows.Forms.MenuItem "Show BalloonTip"
+$menuItem1.add_Click({ $menuItem1.Checked = !$menuItem1.Checked })
+$menuItem1.Checked = $True
+$menuItem2 = New-Object System.Windows.Forms.MenuItem "Change Save Directory"
+$menuItem2.add_Click({ 
+    $ftm = New-Object System.Windows.Forms.Form -Property @{TopMost = $True}
+    $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+    $fbd.ShowNewFolderButton = $false
+    $fbd.Description = "Select Save Directory"
+    $fbd.SelectedPath = $menuItem2.Tag.ToString()
+    $result = $fbd.ShowDialog($ftm)
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) { $menuItem2.Tag = $fbd.SelectedPath }
+    $fbd.Dispose()
+    $ftm.Dispose()
+})
+$menuItem2.Tag = $imageDir
+$menuItem3 = New-Object System.Windows.Forms.MenuItem "Draw Cursor with F11 key"
+$menuItem3.add_Click({ $menuItem3.Checked = !$menuItem3.Checked })
+$menuItem4 = New-Object System.Windows.Forms.MenuItem "Delay 3 sec with F11 key"
+$menuItem4.add_Click({ $menuItem4.Checked = !$menuItem4.Checked })
+$menuItem5 = New-Object System.Windows.Forms.MenuItem "Exit"
+$menuItem5.add_Click({ $notifyIcon.Visible = $False; $form.Close() })
+$contextMenu = New-Object System.Windows.Forms.ContextMenu
+$contextMenu.MenuItems.AddRange(@($menuItem0,$menuItem1,$menuItem2,$menuItem3,$menuItem4,$menuItem5))
+$notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+$notifyIcon.ContextMenu = $contextMenu
+$notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($PSCP)
+$notifyIcon.Text = (Get-ChildItem $PSCP).BaseName
+$notifyIcon.Visible = $True
+$runspace = [RunspaceFactory]::CreateRunspace()
+$runspace.ApartmentState = "STA"
+$runspace.ThreadOptions  = "ReuseThread"
+$runspace.Open()
+$runspace.SessionStateProxy.SetVariable("syncHash",$syncHash)
+$PS = [PowerShell]::Create()
+$PS.Runspace = $runspace
+$PS.AddScript({
+    while (-not $syncHash.form) { Start-Sleep 1 }
+    $global:NotifyIcon = $syncHash.form.NotifyIcon
+    $global:MinImageSize = $syncHash.minImageSize
+    Register-ObjectEvent -InputObject $syncHash.form -EventName ClipboardImageUpdate -Action {
+        Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+        if ([System.Windows.Forms.Clipboard]::ContainsData("PNG")) {
+            $data  = [System.Windows.Forms.Clipboard]::GetDataObject()
+            $image = [System.Drawing.Image]::FromStream($data.GetData("PNG"))
+        } else {
+            $image = [System.Windows.Forms.Clipboard]::GetImage() 
+        }
+        if ($image -and $image.Height -ge $global:MinImageSize -and $image.Width -ge $global:MinImageSize) {
+            $imageDir = $global:NotifyIcon.ContextMenu.MenuItems[2].Tag.ToString()
+            $filename = Join-Path $imageDir ("ScreenShot-" + (Get-Date -Format "yyyyMMddHHmmss") + ".png")
+            $image.Save($filename, [System.Drawing.Imaging.ImageFormat]::Png)
+            if ($global:NotifyIcon.ContextMenu.MenuItems[1].Checked) {
+                $global:NotifyIcon.ShowBalloonTip(1000,"","Screenshot saved!","Info")
+            } else {
+                [console]::beep(500,200)
+            }
+        }
+    } | Out-Null
+    while ($global:NotifyIcon.Visible) { Wait-Event -Timeout 1 }
+}) | Out-Null
+$PS.BeginInvoke() | Out-Null
+Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @"
+    using System;
+    using System.Collections.Generic;
+    using System.Drawing;
+    using System.IO;
+    using System.Runtime.InteropServices;
+    using System.Threading;
+    using System.Windows.Forms;
+    public class ClipboardWatcherForm : Form {
+        [DllImport("user32.dll")]private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+        [DllImport("user32.dll")]private static extern bool AddClipboardFormatListener(IntPtr hWnd);
+        [DllImport("user32.dll")]private static extern bool RemoveClipboardFormatListener(IntPtr hWnd);
+        [DllImport("user32.dll")]private static extern bool RegisterHotKey(IntPtr hWnd, int id, int modKey, int key);
+        [DllImport("user32.dll")]private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        [DllImport("user32.dll")]private static extern uint GetClipboardSequenceNumber();
+        public NotifyIcon NotifyIcon;
+        bool _disposed;
+        int  _id = (new Random()).Next(0x1000, 0xc000);
+        uint _lastSeq = 0;
+        public ClipboardWatcherForm() {
+            _disposed = false;
+            SetParent(Handle, new IntPtr(-3));          // HWND_MESSAGE =&gt; message-only window
+            AddClipboardFormatListener(Handle);
+            RegisterHotKey(Handle, _id  , 0x4000, 122); // 122 =&gt; F11
+        }
+        protected override void Dispose(bool disposing) {
+            if (_disposed) return;
+            RemoveClipboardFormatListener(Handle);
+            UnregisterHotKey(Handle, _id);
+            _disposed = true;
+            base.Dispose(disposing);
+        }
+        protected override void WndProc(ref Message m) {
+            if (m.Msg == 0x312 &amp;&amp; (int)m.WParam == _id)      OnHotKeyPressed();        // WM_HOTKEY
+            if (m.Msg == 0x31D &amp;&amp; Clipboard.ContainsImage()) OnClipboardImageUpdate(); // WM_CLIPBOARDUPDATE
+            base.WndProc(ref m);
+        }
+        protected virtual void OnHotKeyPressed() {
+            var t = new Thread(() =&gt; {
+                if (NotifyIcon.ContextMenu.MenuItems[4].Checked) Thread.Sleep(3000);
+                WindowScreenshot.SetClipboard(NotifyIcon.ContextMenu.MenuItems[3].Checked);
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+//          t.Join(); // uncomment to avoid "System.Runtime.InteropServices.ExternalException (0x800401D0)" error
+        }
+        public event EventHandler ClipboardImageUpdate = delegate {};
+        protected virtual void OnClipboardImageUpdate() {
+            if (!NotifyIcon.ContextMenu.MenuItems[0].Checked) return;
+            uint seq = GetClipboardSequenceNumber();
+            if (seq == _lastSeq) return;
+            _lastSeq = seq;
+            ClipboardImageUpdate(this, EventArgs.Empty);
+        }
+    }
+    public static class WindowScreenshot {
+        [StructLayout(LayoutKind.Sequential)]private struct RECT {
+            public int    Left, Top, Right, Bottom;
+        }
+        [StructLayout(LayoutKind.Sequential)]private struct CURSORINFO {
+            public int    cbSize;
+            public int    flags;
+            public IntPtr hCursor;
+            public Point  ptScreenPos;
+        }
+        [StructLayout(LayoutKind.Sequential)]private struct ICONINFO {
+            public bool   fIcon;
+            public int    xHotspot;
+            public int    yHotspot;
+            public IntPtr hbmMask;
+            public IntPtr hbmColor;
+        }
+        [DllImport("user32.dll")]private static extern bool   SetProcessDPIAware();
+        [DllImport("user32.dll")]private static extern IntPtr GetForegroundWindow();
+        [DllImport("dwmapi.dll")]private static extern int 
+            DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+        [DllImport("user32.dll")]private static extern IntPtr 
+            FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+        [DllImport("user32.dll")]private static extern bool   GetCursorInfo(out CURSORINFO pci);
+        [DllImport("user32.dll")]private static extern IntPtr CopyIcon(IntPtr hIcon);
+        [DllImport("user32.dll")]private static extern bool   GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+        [DllImport("user32.dll")]private static extern bool   DrawIcon(IntPtr hdc, int x, int y, IntPtr hIcon);
+        const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        const int CURSOR_SHOWING = 1;
+        static WindowScreenshot() {
+            SetProcessDPIAware();
+        }
+        public static void SetClipboard(bool drawCursor) {
+            IntPtr hWnd  = GetForegroundWindow();
+            RECT R;
+            int status = DwmGetWindowAttribute(hWnd,
+                                               DWMWA_EXTENDED_FRAME_BOUNDS,
+                                               out R,
+                                               Marshal.SizeOf(typeof(RECT)));
+            if (status != 0) return;
+            Rectangle rWindow = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+            var rList = new List&lt;Rectangle&gt;();
+            rList.Add(rWindow);
+            Rectangle rBmp = rWindow;
+            IntPtr h = IntPtr.Zero;
+            int ct = 0, maxct = 10;
+            while (true &amp;&amp; ct++ &lt; maxct) {
+                h = FindWindowEx(IntPtr.Zero, h, "#32768", null);
+                if (h == IntPtr.Zero) break;
+                status = DwmGetWindowAttribute(h,
+                                               DWMWA_EXTENDED_FRAME_BOUNDS,
+                                               out R,
+                                               Marshal.SizeOf(typeof(RECT)));
+                if (status == 0) {
+                    Rectangle r = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+                    if (!rWindow.Contains(r)) {
+                        rBmp = Rectangle.Union(rBmp,r);
+                        rList.Add(r);
+                    }
+                }
+            }
+            using (var b = new Bitmap(rBmp.Width, rBmp.Height)) {
+                using (Graphics g = Graphics.FromImage(b)) {
+                    foreach (Rectangle r in rList) {
+                        g.CopyFromScreen(r.X, r.Y, r.X - rBmp.X, r.Y - rBmp.Y, r.Size);
+                    }
+                    if (drawCursor) {
+                        CURSORINFO cInfo;
+                        cInfo.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+                        if (GetCursorInfo(out cInfo)) {
+                            if (cInfo.flags == CURSOR_SHOWING) {
+                                IntPtr iPtr = CopyIcon(cInfo.hCursor);
+                                ICONINFO iInfo;
+                                if (GetIconInfo(iPtr, out iInfo)) {
+                                    int posX = cInfo.ptScreenPos.X - (int)iInfo.xHotspot - rBmp.X;
+                                    int posY = cInfo.ptScreenPos.Y - (int)iInfo.yHotspot - rBmp.Y;
+                                    DrawIcon(g.GetHdc(), posX, posY, cInfo.hCursor);
+                                }
+                            }
+                        }
+                    }
+                }
+                var d = new DataObject();
+                d.SetData(b);
+                using (var s = new MemoryStream()) {
+                    b.Save(s, System.Drawing.Imaging.ImageFormat.Png);
+                    d.SetData("PNG", false, s);
+                    Clipboard.SetDataObject(d, true);
+                }
+            }
+            rList.Clear();
+        }
+    }
+"@
+$form = New-Object ClipboardWatcherForm
+$form.NotifyIcon = $notifyIcon
+$syncHash.form = $form
+$form.ShowDialog()
+$form.Dispose()
+
+
+
+実装2-2は、おまけ機能を盛り込み過ぎた結果、PowerShellよりもC#のコードの方が長くなってしまいました。いっそ全部C#で書いてしまおう、ということでC#版です。（機能は実装2-2と同じ）ソースコードを表示（217行）
+
+
+AutoSaveSS.cs
+// by earthdiver1
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+
+public class AutoSaveSS {
+    [STAThread]
+    public static void Main() {
+        if (Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName).Length == 1) {
+            Application.Run(new ClipboardWatcherForm());
+        }
+    }
+}
+
+public class ClipboardWatcherForm : Form {
+    [DllImport("user32.dll")]private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+    [DllImport("user32.dll")]private static extern bool AddClipboardFormatListener(IntPtr hWnd);
+    [DllImport("user32.dll")]private static extern bool RemoveClipboardFormatListener(IntPtr hWnd);
+    [DllImport("user32.dll")]private static extern bool RegisterHotKey(IntPtr hWnd, int id, int modKey, int key);
+    [DllImport("user32.dll")]private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    [DllImport("user32.dll")]private static extern uint GetClipboardSequenceNumber();
+    NotifyIcon _notifyIcon = new NotifyIcon();
+    bool   _disposed;
+    string _imageDir = Environment.GetEnvironmentVariable("IMAGEDIR");
+    int    _id = (new Random()).Next(0x1000, 0xc000);
+    uint   _lastSeq = 0;
+    int    _minImageSize = 200;
+
+    public ClipboardWatcherForm() {
+        _disposed = false;
+        SetParent(Handle, new IntPtr(-3));          // HWND_MESSAGE =&gt; message-only window
+        _notifyIcon.ContextMenu = new ContextMenu(new MenuItem[] {
+            new MenuItem("Auto Save as PNG"        , (s, e) =&gt; {
+                ((MenuItem)s).Checked = !((MenuItem)s).Checked;
+                _notifyIcon.ContextMenu.MenuItems[1].Enabled = ((MenuItem)s).Checked;
+                _notifyIcon.ContextMenu.MenuItems[2].Enabled = ((MenuItem)s).Checked;
+            }),
+            new MenuItem("Show BalloonTip"         , (s, e) =&gt; { ((MenuItem)s).Checked = !((MenuItem)s).Checked; }),
+            new MenuItem("Change Save Directory"    , (s, e) =&gt; {
+                using(var f = new Form(){TopMost = true})
+                using(var fbd = new FolderBrowserDialog()) {
+                    fbd.ShowNewFolderButton = false;
+                    fbd.Description  = "Select Save Directory";
+                    fbd.SelectedPath = _imageDir;
+                    if (fbd.ShowDialog(f) == DialogResult.OK) _imageDir = fbd.SelectedPath;
+                }
+            }),
+            new MenuItem("Draw Cursor with F11 key", (s, e) =&gt; { ((MenuItem)s).Checked = !((MenuItem)s).Checked; }),
+            new MenuItem("Delay 3 sec with F11 key", (s, e) =&gt; { ((MenuItem)s).Checked = !((MenuItem)s).Checked; }),
+            new MenuItem("Exit"                    , (s, e) =&gt; { _notifyIcon.Visible = false; Application.Exit(); }),
+        });
+        _notifyIcon.ContextMenu.MenuItems[0].Checked = true;
+        _notifyIcon.ContextMenu.MenuItems[1].Checked = true;
+        _notifyIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        _notifyIcon.Text = "AutoSaveSS";
+        _notifyIcon.Visible = true;
+        if (_imageDir == null) _imageDir = Application.StartupPath;
+        AddClipboardFormatListener(Handle);
+        RegisterHotKey(Handle, _id, 0x4000, 122); // 122 =&gt; F11
+    }
+
+    protected override void Dispose(bool disposing) {
+        if (_disposed) return;
+        if (disposing) {
+            foreach (MenuItem item in _notifyIcon.ContextMenu.MenuItems) item.Dispose();
+            _notifyIcon.ContextMenu.Dispose();
+            _notifyIcon.Dispose();
+        }
+        RemoveClipboardFormatListener(Handle);
+        UnregisterHotKey(Handle, _id);
+        _disposed = true;
+        base.Dispose(disposing);
+    }
+
+    protected override void WndProc(ref Message m) {
+        if (m.Msg == 0x312 &amp;&amp; (int)m.WParam == _id)      OnHotKeyPressed();        // WM_HOTKEY
+        if (m.Msg == 0x31D &amp;&amp; Clipboard.ContainsImage()) OnClipboardImageUpdate(); // WM_CLIPBOARDUPDATE
+        base.WndProc(ref m);
+    }
+
+    protected virtual void OnHotKeyPressed() {
+        var t = new Thread(() =&gt; {
+            if (_notifyIcon.ContextMenu.MenuItems[4].Checked) Thread.Sleep(3000);
+            WindowScreenshot.SetClipboard(_notifyIcon.ContextMenu.MenuItems[3].Checked);
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+//      t.Join(); // uncomment to avoid "System.Runtime.InteropServices.ExternalException (0x800401D0)" error
+    }
+
+    protected virtual void OnClipboardImageUpdate() {
+        if (!_notifyIcon.ContextMenu.MenuItems[0].Checked) return;
+        uint seq = GetClipboardSequenceNumber();
+        if (seq == _lastSeq) return;
+        _lastSeq = seq;
+        var t = new Thread(() =&gt; {
+            Image img;
+            if (Clipboard.ContainsData("PNG")) {
+                IDataObject data  = Clipboard.GetDataObject();
+                img = Image.FromStream((Stream)data.GetData("PNG"));
+            } else {
+                img = Clipboard.GetImage();
+            }
+            if (img != null &amp;&amp; img.Height &gt;= _minImageSize &amp;&amp; img.Width &gt;= _minImageSize) {
+                string filename = Path.Combine(_imageDir, @"ScreenShot-" + DateTime.Now.ToString("yyyyMMddHHmmss") + ".png");
+                img.Save(filename, System.Drawing.Imaging.ImageFormat.Png);
+                if (_notifyIcon.ContextMenu.MenuItems[1].Checked) {
+                    _notifyIcon.ShowBalloonTip(1000,"","Screenshot saved!", ToolTipIcon.Info);
+                } else {
+                    Console.Beep(500,200);
+                }
+            }
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+    }
+}
+
+public static class WindowScreenshot {
+    [StructLayout(LayoutKind.Sequential)]private struct RECT {
+        public int    Left, Top, Right, Bottom;
+    }
+    [StructLayout(LayoutKind.Sequential)]private struct CURSORINFO {
+        public int    cbSize;
+        public int    flags;
+        public IntPtr hCursor;
+        public Point  ptScreenPos;
+    }
+    [StructLayout(LayoutKind.Sequential)]private struct ICONINFO {
+        public bool   fIcon;
+        public int    xHotspot;
+        public int    yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+    [DllImport("user32.dll")]private static extern bool   SetProcessDPIAware();
+    [DllImport("user32.dll")]private static extern IntPtr GetForegroundWindow();
+    [DllImport("dwmapi.dll")]private static extern int 
+        DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+    [DllImport("user32.dll")]private static extern IntPtr 
+        FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+    [DllImport("user32.dll")]private static extern bool   GetCursorInfo(out CURSORINFO pci);
+    [DllImport("user32.dll")]private static extern IntPtr CopyIcon(IntPtr hIcon);
+    [DllImport("user32.dll")]private static extern bool   GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+    [DllImport("user32.dll")]private static extern bool   DrawIcon(IntPtr hdc, int x, int y, IntPtr hIcon);
+    const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    const int CURSOR_SHOWING = 1;
+
+    static WindowScreenshot() {
+        SetProcessDPIAware();
+    }
+
+    public static void SetClipboard(bool drawCursor) {
+        IntPtr hWnd  = GetForegroundWindow();
+        RECT R;
+        int status = DwmGetWindowAttribute(hWnd,
+                                           DWMWA_EXTENDED_FRAME_BOUNDS,
+                                           out R,
+                                           Marshal.SizeOf(typeof(RECT)));
+        if (status != 0) return;
+        Rectangle rWindow = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+        var rList = new List&lt;Rectangle&gt;();
+        rList.Add(rWindow);
+        Rectangle rBmp = rWindow;
+        IntPtr h = IntPtr.Zero;
+        int ct = 0, maxct = 10;
+        while (true &amp;&amp; ct++ &lt; maxct) {
+            h = FindWindowEx(IntPtr.Zero, h, "#32768", null);
+            if (h == IntPtr.Zero) break;
+            status = DwmGetWindowAttribute(h,
+                                           DWMWA_EXTENDED_FRAME_BOUNDS,
+                                           out R,
+                                           Marshal.SizeOf(typeof(RECT)));
+            if (status != 0) continue;
+            Rectangle r = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+            if (!rWindow.Contains(r)) {
+                rBmp = Rectangle.Union(rBmp,r);
+                rList.Add(r);
+            }
+        }
+        using (var b = new Bitmap(rBmp.Width, rBmp.Height)) {
+            using (Graphics g = Graphics.FromImage(b)) {
+                foreach (Rectangle r in rList) {
+                    g.CopyFromScreen(r.X, r.Y, r.X - rBmp.X, r.Y - rBmp.Y, r.Size);
+                }
+                if (drawCursor) {
+                    CURSORINFO cInfo;
+                    cInfo.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+                    if (GetCursorInfo(out cInfo)) {
+                        if (cInfo.flags == CURSOR_SHOWING) {
+                            IntPtr iPtr = CopyIcon(cInfo.hCursor);
+                            ICONINFO iInfo;
+                            if (GetIconInfo(iPtr, out iInfo)) {
+                                int posX = cInfo.ptScreenPos.X - (int)iInfo.xHotspot - rBmp.X;
+                                int posY = cInfo.ptScreenPos.Y - (int)iInfo.yHotspot - rBmp.Y;
+                                DrawIcon(g.GetHdc(), posX, posY, cInfo.hCursor);
+                            }
+                        }
+                    }
+                }
+            }
+            var d = new DataObject();
+            d.SetData(b);
+            using (var s = new MemoryStream()) {
+                b.Save(s, System.Drawing.Imaging.ImageFormat.Png);
+                d.SetData("PNG", false, s);
+                Clipboard.SetDataObject(d, true);
+            }
+        }
+        rList.Clear();
+    }
+}
+
+
+
+クリエイティブ・コモンズ 表示 - 継承 4.0 国際Windows標準のステップ記録ツールは便利ですが重すぎてフリーズすることがあります。Snipping Tool はワンアクションで取得→保存できません。Windows 8から導入された [Windows] + [Prt Sc] キーの組み合わせはアクティブウィンドウの画面保存ができません。Windows 10 のゲームバー（[Windows] + G で有効にした後、[Windows] + [Alt] + [Prt Sc]）は、惜しいけど複数ウィンドウ（アプリ）を切り替えて作業する場合の画面保存には適していません（2019.4.22追記 ゲームバー機能の最近の更新(1809?)により、このショートカットを用いた方法で表題の目的が達成できるようになった模様です）。Windowsに標準でインストールされている OneDrive には、スクリーンショットを自動的に OneDriveに保存する機能があります。 ↩私の環境では意図しないタイミング（EXCELなどのオフィス系アプリの起動時など）でクリップボードの変更イベントが発生して、その時点でクリップボードに保存されている画像が再度ファイルに保存されてしまう事象が発生しています。対処として、実装1と同様のハッシュ値のチェックを組み入れる、ファイルに保存した直後にクリップボードの画像をクリアする、などの方法が考えられますが今のところこれらのロジックは実装していません。その他、オフィス系アプリの操作中に意図せずにサイズの小さい画像がキャプチャされることがあるため、ファイルに保存する画像サイズに下限値を設定しています（既定値：200×200ピクセル）。 ↩[Alt] + [Prt Sc]キーの組み合わせでは、[Alt]キーを押下した瞬間にコンテキストメニューが消えてしまうため、コンテキストメニューを表示した状態でアクティブウィンドウのスクリーンショットを得ることができません。Windowsの標準機能では、Snipping Tool 起動後に [Control] + [Prt Sc] キーを押下し、マウスドラッグで領域指定することでコンテキストメニューを含んだ矩形領域をキャプチャできます（Creators Update 以降のWindows 10 や OneNote を利用できる環境では Snipping Tool を起動しなくても [Windows] + [Shift] + S キーで領域指定を開始できます）。 ↩
+
+

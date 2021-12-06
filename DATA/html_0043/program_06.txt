@@ -1,0 +1,59 @@
+
+using ClassLibrary2;
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+namespace ConsoleApp2
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            IChecker checker = new HttpChecker();
+            var beat = new HeartBeat(checker);
+            var task = beat.Start("https://www.example.co.jp/", 3000);
+
+            Console.ReadKey();
+            beat.Stop();
+            task.Wait();
+        }
+    }
+
+    class HttpChecker : IChecker
+    {
+        private HttpClient _http;
+
+        public HttpChecker()
+        {
+            _http = new HttpClient();
+            _http.Timeout = TimeSpan.FromMilliseconds(5000);
+        }
+
+        public (bool success, long time, string message) Check(string path)
+        {
+            try
+            {
+                var sw = new Stopwatch();
+                sw.Start();
+                var result = _http.GetAsync(path).Result;
+                sw.Stop();
+                return (result.StatusCode == System.Net.HttpStatusCode.OK, sw.ElapsedMilliseconds, $"{(int)result.StatusCode} {result.StatusCode}");
+            }
+            catch (AggregateException e)
+            {
+                if (e.InnerException is TaskCanceledException)
+                {
+                    return (false, 0, "Timeout");
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+    }
+}
+

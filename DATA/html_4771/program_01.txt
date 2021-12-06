@@ -1,0 +1,45 @@
+
+        private async Task&lt;HttpResponseMessage&gt; HandleGetStatusRequestAsync(
+            HttpRequestMessage request)
+        {
+            DurableOrchestrationClientBase client = this.GetClient(request);
+            var queryNameValuePairs = request.GetQueryNameValuePairs();
+            var createdTimeFrom = GetDateTimeQueryParameterValue(queryNameValuePairs, CreatedTimeFromParameter, default(DateTime));
+            var createdTimeTo = GetDateTimeQueryParameterValue(queryNameValuePairs, CreatedTimeToParameter, default(DateTime));
+            var runtimeStatus = GetIEnumerableQueryParameterValue(queryNameValuePairs, RuntimeStatusParameter);
+
+            // TODO Step-by-step. After fixing the parameter change, I'll implement multiple parameters.
+            IList&lt;DurableOrchestrationStatus&gt; statusForAllInstances = await client.GetStatusAsync(createdTimeFrom, createdTimeTo, runtimeStatus);
+
+            var results = new List&lt;StatusResponsePayload&gt;(statusForAllInstances.Count);
+            foreach (var state in statusForAllInstances)
+            {
+                results.Add(this.ConvertFrom(state));
+            }
+
+            return request.CreateResponse(HttpStatusCode.OK, results);
+        }
+  :
+        private static IEnumerable&lt;OrchestrationRuntimeStatus&gt; GetIEnumerableQueryParameterValue(NameValueCollection queryStringNameValueCollection, string queryParameterName)
+        {
+            var results = new List&lt;OrchestrationRuntimeStatus&gt;();
+            var parameters = queryStringNameValueCollection.GetValues(queryParameterName) ?? new string[] { };
+
+            foreach (var value in parameters.SelectMany(x =&gt; x.Split(',')))
+            {
+                if (Enum.TryParse&lt;OrchestrationRuntimeStatus&gt;(value, out OrchestrationRuntimeStatus result))
+                {
+                    results.Add(result);
+                }
+            }
+
+            return results;
+        }
+
+        private static DateTime GetDateTimeQueryParameterValue(NameValueCollection queryStringNameValueCollection, string queryParameterName, DateTime defaultDateTime)
+        {
+            var value = queryStringNameValueCollection[queryParameterName];
+            return DateTime.TryParse(value, out DateTime dateTime) ? dateTime : defaultDateTime;
+        }
+
+

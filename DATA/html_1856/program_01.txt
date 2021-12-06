@@ -1,0 +1,58 @@
+
+class DX : HwndHost
+{
+    [Flags] enum WindowStyle : int { /* 省略 */ }
+
+    IntPtr app = IntPtr.Zero;
+
+    protected override HandleRef BuildWindowCore(HandleRef hwndParent)
+    {
+        // Win32のWindowの初期化
+        IntPtr hwnd = CreateWindowEx(
+            0, "STATIC", "",
+            WindowStyle.WS_CHILD | WindowStyle.WS_VISIBLE,
+            0, 0,
+            (int)ActualWidth, (int)ActualHeight,
+            hwndParent.Handle,
+            (IntPtr)WindowStyle.HOST_ID,
+            IntPtr.Zero, 0);
+        return new HandleRef(this, hwnd);
+    }
+
+    protected override IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (app == IntPtr.Zero)
+        {
+            // DirectX12の初期化
+            // BuildWindowCoreでInitしたかったが、は矩形が0のままなのでDepthBufferが作れない。
+            // 本当はリサイズも考慮してデバイスのInitとRenderTarger/DepthBufferの生成を分けるべき。
+            app = Init(hwnd, (int)ActualWidth, (int)ActualHeight);
+        }
+
+        // DirectX12の描画（のリクエスト）処理
+        Render(app);
+
+        handled = false;
+        return IntPtr.Zero;
+    }
+
+    protected override void DestroyWindowCore(HandleRef hwnd)
+    {
+        // Win32のWindowとDirectX12の終了処理
+        DestroyWindow(hwnd.Handle);
+        Dispose(app);
+    }
+
+    [DllImport("user32.dll")]
+    static extern IntPtr CreateWindowEx( /* 省略 */ );
+    [DllImport("user32.dll")]
+    static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("02_SimpleTriangle.dll")]
+    static extern IntPtr Init(IntPtr hwnd, int width, int height);
+    [DllImport("02_SimpleTriangle.dll")]
+    static extern void Render(IntPtr app);
+    [DllImport("02_SimpleTriangle.dll")]
+    static extern IntPtr Dispose(IntPtr app);
+}
+

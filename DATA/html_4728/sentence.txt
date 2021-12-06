@@ -1,0 +1,46 @@
+More than 3 years have passed since last update.ASP.NET Core で シングルページアプリケーションを開発する方法をググると、既存の ASP.NET Core の SPA プロジェクトテンプレートを使う方法と、 SPA と Web API を別々のドメインで提供して CORS するサンプルは出てきますが、create-react-appで開発したアプリを ASP.NET Core 上で同一ドメインで動かすサンプルが見つからなかったので自分でやってみることにしました。React アプリ開発をビルド環境構築なしに始められる facebook 公式のツールです。
+これを使って掲示板の SPA を開発します。クロスプラットフォームに対応した .NET の Web アプリケーションフレームワークです。
+create-react-appで開発した掲示板アプリのクライアントへの配信と Web API の受付を行います。サーバーサイドはモックなしで、投稿を保存するデータベース、投稿一覧取得と新規投稿用の Web API まで作りました。
+クライアントサイドはいまどきのJSプログラマーのための Node.jsとReactアプリケーション開発テクニックを参考に開発しました。ソリューションとプロジェクト名を別々にしたいので、Visual Studio でなく、 dotnet コマンドでプロジェクトを作成します。HTML/CSS や JavaScript をクライアントサイドに提供できるようにします。
+静的ファイルはデフォルトではプロジェクト直下のwwwrootフォルダに配置する規約があります。wwwrootからクライアントへの静的ファイルを提供するにはBbsServer/Startup.csを以下のように編集します。デバッグでブラウザを立ち上げた際にデフォルトでアクセスする URL を設定します。
+launchsettings.jsonのlaunchUrlをindex.htmlに変更します。ソリューションファイル(BbsApp.sln)と同じディレクトリに React のプロジェクトを作ります。
+（作る場所はどこでもいいのですが、BbsServerプロジェクトと同じフォルダ（BbsServer.csprojのあるf階層）に作成すると、BbsServer をVisual Studio でビルドする際にクライアントサイドもビルドしようとしてエラーを吐くので注意が必要です。）React アプリを ASP.NET Core で動かしたいので、ビルドした静的ファイルの配置先をBbsApp/BbsServer/wwwrootに変更します。ejectでconfig/Path.jsが作成されるので、appBuildの値を書き換えます。
+BbsServer/wwwrootを相対パスで指定します。React アプリをビルドしてwwwrootに配置できているかを確認します。Visual Studio でBbsApp.slnを開くと、ソリューションエクスプローラーでwwwrootフォルダにビルドした出力が配置されていることが確認できます。Visual Studio でデバッグするとhttps://localhost:&lt;port#&gt;/index.htmlにアクセスされ、wwwroot/index.htmlが配信されるのでブラウザに以下の画面が表示されます。投稿内容を表すエンティティを作成します。BbsServerプロジェクトにModelsフォルダを追加します。
+ModelsフォルダにPostItem.csを追加します。
+モデルは DB のレコード、各プロパティはカラムのイメージです。
+Idは「設定より規約」で自動的に主キーになります。
+[Required]属性をつけると必須（DBではnot null）になります。アプリからデータベースへのアクセスはデータベースコンテキストを使って行います。
+ModelsフォルダにBbsContext.csを作成します。
+データベースコンテキストはMicrosoft.EntityFrameworkCore.DbContextを継承します。
+イメージとしてはBbsContextがスキーマ、DbSet&lt;PostItem&gt; PostItemsがテーブルです。ASP.NET Core には標準で DI コンテナーが組み込まれています。
+DI コンテナーにBbsContextを登録すると、コンストラクタの引数にBbsContextを持つクラスに自動的にBbsContextのインスタンスが渡されます。また、データベースはSQL Server localdb（ローカルで動く簡易データベース）を使うことにします。
+IConfiguration.GetConnectionStringでappsetting.josnから接続文字列を取得するように設定します。
+接続名はコンテキスト名と同じBbsContextとします。Startup.csを以下のように編集します。appsettings.jsonから接続文字列を読み取るようにしたので、接続文字列を追加します。
+Startup.csで設定した通り、SQL Server localdbを使用、接続名はBbsContext、スキーマもBbsContextとします。まず、マイグレーションファイルを作成します。
+マイグレーションファイルは データベースの設計図です。
+マイグレーションファイルを実行すると、その内容でデータベースを生成したり、変更を適用してくれます。PMC（パッケージマネージャーコンソール）に以下のコマンドを入力します。
+最初なのでマイグレーション名はInitialCreateとしました。プロジェクトにMigrationsフォルダが追加され、3つのファイルが作成されます。
+ファイルの内容については 移行 - EF Core | Microsoft Docs に詳しく載っています。実際にデータベースを作成します。
+Update-Databaseコマンドを入力します。Create tableが実行されデータベースが作成されました。表示 &gt; SQL Server オブジェクトエクスプローラーから確認すると実際に DB が作成されています。
+Http リクエストを受け付けるためコントローラーを作成します。ContorollersフォルダのvaluesController.csは不要なので削除します。
+ContorollersフォルダにBbsController.csを作成します。
+コントローラーはMicrosoft.AspNetCore.Mvc.ControllerBaseを継承します。
+※普通にファイルを追加するのと変わりませんがスキャフォールディングすることもできます。
+※Contorollersを右クリック &gt; 追加 &gt; コントローラー &gt; API コントローラー -空を選択します。[Route("api/[controller]")]属性で WebAPI の URL を指定します。
+[controller]は自動的にコントローラー名が割り当てられます。
+今回の場合、https://localhost:&lt;port#&gt;/api/bbsでアクセスできます。データベースにアクセスするために、コンストラクタを作成し、引数にBbsContextを追加します。
+DI コンテナーからBbsContextのインスタンスが自動で渡されます。投稿一覧を取得するGetメソッドと新しく投稿するPostメソッドを追加します。
+[HttpGet] [HttpPost]属性をつけることで、受け付ける Http リクエストメソッドを指定できます。投稿一覧取得Getは先に投稿されたものから順に（投稿日時の昇順）で取得できるようにします。新規投稿Postはサーバー側の投稿日時を設定し DB に保存します。
+その際、Idは自動で採番（インクリメント）されます。Web API を実際に使ってみます。Visual Stduio でデバック実行しサーバーを立ち上げます。
+クライアントサイドはまだできていないので Postman で Http リクエストを送ってみます。投稿内容がレスポンスとして帰ってきているのが確認できます。2回目の投稿でIdがインクリメントされているのが確認できます。
+投稿一覧も取得できました。投稿日時の昇順になっています。
+React の開発は VSCode で行いました。先にこのアプリで使うユーザー定義型を宣言しておきます。
+src直下にtypes.tsを作成します。スタイルも先に定義しておきます。
+textAlignの値はcenter rightなどに固定されているので、TypeScript で 指定する場合、キャストが必要です。書き込みフォームを作成します。
+src直下にBbsForm.tsxを作成します。アプリの本体を作成します。続いて、src/index.tsxのReactDom.Renderする tsx を&lt;App&gt;から&lt;BbsApp&gt;に変更します。まず、React アプリをwwwrootに配置します。
+環境構築でビルドした出力先をwwwrootに変更したので以下のコマンドを入力すれば OK です。Visual Studio を立ち上げてデバッグ実行します。
+名前と本文を入れて発言ボタンを押すと投稿されます。
+投稿後は画面の投稿一覧が再表示されます。
+一覧表示から再表示まで他の人の投稿があった場合、それも反映されます。最後にもう一度スクリーンショットを張っておきます。
+
+

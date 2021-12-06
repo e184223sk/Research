@@ -1,0 +1,93 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using Unity.Linq;
+using UnityEditor;
+using UnityEngine;
+
+namespace Assets.Scripts.Editor
+{
+    static class ContextMenuUtil
+    {
+        /// &lt;summary&gt;
+        /// 子GameObjectにバインド可能な同名のコンポーネントがあったらバインドする。
+        /// 
+        /// ・比較する名前は大文字小文字の区別をしない
+        /// ・public または SerializeField属性のついたフィールドが対象
+        /// ・バインド可能なGameObjectが複数存在した場合、先に見つけたものをセットする
+        /// &lt;/summary&gt;
+        [MenuItem("CONTEXT/MonoBehaviour/BindComponensFromChildren")]
+        private static void BindComponentsFromChildren(MenuCommand menuCommand)
+        {
+            var context = menuCommand.context as MonoBehaviour;
+            Debug.Log($"context.name: {context.name}");
+
+            var contextType = context.GetType();
+            Debug.Log($"contextType.Name: {contextType.Name}");
+
+            var bindableFields = GetBindableFields(contextType);
+
+            foreach (var field in bindableFields)
+            {
+                foreach (var child in context.gameObject.Descendants())
+                {
+                    // フィールドとオブジェクトの名前を大文字小文字無視して比較する
+                    if (string.Compare(child.name, field.Name, true) != 0)
+                    {
+                        // 一致しなかったらスキップ
+                        continue;
+                    }
+
+                    var childComponent = child.GetComponent(field.FieldType);
+
+                    if (childComponent == null)
+                    {
+                        // 対象のコンポーネントが存在しないのでスキップ
+                        continue;
+                    }
+
+                    Debug.Log($"component {field.FieldType.Name} {childComponent.name} found.", childComponent);
+                    field.SetValue(context, childComponent);
+                    break;
+                }
+            }
+
+            EditorUtility.SetDirty(context);
+            AssetDatabase.SaveAssets();
+        }
+
+        /// &lt;summary&gt;
+        /// バインド可能なComponentフィールドの一覧を取得する
+        /// &lt;/summary&gt;
+        private static IEnumerable&lt;FieldInfo&gt; GetBindableFields(Type contextType)
+        {
+            var serializableFields = new List&lt;FieldInfo&gt;();
+
+            var publicFields = contextType.GetFields(BindingFlags.Instance | BindingFlags.Public);
+            serializableFields.AddRange(publicFields);
+
+            // NonPublicなフィールドのうち、SerializeField属性が設定されてるものを取得する
+            var nonPublicFields = contextType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (var field in nonPublicFields)
+            {
+                var serializeFieldAttribute = field.GetCustomAttribute&lt;SerializeField&gt;();
+
+                if (serializeFieldAttribute != null)
+                {
+                    serializableFields.Add(field);
+                }
+            }
+
+            foreach (var field in serializableFields)
+            {
+                var isComponentField = field.FieldType.IsSubclassOf(typeof(Component));
+
+                if (isComponentField)
+                {
+                    yield return field;
+                }
+            }
+        }
+    }
+}
+

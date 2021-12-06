@@ -1,0 +1,71 @@
+
+using System;
+using ProjectName.Scripts.Domain.UseCase;
+using UniRx;
+using Zenject;
+
+namespace ProjectName.Scripts.Presentation.Presenter
+{
+    public interface IOutputPort
+    {
+        void ChangeDefense(int value);
+    }
+
+    public interface IInputPort
+    {
+        // 上位レイヤからのイベントはOnを付ける
+        // View からの入力はOnを付けないようにしている
+        IObservable&lt;int&gt; TakeDamageAsObservable();
+    }
+
+    public class Presenter : IInitializable, IDisposable
+    {
+        private readonly IOutputPort _outputPort = default;
+        private readonly IInputPort _inputPort = default;
+        private readonly IUseCase _useCase = default;
+
+        private readonly CompositeDisposable _disposable = default;
+
+        public Presenter(
+            IOutputPort outputPort,
+            IInputPort inputPort,
+            IUseCase useCase
+        )
+        {
+            _outputPort = outputPort;
+            _inputPort = inputPort;
+            _useCase = useCase;
+            _disposable = new CompositeDisposable();
+        }
+
+        // 一時期、入力はController、出力はPresenterに分けようかと考えていたが
+        // 面倒になったのと、下記方法でさほど問題を感じなかったのでPresenterに入力も出力も全て書くようにした
+        public void Initialize()
+        {
+            Bind();
+            SetEvent();
+        }
+
+        // MV(R)P期と同じく上位レイヤからのイベント通知監視はこちらに書く
+        private void Bind()
+        {
+            _useCase.OnDefenseChangeAsObservable()
+                .Subscribe(_outputPort.ChangeDefense)
+                .AddTo(_disposable);
+        }
+
+        // View からの入力イベント監視はこちら側に書く
+        private void SetEvent()
+        {
+            _inputPort.TakeDamageAsObservable()
+                .Subscribe(_useCase.TakeDamage)
+                .AddTo(_disposable);
+        }
+
+        public void Dispose()
+        {
+            _disposable?.Dispose();
+        }
+    }
+}
+

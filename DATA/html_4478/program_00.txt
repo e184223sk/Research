@@ -1,0 +1,74 @@
+
+// DI設定を付与したいFunctionにこの属性を付与する！
+// 引数で指定する型を変更することで、複数のDIConfigを使い分けることが出来る！
+[DependencyInjectionConfig(typeof(DIConfig))]
+public static class GetPlayerVoiceFunction
+{
+    [FunctionName("GetPlayerVoice")]
+    public static IActionResult Run(
+        [HttpTrigger("get")] HttpRequest req,
+        ILogger log,
+        [Inject] IPlayerVoiceService service) // Functionの引数にインジェクトしたい場合、Inject属性が必要だよ！
+    {
+        // =&gt; serviceの実装型は「PlayerVoiceService」です！
+        log.LogInformation($"serviceの実装型は「{service.GetType().Name}」です！");
+
+        var playerVoice = service.GetPlayerVoice();
+
+        // =&gt; PlayerVoice=スプラトゥーン楽しいいいいいいいいい
+        log.LogInformation($"PlayerVoice={playerVoice}");
+
+        return new OkObjectResult(playerVoice);
+    }
+}
+
+public class DIConfig
+{
+    public DIConfig(string functionName)
+    {
+        DependencyInjection.Initialize(builder =&gt;
+        {
+            // インターフェイスと、それに対応する実装クラスを指定！
+            // いろんな設定方法があるので、本家Autofacを参考にしてね！
+            // https://github.com/autofac/Autofac#get-started
+            builder.RegisterType&lt;InMemoryPlayerVoiceRepository&gt;().As&lt;IPlayeVoiceRepository&gt;();
+            builder.RegisterType&lt;PlayerVoiceService&gt;().As&lt;IPlayerVoiceService&gt;();
+        }, 
+        functionName);
+    }
+}
+
+public interface IPlayeVoiceRepository
+{
+    string Get();
+}
+
+public class InMemoryPlayerVoiceRepository : IPlayeVoiceRepository
+{
+    public string Get() =&gt; "スプラトゥーン楽しいいいいいいいいい";
+}
+
+public interface IPlayerVoiceService
+{
+    string GetPlayerVoice();
+}
+
+public class PlayerVoiceService : IPlayerVoiceService
+{
+    private readonly IPlayeVoiceRepository repository;
+
+    // PlayerVoiceServiceとInMemoryRepositoryの両方を登録しているので、
+    // コンストラクタ引数へInMemoryRepositoryのインスタンスをインジェクトしてくれるよ！
+    // Functionの引数じゃないのでInject属性は不要だよ！
+    public PlayerVoiceService(IPlayeVoiceRepository repository)
+    {
+        this.repository = repository;
+    }
+
+    public string GetPlayerVoice()
+    {
+        return repository.Get();
+    }
+}
+
+

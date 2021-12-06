@@ -1,0 +1,92 @@
+
+    /// &lt;summary&gt;
+    /// DbConnectionに割り込み、DBアクセスのロギングをする(Oracle版)
+    /// &lt;/summary&gt;
+    public class TraceDbProfiler : IDbProfiler
+    {
+
+        public bool IsActive =&gt; true;
+
+        private Stopwatch stopwatch;
+        private string commandText;
+        private IEnumerable&lt;dynamic&gt; parameters;
+
+        /// &lt;summary&gt;
+        /// エラーの時に呼ばれる
+        /// &lt;/summary&gt;
+        public void OnError(System.Data.IDbCommand profiledDbCommand, SqlExecuteType executeType, System.Exception exception)
+        {
+            SetCommandTexts(profiledDbCommand);
+            Logging(isError: true, exception: exception);
+        }
+
+        /// &lt;summary&gt;
+        /// コマンドが開始された時に呼ばれる(ExecuteReader、ExecuteNonQuery等)
+        /// &lt;/summary&gt;
+        public void ExecuteStart(System.Data.IDbCommand profiledDbCommand, SqlExecuteType executeType)
+        {
+            stopwatch = Stopwatch.StartNew();
+        }
+
+        /// &lt;summary&gt;
+        /// コマンドが完了された時に呼ばれる
+        /// &lt;/summary&gt;
+        public void ExecuteFinish(System.Data.IDbCommand profiledDbCommand, SqlExecuteType executeType, System.Data.Common.DbDataReader reader)
+        {
+            SetCommandTexts(profiledDbCommand);
+            if (executeType != SqlExecuteType.Reader)
+            {
+                Logging(isError: false);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Readerが完了した時に呼ばれる
+        /// &lt;/summary&gt;
+        public void ReaderFinish(System.Data.IDataReader reader)
+        {
+            Logging(isError: false);
+        }
+
+        /// &lt;summary&gt;
+        /// SQL、パラメータの情報をセットする
+        /// &lt;/summary&gt;
+        private void SetCommandTexts(System.Data.IDbCommand profiledDbCommand)
+        {
+            commandText = profiledDbCommand.CommandText.MinifySql();
+            parameters = profiledDbCommand.Parameters.Cast&lt;Oracle.ManagedDataAccess.Client.OracleParameter&gt;().ToList()
+                .Select(x =&gt; new { Name = x.ParameterName, x.Value });
+        }
+        /// &lt;summary&gt;
+        /// ログに出力する
+        /// &lt;/summary&gt;
+        private void Logging(bool isError, System.Exception exception = null)
+        {
+            stopwatch.Stop();
+            string logText = JsonConvert.SerializeObject(
+                new
+                {
+                    Type = SqlExecuteType.Reader.ToString(),
+                    ms = stopwatch.ElapsedMilliseconds,
+                    Exception = exception?.Message,
+                    Params = parameters,
+                    Command = commandText,
+                },
+                Formatting.None, // JSONを読みやすいように整形しない
+                new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore // nullは出力しない
+                }
+                );
+            logText = $"{"DB Executed.",LogSettings.TopMessagePadding}{logText}";
+            if (isError)
+            {
+                FileLogger.Error(logText);
+            }
+            else
+            {
+                FileLogger.Trace(logText);
+            }
+        }
+    }
+

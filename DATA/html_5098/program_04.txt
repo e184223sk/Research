@@ -1,0 +1,71 @@
+
+public class CoroutineEx : IEnumerator {
+    public Stack&lt;object&gt; stack = new Stack&lt;object&gt;();
+
+    public object Current { get; private set; }
+
+    public Exception Error { get; private set; }
+
+    public bool IsDone { get; private set; }
+
+    // コンストラクタ
+    public CoroutineEx(IEnumerator routine) {
+        stack.Push(routine);
+    }
+
+    // 更新処理
+    public void Update() {
+        if (stack.Count == 0) {
+            Done();
+            return;
+        }
+
+        var peek = stack.Peek();
+        if (peek == null) {
+            stack.Pop();
+            Current = null;
+        }
+        else if (peek is IEnumerator) {
+            var e = (IEnumerator)peek;
+            try {
+                if (e.MoveNext()) {
+                    stack.Push(e.Current);
+                    Update();
+                } else {
+                    stack.Pop();
+                    Update();
+                }
+            }
+            catch (Exception error) {
+                stack.Clear();
+                Error = error;
+                Done();
+            }
+        }
+        else if (peek is AsyncOperation) {
+            if (!((AsyncOperation)peek).isDone) {
+                Current = null;
+            } else {
+                stack.Pop();
+                Update();
+            }
+        }
+        else {
+            stack.Pop();
+            Current = peek;
+        }
+    }
+
+    void Done() {
+        Current = null;
+        IsDone = true;
+    }
+
+    bool IEnumerator.MoveNext() {
+        Update();
+        return !IsDone;
+    }
+
+    void IEnumerator.Reset() { }
+}
+

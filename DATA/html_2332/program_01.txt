@@ -1,0 +1,67 @@
+
+/// &lt;summary&gt;
+/// Autodeskのサーバーに権限を問い合わせます。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private async Task GetEntitlement()
+{
+    try
+    {
+        // 通信設定、データの下準備
+        var parameters = new Dictionary&lt;string, string&gt;()
+        {
+            { "userid", UserId },
+            { "appid", AppId },
+        };
+        var handler = new HttpClientHandler()
+        {
+            Proxy = WebRequest.GetSystemWebProxy(), // システムのProxyを使う
+        };
+        using var client = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(timeOut), // TimeOut秒数
+        };
+        client.DefaultRequestHeaders.ConnectionClose = true;    // KeepAliveしない
+
+        // 通信する
+        var response = await client.GetAsync($"https://apps.autodesk.com/webservices/checkentitlement?{await new FormUrlEncodedContent(parameters).ReadAsStringAsync()}");
+        var st = await response.Content.ReadAsStreamAsync();
+
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            SetResult(Result.HttpStatusCodeIsNotOk, $"{response.ReasonPhrase} ({(int)response.StatusCode})");
+            return;
+        }
+
+        // 得られたjsonを解析する
+        var serializer = new DataContractJsonSerializer(typeof(ServerResponse));
+        var serverResponse = (ServerResponse)serializer.ReadObject(st);
+
+        // 結果の判定
+        if (serverResponse.IsValid != true)
+        {
+            SetResult(Result.EntitlementIsNotValid, serverResponse.IsValid.ToString());
+        }
+        else if (serverResponse.Message?.ToUpper() != "OK")
+        {
+            SetResult(Result.MessageIsNotOk, serverResponse.Message ?? "(null)");
+        }
+        else
+        {
+            SetResult(Result.Success);
+        }
+    }
+    catch (HttpRequestException ex)
+    {
+        SetResult(Result.HttpRequestException, ex.Message);
+    }
+    catch (Exception ex)
+    {
+        SetResult(Result.ExceptionThrown, ex.ToString());
+    }
+    finally
+    {
+        IsGetEntitlementRunning = false;
+    }
+}
+

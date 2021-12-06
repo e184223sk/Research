@@ -1,0 +1,154 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using System.Data.Entity;
+using System.Data.Entity.Migrations;
+
+using System.Linq.Expressions;
+
+namespace DiconExp
+{
+
+    public class SampleContext : DbContext
+    {
+        public DbSet&lt;User&gt; Users { get; set; }
+        public DbSet&lt;Character&gt; Characters { get; set; }
+    }
+
+    public class User
+    {
+        public int Id { get; set; }
+        public int Level { get; set; }
+        public int Age { get; set; }
+
+        public override string ToString() =&gt; $"{Id} / Level = {Level}, Age = {Age}";
+    }
+
+    public class Character
+    {
+        public int Id { get; set; }
+        public int Power { get; set; }
+        public int YearsOld { get; set; }
+
+        public override string ToString() =&gt; $"{Id} / Power = {Power}, YearsOld = {YearsOld}";
+    }
+
+    internal sealed class SampleConfiguration : DbMigrationsConfiguration&lt;DiconExp.SampleContext&gt;
+    {
+        public SampleConfiguration()
+        {
+            AutomaticMigrationsEnabled = false;
+        }
+
+        protected override void Seed(SampleContext context)
+        {
+            context.Users.AddOrUpdate(
+                p =&gt; p.Id,
+                new User { Id = 1, Level = 3, Age = 13 },
+                new User { Id = 2, Level = 19, Age = 24 },
+                new User { Id = 3, Level = 8, Age = 19 },
+                new User { Id = 4, Level = 7, Age = 33 },
+                new User { Id = 5, Level = 13, Age = 11 },
+                new User { Id = 6, Level = 20, Age = 28 }
+            );
+
+            context.Characters.AddOrUpdate(
+                p =&gt; p.Id,
+                new Character { Id = 1, Power = 3, YearsOld = 13 },
+                new Character { Id = 2, Power = 19, YearsOld = 24 },
+                new Character { Id = 3, Power = 8, YearsOld = 19 },
+                new Character { Id = 4, Power = 7, YearsOld = 33 },
+                new Character { Id = 5, Power = 13, YearsOld = 11 },
+                new Character { Id = 6, Power = 20, YearsOld = 28 }
+            );
+
+            context.SaveChanges();
+            base.Seed(context);
+        }
+    }
+
+
+
+    public class Program
+    {
+
+
+        public static IEnumerable&lt;TEntity&gt; GetEntities&lt;TEntity&gt;(DbContext ctx, int level, int age, string levelName, string ageName)
+            where TEntity : class
+        {
+
+            // ダミー変数の定義
+            var dmyLevel = 0;
+            var dmyAge = 0;
+
+            var rewriter = new DynamicEntityPropertiesRewriter&lt;TEntity&gt;();
+            rewriter.Add(nameof(dmyLevel), levelName);
+            rewriter.Add(nameof(dmyAge), ageName);
+
+            var whereQuery = rewriter.Rewrite(p =&gt; dmyLevel &lt; 10 &amp;&amp; dmyAge &gt; 16);
+            return ctx.Set&lt;TEntity&gt;().Where(whereQuery);
+        }
+
+        public static void Main(string[] args)
+        {
+            // 実際にＤＢアクセス
+            using (var ctx = new SampleContext())
+            {
+                ctx.Database.Log = Console.WriteLine;
+                var usrItems = GetEntities&lt;User&gt;(ctx, 10, 16, nameof(User.Level), nameof(User.Age)).ToList();
+                var chrItems = GetEntities&lt;Character&gt;(ctx, 10, 16, nameof(Character.Power), nameof(Character.YearsOld)).ToList();
+            }
+
+        }
+
+    }
+
+
+    public class DynamicEntityPropertiesRewriter&lt;TEntity&gt;
+    {
+        Dictionary&lt;string, string&gt; parameters = new Dictionary&lt;string, string&gt;();
+
+        public void Add(string dmy, string rewriteName)
+        {
+            this.parameters[dmy] = rewriteName;
+        }
+
+        IDictionary&lt;string, MemberExpression&gt; createProperties(ParameterExpression pParam)
+        {
+            return parameters.ToDictionary(p =&gt; p.Key, p =&gt; Expression.Property(pParam, p.Value));
+        }
+
+        public Expression&lt;Func&lt;TEntity, bool&gt;&gt; Rewrite(Expression&lt;Func&lt;TEntity, bool&gt;&gt; node)
+        {
+            var visitor = new RwVisitor(this.createProperties(node.Parameters.First()));
+            return visitor.Visit(node) as Expression&lt;Func&lt;TEntity, bool&gt;&gt;;
+        }
+
+
+
+        class RwVisitor : ExpressionVisitor
+        {
+            IDictionary&lt;string, MemberExpression&gt; properties;
+
+            public RwVisitor(IDictionary&lt;string, MemberExpression&gt; properties)
+            {
+                this.properties = properties;
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                var dmyName = node.Member.Name;
+                return this.properties.FirstOrDefault(p =&gt; p.Key == dmyName).Value ?? node;
+            }
+        }
+
+
+    }
+
+
+}
+

@@ -1,0 +1,69 @@
+
+    public class MecabBatch : BatchBase
+    {
+        private ILogger&lt;MecabBatch&gt; Logger { get; }
+        private string DicPath { get; }
+
+        public MecabBatch(ILogger&lt;MecabBatch&gt; _logger)
+        {
+            Logger = _logger;
+            DicPath = Path.Combine(Environment.GetEnvironmentVariable("TMP"), "dic");
+
+            Task.WaitAll(new[] {
+                CreateFileAsync(DicPath, "char.bin"),
+                CreateFileAsync(DicPath, "dicrc"),
+                CreateFileAsync(DicPath, "matrix.bin"),
+                CreateFileAsync(DicPath, "sys.dic"),
+                CreateFileAsync(DicPath, "unk.dic"),
+            });
+        }
+
+        public void Execute(
+            [Option("userdic", "user dictionary path.")]string userdic
+            )
+        {
+            using (var m = MeCabTagger.Create(
+                new MeCabParam
+                {
+                    DicDir = DicPath,
+                    UserDic = new[] { userdic },
+                }
+                ))
+            {
+                getMeCabNode(m.ParseToNode("本日も晴天なり"))
+                    .Where(n =&gt; String.IsNullOrEmpty(n.Feature) == false)
+                    .ToList()
+                    .ForEach(n =&gt; Logger.LogInformation(n.Feature));
+            }
+        }
+
+        private async Task CreateFileAsync(string dicPath, string fileName)
+        {
+            if (File.Exists(Path.Combine(dicPath, fileName)))
+                return;
+
+            Directory.CreateDirectory(dicPath);
+
+            var assembly = Assembly.GetExecutingAssembly();
+            using (var stream = assembly.GetManifestResourceStream("MecabImpl.dic." + fileName))
+            {
+                using (var file = File.Create(Path.Combine(dicPath, fileName)))
+                {
+                    await stream.CopyToAsync(file);
+                    file.Close();
+                }
+            }
+        }
+
+        private IEnumerable&lt;MeCabNode&gt; getMeCabNode(MeCabNode n)
+        {
+            yield return n;
+
+            while (n.Next != null)
+            {
+                n = n.Next;
+                yield return n;
+            }
+        }
+    }
+

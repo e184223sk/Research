@@ -1,0 +1,611 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+
+namespace ID3Util
+{
+    public class ID3v1
+    {
+        const int ID3v1Size = 128;
+
+        public static readonly string[] Genres = {
+            "Blues","ClassicRock","Country","Dance",
+            "Disco","Funk","Grunge","Hip-Hop",
+            "Jazz","Metal","NewAge","Oldies",
+            "Other","Pop","R&amp;B","Rap",
+            "Reggae","Rock","Techno","Industrial",
+            "Alternative","Ska","DeathMetal","Pranks",
+            "Soundtrack","Euro-Techno","Ambient","Trip-Hop",
+            "Vocal","Jazz+Funk","Fusion","Trance",
+            "Classical","Instrumental","Acid","House",
+            "Game","SoundClip","Gospel","Noise",
+            "Alt.Rock","Bass","Soul","Punk",
+            "Space","Meditative","InstrumentalPop","InstrumentalRock",
+            "Ethnic","Gothic","Darkwave","Techno-Industrial",
+            "Electronic","Pop-Folk","Eurodance","Dream",
+            "SouthernRock","Comedy","Cult","Gangsta",
+            "Top40","ChristianRap","Pop/Funk","Jungle",
+            "NativeAmerican","Cabaret","NewWave","Psychadelic",
+            "Rave","Showtunes","Trailer","Lo-Fi",
+            "Tribal","AcidPunk","AcidJazz","Polka",
+            "Retro","Musical","Rock&amp;Roll","HardRock",
+            "Folk","Folk/Rock","NationalFolk","Swing",
+            "Fusion","Bebob","Latin","Revival",
+            "Celtic","Bluegrass","Avantgarde","GothicRock",
+            "ProgressiveRock","PsychedelicRock","SymphonicRock","SlowRock",
+            "BigBand","Chorus","EasyListening","Acoustic",
+            "Humour","Speech","Chanson","Opera",
+            "ChamberMusic","Sonata","Symphony","BootyBass",
+            "Primus","PornGroove","Satire","SlowJam",
+            "Club","Tango","Samba","Folklore",
+            "Ballad","Power Ballad","Rhytmic Soul","Freestyle",
+            "Duet","Punk Rock","Drum Solo","Acapella",
+            "Euro-House","Dance Hall","Goa","Drum &amp; Bass",
+            "Club-House","Hardcore","Terror","Indie",
+            "BritPop","Negerpunk","Polsk Punk","Beat",
+            "Christian Gangsta Rap","Heavy Metal","Black Metal","Crossover",
+            "Contemporary Christian","Christian Rock","Merengue","Salsa",
+            "Trash Metal","Anime","JPop","SynthPop",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "(reserved)","(reserved)","(reserved)","(reserved)",
+            "Sacred","Northern Europe","Irish &amp; Scottish","Scotland",
+            "Ethnic Europe","Enka","Children's Song","(reserved)",
+            "Heavy Rock(J)","Doom Rock(J)","J-POP(J)","Seiyu(J)",
+            "Tecno Ambient(J)","Moemoe(J)","Tokusatsu(J)","Anime(J)", // 255 ("Anime(J)") は本来「不使用」がアサインされている(?)
+        };
+
+        Encoding _enc;
+        byte[] TitleInBytes;
+        byte[] ArtistInBytes;
+        byte[] AlbumInBytes;
+        byte[] YearInByte;
+        byte[] CommentInByte;
+        public byte GenreNumber; // ジャンル
+        byte track;
+
+        public int Year {
+            get { 
+                try {
+                    return Convert.ToInt32(Encoding.ASCII.GetString(YearInByte));
+                }
+                catch(Exception){return 0;}
+            }
+            set {
+                if ( value &lt; 0 ) {
+                    value = 0;
+                }
+                if ( value &gt; 9999 ) {
+                    value = 9999;
+                }
+                YearInByte[0] = (byte)(0x30 + (value/1000));
+                YearInByte[1] = (byte)(0x30 + (value/ 100)%10);
+                YearInByte[2] = (byte)(0x30 + (value/  10)%10);
+                YearInByte[3] = (byte)(0x30 +  value      %10);
+            }
+        }
+
+        string TryToGetString(byte[] t)
+        {
+            try {
+                return _enc.GetString(t).TrimEnd(new char[]{'\0',' '});
+            }
+            catch(Exception){return "";}
+        }
+
+        byte[] TryToGetBytes(string s, int length)
+        {
+            byte[] b = new byte[length];
+            int n = _enc.GetByteCount(s);
+            if ( n &lt;= length ) {
+                byte[] tmp = _enc.GetBytes(s);
+                Array.Copy(tmp, 0, b, 0, n);
+            }
+            else {
+                // over時
+                // lengthにおさまる切り詰めた文字列を返したい。
+                // 多バイト文字の一部バイトが残るのは避けたい。
+                // 面倒なので空列相当のall 0x00を返す。
+            }
+            return b;
+            // GetBytes (string s, int charIndex, int charCount, byte[] bytes, int byteIndex);
+            // https://docs.microsoft.com/ja-jp/dotnet/api/system.text.encoding.getbytes?view=netcore-3.1#System_Text_Encoding_GetBytes_System_String_System_Int32_System_Int32_System_Byte___System_Int32_
+        }
+
+        public string Title   { get { return TryToGetString(TitleInBytes);  } set { TitleInBytes  = TryToGetBytes(value, 30); } }
+        public string Artist  { get { return TryToGetString(ArtistInBytes); } set { ArtistInBytes = TryToGetBytes(value, 30); } }
+        public string Album   { get { return TryToGetString(AlbumInBytes);  } set { AlbumInBytes  = TryToGetBytes(value, 30); } }
+        public string Comment { get { return TryToGetString(CommentInByte); } set { CommentInByte = TryToGetBytes(value, 30); } }
+        public string Genre {
+            get {return Genres[GenreNumber];}
+        }
+        public int Track {
+            get { return track; }
+            set {
+                if ( value &lt; 0   ) {value =   0;}
+                if ( value &gt; 255 ) {value = 255;}
+                track = (byte)value;
+            }
+        }
+
+        public static ID3v1 CreateDefault(Encoding enc)
+        {
+            ID3v1 ret = new ID3v1();
+            ret._enc = enc;
+            ret.TitleInBytes = new byte[30];
+            ret.ArtistInBytes = new byte[30];
+            ret.AlbumInBytes = new byte[30];
+            ret.YearInByte = new byte[4];
+            ret.CommentInByte = new byte[30];
+            ret.GenreNumber = 255;
+            ret.track = 0;
+            return ret;
+        }
+
+        public static ID3v1 ParseFromFile(string fileName, Encoding enc)
+        {
+            using (var fs = new FileStream(fileName, FileMode.Open, FileAccess.Read)) {
+                if ( fs.Length &lt; ID3v1Size ) {
+                    return null;
+                }
+                fs.Seek(-ID3v1Size, SeekOrigin.End);
+                byte[] buffer = new byte[ID3v1Size];
+                fs.Read(buffer,0,ID3v1Size);
+                return ID3v1.Parse(buffer, 0, enc);
+            }
+        }
+
+        public static ID3v1 ParseFromFoot(byte[] buffer, Encoding enc)
+        {
+            return Parse(buffer, buffer.Length-ID3v1Size, enc);
+        }
+
+        public static ID3v1 Parse(byte[] buffer, int offset, Encoding enc)
+        {
+            ID3v1 ret = new ID3v1();
+
+            if ( offset &lt; 0 ) {
+                return null;
+            }
+            if (buffer.Length &lt; offset + ID3v1Size ) {
+                return null;
+            }
+
+            if ( enc == null ) {
+                enc = Encoding.GetEncoding(932); // Shift_JIS の code page = 932;
+            }
+            ret._enc = enc;
+
+            // ヘッダチェック ("TAG")
+            if ( buffer[offset] != 0x54 || buffer[offset+1] != 0x41 || buffer[offset+2] != 0x47) {
+                return null;
+            }
+            ret.TitleInBytes = new byte[30];
+            ret.ArtistInBytes = new byte[30];
+            ret.AlbumInBytes = new byte[30];
+            ret.YearInByte = new byte[4];
+            Array.Copy(buffer, offset+ 3, ret.TitleInBytes,  0, 30);
+            Array.Copy(buffer, offset+33, ret.ArtistInBytes, 0, 30);
+            Array.Copy(buffer, offset+63, ret.AlbumInBytes,  0, 30);
+            Array.Copy(buffer, offset+93, ret.YearInByte,    0,  4);
+            if ( buffer[offset+125] == 0x00 ) { // Track情報あり
+                ret.CommentInByte = new byte[30];
+                Array.Copy(buffer, offset+97, ret.CommentInByte, 0, 28);
+                ret.CommentInByte[28] = 0;
+                ret.CommentInByte[29] = 0;
+                ret.Track = buffer[offset+126];
+            }
+            else {
+                ret.CommentInByte = new byte[30];
+                Array.Copy(buffer, offset+97, ret.CommentInByte, 0, 30);
+                ret.Track = 0;
+            }
+            ret.GenreNumber = buffer[offset+127];
+
+            return ret;
+        }
+
+        public bool WriteToFile(string fileName)
+        {
+            bool commentErrorFlag;
+            byte[] a = ToByteArray(out commentErrorFlag);
+
+            if ( commentErrorFlag ) {
+                return false;
+            }
+
+            using (var fs = new FileStream(fileName, FileMode.Open, FileAccess.ReadWrite)) {
+                bool hasID3v1Tag = false;
+
+                // ID3v1を探す
+                if ( fs.Length &gt;= ID3v1Size ) {
+                    fs.Seek(-ID3v1Size, SeekOrigin.End);
+                    byte[] buffer = new byte[ID3v1Size];
+                    fs.Read(buffer,0,ID3v1Size);
+                    // ヘッダチェック ("TAG")
+                    if ( buffer[0] == 0x54 &amp;&amp; buffer[1] == 0x41 &amp;&amp; buffer[2] == 0x47) {
+                        hasID3v1Tag = true;
+                    }
+                }
+
+                if ( hasID3v1Tag ) {
+                    fs.Seek(-ID3v1Size, SeekOrigin.End);
+                }
+                else {
+                    fs.Seek(0, SeekOrigin.End);
+                }
+
+                fs.Write(a, 0, a.Length);
+            }
+            return true;
+        }
+
+        public byte[] ToByteArray(out bool commentErrorFlag)
+        {
+            byte[] a = new byte[128];
+            commentErrorFlag = false;
+
+            a[0] = 0x54;
+            a[1] = 0x41;
+            a[2] = 0x47;
+
+            // 終端の空白文字を0x00に統一する。(get/setが呼ばれる。)
+            Title = Title;
+            Artist = Artist;
+            Album = Album;
+            Comment = Comment;
+
+            Array.Copy(TitleInBytes,  0, a,  3, 30);
+            Array.Copy(ArtistInBytes, 0, a, 33, 30);
+            Array.Copy(AlbumInBytes,  0, a, 63, 30);
+            Array.Copy(YearInByte,    0, a, 93,  4);
+            if ( Track != 0 ) { // Track情報あり
+                if ( CommentInByte[28] != 0 || CommentInByte[29] != 0 ) { // Trackありの場合に使用不可能な長さのコメントが使用されている
+                    commentErrorFlag = true;
+                    // copyしない(0x00のまま)
+                }
+                else {
+                    Array.Copy(CommentInByte, 0, a, 97, 28);
+                }
+                a[125] = 0;
+                a[126] = (byte)Track;
+            }
+            else {
+                Array.Copy(CommentInByte, 0, a, 97, 30);
+            }
+            a[127] = GenreNumber;
+
+            return a;
+        }
+    }
+
+    // -------------------------------------------------------------------
+
+    public class ID3v2
+    {
+        Encoding _enc;
+        //const int CodePage_Shift_JIS = 932;
+
+        static int SynchsafeIntFrom4Bytes(byte[] buffer, int offset) {
+            return ((buffer[offset  ]&amp;0x7F)&lt;&lt;21) |
+                ((buffer[offset+1]&amp;0x7F)&lt;&lt;14) | 
+                ((buffer[offset+2]&amp;0x7F)&lt;&lt; 7) | 
+                ((buffer[offset+3]&amp;0x7F)    ) ;
+        }
+
+        public class Frame
+        {
+            public string ID{get;private set;}
+            int MajorVer;
+            int Size;
+            int EncodingID;
+            byte Flags1;
+            byte Flags2;
+            byte[] Data; // EncodingIDを除く
+
+            public bool PreferedToDiscardWhenTagChanged  { get{return ((Flags1&amp;0x40)!=0);} }
+            public bool PreferedToDiscardWhenFileChanged { get{return ((Flags1&amp;0x20)!=0);} }
+            public bool PreferedToBeReadOnly             { get{return ((Flags1&amp;0x10)!=0);} }
+
+            public bool RelatedWithOtherFrame            { get{return ((Flags2&amp;0x40)!=0);} }
+            public bool Compressed                       { get{return ((Flags2&amp;0x08)!=0);} }
+            public bool Encrypted                        { get{return ((Flags2&amp;0x04)!=0);} }
+            public bool AsyncFlag                        { get{return ((Flags2&amp;0x02)!=0);} }
+            public bool DataLengthFlag                   { get{return ((Flags2&amp;0x01)!=0);} }
+
+            public bool UnknownFlagsAreSet               { get{return ((Flags1&amp;0x8F)!=0 || (Flags2&amp;0xB0)!=0) ;} }
+
+            public string ToString(Encoding defaultEncoding)
+            {
+                int offset = 0;
+
+                if ( ID == "PIC" || ID == "APIC" ) {
+                    return "";
+                }
+
+                if ( ID == "COM" || ID == "COMM" ) {
+                    return ""; // 未実装
+                    /*
+                    if ( Data.Length &gt;= 3+1 &amp;&amp; 'a' &lt;= Data[0] &amp;&amp; Data[0] &lt;= 'z' ) {
+                        // 国別コードらしきものがある場合
+                        offset = 3;
+                        if ( EncodingID == 1 ) {
+                            // BOM 2byteすてて 2byteずつサーチしてNULL終端0x00 00を探す
+                        }
+                        else if ( EncodingID == 2 ) {
+                            // 2byteずつサーチしてNULL終端0x00 00を探す
+                        }
+                        else if ( EncodingID == 0 || EncodingID == 3 ) {
+                            // NULL終端0x00を探す
+                        }
+                    }
+                    else {
+                        return ""; // 不正なフォーマット
+                    }
+                    */
+                }
+
+                try {
+                    if ( EncodingID == 3 ) {
+                        // UTF-8 BOMなし
+                        return (new System.Text.UTF8Encoding(false)).GetString(Data, offset, Data.Length-offset);
+                    }
+                    else if ( EncodingID == 2 ) {
+                        // UTF-16BE BOMなし
+                        return (new System.Text.UnicodeEncoding(true,false)).GetString(Data, offset, Data.Length-offset);
+                    }
+                    else if ( EncodingID == 1 ) {
+                        // UTF-16 BOMあり
+                        return (new System.Text.UnicodeEncoding()).GetString(Data, offset, Data.Length-offset);
+                    }
+                    else if ( EncodingID == 0 ) {
+                        if ( defaultEncoding == null ) {
+                            // MPEGの規格上は
+                            //   ISO-8859-1 (CodePage=28591 西ヨーロッパ言語 (ISO))
+                            return Encoding.GetEncoding(28591).GetString(Data, offset, Data.Length-offset);
+                        }
+                        else {
+                            // 日本ではShift_JISが横行しているらしい(?)
+                            //   shift_jis(CodePage=932)
+                            // return Encoding.GetEncoding(CodePage_Shift_JIS).GetString(Data, offset, Data.Length-offset);
+                            return defaultEncoding.GetString(Data, offset, Data.Length-offset);
+                        }
+                    }
+                    else {
+                        // unknown
+                        return "";
+                    }
+                }
+                catch ( DecoderFallbackException ) {
+                    // 読み取り不能
+                    return "";
+                }
+            }
+
+            public static Frame Parse(int majorVer, byte[] buffer, ref int pos, int endPos)
+            {
+                Frame ret = new Frame();
+
+                if ( endPos &gt; buffer.Length ){ return null; }
+
+                if ( endPos &lt; pos+6 ) { return null; }
+                if ( majorVer &gt;= 3 &amp;&amp; endPos &lt; pos+10 ) { return null; }
+
+                ret.MajorVer = majorVer;
+                try {
+                    ret.ID = Encoding.ASCII.GetString(buffer, pos, (majorVer&lt;=2)?3:4 );
+                }
+                catch ( DecoderFallbackException ) {
+                    // 読み取り不能
+                    Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                    return null;
+                }
+
+                if ( majorVer &lt;= 2 ) {
+                    ret.Size = (buffer[pos+3]&lt;&lt;16) | (buffer[pos+4]&lt;&lt;8) | (buffer[pos+5]);
+                    pos += 6;
+                }
+                else {
+                    if ( majorVer &lt;= 3 ) {
+                        ret.Size = (buffer[pos+4]&lt;&lt;24) |
+                                   (buffer[pos+5]&lt;&lt;16) | 
+                                   (buffer[pos+6]&lt;&lt;8) |
+                                   (buffer[pos+7]);
+                    }
+                    else {
+                        ret.Size = SynchsafeIntFrom4Bytes(buffer, pos+4);
+                    }
+                    ret.Flags1 = buffer[pos+8];
+                    ret.Flags2 = buffer[pos+9];
+                    pos += 10;
+                }
+                if ( endPos &lt; pos + ret.Size ) {
+                    Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                    Console.WriteLine("Address over");
+                    return null;
+                }
+                if ( ret.Size &gt; 0 ) {
+                    ret.Data = new byte[ret.Size-1];
+                    ret.EncodingID = buffer[pos];
+                    Array.Copy(buffer, pos+1, ret.Data, 0, ret.Size-1);
+                }
+                else {
+                    ret.Data = new byte[0];
+                    ret.EncodingID = 0;
+                }
+                pos += ret.Size;
+
+                return ret;
+            }
+        }
+
+        public int TagVerMajor{get;private set;}
+        public int TagVerMinor{get;private set;}
+        public int Flags{get;private set;}
+        public int TagSize{get;private set;}
+        public int ExtSize{get;private set;}
+
+        public bool HasExtendedHeader{get{return ((Flags&amp;0x40)!=0);}}
+        public bool HasFooter{get{return ((Flags&amp;0x10)!=0);}}
+
+        List&lt;Frame&gt; Frames;
+
+        int FindFirstFrameByID(string FrameID)
+        {
+            for ( int i=0 ; i&lt;Frames.Count ; i++ ) {
+                if ( Frames[i].ID == FrameID ) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        public string Artist  { get { return GetStringByID("TP1","TPE1"); } }
+        public string Title   { get { return GetStringByID("TT2","TIT2"); } }
+        public string Album   { get { return GetStringByID("TAL","TALB"); } }
+        public string Track   { get { return GetStringByID("TRK","TRCK"); } }
+        public string Year    { get { return GetStringByID("TYE","TYER"); } }
+        public string Genre   { get { return GetStringByID("TCO","TCON"); } }
+        public string Comment { get { return GetStringByID("COM","COMM"); } }
+        // public Bitmap Jacket { get { return GetJacketByID("PIC","APIC"); } }
+
+        string GetStringByID(string idForV3p2, string idForV3p3)
+        {
+            string id = (TagVerMajor&lt;=2)?idForV3p2:idForV3p3;
+            if ( id == null ) { return ""; }
+            int index = FindFirstFrameByID(id);
+            if ( index &lt; 0 ) { return ""; }
+            return Frames[index].ToString(_enc);
+        }
+
+        public static ID3v2 CreateDefault(Encoding enc)
+        {
+            ID3v2 ret = new ID3v2();
+            ret._enc = enc;
+
+            ret.Frames = new List&lt;Frame&gt;();
+            ret.TagVerMajor = 4;
+            ret.TagVerMinor = 0;
+            ret.Flags   = 0;
+            ret.TagSize = 0; // ダミー
+            ret.ExtSize = 0; // ダミー
+
+            return ret;
+        }
+
+        public static ID3v2 ParseFromFile(string fileName, Encoding enc)
+        {
+            using (var fs = new FileStream(fileName, FileMode.Open, FileAccess.Read)) {
+
+                byte[] buffer = new byte[10];
+                fs.Read(buffer,0,10); // サイズが分かるところまで読み込む
+
+                // ヘッダチェック "ID3"
+                if ( buffer[0] != 0x49 || buffer[1] != 0x44 || buffer[2] != 0x33) {
+                    return null;
+                }
+
+                int size = 10 + SynchsafeIntFrom4Bytes(buffer,6);
+                Array.Resize(ref buffer, size);
+                fs.Read(buffer,10,size-10);
+
+                return ID3v2.Parse(buffer, 0, enc);
+            }
+        }
+
+
+        // enc未実装
+        public static ID3v2 Parse(byte[] buffer, int offset, Encoding enc)
+        {
+            ID3v2 ret = new ID3v2();
+
+            if ( offset &lt; 0 ) {
+                return null;
+            }
+            // ID3v2は最低でも10byte以上なので10byte以上であることをチェックする
+            if (buffer.Length &lt; offset + 10 ) {
+                return null;
+            }
+
+            // ヘッダチェック "ID3"
+            if ( buffer[offset] != 0x49 || buffer[offset+1] != 0x44 || buffer[offset+2] != 0x33) {
+                return null;
+            }
+
+            ret._enc = enc;
+            ret.TagVerMajor = buffer[offset+3];
+            ret.TagVerMinor = buffer[offset+4];
+            ret.Flags = buffer[offset+5];
+            ret.TagSize = SynchsafeIntFrom4Bytes(buffer, offset+6);
+
+            int pos = offset+10;
+            int endPos = pos + ret.TagSize;
+            if ( endPos &gt; buffer.Length ) {
+                return null;
+            }
+            if ( ret.HasFooter ) {
+                endPos -= 10; // Footer(10byte)分末尾位置を手前にセットする
+            }
+
+            if ( ret.HasExtendedHeader ) {
+                // 最小6byteある
+                if ( buffer.Length &lt; pos+6 ) {
+                    return null;
+                }
+                if ( ret.TagVerMajor &lt;= 3 ) {
+                    // IDv2.3.x以下
+                    ret.ExtSize = (buffer[pos  ]&lt;&lt;24) |
+                                  (buffer[pos+1]&lt;&lt;16) |
+                                  (buffer[pos+2]&lt;&lt; 8) |
+                                  (buffer[pos+3]    );
+                }
+                else {
+                    ret.ExtSize = SynchsafeIntFrom4Bytes(buffer, pos);
+                }
+                pos += 4 + ret.ExtSize;
+            }
+
+            // parsing Frame
+            ret.Frames = new List&lt;Frame&gt;();
+            while ( pos &lt; endPos ) {
+                if ( buffer[pos] == 0 ) {
+                    break;
+                }
+                Frame t = Frame.Parse(ret.TagVerMajor, buffer, ref pos, endPos);
+                if ( t == null ) {
+                    Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                    return null;
+                }
+                else {
+                    ret.Frames.Add(t);
+                }
+            }
+            return ret;
+        }
+    }
+
+}
+
+

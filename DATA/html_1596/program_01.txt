@@ -1,0 +1,75 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Text;
+using UnityEngine.UI;
+
+public class LocalUdpReceive : MonoBehaviour
+{
+    static string localIpString = "127.0.0.10";
+    static int localPort = 8887;
+    static IPAddress localAddress = IPAddress.Parse(localIpString);
+    IPEndPoint localEP = new IPEndPoint(localAddress, localPort);
+
+    static int unityPort = 8888;
+    IPEndPoint unityEP = new IPEndPoint(localAddress, unityPort);
+    static bool isReceiving;
+    static UdpClient udpUnity;
+    Thread thread;
+
+    public Text textDataToFomApp;
+    public Text textDataFromFomApp;
+    static string Rtext,Ttext;
+
+    void Start()
+    {
+        udpUnity = new UdpClient(unityEP);
+        udpUnity.Client.ReceiveTimeout = 20;
+        udpUnity.Connect(localEP);
+        isReceiving = true;
+        thread = new Thread(new ThreadStart(ThreadMethod));
+        thread.Start();
+        Debug.Log("start");
+        Ttext = "DataToFomApp";
+        Rtext = "DataFromFomApp";
+    }
+    static public byte[] unityData;
+    void Update()
+    {
+        textDataFromFomApp.text = Rtext;
+        udpUnity.Send(unityData,2);
+        textDataToFomApp.text = Ttext;
+    }
+
+    void OnApplicationQuit()
+    {
+        isReceiving = false;
+        if (thread != null) thread.Abort();
+        if (udpUnity != null) udpUnity.Close();
+    }
+
+    private static void ThreadMethod()
+    {
+        while (isReceiving)
+        {
+            try
+            {
+                IPEndPoint remoteEP = null;
+                byte[] data = udpUnity.Receive(ref remoteEP);
+                Rtext = data[0].ToString() + " , " +data[1].ToString();
+                unityData = data;
+                Ttext = unityData[0].ToString() + " , " + unityData[1].ToString();
+                Debug.Log(Rtext);
+            }
+            catch (System.Exception e)
+            {
+                Debug.Log(e.ToString());
+            }
+        }
+    }
+}
+

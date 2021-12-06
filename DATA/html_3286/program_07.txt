@@ -1,0 +1,37 @@
+
+using System;
+using System.ComponentModel.DataAnnotations;
+using System.Reactive.Linq;
+using Prism.Events;
+using Prism.Mvvm;
+using Reactive.Bindings;
+
+namespace PrismSample.Lib.ViewModels
+{
+    public class OperandViewModel : BindableBase
+    {
+        [Required, Range(-10000, 10000)]
+        public ReactiveProperty&lt;string&gt; Operand { get; }
+
+        public OperandViewModel(IEventAggregator eventAggregator)
+        {
+            Operand = new ReactiveProperty&lt;string&gt;("2")
+                .SetValidateAttribute(() =&gt; Operand);
+
+            Observable.WithLatestFrom
+            (
+                Operand,
+                Operand.ObserveHasErrors,
+                (o, e) =&gt; (o, e)
+            )
+            .Where(z =&gt; !z.e)
+            .Subscribe(z =&gt;
+            {
+                eventAggregator
+                    .GetEvent&lt;PubSubEvent&lt;double&gt;&gt;()
+                    .Publish(double.Parse(z.o));
+            });
+        }
+    }
+}
+

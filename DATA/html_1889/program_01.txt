@@ -1,0 +1,60 @@
+
+private static async Task ChunkEnumerateSample()
+{
+    SampleData[] buffer = ArrayPool&lt;SampleData&gt;.Shared.Rent(3);
+    try
+    {
+        // 3つずつ列挙する
+        await foreach (var chunk in GetSampleData().Chunk(3))
+        {
+            Console.WriteLine("----- start chunk -----");
+            await DoSomethingAsync(chunk, buffer);
+            Console.WriteLine("----- end chunk -----");
+        }
+    }
+    finally
+    {
+        ArrayPool&lt;SampleData&gt;.Shared.Return(buffer);
+    }
+}
+
+private static async Task DoSomethingAsync(IAsyncEnumerable&lt;SampleData&gt; enumerable, SampleData[] buffer)
+{
+    int count = 0;
+    await foreach (var obj in enumerable)
+    {
+        buffer[count++] = obj;
+    }
+    DoSomething(buffer, count);
+}
+
+private static void DoSomething(SampleData[] buffer, int length)
+{
+    var span = new Span&lt;SampleData&gt;(buffer, 0, length);
+
+    for (int i = 0; i &lt; span.Length; ++i)
+    {
+        Console.WriteLine($"{span[i].Value}");
+    }
+}
+
+// 10個のオブジェクトを返す
+private static async IAsyncEnumerable&lt;SampleData&gt; GetSampleData()
+{
+    await Task.Yield();
+
+    for (int i = 0; i &lt; 10; ++i)
+    {
+        yield return new SampleData(i);
+    }
+}
+
+public class SampleData
+{
+    public SampleData(int value)
+    {
+        Value = value;
+    }
+    public int Value { get; }
+}
+

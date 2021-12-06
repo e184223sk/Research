@@ -1,0 +1,58 @@
+
+        /// &lt;summary&gt;
+        /// 音楽の波形データにハミング窓をかけ、高速フーリエ変換する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;フーリエ変換後の音楽データ&lt;/returns&gt;
+        private float[,] FFT_HammingWindow_ver1()
+        {
+            // 波形データを配列samplesに格納
+            float[] samples = new float[audioStream.Length / audioStream.BlockAlign * audioStream.WaveFormat.Channels];
+            audioStream.Read(samples, 0, samples.Length);
+
+            //1サンプルのデータ数
+            int fftLength = 256;
+            //1サンプルごとに実行するためのイテレータ用変数
+            int fftPos = 0;
+
+            // フーリエ変換後の音楽データを格納する配列 (標本化定理より、半分は冗長)
+            float[,] result = new float[samples.Length / fftLength, fftLength / 2];
+
+            // 波形データにハミング窓をかけたデータを格納する配列
+            Complex[] buffer = new Complex[fftLength];
+            for (int i = 0; i &lt; samples.Length; i++)
+            {
+                // ハミング窓をかける
+                buffer[fftPos].X = (float)(samples[i] * FastFourierTransform.HammingWindow(fftPos, fftLength));
+                buffer[fftPos].Y = 0.0f;
+                fftPos++;
+
+                // 1サンプル分のデータが溜まったとき
+                if (fftLength &lt;= fftPos)
+                {
+                    fftPos = 0;
+
+                    // サンプル数の対数をとる (高速フーリエ変換に使用)
+                    int m = (int)Math.Log(fftLength, 2.0);
+                    // 高速フーリエ変換
+                    FastFourierTransform.FFT(true, m, buffer);
+
+                    for (int k = 0; k &lt; result.GetLength(1); k++)
+                    {
+                        // 複素数の大きさを計算
+                        double diagonal = Math.Sqrt(buffer[k].X * buffer[k].X + buffer[k].Y * buffer[k].Y);
+                        // デシベルの値を計算
+                        double intensityDB = 10.0 * Math.Log10(diagonal);
+
+                        const double minDB = -60.0;
+
+                        // 音の大きさを百分率に変換
+                        double percent = (intensityDB &lt; minDB) ? 1.0 : intensityDB / minDB;
+                        // 結果を代入
+                        result[i / fftLength, k] = (float)diagonal;
+                    }
+                }
+            }
+
+            return result;
+        }
+

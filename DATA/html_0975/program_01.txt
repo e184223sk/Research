@@ -1,0 +1,75 @@
+
+/// &lt;summary&gt;
+/// 算術四則演算と文字列からの変換を行うためのジェネリック数値型クラスです。
+/// &lt;/summary&gt;
+private static class NumericalGeneric
+{
+    /// &lt;summary&gt;
+    /// 算術加算演算を行います。
+    /// &lt;/summary&gt;
+    public static Func&lt;N, N, N&gt; Add { get; }
+
+    /// &lt;summary&gt;
+    /// 算術減算演算を行います。
+    /// &lt;/summary&gt;
+    public static Func&lt;N, N, N&gt; Subtract { get; }
+
+    /// &lt;summary&gt;
+    /// 算術乗算演算を行います。
+    /// &lt;/summary&gt;
+    public static Func&lt;N, N, N&gt; Multiply { get; }
+
+    /// &lt;summary&gt;
+    /// 算術除算演算を行います。
+    /// &lt;/summary&gt;
+    public static Func&lt;N, N, N&gt; Divide { get; }
+
+    /// &lt;summary&gt;
+    /// 指定したジェネリック型を取得します。
+    /// &lt;/summary&gt;
+    private static Type _type =&gt; typeof(N);
+
+    /// &lt;summary&gt;
+    /// 指定した数値型における文字列からの変換メソッドを取得します。
+    /// &lt;/summary&gt;
+    private static MethodInfo _tryParseInvoker =&gt; _type.GetMethod("TryParse", new[] { typeof(string), _type.MakeByRefType() });
+
+    /// &lt;summary&gt;
+    /// 静的クラスの生成時に、算術四則演算デリゲートを作成します。
+    /// &lt;/summary&gt;
+    static NumericalGeneric()
+    {
+        var p1 = Expression.Parameter(typeof(N));
+        var p2 = Expression.Parameter(typeof(N));
+        Add = Expression.Lambda&lt;Func&lt;N, N, N&gt;&gt;(Expression.Add(p1, p2), p1, p2).Compile();
+        Subtract = Expression.Lambda&lt;Func&lt;N, N, N&gt;&gt;(Expression.Subtract(p1, p2), p1, p2).Compile();
+        Multiply = Expression.Lambda&lt;Func&lt;N, N, N&gt;&gt;(Expression.Multiply(p1, p2), p1, p2).Compile();
+        Divide = Expression.Lambda&lt;Func&lt;N, N, N&gt;&gt;(Expression.Divide(p1, p2), p1, p2).Compile();
+    }
+
+    /// &lt;summary&gt;
+    /// 数値の文字列形式を、それと等価なジェネリック数値型に変換します。 戻り値は、変換が成功したかどうかを示します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="s"&gt;変換する数値を格納する文字列。&lt;/param&gt;
+    /// &lt;param name="result"&gt;変換が成功した場合、このメソッドが返されるときに、s に格納された数値と等価のジェネリック数値を格納します。変換に失敗した場合は 0 を格納します。&lt;/param&gt;
+    /// &lt;returns&gt;s が正常に変換された場合は true。それ以外の場合は false。&lt;/returns&gt;
+    public static bool TryParse(string s, out N result)
+    {
+        if (_tryParseInvoker == null)
+        {
+            // Reflection で N.TryParse メソッドを取得できなかった場合
+            result = default(N);
+            return false;
+        }
+        var args = new object[] { s, null };
+        if (!(bool)_tryParseInvoker.Invoke(null, args))
+        {
+            // 変換失敗
+            result = default(N);
+            return false;
+        }
+        result = (N)args[1];
+        return true;
+    }
+}
+

@@ -1,0 +1,49 @@
+今回は、Step5 です。Step4 で作成したコードを流用します。ここでは、Twitter API についての説明を省略しますので、Twitter API については、Step1、Step2 をご参照ください。★お詫び：Function App のコードにバグがありました。本ページ、および、GitHub のコードは修正済みです。
+&lt;修正前 (誤り)&gt;&lt;修正後 (正解)&gt;Twitter のツイート データを Azure Data Lake Storage Gen2 (ADLS Gen2) に Parquet 形式のファイルとして自動的に蓄積し、Azure Synapse Analytics (Serverless SQL / Apach Spark) を使って分析できるようにします。ツイート データの継続的な取得と ADLS Gen2 へのデータ蓄積には、Azure Functions を利用します。
+これまで作成してきたコードをほぼそのまま流用し、Azure Functions に移植します。タイマー起動 (Timer Trigger) により、ADLS Gen2 にツイートデータの永続的な蓄積が出来るようにすることが目標となります。Azure Functions (Function App) を作成する際、以下のプランが選択できます。以下は、プラン別のタイムアウト期間を表しています。既定値は、host.json の functionTimeout パラメーターによって変更できますが、従量課金プランの場合、月の実行回数・実行時間によっては無償になる為、1 回起動時の最大実行時間が 10 分に制限されていますので、ご注意ください。
+バッチ処理として本来望ましいのは、App Service プランです。複数の Function App を 1 つの App Service プラン (コンピューティング) に割り当てることができますので、凝集効果を得られ、必ずしも高価な訳ではありませんが、今回のアプリのみを試すことだけが目的であれば、従量課金プランをご利用ください。開発には、以下を利用します。OSS (無償) かつ クロス プラットフォームとなりますので、Windows / Mac / Linux などお好きな OS/デバイスをご利用ください。今回の手順では、Visual Studio 2019 を利用します。Visual Studio 2019 を起動し、「新しいプロジェクトの作成」で、Azure Functions のテンプレートを選択します。プロジェクト名は、Azure Functions のデプロイ名 (Function App 名) にも使えるように、「&lt;自分のニックネーム&gt;-tweets」(私の場合、dokums-tweets) などとしておきます。
+
+「Timer trigger」を選択して、「作成」を行います。Visual Studio で Function App を作成した場合、コンパイル型 (実行が高速) となり、Azure ポータルからは編集できませんので、ご注意ください。
+以下は、プロジェクト作成直後の Function1.cs のコードを示しています。属性として、FunctionName が指定されており、ここの値 ("Function1") が関数名となり、実行上のエントリーポイントになります。これまで作成してきたコンソール アプリケーションでは、Main メソッドに相当します。ファイル名や関数名などを変更しておきます。host.json ファイルに functionTimeout パラメーターを追加します。従量課金プランが選択された場合は 10 分、その他のプランの場合は 1 時間に変更します。タイムアウトとは関係ありませんが、モニタリングの為の applicationInsights パラメーターについて、サンプリング指定を無効化する為、isEnabled を false にしておきます。1 時間に 1 度起動するように、TimerTrigger 属性を変更します。local.settings.json ファイルに各種設定値をパラメーターとして外部変数化します。TwitterApiKey 以降が追加のパラメーターとなります。Azure へのデプロイ後は、Function App の「構成」メニューで定義するパラメーターから local.settings.json 同様に環境変数として読み取りができます。
+Visual Studio で自動生成された local.settings.json ファイルのエンコードは、ASCII になっている為、メモ帳などで一度ファイルを開いて、UTF8 で保存し直してください。そのままだと、アプリで読み込んだ時に、日本語が文字化けします。※1: Parquet ファイルはある程度大きい方が分析時の IO 効率が良いのですが、取り込み失敗を少なくする為、100 程度にしておきますVisual Studio の「Nuget パッケージの管理」機能を使って、Step 4 までに利用したすべての SDK と Microsoft.ApplicationInsights.WorkerService を追加します。 
+以下のように必要なライブラリ分を追加します。 外部設定から読み出した値を格納したり、コード全体で共有する為のグローバル変数を定義します。 local.settings.json や Function App の「構成」で定義されたパラメーターを読み出して、グローバル変数に設定します。Parquet ファイル出力のコミット条件、ストリームから読み出したツイートの件数や時間などの終了条件に合わせて制御する為、Run メソッドでループ処理を行います。Twitter API のセッションが途中で終了することを想定して、特定の例外が発生した場合にリトライする処理を記述します。外部設定したフィルター用キーワードを空白区切りで複数設定できるようにしておきます。コミット条件、終了条件を設定します。グローバル変数の counter については、マルチスレッドによる同時オペレーションを排除する為、lock を利用して保護します。 上記で主要なコードについて説明しましたが、以下はコード全体となります。GitHub にも各ステップのコードを共有しています。テストし易いように、TimerTrigger 属性と local.settings.json の以下のパラメーターを変更して、デバッグ実行します。3 分おきの起動となりますので、ご注意ください。Visual Studio のソリューション エクスプローラーで、プロジェクトを右クリックして、「発行」を選択します。
+ターゲットとして、「Azure」を選択し、「次へ」ボタンをクリックします。
+特定のターゲットとして、「Azure Function App (Windows)」 or 「Azure Function App (Linux)」を選択します。どちらでも良いですが、今回は、Windows 版を選択し、「次へ」ボタンをクリックします。
+Function App を事前に作成していれば、対象アプリを選択し、無ければ、「+」ボタンで新規に作成します。
+
+ここでは、先述した「プラン」を選択することになります。ストレージについては、ADLS Gen2 ではなく、汎用v2 のストレージを選択、または、新規で作成することになります。「作成」ボタンをクリックすると、Function App インスタンスが作成されます。
+作成された Function App インスタンスが選択された状態になっていますので、このまま「完了」ボタンをクリックします。
+Function App の稼働状況やログをモニタリング可能な Application Insights (Azure Monitor の機能) を構成します。未構成だと、黄色のビックリマークが表示されていますので、「構成」リンクをクリックします。
+
+割り当てる Application Insights が無ければ、「+」ボタンで新規作成を行います。
+
+作成された Application Insights インスタンスが選択された状態になっていますので、このまま「次へ」ボタンをクリックします。
+
+このまま「次へ」ボタンをクリックします。
+
+「完了」ボタンをクリックします。
+Application Insights の状態が、「構成済み」になったら、「発行」ボタンをクリックします。
+
+以下のように「正常に公開されました」となれば、デプロイは成功です。
+Azure ポータルから対象の Function App を表示し、「構成」メニューを選択します。以下の「アプリケーション設定」に local.settings.json で定義したパラメーターを追加していきます。
+
+「+ 新しいアプリケーション設定」ボタンをクリックし、パラメーターと設定値を追加します。
+
+最後に上部にある「保存」ボタンをクリックすると、Function App の再起動が入り、環境変数として反映されます。
+Azure ポータルから対象の Function App を表示し、「関数」メニューから対象の関数「StoreTweetData」リンクをクリックします。「モニター」メニューを表示すると、実行履歴が表示されます。各実行日時のリンクをクリックすると、その日時で出力されたログが表示されます。
+
+
+関数の実行が「成功」し、ADLS Gen2 に Parquet ファイルが出力されていれば、Step5 の目標は達成したことになります。お疲れ様でした。
+Step6 では、Azure Synapse Analytics - Serverless SQL pool を利用して、Parquet ファイルに対して SQL 文で分析をしてみます。Azure Functions 概要
+Azure Functions - host.json 設定パラメーター
+Azure Storage Blob Nuget Package サイト
+Apache Parquet for .Net Platform サイト
+C# 向け Twitter API SDK (TweetinviAPI) Nuget Package サイト
+TweetinviAPI - Filtered Stream API リファレンス
+クロス プラットフォーム .NET 概要
+Twitter 開発者向けサイト
+Twitter API サイト
+Visual Studio 2019 Community サイト
+Visual Studio Code のサイト
+
+

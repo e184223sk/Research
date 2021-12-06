@@ -1,0 +1,62 @@
+
+public class Startup {
+  public Startup(IConfiguration configuration) {
+    Configuration = configuration;
+  }
+
+  public IConfiguration Configuration { get; }
+
+  public void ConfigureServices(IServiceCollection services) {
+    services.AddCors();
+    services.AddMvc();
+
+    // インメモリ DB を使う設定
+    services.AddDbContext&lt;MyDbContext&gt;(options =&gt; {
+      options.UseInMemoryDatabase(databaseName: "MyDb");
+    });
+
+    // appsettings.json の AppSettings に 秘密鍵があるので設定を読み取ります。
+    // ※本来は環境変数などから読み取ります。
+    var appSettingsSection = Configuration.GetSection("AppSettings");
+    services.Configure&lt;AppSettings&gt;(appSettingsSection);
+
+    var appSettings = appSettingsSection.Get&lt;AppSettings&gt;();
+    var key = Encoding.ASCII.GetBytes(appSettings.Secret);
+    services.AddAuthentication(options =&gt; {
+      options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+      options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    }).AddJwtBearer(options =&gt; {
+      options.RequireHttpsMetadata = false;
+      options.SaveToken = true;
+      options.TokenValidationParameters = new TokenValidationParameters {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = false,
+        ValidateAudience = false
+      };
+    });
+    services.AddScoped&lt;IAuthService, JwtAuthService&gt;();
+    services.AddTransient&lt;IUserService, UserService&gt;();
+  }
+
+  public void Configure(IApplicationBuilder app, IHostingEnvironment env, ILoggerFactory loggerFactory) {
+    loggerFactory.AddConsole(Configuration.GetSection("Logging"));
+    loggerFactory.AddDebug();
+
+    if (env.IsDevelopment()) {
+      app.UseDeveloperExceptionPage();
+    }
+
+    // クロスオリジンを想定しているので
+    app.UseCors(corsPolicyBuilder =&gt; {
+      corsPolicyBuilder.AllowAnyOrigin()
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials();
+    });
+
+    app.UseAuthentication();
+    app.UseMvc();
+  }
+}
+

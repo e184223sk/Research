@@ -1,0 +1,186 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.RegularExpressions;
+
+using UnityEngine;
+
+public class TextControl
+{
+    private Encoding Enc = Encoding.GetEncoding("UTF-8");
+    private string messageText = "";
+    private Regex BrecketRange = new Regex(@"\[.*?\]");
+    private Regex BracketSelector = new Regex(@"\[|\]");
+    private Regex StringOnly = new Regex(@"[a-zA-Z]+");
+    private Regex NumOnly = new Regex(@"[0-9,]+");
+
+    private int _idx = 0;
+    public int idx
+    {
+        get
+        {
+            return _idx;
+        }
+    }
+    public int Length
+    {
+        get { return messageText.Length; }
+    }
+
+    public bool isOneByte(string strmes)
+    {
+        byte[] StrBytes = Enc.GetBytes(strmes);
+        return strmes.Length == StrBytes.Length;
+    }
+
+    public void SetMessage(string strmes)
+    {
+        messageText = strmes;
+        _idx = 0;
+
+        int i = 0;
+        while (i &lt; Length)
+        {
+            string onestr = messageText[i].ToString();
+            if (isOneByte(onestr))
+            {
+                if (onestr == "[")
+                {
+                    Match match = BrecketRange.Match(messageText, i);
+                    if (match.Success)
+                    {
+                        string matched = BracketSelector.Replace(match.Value, "");
+
+                        if (string.IsNullOrWhiteSpace(matched))
+                        {
+                            throw new System.Exception("Error in  " + i + " command is  null or whitespace");
+                        }
+                        GetCommand(matched, i);
+                        i += match.Length;
+                        continue;
+                    }
+                    else
+                    {
+                        throw new System.Exception("Error in  " + i + " missing end \"]\" brancket");
+                    }
+                }
+                if (onestr == "]")
+                {
+                    throw new System.Exception("Error in  " + i + " missing start \"[\" brancket");
+                }
+            }
+            i++;
+        }
+    }
+    public class TextParam
+    {
+        public string mes = "";
+        public bool isCommand = false;
+        public string Command = "";
+        public int[] param;
+    }
+
+    public TextParam GetCommand(string strcom, int index = 0)
+    {
+        TextParam resultText = new TextParam();
+        resultText.isCommand = true;
+
+        Match matchCommand = StringOnly.Match(strcom);
+        if (matchCommand.Success)
+        {
+            resultText.Command = matchCommand.Value;
+            if (!isOneByte(resultText.Command))
+            {
+                throw new System.Exception("Error in  " + index + "command cannot analyze 2byte character(s)");
+            }
+        }
+        Match matchNums = NumOnly.Match(strcom);
+        if (matchNums.Success)
+        {
+            string[] numparams = matchNums.Value.Split(',');
+            List&lt;int&gt; nums = new List&lt;int&gt;();
+
+            for (int i = 0; i &lt; numparams.Length; i++)
+            {
+                int result = 0;
+                if (int.TryParse(numparams[i], out result))
+                {
+                    nums.Add(result);
+                }
+            }
+            resultText.param = nums.ToArray();
+        }
+
+        if (string.IsNullOrEmpty(resultText.Command) &amp;&amp; resultText.param == null)
+        {
+            throw new System.Exception("Error in  " + index + "command is nothing");
+        }
+        return resultText;
+    }
+
+    public TextParam value
+    {
+        get
+        {
+            if (isFinish) { return null; }
+
+            string onestr = messageText[_idx].ToString();
+            if (isOneByte(onestr))
+            {
+                if (onestr == "[")
+                {
+                    Match match = BrecketRange.Match(messageText, _idx);
+                    if (match.Success)
+                    {
+                        _idx += match.Length;
+                        string matched = BracketSelector.Replace(match.Value, "");
+                        return GetCommand(matched);
+                    }
+                }
+            }
+
+            TextParam txt = new TextParam();
+            txt.mes = onestr;
+            _idx++;
+            return txt;
+        }
+    }
+
+    public string FullText
+    {
+        get
+        {
+            string result = "";
+            int i = 0;
+            while (i &lt; Length)
+            {
+                string onestr = messageText[i].ToString();
+                if (isOneByte(onestr))
+                {
+                    if (onestr == "[")
+                    {
+                        Match match = BrecketRange.Match(messageText, i);
+                        if (match.Success)
+                        {
+                            i += match.Length;
+                            continue;
+                        }
+
+                    }
+                }
+                result += onestr;
+                i++;
+            }
+            return result;
+        }
+    }
+    public bool isFinish
+    {
+        get
+        {
+            return _idx &gt;= Length;
+        }
+    }
+}
+
+

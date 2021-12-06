@@ -1,0 +1,16 @@
+More than 1 year has passed since last update.EF Core でリレーションするエンティティのデータを DB から取得し ASP.NET Core Web API でクライアントへ返す際にJsonSerializationExceptionが発生しました。原因としては取得したオブジェクトが循環参照していたためです。以下経緯と対処方法の説明です。
+下記のように 1 対 N の親子関係にあるモデルがあります。クライアントからのGETリクエストに対し、著者一覧とそれに紐づく書籍一覧を返します。実際にリクエストを送ると循環参照するオブジェクトを JSON にシリアル化した際に例外が発生しています。（Newtonsoft.Json.JsonSerializationException: Self referencing loop detected for property 'author' with type 'RelationalEntitiesSeeding.Entities.Author'. Path '[0].books[0]'.）
+この例外は開発用エラーページには遷移せず、ターミナルにひっそりと表示されるだけなのですぐに原因に気がつきませんでした。本来なら以下のようなデータが返ることを期待します。しかし実際に返るのは以下のように壊れた JSON です。AuthorのインスタンスはBooksプロパティで複数のBookインスタンスを参照し、BookはAuhtorプロパティから親のAuthorを参照しているため、Author Bookお互いに参照が発生し循環しています。
+それにより JSON にシリアライズした際も Book.Authorの位置でシリアル化が止まっているようです。BookエンティティのAuthorプロパティに[Jsonignore]アノテーション付けて無視することもできますが、循環参照しない場合でもシリアライズ化されなくなってしまいます。
+そこで以下のようにStartup.csでSerializerSettings.ReferenceLoopHandlingにReferenceLoopHandling.Ignore (循環参照を無視する)を設定します。実際に Web API にリクエストを送って正常にシリアライズされるか確認したいと思います。
+データベースコンテキストに以下のようにシードデータを設定し初期データを作成します。&lt;project_name&gt;.csprojファイルがあるディレクトリで以下のコマンドを入力します。SQL Server Object Explorer で生成されたテーブルの内容とデータを確認します。
+
+
+
+アプリを立ち上げ、ブラウザで Web API にアクセスします。以下の画像の通り循環する参照を持つオブジェクトでも正常に JSON にシリアライズされることが確認できました！ 
+URL はコントローラークラスのアノテーションで設定されている[Route("api/[controller]")]のデフォルト設定です。
+※ 画像では JSON Formatter という Google Chrome 拡張で見やすく整形しています。
+Visual Studio でデバッグする際はlaunchsetting.jsonのprofiles.launchUrlでブラウザが起動した際にデフォルトでアクセスする URL を設定できるので便利です。ファイルを直接編集して指定することもできますが、ソリューションエクスプローラーからプロジェクトのプロパティ画面の開きデバッグタブからも編集できます。今回使用したソースコードは以下のリポジトリに置きました。
+https://github.com/sano-suguru/RelationalEntitiesSeeding
+
+

@@ -1,0 +1,113 @@
+
+    public sealed class BindingPinsBehavior : BehaviorBase&lt;Map&gt;
+    {
+        void HandleNotifyCollectionChangedEventHandler(object sender, NotifyCollectionChangedEventArgs e)
+        {
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Add:
+                    var items = e.NewItems.Cast&lt;Pin&gt;().ToArray();
+                    for (int i = 0; i &lt; items.Length; i++)
+                    {
+                        _pins.Insert(e.NewStartingIndex + i, items[i]);
+                    }
+                    break;
+                case NotifyCollectionChangedAction.Remove:
+                    var oldItems = e.OldItems.Cast&lt;Pin&gt;().ToArray();
+                    foreach (var item in oldItems)
+                    {
+                        _pins.Remove(item);
+                    }
+                    break;
+                case NotifyCollectionChangedAction.Reset:
+                    _pins.Clear();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        public static readonly BindableProperty ValueProperty = BindableProperty.Create("Value", typeof(ReadOnlyObservableCollection&lt;Pin&gt;), typeof(BindingPinsBehavior), default(ReadOnlyObservableCollection&lt;Pin&gt;)
+                                                                                                       , defaultBindingMode: BindingMode.TwoWay
+                                                                                                       , propertyChanged: (bindable, oldValue, newValue) =&gt;
+                                                                                                       {
+                                                                                                           var b = bindable as BindingPinsBehavior;
+                                                                                                           if (oldValue != null)
+                                                                                                           {
+                                                                                                               (oldValue as INotifyCollectionChanged).CollectionChanged -= b.HandleNotifyCollectionChangedEventHandler;
+                                                                                                           }
+                                                                                                           if (newValue != null)
+                                                                                                           {
+                                                                                                               (newValue as INotifyCollectionChanged).CollectionChanged += b.HandleNotifyCollectionChangedEventHandler;
+                                                                                                           }
+                                                                                                       });
+        public ReadOnlyObservableCollection&lt;Pin&gt; Value
+        {
+            get =&gt; (ReadOnlyObservableCollection&lt;Pin&gt;)GetValue(ValueProperty);
+            set
+            {
+
+                SetValue(ValueProperty, value);
+
+            }
+        }
+
+        private ObservableCollection&lt;Pin&gt; _pins;
+
+        protected override void OnAttachedTo(Map bindable)
+        {
+            base.OnAttachedTo(bindable);
+            _pins = bindable.Pins as ObservableCollection&lt;Pin&gt;;
+            if (Value != null)
+            {
+                (Value as INotifyCollectionChanged).CollectionChanged += HandleNotifyCollectionChangedEventHandler;
+            }
+        }
+
+        protected override void OnDetachingFrom(Map bindable)
+        {
+            base.OnDetachingFrom(bindable);
+            _pins = null;
+        }
+    }
+
+    public class BehaviorBase&lt;T&gt; : Behavior&lt;T&gt; where T : BindableObject
+    {
+        public T AssociatedObject { get; private set; }
+
+        internal BehaviorBase()
+        {
+        }
+
+        protected override void OnAttachedTo(T bindable)
+        {
+            base.OnAttachedTo(bindable);
+            AssociatedObject = bindable;
+
+            if (bindable.BindingContext != null)
+            {
+                BindingContext = bindable.BindingContext;
+            }
+
+            bindable.BindingContextChanged += OnBindingContextChanged;
+        }
+
+        protected override void OnDetachingFrom(T bindable)
+        {
+            base.OnDetachingFrom(bindable);
+            bindable.BindingContextChanged -= OnBindingContextChanged;
+            AssociatedObject = null;
+        }
+
+        private void OnBindingContextChanged(object sender, EventArgs e)
+        {
+            OnBindingContextChanged();
+        }
+
+        protected override void OnBindingContextChanged()
+        {
+            base.OnBindingContextChanged();
+            BindingContext = AssociatedObject.BindingContext;
+        }
+    }
+

@@ -1,0 +1,79 @@
+public class ImagePicker
+{
+    static int REQ_GALLERY = 10;
+    public void GetStreamByPicker(Action&amp;lt;string[], Stream[]&gt; result)
+    {
+        ActivityHost.OnResult = (x) =&gt;
+        {
+            string[] fileNames;
+            Stream[] stms = GetStreamByURI(x, out fileNames);
+            result(fileNames, stms);
+        };
+        var intent = new Intent();
+        intent.SetType("image/*");
+        intent.PutExtra(Intent.ExtraAllowMultiple, true);
+        intent.SetAction(Android.Content.Intent.ActionGetContent);
+        ActivityHost.activity.StartActivityForResult(intent, REQ_GALLERY);
+    }
+
+    public Stream[] GetStreamByURI(Android.Net.Uri[] uris, out string[] fileNames)
+    {
+        Android.Content.Context context = Android.App.Application.Context;
+        Stream[] streams = new Stream[uris.Length];
+        fileNames = new string[uris.Length];
+
+        for (int i = 0; i &amp;lt; uris.Length; i++)
+        {
+            streams[i] = context.ContentResolver.OpenInputStream(uris[i]);
+
+            ICursor returnCursor = context.ContentResolver.Query(uris[i], null, null, null, null);
+            int nameIndex = returnCursor.GetColumnIndex(OpenableColumns.DisplayName);
+            returnCursor.MoveToFirst();
+            fileNames[i] = returnCursor.GetString(nameIndex);
+        }
+        return streams;
+    }
+}
+/* 以下はAndroidプロジェクト内に追加 */
+public class MainActivity 
+{
+    protected override void OnCreate(Bundle bundle)
+    {
+        base.OnCreate(bundle);
+        ActivityHost.activity = this; //追加
+    }
+
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQ_GALLERY &amp;amp;&amp;amp; resultCode == Result.Ok)
+        {
+            int cnt = 0;
+            bool isSingle = false;
+
+            if (data.ClipData != null) cnt = data.ClipData.ItemCount;
+            else isSingle = true;
+
+            Android.Net.Uri[] uris = new Android.Net.Uri[cnt];
+            for (int i = 0; i &amp;lt; cnt; i++)
+            {
+                uris[i] = data.ClipData.GetItemAt(i).Uri;
+            }
+
+            if (isSingle)
+            {
+                uris = new Android.Net.Uri[1];
+                uris[0] = data.Data;
+            }
+
+            ActivityHost.OnResult?.Invoke(uris);
+        }
+    }
+}
+
+public class ActivityHost{
+    public static Activity activity;
+    public static Action&amp;lt;Android.Net.Uri[]&gt; OnResult;
+}
+

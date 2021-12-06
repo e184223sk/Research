@@ -1,0 +1,144 @@
+More than 3 years have passed since last update.Xamarin その1 Advent Calendar 2017 の 8日目のエントリーです。本記事はネイティブライブラリ用 C# バインディングライブラリの nuget パッケージ(nupkg)をクロスプラットフォームへの対応手順になります。また今回は Unity3d 用の unitypackage も作成してみます。軽量ブロック暗号ライブラリ Naruto/simon-speck-c の C# バインディングライブラリ Naruto/simon-speck-net のクロスプラットフォーム用 nuget パッケージを作成した時の備忘録になります。バインディングの実装の内容は薄くして、マルチ環境開発環境作りの内容を厚くしています。nuget パッケージ作成の定石に詳しくないため、作成手順やファイル構成に間違いや改善点があればぜひコメントお願いします！ とりあえず nuget ロゴ
+先に生成物を見たい方向け。下記で nupkg ファイルと unitypackage ファイルを作れますよ。nuget.org にアップロードしたのが以下になります。
+https://www.nuget.org/packages/SimonSpeckNet/動かしてみる場合は以下のサンプルコードを使ってください。
+
+String plainText = "test text abcdefg.";
+byte[] plainByte = System.Text.Encoding.ASCII.GetBytes(plainText);
+
+// Speck ECB mode
+using (SymmetricAlgorithm algo = new Speck())
+{
+    algo.BlockSize = 128;
+    algo.KeySize = 128;
+
+    algo.GenerateKey();
+    using (ICryptoTransform encryptor = algo.CreateEncryptor() , decryptor = algo.CreateDecryptor())
+    {
+        byte[] plainEnc = encryptor.TransformFinalBlock(plainByte, 0, plainByte.Length);
+        byte[] plainDec = decryptor.TransformFinalBlock(plainEnc, 0, plainEnc.Length);
+        Console.WriteLine(System.Text.Encoding.ASCII.GetString(plainDec));
+        Console.WriteLine();
+    }
+}
+
+// Speck CTR mode
+using (SymmetricAlgorithm algo = new SpeckCTR())
+{
+    algo.BlockSize = 128;
+    algo.KeySize = 128;
+
+    algo.GenerateIV();
+    algo.GenerateKey();
+    using (ICryptoTransform encryptor = algo.CreateEncryptor() , decryptor = algo.CreateDecryptor())
+    {
+        byte[] plainEnc = encryptor.TransformFinalBlock(plainByte, 0, plainByte.Length);
+        byte[] plainDec = decryptor.TransformFinalBlock(plainEnc, 0, plainEnc.Length);
+        Console.WriteLine(System.Text.Encoding.ASCII.GetString(plainDec));
+        Console.WriteLine();
+    }
+}
+
+
+今回は simon-speck-cの C# バインディングを作成します。simon と speck は IoT などの低スペックで限られた電力の環境での動作を考慮されて提案された共通暗号鍵アルゴリズムです。
+simon は半導体向けに、speck は CPU 向けにそれぞれ最適化されています。
+simon-speck-c は simon と speck の暗号アルゴリズムの実装となります。(現状は speck のみの対応)
+実装の特徴としては Intel AVX2 や ARM NEON などの SIMD を使って最適化しています。今回作成する nuget パッケージは対応プラットフォームのネイティブライブラリをすべて包含するオールインワンパッケージとなります。残念なことに、オールインワンパッケージ構成は nuget パッケージ的には正しくなさそうです。openssl バインディングライブラリの構成を見てみると各プラットフォームの各アーキテクチャ毎にパッケージ化がわけられていて、おそらくこれがクロスプラットフォームのバインディングのあるべき姿なのだと思われます。オールインワン nuget パッケージがプラットフォーム毎 nuget パッケージを比較して優れている点は「メンテナンスコストが少ないこと」。デメリットとしては「Windows でラッピング対象のネイティブライブラリを分けられない。」や「Linux のディストリビューション毎にパッケージを作成できない」というのがあります。今回はメンテナンスコストをかけずに作成したい。そして、Windows は x64 対応のみ、Linux を泣く泣くサポート対象外にすることでデメリットを回避しています。今回は対応するプラットフォームは下記のとおりです。Linux 🐧 は distribution ごとのパッケージシステム経由でネイティブライブラリをインストールするのがベストなライブラリ管理方法ですので今回は対応対象外とします。(simon-speck-c の rpm や deb パッケージを作ったら対応検討します。)Windows は、バインディング対象のネイティブライブラリファイルのうまい切り替え方法が思いつかなかったため x64 のみの対応としています。(AnyCPU の指定ができなくて不便なのでなんとかしたいところではあるのですが･･･)今回は macOS 上 で Visual Studio for Mac(Xamarin Studio)を用いて開発します。
+今回は macOS 上で jetbrains の Rider を用いて開発します。(※ 記述最中に Rider 2017.2 から 2017.3 へバージョンアップしたため所々バージョンの違うレイアウトが混在します。)Xamarin や .NET の機能が充実してきているのでネイティブライブラリ(しかも swift や kotlin じゃなくて C/C++ で記述された！)のバインディングが必要になるケースはほぼほぼないはずなのですが･･･下記のような場合にネイティブライブラリのバインディングが必要になります。ネイティブ実装しかないライブラリを C# で利用したい
+マルチメディア関連のライブラリの C# 実装は数が少なく、利用する際はバインディングが必要になります。
+例えば libwebp や opencv、ffmpeg　などなど。C# では利用できない低レイヤーの機能を利用したい
+パフォーマンスが必要なので CPU の機能、例えば Intel Quick Sync Video や Intel AVX2, arm NEON などを利用する場合にバインディングが必要になります。考えてみると、上記であげた libwebp や opencv、ffmpeg もパフォーマンス向上のために SIMD を使ってますね。過去のリソースを修正せずに C# で利用したい
+私はこのケースに出会ったことがないのですが、Win32 API で作られた .dll ファイルと .h ファイルがあるが、ソースがない場合などでしょうか。
+ロストテクノロジー化したけど、モダンな環境でメンテナンスしていきたい場合に C# バインディングして再利用していくなどあるかもしれません。simon-speck-net を C# バインディング対応した理由
+理由は二つありました。一つ目は他プログラミング言語対応は暗号アルゴリズムのロジックを一カ所にまとめてメンテナンスコストを増やしたくない考えがありました。今後言語が増えるたびにロジックを書いていたらメンテナンスコストが指数的に増えていきます。二つ目は simon-speck-c 側で SIMD 命令(intel avx2, arm neon)　の実装をしていたためです。SIMD を使うと 2-4倍ぐらいは高速化が可能です。わざわざこのパフォーマンスを捨てて C# で実装する理由がありませんでした。以上から、C# で暗号アルゴリズムのロジックを実装せずに、C# バインディングにすることに決めました。C# にはネイティブライブラリの API を C# から実行する仕組み「プラットフォーム呼び出しサービス」が用意されています。C# 側でネイティブライブラリ API と同じ返り値型と引数で関数を宣言し、その宣言した関数へ DllImport 属性を付与すると、C# からネイティブライブラリ API を実行できるようになります。例えば、下記は実行中プロセスのプロセス ID を返す getpid を宣言したものになります。getpid は返り値型は pid_t(int の typedef) で引数がありません。C# 側で宣言すると下記のようになります。​​
+上記 API を C# 側で実行するとプロセス ID が返ってきます。DllImport は C 言語の関数のバインディングしか実装できないので、C++ で実装したネイティブライブラリの API のプラットフォーム呼び出しをする場合は  extern "C" { } で囲むように注意してください。P/Invoke の詳細な解説は Xamarin のバックエンドの mono のドキュメント ( http://www.mono-project.com/docs/advanced/pinvoke/ ) が参考になります。各プラットフォームでバインディングが可能なネイティブライブラリタイプと指定方法は以下の通りです。静的ライブラリは DllImport("__Internal") を指定し、動的ライブラリはライブラリファイルから拡張子と lib 文字列を抜いたもので指定できます。例えば、 macOS の libname.dylib や Linux(Android) の libname.so や Windows のname.dll  は DllImport("name") で指定できます。この仕様はバインディングライブラリのソリューションの構成にも影響してきます。各プラットフォームのネイティブライブラリのバイナリを用意します。
+各プラットフォームのビルド環境の構築手順は省略します。具体的なビルド手順は simon-speck-c のビルド手順を記載ます。静的ライブラリ(.a)を用意します。
+静的ライブラリは armv7a, arm64, x86, x86_64 用のライブラリを含んだ fat ライブラリであることが望ましいです。(iOS11 以降 arm64 バイナリのみのサポートになりましたが、 iOS10 のサポート期間が終わるまでは armv7a バイナリを入れた方が良いでしょう。また、x86 と x86_64 を入れてるのはシミュレータのためです。)全アーキテクチャの静的ライブラリを作成後、 libtool でfat ライブラリファイルを生成します。ビルドスクリプトは下記になります。
+https://github.com/Naruto/simon-speck-c/blob/develop/scripts/speck/build_ios.sh動的ライブラリ(.so)を用意します。
+動的ライブラリは armeabi, armeabi-v7a, arm-v8a, x86, x86_64 アーキテクチャのそれぞれの動的ライブラリがあることが望ましいです。(といいつつ、もう armeabi, x86 と x86_64 はもう不要では･･･と思っています。)cmake v3.7 から正式に Android NDK 用ライブラリのビルドがサポートされました。ビルド時に -DCMAKE_ANDROID_ARCH_ABI= でアーキテクチャ指定するとそれぞれのアーキテクチャのライブラリをビルド可能です。Android プロジェクトの libs 以下と同じディレクトリ構造にします。すなわちネイティブライブラリはアーキテクチャ名のディレクトリへ配置します。ビルドスクリプトは下記になります。
+https://github.com/Naruto/simon-speck-c/blob/develop/scripts/speck/build_android.sh動的ライブラリ(.dylib)と bundle ファイル(.bundle)を用意します。動的ライブラリは x86 と x86_64 アーキテクチャの fat ライブラリにしておくとベターです。全アーキテクチャの動的ライブラリを作成後、 lipo  で fat ライブラリファイルを生成します。bundle ファイルは上記の動的ライブラリファイルから作成します。
+speck.bundle/Contents/MacOS 以下に libspeck.dylib を bundle ファイル名と同じ名前 speck で配置すれば完成です。ビルドスクリプトは下記になります。
+https://github.com/Naruto/simon-speck-c/blob/develop/scripts/speck/build_mac.sh動的ライブラリ(.dll)を用意します。
+動的ライブラリは x86_64 アーキテクチャのみを用意します。https://github.com/Naruto/simon-speck-c/blob/develop/scripts/speck/build_win.bat
+​​できあがったライブラリ群はビルドして配置します。配置構成は下記の通り。各プラットフォームのビルド&amp;配置用スクリプトは下記になります。https://github.com/Naruto/simon-speck-net/blob/develop/scripts/plugins/deploy_android.sh
+https://github.com/Naruto/simon-speck-net/blob/develop/scripts/plugins/deploy_ios.sh
+https://github.com/Naruto/simon-speck-net/blob/develop/scripts/plugins/deploy_mac.sh
+https://github.com/Naruto/simon-speck-net/blob/develop/scripts/plugins/deploy_win.batC# ライブラリを作成するソリューションを作成します。ソリューションには動的ライブラリ用の C# ライブラリプロジェクトと、静的ライブラリ用の C# ライブラリプロジェクトを追加します。また、バインディングライブラリのデバッグ用コンソールアプリケーションプロジェクトも追加します。New Solution ダイヤログで .NET の Class Library を選んでソリューション名を決定します。プロジェクトの構造は以下の通り。
+ソリューション名ディレクトリ SimonSpeckNet の中にソリューションファイル SimonSpeck.sln と プロジェクトディレクトリ SimonSpeckNet/SimonSpeckNet が作成されます。名前が紛らわしいのでソリューションディレクトリを net に変更します。(.NET なので、net にしましたが、もしかしたら定石な名称が存在する？)事前準備で作成したネイティブライブラリ群をソリューションファイルと同ディレクトリへ配置します。SimonSpeckNet.cproj ファイルへネイティブライブラリを追加します。プロジェクトファイルを右クリックして “Add Existing Item” をクリックしてください。追加するライブラリを選びます。ここで追加するライブラリは C# バインディングの動作確認に利用するものです。今回は macOS での開発なので libspeck.dylib を選択します。追加した dylib ファイルを右クリック → “Properties” を選んでください。"Editable" -&gt; "Copy to output directory:" を “Copy if newer” を選択してください。SimonSpeckNet  を右クリック → “Build Selected Projects” をクリックし、プロジェクトのビルド後、 SimonSpeckNet.dll と同ディレクトリに libspeck.dylib ファイルがコピーされていれば正しく設定できています。静的ライブラリは動的ライブラリと同じソースファイルを利用して生成します。そのため静的ライブラリのプロジェクトは動的ライブラリのソースを参照するだけのプロジェクトにします。(新規にプロジェクトを追加するほかに、define で分けてビルドする方法があるなら知りたいです。)ソリューションを右クリックでプロジェクトを追加を選びます。名前は何でもいいんですが、わかりやすいように SimonSpeckNetStatic とします。SimonSpeckNetStatic.csproj の DefineConstants へ静的ライブラリビルド用の define 宣言 LIB_SATATIC を追加します。(LIB_STATIC はコーディング時の DllImport の処理を分けるのに利用します。)SimonSpeckNetStatic プロジェクトの Class1.cs を削除し、右クリック → “Add Existing Items” で  SimonSpeckNet のソースファイルを指定します。SimonSpeckNetStatic.csproj で cs ファイルのパスが SimonSpeckNet  ものを指定していれば成功です。C# バインディング API が正しくバインディングされてるか確認するため、C# ライブラリを参照するコマンドラインアプリケーションのプロジェクトを追加します。ソリューションを右クリックでプロジェクトを追加を選びます。Console Application を選択し、プロジェクトを名を設定します。
+これまた、名前は何でもいいんですがデバッグ用なので SimonSpeckNetTest などにします。SimonSpeckNetTest を右クリック → “Add Reference” を選択し、SimonSpeckNet を選択してください。これで、SimonSpeckNetTest をビルドした際に SimonSpeckNet のファイルもまとめて配置されていれば成功です。最終的なプロジェクトのディレクトリ構成は下記となります。C# のバインディングライブラリを実装します。DllImport 属性で指定するライブラリ名の宣言を下記のようにします。
+DllImport で指定するライブラリ名は private const string で宣言した変数を利用します。
+変数宣言は #if LIB_STAITCマクロで静的ライブラリ用と動的ライブラリ用の二つに分けるようにします。(静的ライブラリ判別用 define 宣言を追加で追加したマクロを使用します。)静的ライブラリは __Internal を指定、動的ライブラリは speck と指定します。(指定名はこちらを参照してください。)DllImport API をそのまま利用するのは利用者に負担がかかるのため、 C# の API スタイルに合わせてラッピングしましょう。例えば、simon-speck-net は共通鍵ブロック暗号なので、System.Security.Cryptography.SymmetricAlgorithm の派生クラス Speck と SpeckCTR を実装しています。(SpeckCTR は SymmetricAlgorithm に CTR モードの指定方法がないので CTR モード専用に派生させたクラスになります。)C# の基底クラスから派生させることで、利用者の負担が軽減するばかりではなく、既存機能の差し替えが楽になります。
+是非、郷には入れば郷に従うの精神で DllImport API をラッピングしましょう。C# のバインディングを記述する上での基本的な原理原則は「Interop with Native Libraries
+( http://www.mono-project.com/docs/advanced/pinvoke/ )」が参考になります。CLI でのビルド手順とデバッグ手順は下記になります。nupkg を生成するコマンドを取得し、プロジェクトディレクトリ内に格納します。nuget.org からダウンロードできます。プロジェクト内に nuget ディレクトリが作成され、その中に nuget.exe ファイルが格納されます。nuget.exe を実行するとバージョン番号と usage が表示されます。nuspec は nupkg を生成するためのファイルになります。nuget の spec コマンドで nuspec ファイルのテンプレートが生成されます。パッケージ名やバージョン、著者名などなど &lt;metadata&gt; タグ内のパッケージ情報を記載していきます。各タグの説明は下記を参照してください。
+https://docs.microsoft.com/en-us/nuget/schema/nuspecSimonSpeckNet の 記述は以下になります。nuspec の続きを書く前に、各プラットフォームの targets ファイルを記載します。targets ファイルはビルドに必要なファイル情報を記載するファイルとなります。今回はネイティブライブラリの情報を記載します。windows と macOS 両用の targets ファイル  NuGet/SimonSpeckNet.targets の内容は下記になります。windows では .dll ファイルを指定し、macOS では .dylib ファイルを指定します。&lt;None&gt; タグの Include 属性値には nupkg へパッケージング後のファイルパスを記載します。
+windows のネイティブライブラリは runtimes/win-x64/native/speck.dll以下に格納し、macOS のネイティブライブラリは runtimes/osx-x64/native/libspeck.dylib 以下に格納します。XamarioniOS 用の targets ファイル NuGet/iOS/SimonSpeckNet.targets の内容は下記になります。&lt;NativeReference&gt; タグの Include 属性値には nupkg へパッケージング後のファイルパスを記載します。
+iOS のネイティブライブラリは native/ios/libspeck.a 以下に格納します。MonoAndroid 用の targets ファイル NuGet/Android/SimonSpeckNet.targets の内容は下記になります。&lt;AndroidNativeLibrary&gt; タグの Include 属性値には nupkg へパッケージング後のファイルパスを記載します。
+Android のネイティブライブラリは native/android 以下に格納します。各アーキテクチャ毎の設定が必要になるので全部(arm, armeabi-v7a, arm64-v8a, x86, x86_64)追加します。nupkg ファイルに格納するファイルの情報を記述します。具体的には C# ライブラリとネイティブライブラリと targets ファイルの情報を記載します。各ファイル毎に &lt;file&gt; タグに記述します。src 属性値で指定するパスは nupkg 実行時の作業ディレクトリからの相対パス、dst 属性値で指定するパスは nupkg のルートディレクトリからの相対パスとなります。(nupkg コマンドははパッケージ作成はソリューションファイルの格納ディレクトリでの実行を想定して設定します。)C# ライブラリの配置設定は以下の通り。動的ライブラリ用の C# ライブラリを lib/net, lib/netcore, lib/win, lib/netstandard 以下に配置します。(lib/win はいらないかもしれません。)common 用の targets ファイルとネイティブライブラリの設定を記載します。
+speck.dll と libspeck.dylib は nuget/SimonSpeckNet.targets へ記述したパスへ配置します。iOS 用の targets ファイルとネイティブライブラリの設定を記載します。
+iOS の場合は静的ライブラリ用バインディングライブラリが必要なので、
+iOS の場合は動的ライブラリ用の C# ライブラリが必要なので SimonSpeckNetStatic の成果物の SimonSpeckNetStatic.dll を利用します。
+libspeck.a は nuget/iOS/SimonSpeckNet.targets へ記述したパスへ配置します。Android 用の targets ファイルとネイティブライブラリの設定を記載します。
+各アーキテクチャの libspeck.so は nuget/Android/SimonSpeckNet.targets へ記述したパスへ配置します。完成した nuspec ファイルは以下になります。
+
+
+NuGet/SimonSpeckNet.nuspec
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd"&gt;
+  &lt;metadata&gt;
+    &lt;id&gt;SimonSpeckNet&lt;/id&gt;
+    &lt;version&gt;0.3&lt;/version&gt;
+    &lt;authors&gt;Naruto TAKAHASHI&lt;/authors&gt;
+    &lt;owners&gt;Naruto TAKAHASHI&lt;/owners&gt;
+    &lt;licenseUrl&gt;https://opensource.org/licenses/MIT&lt;/licenseUrl&gt;
+    &lt;projectUrl&gt;https://github.com/Naruto/simon-speck-net&lt;/projectUrl&gt;
+    &lt;requireLicenseAcceptance&gt;false&lt;/requireLicenseAcceptance&gt;
+    &lt;description&gt;SIMON and SPECK are families of lightweight block ciphers; those block ciphers are efficient and provide high performances across a wide range of devices. This package includes classes that allow you to encrypt and decrypt using native libraries that are using SIMD such as AVX2 or NEON.&lt;/description&gt;
+    &lt;releaseNotes&gt;- version up simon-speck-c to v0.6
+- change SpeckCTR default padding mode to `Padding.None`
+- SpeckCTR allows any length data when setting `Padding.None`. And return values length is same as input data length.
+    &lt;/releaseNotes&gt;
+    &lt;copyright&gt;Copyright 2017 Naruto TAKAHASHI&lt;/copyright&gt;
+    &lt;tags&gt;simon speck cryptography crypto security encryption lightweight symmetric Xamarin iOS Android macOS linux&lt;/tags&gt;
+  &lt;/metadata&gt;
+  &lt;files&gt;
+    &lt;file src="SimonSpeckNet/bin/Release/SimonSpeckNet.dll" target="lib/net" /&gt;
+    &lt;file src="SimonSpeckNet/bin/Release/SimonSpeckNet.dll" target="lib/netcore" /&gt;
+    &lt;file src="SimonSpeckNet/bin/Release/SimonSpeckNet.dll" target="lib/win" /&gt;
+    &lt;file src="SimonSpeckNet/bin/Release/SimonSpeckNet.dll" target="lib/netstandard" /&gt;
+
+    &lt;file src="NuGet/SimonSpeckNet.targets" target="build/" /&gt;
+    &lt;file src="plugins/x64/speck.dll" target="runtimes/win-x64/native" /&gt;
+    &lt;file src="plugins/x64/libspeck.dylib" target="runtimes/osx-x64/native" /&gt;
+    &lt;file src="plugins/x64/libspeck.so" target="runtimes/linux-x64/native" /&gt;
+
+    &lt;!-- Android --&gt;  
+    &lt;file src="NuGet/Android/SimonSpeckNet.targets" target="build/MonoAndroid"/&gt;
+    &lt;file src="SimonSpeckNet/bin/Release/SimonSpeckNet.dll" target="lib/MonoAndroid"/&gt;
+    &lt;file src="plugins/Android/libs/armeabi/libspeck.so" target="native/android/armeabi" /&gt;
+    &lt;file src="plugins/Android/libs/armeabi-v7a/libspeck.so" target="native/android/armeabi-v7a" /&gt;
+    &lt;file src="plugins/Android/libs/arm64-v8a/libspeck.so" target="native/android/arm64-v8a" /&gt;
+    &lt;file src="plugins/Android/libs/x86/libspeck.so" target="native/android/x86" /&gt;
+    &lt;file src="plugins/Android/libs/x86_64/libspeck.so" target="native/android/x86_64" /&gt;
+
+    &lt;!-- iOS --&gt;
+    &lt;file src="NuGet/iOS/SimonSpeckNet.targets" target="build/XamariniOS"/&gt;
+    &lt;file src="SimonSpeckNetStatic/bin/Release/SimonSpeckNetStatic.dll" target="lib/XamariniOS/SimonSpeckNet.dll"/&gt;
+    &lt;file src="plugins/iOS/libspeck.a" target="native/ios"/&gt;
+  &lt;/files&gt;
+&lt;/package&gt;
+
+
+
+ファイル自体は下記のものになります。
+https://github.com/Naruto/simon-speck-net/blob/develop/net/NuGet/SimonSpeckNet.nuspecそのほかの nuspec の仕様(nupkg の依存関係など)や記述方法については、下記ドキュメントが参考になります。ようやく、nupkg が作成できます。
+C# ライブラリをビルドした後に nupkg を作成します。上記に加えてパッケージング前に NUnit でユニットテストを実行する仕組みにしたスクリプトが下記になります。nuget にアップロードする前にパッケージが正しく動作するか確認します。nuget リポジトリはローカルのディレクトリパスを指定できます。nuget パッケージのデバッグする際に活用しましょう。メニューの Tools → NuGet → Show NuGet Sources を選んでフィードに file://ディレクトリパス を追加してください。ここでは $HOME/projects/simon-speck-net/net 以下に nupkgファイル があるものと設定しています。あとは、プロジェクトファイルの “Manage NuGet Packages” などで探し出して入れてみてください。
+検索しなくても nupkg ファイルが見つかるはずです。後は各それぞれのプラットフォームのプロジェクトを作成し、パッケージを入れてちゃんとビルドできるか確認しましょう。あとは nuget.org へアップロードするだけですね。アップロードした結果はこんな感じ。 meta データに期待した内容が反映されていますね。完成です。
+お疲れ様でした。各プラットフォームのネイティブライブラリと C# ライブラリのソースが揃っていると、Unity3d 用のパッケージ unitypackage ファイルも作成可能になります。Unity ではネイティブライブラリのことをネイティブプラグインを名称しておりまして、Unity の DllImport 周りの話は「ネイティブプラグイン」で検索すれば出てくるかと思われます。とりあえず　Unity オフィシャルのネイティブプラグイン関連の内容は下記になります。https://docs.unity3d.com/ja/current/Manual/NativePlugins.html
+https://docs.unity3d.com/ja/current/Manual/PluginsForDesktop.htmlsimon-speck-net の unitypackage 作成手順をスクリプト化したものは下記になります。実はライブラリ配置は Unity プロジェクトを意識した配置にしていて、そのまま利用できます。現行の Unity は下記ネイティブライブラリをサポートしていないため削除します。C# ソースをビルドします。
+xbuild は使わずに Unity 内部の MonoBleedingEdge/bin/mcs コンパイラを直接利用します。ターゲット SDK は Unity Player で利用している 2.0 を指定。
+念のため Unity Player のランタイムライブラリ UnityEngine.dll と Unity Editor のランタイムライブラリ UnityEditor.dll を参照します。
+静的ライブラリ用と動的ライブラリの二つ作るのを忘れずに。ネイティブライブラリネイティブプラグインと C# ライブラリが用意できたので配置していきます。
+unitypackage パッケージを作成する一時ディレクトリ build_unity の中に配置していきます。Asset/Plugins/プラットフォーム名 に配置していきます。
+Android は Asset/Plugins/Android。iOS は Asset/Plugins/iOS。
+Windows と macOS は Asset/Plugins/x64 に配置します。配置をしたら Unity Editor で build_unity ディレクトリを開いて .meta データを生成します。unitypackage は unity バッチモードにて -exportPackage オプションで指定して作成します。SimonSpeckForUnity.unitypackage が生成されます。今までの手順を簡潔にまとめると下記になります。nuget.org へアップロードすると場所やプラットフォームを気にせずに利用可能になるため是非是非アップロードをオススメします。課題はまだまだ多いですが、以上がネイティブライブラリ用 C# バインディングライブラリの nuget パッケージを作る手順になります。Linux の対応を入れていないのは致命的なので、Linux 対応を進めてまた記事を記載しようと思います。最後まで読んでいただきありがとうございました。 🙇 
+
+

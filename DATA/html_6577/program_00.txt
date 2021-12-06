@@ -1,0 +1,91 @@
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace GetComputerSID {
+    class Program {
+        static void Main(string[] args) {
+            Console.WriteLine(GetComputerSid());
+            Console.ReadLine();
+        }
+
+        public static string GetComputerSid() {
+            // コンピューター名を取得する
+            string computerName = Environment.MachineName;
+
+            // SID取得
+            byte[] sid;
+            uint sidLen = 0;
+            StringBuilder domainName = new StringBuilder(256);
+            uint domainNameLen = (uint)domainName.Capacity;
+            SID_NAME_USE snu;
+
+            // SIDに必要なメモリ領域を確認して確保する
+            if (!LookupAccountName(null, computerName, null, ref sidLen, domainName, ref domainNameLen, out snu)) {
+                int lastError = Marshal.GetLastWin32Error();
+                if (lastError != ERROR_NOT_ENOUGH_MEMORY) {
+                    // ここもコンストラクターは空でいい気もするけど気分的にこのまま
+                    throw new Win32Exception(lastError);
+                }
+            }
+
+            // SIDを取得する
+            sid = new byte[sidLen];
+            domainName.EnsureCapacity((int)domainNameLen);
+            if (!LookupAccountName(null, computerName, sid, ref sidLen, domainName, ref domainNameLen, out snu)) {
+                throw new Win32Exception();
+            }
+
+            // SIDを文字列に変換する
+            IntPtr pSidString;
+            if (!ConvertSidToStringSid(sid, out pSidString)) {
+                throw new Win32Exception();
+            }
+
+            // stringに変換
+            string sidString = Marshal.PtrToStringUni(pSidString);
+
+            // メモリの解放
+            if (LocalFree(pSidString) != IntPtr.Zero) {
+                throw new Win32Exception();
+            }
+
+            return sidString;
+        }
+
+        private const int ERROR_NOT_ENOUGH_MEMORY = 122;
+
+        public enum SID_NAME_USE {
+            SidTypeUser = 1,
+            SidTypeGroup,
+            SidTypeDomain,
+            SidTypeAlias,
+            SidTypeWellKnownGroup,
+            SidTypeDeletedAccount,
+            SidTypeInvalid,
+            SidTypeUnknown,
+            SidTypeComputer,
+            SidTypeLabel
+        }
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, EntryPoint = "LookupAccountNameW", SetLastError = true)]
+        private static extern bool LookupAccountName(
+            string lpSystemName,
+            string lpAccountName,
+            [MarshalAs(UnmanagedType.LPArray)] byte[] Sid,
+            ref uint cbSid,
+            StringBuilder ReferencedDomainName,
+            ref uint cbReferencedDomainName, 
+            out SID_NAME_USE peUse);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, EntryPoint = "ConvertSidToStringSidW", SetLastError = true)]
+        private static extern bool ConvertSidToStringSid([MarshalAs(UnmanagedType.LPArray)]byte[] sid, out IntPtr stringSid);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LocalFree(IntPtr hMem);
+    }
+
+}
+
+

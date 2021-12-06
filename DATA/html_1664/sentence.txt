@@ -1,0 +1,127 @@
+More than 1 year has passed since last update.この記事は以上の五つを非常に参考にさせていただいています。
+特に2の記事はほとんどパクらせていただいております。
+UnsafeクラスはILの書き方のサンプルとして使わせていただきました。C#にはデリゲートが存在します。ですがデリゲートはスタティックメソッドを呼び出すには適していません。(詳細)どうにかならないかと考えているとこんな記事があり、どうやら関数ポインタが追加されるかもしれないということを知りました。ですが、待ちきれないので作ることにしました。先人はリフレクションで取得されていましたが、デリゲートをいじっているとまんまなものが。Delegate.Method.MethodHandle.GetFunctionPointer()これじゃん。
+ということで関数ポインタはこの関数で取得します。
+実装
+
+
+//Func等をキャストなしで引数に渡せるのでジェネリックにしています。
+IntPtr GetFunctionPointer&lt;T&gt;(T function) where T : Delegate
+{
+    return function.Method.MethodHandle.GetFunctionPointer();
+}
+
+
+上の関数の戻り値はIntPtrです。
+このままでは関数を呼ぶことはできません。
+かといってリフレクションを使うと結局デリゲートになってしまいます。
+こんな時は、、、そう IL です。ILには複数の関数呼び出し命令が存在しますが、今回はIntPtrを用いるのでcalliという命令を使います。コンパイルはilasm.exe(Windowsに付属のILコンパイラ)を利用しました。使い方
+ilasmは通常以下のディレクトリに存在します。
+C:\Windows\Microsoft.NET\(任意のフレームワークフォルダ)\(任意のバージョンフォルダ)実装
+
+
+//戻り値なしの関数(項数1, 2)のみ例示します。
+//実際はFunc等に合わせて項数8までのオーバーロードがあるといいと思います。(実際書いた)
+.method public hidebysig static void Call(native int function) cil managed aggressiveinlining
+{
+    .maxstack  1
+    ldarg.0
+    calli void()
+    ret
+}
+
+.method public hidebysig static void Call&lt;T0&gt;(native int function, !!T0 arg0) cil managed aggressiveinlining
+{
+    .maxstack  2
+    ldarg.1
+    ldarg.0
+    calli void(!!T0)
+    ret
+}
+
+
+以上でめでたく関数を呼び出せました。
+ですがこれ、とても危険だと思いませんか？端から関数ポインタの取得をしている時点で危険ですけれども。とにかく、このままだといかなる関数でも同じ処理ができてしまいます。
+もしFunc&lt;int, object&gt;をCall&lt;int, int&gt;に渡してしまったらどうなるでしょう。
+それでも実行時まで何もわかりません。これでは静的型付け言語たるC#のアイデンティティを失ってしまうので、
+Func、Actionを見習ってラッパーを作りましょう。安全に扱える関数の条件はなんでしょう。まずデリゲートにインスタンスメソッドが代入されている場合を考えてみます。
+インスタンスメソッドは暗黙的にthis参照を受け取っています。
+ですがデリゲートの引数としては扱われません。
+なのでメソッドの呼び出しがおかしくなってしまいます。
+よってインスタンスメソッドは受け取れません。
+(実はちょっと工夫すればインスタンスメソッドを受け取れますが、デリゲートと変わらなくなるのでやりません。)次にスタティックメソッドが代入されている場合を考えてみます。
+スタティックメソッド通常は引数の並びがそのままです。
+また参照の寿命等も考えなくてよいです。
+よってスタティックメソッドは受け取って大丈夫ですね、、、通常ははい。再三強調したようにスタティックメソッドでも引数の並びが一致しない時があります。それは拡張メソッドの時です。拡張メソッドはまるでインスタンスメソッドのようにスタティックメソッドを扱える構文です。
+デリゲートに代入するときも同様で、インスタンスメソッドのように代入できます。
+ですが、それによりインスタンスメソッドが代入されているとき同様の問題を持ちます。以上より、安全に呼び出せる関数は拡張メソッドではないスタティックメソッドであることが分かりました。というわけでFunc、Actionに似せたラッパーを作ります。
+実装
+
+
+
+//項数1の戻り値有り・無しで一つずつ例示します。
+public readonly struct FuncPointer&lt;TResult, T0&gt; : IEquatable&lt;FuncPointer&lt;TResult, T0&gt;&gt;
+{
+    public static bool operator ==(FuncPointer&lt;TResult, T0&gt; left, FuncPointer&lt;TResult, T0&gt; right) =&gt; left.Equals(right);
+    public static bool operator !=(FuncPointer&lt;TResult, T0&gt; left, FuncPointer&lt;TResult, T0&gt; right) =&gt; !(left == right);
+    public static int Arity =&gt; 1;
+
+    public RuntimeMethodHandle Handle { get; }
+    readonly IntPtr ptr;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public TResult Invoke(T0 arg0) =&gt; FunctionPointerUtility.Call&lt;TResult, T0&gt;(this.ptr, arg0);
+    public override bool Equals(object obj) =&gt; obj is FuncPointer&lt;TResult, T0&gt; pointer &amp;&amp; this.Equals(pointer);
+    public bool Equals(FuncPointer&lt;TResult, T0&gt; other) =&gt; this.Handle.Equals(other.Handle);
+    public override int GetHashCode() =&gt; HashCode.Combine(this.Handle);
+
+
+    public FuncPointer(Func&lt;TResult, T0&gt; func)
+    {
+        FunctionPointersHelper.ValidateFunction(func, Arity);
+        this.Handle = func.Method.MethodHandle;
+        this.ptr = this.Handle.GetFunctionPointer();
+    }
+}
+
+public readonly struct ActionPointer&lt;T0&gt; : IEquatable&lt;ActionPointer&lt;T0&gt;&gt;
+{
+    public static bool operator ==(ActionPointer&lt;T0&gt; left, ActionPointer&lt;T0&gt; right) =&gt; left.Equals(right);
+    public static bool operator !=(ActionPointer&lt;T0&gt; left, ActionPointer&lt;T0&gt; right) =&gt; !(left == right);
+    public static int Arity =&gt; 1;
+
+    public RuntimeMethodHandle Handle { get; }
+    readonly IntPtr ptr;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Invoke(T0 arg0) =&gt; FunctionPointerUtility.Call(this.ptr, arg0);
+    public override bool Equals(object obj) =&gt; obj is ActionPointer&lt;T0&gt; pointer &amp;&amp; this.Equals(pointer);
+    public bool Equals(ActionPointer&lt;T0&gt; other) =&gt; this.Handle.Equals(other.Handle);
+    public override int GetHashCode() =&gt; HashCode.Combine(this.Handle);
+
+
+    public ActionPointer(Action&lt;T0&gt; action)
+    {
+        FunctionPointersHelper.ValidateFunction(action, Arity);
+        this.Handle = action.Method.MethodHandle;
+        this.ptr = this.Handle.GetFunctionPointer();
+    }
+}
+
+
+//ResourceStringsは特に重要でないので出しません。
+internal static class FunctionPointersHelper
+{
+    public static void ValidateFunction(Delegate func, int arity)
+    {
+        if (func is null) throw new ArgumentNullException(ResourceStrings.ExceptionMessage_FunctionIsNull);
+        if (!func.Method.IsStatic) throw new ArgumentException(ResourceStrings.ExceptionMessage_FunctionIsNotStatic);
+        //拡張メソッドだと項数が一致しない。
+        if (func.Method.GetParameters().Length != arity) throw new ArgumentException(ResourceStrings.ExceptionMessage_FunctionArityMismatch);
+    }
+}
+
+
+これで本当に完成ですね！こんな記事を作っておいてなんですが、正式に実装される時を待ちましょう！(本末転倒)感想n番煎じな記事でしたが、最後まで読んでいただきありがとうございました。
+
+

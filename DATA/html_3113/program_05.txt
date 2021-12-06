@@ -1,0 +1,59 @@
+
+public class StreamingLoggingInterceptor&lt;THub, TReceiver&gt; : Interceptor
+{
+    private Dictionary&lt;int, string&gt; _methodNameDic = new Dictionary&lt;int, string&gt;();
+
+    // メソッドIDからメソッド名への変換テーブルを用意
+    public StreamingLoggingInterceptor()
+    {
+        foreach (var method in typeof(THub).GetMethods())
+        {
+            _methodNameDic[FNV1A32.GetHashCode(method.Name)] = method.Name;
+        }
+        foreach (var method in typeof(TReceiver).GetMethods())
+        {
+            _methodNameDic[FNV1A32.GetHashCode(method.Name)] = method.Name;
+        }
+    }
+
+    // ログ出力処理本体
+    private void PrintLog(string type, byte[] bytes)
+    {
+        // 要素数を取得
+        var readSize = 0;
+        var length = MessagePackBinary.ReadArrayHeader(bytes, 0, out readSize);
+        var offset = readSize;
+
+        // 要素数4はエラー出力なので無視(!)
+        if (length == 4) return;
+        // 要素数3ならはじめはメッセージIDなので捨てる
+        if (length == 3) offset += MessagePackBinary.ReadNext(bytes, offset);
+
+        // メソッドID取得
+        var methodId = MessagePackBinary.ReadInt32(bytes, offset, out readSize);
+        offset += readSize;
+        // 残りのデータをコピー(ToJsonにoffset渡したい…)
+        var newBytes = BufferPool.Default.Rent();
+        Array.Copy(bytes, offset, newBytes, 0, bytes.Length - offset);
+        // 出力
+        Debug.Log($"[{type}]{_methodNameDic[methodId]}: {MessagePackSerializer.ToJson(newBytes)}");
+        BufferPool.Default.Return(newBytes);
+    }
+
+    public override AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt;(
+        ClientInterceptorContext&lt;TRequest, TResponse&gt; context,
+        AsyncDuplexStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation
+    )
+    {
+        var call = continuation(context);
+        return new AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt;(
+            new MyRequestStream&lt;TRequest&gt;(x =&gt; PrintLog("SEND", x), call.RequestStream),
+            new MyResponseStream&lt;TResponse&gt;(x =&gt; PrintLog("RECEIVE", x), call.ResponseStream),
+            call.ResponseHeadersAsync,
+            call.GetStatus,
+            call.GetTrailers,
+            call.Dispose
+        );
+    }
+}
+

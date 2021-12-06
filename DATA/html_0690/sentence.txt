@@ -1,0 +1,35 @@
+Windows 10では、UWP（ストアアプリ、ネイティブアプリ）から使えるいろいろな新しいAPI (WinRT) が追加されています。
+強力な機能は魅力的ですが、UWPアプリはサンドボックス内で実行されるので、セキュリティによって実装に制約が生じたり、スタートメニューからしか起動できない、社内などの他の人への配布が大変（ストア経由でないアプリを使うためには設定が必要）と、少々使いづらい点もあります。
+そこで、Windowsの普通の（exeをダブルクリックして起動できる）デスクトップアプリから、WinRTの機能を「つまみ食い」できると便利だと思います。そのための仕組みとして「C++/WinRT」があります。しかし、アプリをUI部分も含めて全部ネイティブのC++で書くのは大変なので、C#のフォームアプリから呼び出せると都合がよいと思うわけです。
+そこで、C++/WinRTでブリッジのライブラリを作成し、C#からそのクラスを参照させることによって、C#からWinRTの恩恵にあずかる方法を紹介します。後の公式サンプルのreadmeによると、この機能が使えるのは「new feature in Windows Builds 18309+」ということなので、Windows 10 バージョン1903以降で使える機能ということになります。Visual Studio Installerからコンポーネントを追加します。さらに、C++/WinRT開発のためのVSIXをインストールしておきます。
+C++/WinRT - Visual Studio MarketplaceC++/WinRTブリッジを介したC#フォームアプリの作成方法については、Microsoftから公式サンプルが提供されています。
+microsoft/RegFree_WinRT: Sample Code showing use of Registration-free WinRT to access a 3rd party native WinRT Component from a non-packaged Desktop appまずは RegFree_WinRT/CS/RegFree_WinRT.sln をビルド・実行できることを確認しましょう。
+いよいよここからが本番です。以下がMS公式のドキュメント。
+Enhancing Non-packaged Desktop Apps using Windows Runtime Components - Windows Developer Blog新しいソリューションに、以下2つのプロジェクトを追加します。最初に何も変更せずに一度ビルドしておきます。するといくつかのファイルが自動生成されます。
+IntelliSenseのエラーが気になりますが、ソリューションを開き直すと改善します。ここで自分のコードを記述するときに変更する必要があるのが、以下の4ファイルです。これは普通のC++のクラスを書くときにもおなじみのペアですね。
+基本的にはデフォルトで書かれているコードを真似してメソッドやプロパティを追加していけばよいです。
+サンプルの MyProperty を改造してプロパティを実装し、さらにメソッドを新しく1つ追加しておきます。Microsoft インターフェイス定義言語 (MIDL) で書かれているファイルです。
+C#のアプリからブリッジを参照したときにIntelliSenseで表示されるクラス定義を、このファイルによって与えるということのようです。
+（Class.cpp, Class.h だけだと普通のネイティブC++のクラスなので、C#から参照するための情報は入っていないみたいです）
+Microsoft インターフェイス定義言語3.0 の概要 - Windows UWP applications | Microsoft Docs書き方はC++に似ています。引数と戻り値のデータ型は、C++で使われるものとは違っていますが、名前から直感的に対応が類推できます。基本の数値データ型には以下があります。（前記公式ドキュメントより）WinRTなどのヘッダファイルを追加する必要があるときに、このファイルに #include 文を追加します。
+今回はデフォルトのまま置いておきます。ここまでの変更を加えたあと、ビルドができることを確認します。C#プロジェクトのデフォルトのプラットフォームは Any CPU になっていますが、x64 または Win32 に変えておいてください。RuntimeComponent1と合わせておきます（RuntimeComponent1がx86の場合は、WpfApp1側はWin32）。
+
+WpfApp1から、先ほど作成したRuntimeComponent1を参照します。
+
+これによって RuntimeComponent1 という名前空間が見えるようになり、その下にある Class というクラスにアクセスできるはずです。フォームに適当にボタンを配置し、ボタンを押したらクラスを使って何か処理させてみます。確かに RuntimeComponent1.Class が見えるようになりました。しかし、この状態ではビルドは通りますが、実行時にエラーが発生します。System.TypeLoadException: '要求された Windows ランタイム型 'RuntimeComponent1.Class' は登録されていません。'MSのサンプルを見ればわかりますが、実はC#側にも「RuntimeComponent1.Class の実装はこのDLLに入っていますよ」という情報を追加してあげないといけません。
+プロジェクトに「アプリケーション マニフェスト ファイル」を追加します。
+今回作成したブリッジと、そこに含まれているクラスの情報を追加します。さらに、C++側で作ったDLLは「VCRT Forwarders」を参照して動くので、C#のexeと同じ場所にこれらのDLLがないといけません。
+NuGetパッケージマネージャーから「Microsoft.VCRTForwarders.140」を追加しておくと、C#側のビルド時にexeと同じ場所に必要なDLLがコピーされるようになります。ウィンドウに配置したボタンを押して 100, 200, 200, 400 の順にメッセージが表示されたら成功です。ここまでの例では、C++/WinRTのブリッジと言いながら、WinRTの機能を全く使っていませんでした。
+ということで、実際にWinRTを呼び出す例も見てみましょう。日本語の形態素解析（文章を単語単位に分割する）APIがあるので、それを使ってみます。
+JapanesePhoneticAnalyzer Class (Windows.Globalization) - Windows UWP applications | Microsoft Docs与えられた文章に対して、単語リストを返すようなメソッドを作ります。Class.h で Class() = default; と書いておくと、処理のないデフォルトコンストラクタを使うことができます。Class.cpp にもコンストラクタの記述は必要ありません。
+リストを返すには using namespace winrt::Windows::Foundation::Collections; を書いた上で IVectorView&lt;T&gt; インターフェイスを使うことができます。これはC# (.NET) 側から参照すると IReadOnlyList&lt;T&gt; に見えます。1
+また、Unicode文字列を扱うときは hstring 型を使います。C# (.NET) 側から参照すると string に見えます。使用したい機能に合わせて適切に using namespace を記述してください。
+また winrt::single_threaded_vector&lt;hstring&gt;() を使って IVector オブジェクトの実体を作っています。これを忘れると、NULLポインタアクセスになってアクセス違反となります。idlでクラスの名前空間を書くときはドット区切り (Windows.Foundation.Collections.IVectorView) になります。
+また、文字列型はidlでは String となります。使いたい機能に合わせてヘッダファイルの記述を追加します。C#側のプロジェクトで、参照にC++側のプロジェクトを追加してビルド・実行し、「本日,は,晴天,なり」と単語単位で区切られたメッセージが出たら成功です。
+正直この程度だったらブリッジを作るまでもなくて、以下の方法でもっと手軽にできたりします。
+[C#] デスクトップアプリ (WPF) から手軽にWinRT APIを活用しよう - QiitaただポインタやATLなど色々触り出すと、下手にC#で書くよりC++でブリッジを作ったほうがたぶん楽です。C#側から参照にC++プロジェクトを追加していても見えない場合は、idlファイルの記述をご確認ください。
+idlファイルを編集したら「リビルド」したほうが良いです。Class.idl に書いた名前と引数で呼び出せるメソッドが、Class.cpp, Class.h 側に定義されていないと思われます。（オーバーロードは可能ですが、idlの記述に不足がないようにご注意ください）app.manifest の &lt;file&gt; や &lt;activatableClass&gt; の記述が不足しているようです。C++側とC#側のプラットフォーム設定が合っていないみたいです。x64同士、またはx86/Win32の組み合わせであることを確認してください。前述のように Any CPU はダメです。まずは RuntimeComponent1 のビルドが成功していて、C#側のプロジェクトで指定したexeの出力先と同じ場所に RuntimeComponent1.dll がコピーされているか確認してください。
+もし RuntimeComponent1.dll があるのにこのエラーが出るときは、VCRT ForwardersのDLLが見つからないのが原因と思われます。ビルドしたあとに bin\x64\Debug の下などに msvcp140 や vcruntime140 などの名前で始まるDLLが大量にコピーされたら成功です。
+IVector の初期化ができているかご確認ください。winrt::single_threaded_vector をお忘れなく。Windows.Foundation.Collections Namespace - Windows UWP applications | Microsoft Docs ↩
+
+

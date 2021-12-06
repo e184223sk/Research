@@ -1,0 +1,152 @@
+More than 1 year has passed since last update.C#を使用する時に文字列を結合する時は多々あるが、主に用いられるのは+演算子を用いた結合とStringBuilderを用いた結合である。この2つの結合方法でしばしば比較されるのが処理速度だろう。
+1回結合するだけなら+演算子の方が高速、StringBuilderの方が圧倒的に速いという話がある。だが、前者の納得の行く検証は見つからず、後者も少ない結合回数での検証は見つからなかった。なので今回はどちらが速いのか検証する事にした。以下のコードを使用した。同じ処理をしている場所が多い?変数増やしたくなかったからしょうがない。
+それは置いといて実際に動かすと以下のようなコンソールが表示される。(Visual Studioの場合)
+
+検証の概要は以下のようになる。上の5種類の処理では最終的にstrの値は同一になる。あたいったら最強ね！上のコードを実行し、処理時間をまとめた表を以下に示す。StringBuilderはやっぱり速かった
+1万回文字を追加しても1msも掛からないのは流石だ。一度に追加するstringを2個に増やしてもあまり遅くならないのは魅力的だ。
++演算子による加算はnが大きくなるにつれて処理時間が増えている。だが、nが2以下ではStringBuilderと処理時間は大差ないようだ。
+また、一度に加算するstringを2個に増やしても処理時間が増えないのは驚いた。むしろ減っているまである。Sb.Append (s2 + s3);は見る人から見ればクソコードだが誰も検証してないのでこの際だから検証した。
+Sb.Append (s2).Append (s3);の倍以上時間が掛かっていてやはりクソだった。nが3と4の時は誤差でしょ文字列結合はStringBuilderを使おう!追記
+一度に結合する文字列を増やす時、場合によっては+演算子による結合の方がStringBuilderによる結合よりも速くなるというマサカリコメントを頂いた。
+これについても検証したので気になる人はこちらも参照→C#で一度に複数の文字列を結合した時の処理時間を計測する
+結論から言うと多くの場合においてStringBuilderによる結合の方が処理が速い。
++演算子が速くなるのは結合する文字列に定数しかない、または定数ばかりで結合する数が多い時ぐらいだった。Unity環境でも上のようなコードを作って文字列結合の速度を計測した。
+結論を言うとこの記事で検証した結果とほぼ同じ結果になった。違いを言うなればn=10000で一気に処理時間が長くなった事ぐらいか。詳しい検証と結果は折り畳みの中にある
+
+まず、計測用のコードは以下の通り。
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Test : MonoBehaviour
+{
+    void Awake ()
+    {
+        string str = "";//こいつに文字を追加する
+        System.Text.StringBuilder Sb = new System.Text.StringBuilder ();//こいつに文字を追加する
+        string s1 = "あたいったら最強ね！";//追加する文字
+        string s2 = "あたいったら";
+        string s3 = "最強ね！";
+        int n;//文字を加算する回数
+        int i;
+        int j;
+        int k;
+        System.Diagnostics.Stopwatch Sw = new System.Diagnostics.Stopwatch ();//処理時間計測用ストップウォッチ
+        double TotalTime = 0;
+
+        for (k = 0; k &lt; 13; k++)
+        {
+            //加算回数を1～10、100、1000、10000にする
+            if (k &lt; 9)
+            {
+                n = k + 1;
+            }
+            else
+            {
+                n = (int)Mathf.Pow (10, k - 8);
+            }
+            //加算回数を表示
+            Debug.Log ("n=" + n.ToString ());
+
+            //1：+= s1
+            for (j = 0; j &lt; 10; j++)
+            {
+                str = "";//文字列とストップウォッチをリセット
+                Sw.Reset ();
+                Sw.Start ();
+                for (i = 0; i &lt; n; i++)
+                {
+                    str += s1;
+                }
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            Debug.Log ("+= s1：" + (TotalTime / 10) + "ms");
+
+            //2：Append (s1)
+            TotalTime = 0;
+            for (j = 0; j &lt; 10; j++)
+            {
+                str = "";
+                Sb.Clear ();
+                Sw.Reset ();
+                Sw.Start ();
+                for (i = 0; i &lt; n; i++)
+                {
+                    Sb.Append (s1);
+                }
+                str = Sb.ToString ();
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            Debug.Log ("Append (s1)：" + (TotalTime / 10) + "ms");
+
+            //3：+= s2 + s3
+            TotalTime = 0;
+            for (j = 0; j &lt; 10; j++)
+            {
+                str = "";
+                Sb.Clear ();
+                Sw.Reset ();
+                Sw.Start ();
+                for (i = 0; i &lt; n; i++)
+                {
+                    str += s2 + s3;
+                }
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            Debug.Log ("+= s2 + s3：" + (TotalTime / 10) + "ms");
+
+            //4：Append (s2).Append (s3)
+            TotalTime = 0;
+            for (j = 0; j &lt; 10; j++)
+            {
+                str = "";
+                Sb.Clear ();
+                Sw.Reset ();
+                Sw.Start ();
+                for (i = 0; i &lt; n; i++)
+                {
+                    Sb.Append (s2).Append (s3);
+                }
+                str = Sb.ToString ();
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            Debug.Log ("Append (s2).Append (s3)：" + (TotalTime / 10) + "ms");
+
+            //5：Append (s2 + s3)
+            TotalTime = 0;
+            for (j = 0; j &lt; 10; j++)
+            {
+                str = "";
+                Sb.Clear ();
+                Sw.Reset ();
+                Sw.Start ();
+                for (i = 0; i &lt; n; i++)
+                {
+                    Sb.Append (s2 + s3);
+                }
+                str = Sb.ToString ();
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            Debug.Log ("Append (s2 + s3)：" + (TotalTime / 10) + "ms");
+        }
+    }
+}
+
+
+見ての通り上のコードとほぼ同じである。出力先を変えただけ。
+これを適当なオブジェクトにアタッチして実行したらコンソールログがこんな感じになる。
+ 結果は上での検証結果と同じような感じだったので特に表にはまとめない。ただ、上の右の画像のようにn=10000で一気に遅くなった。
+
+
+

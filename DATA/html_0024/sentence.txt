@@ -1,0 +1,19 @@
+もくじ
+→https://qiita.com/tera1707/items/4fda73d86eded283ec4fTaskで非同期処理をしているときに、Taskを.Wait()する処理があった。そこで例外が発生したときに、そいつをtry catchすると、起きていたはずの例外ではなくAggregateExceptionという例外がスローされていた。元々タスクの中では別の例外が起きていたはずなのに、そいつはどこに行ったのか？
+実際に起きた例外をキャッチするにはどうしたらよいのか？調べたい。いろいろ調べたところ、
+どうやら待ち方によって例外の受け取り方を変えないといけない様子。
+今回調べた限りでは、下記のような待ち方ごとの例外のキャッチの仕方があった。awaitするときは、そこをtry catchで囲むだけで、通常通りに例外がcatchできる。Wait()したときは、例外がAggregateExceptionに包まれて上がってくる。
+実際に何の例外が起きたかは、AggregateExceptionのInnerExceptionプロパティを見る必要がある。待たないタスクの場合は、普通にtry catchで囲んでも例外は取れない。
+(その場で処理してないのだから当たり前かも)その場合は、終わったタスクの変数のExceptionプロパティを見て、何の例外が起きてタスクが終わったのかを調べる。実験では、例外を調べたいタスクのContinueWith()メソッドを使って、タスクが終わった時に行う処理を登録して、その中でExceptionプロパティを見た。またその時も、Wait()のときと同じようにAggregateExceptionに包まれて上がってきてるので、実際に何の例外が起きたかはAggregateExceptionのInnerExceptionプロパティを見る。複数のタスクをTask.WhenAll()で待ったときに、それぞれのタスクで例外が起きていた時にそれを纏めて取ることができる。
+ただ直感的には取れず、少々小細工必要。Task.WhenAll()をtry catchでキャッチした例外は、複数例外がまとめられたAggregateExceptionではなく、各タスクで起きた例外のうちの1つだけが入ったものになっている。起きた例外全部を拾おうとすると、Task.WhenAll()のタスクを受けたローカル変数の中のExceptionプロパティを見る必要がある。(それがAggregateExceptionになっている)上記のage.InnerExceptions.ToList().ForEach((ages) =&gt; Debug.WriteLine(ages.GetType()));の部分では、例外AggregateExceptionを完全に握りつぶしている(再throwしない)が、AggregateExceptionのHandleメソッドを使っても似たようなことが書ける。その場合、Handleでtrueを返すようにすると、例外はそこで処理済みとして、再throwしないようにもできる。(falseだと再throwする)■MS公式 Async･Await 非同期プログラミングのベスト プラクティス
+Async･Awaitの使い方から例外の処理の仕方まで、細かく書いてくれてる。
+@SSSSYYYY さんのコメントでこのページを知りました。ありがとうございます！
+https://docs.microsoft.com/ja-jp/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming■async／awaitで例外処理をするには？
+https://www.atmarkit.co.jp/ait/articles/1805/16/news018.html■【C# Tips】非同期処理(Task)の例外処理を極めて、障害を正しく検知しよう！！
+https://www.sukerou.com/2018/09/task.html■async/awaitによる非同期処理の例外の謎
+いろいろ試行錯誤されてた様子。なにげにデバッグ実行したときに、一旦例外スロー部分でとまるけど続けてF5おしたら動かせる、という部分がへぇーとなった。
+https://qiita.com/habu1010/items/08177698fa3826474c0b■MS公式 AggregateException 
+https://docs.microsoft.com/ja-jp/dotnet/api/system.aggregateexception?view=net-5.0
+※公式サンプルでは、AggregateException の Handleメソッドを使ってAggregateException の中の複数の例外を処理しているみたい。
+
+

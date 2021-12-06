@@ -1,0 +1,65 @@
+
+namespace NativeStringCollections.Utility
+{
+    // UnsafeRef を簡単に作成するための拡張メソッド
+    public static class NativeListExt
+    {
+        public static UnsafeRefToNativeList&lt;T&gt; GetUnsafeRef&lt;T&gt;(this NativeList&lt;T&gt; target)
+            where T : unmanaged
+        {
+            return new UnsafeRefToNativeList&lt;T&gt;(target);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// This unsafe reference disables the NativeContiner safety system.
+    /// Use only for passing reference to BurstCompiler.CompileFunctionPointer.
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct UnsafeRefToNativeList&lt;T&gt;
+        where T : unmanaged
+    {
+        [NativeDisableUnsafePtrRestriction]
+        internal UnsafeList* _list;
+
+        /// &lt;summary&gt;
+        /// Create the unsafe reference to NativeList&lt;T&gt;.
+        /// &lt;/summary&gt;
+        /// &lt;param name="passed_list"&gt;&lt;/param&gt;
+        public UnsafeRefToNativeList(NativeList&lt;T&gt; passed_list)
+        {
+            // NativeList&lt;T&gt; 内部の UnsafeList へのポインタを取得
+            // 参照先が共通なので UnsafeRef への変更は元の NativeList にも反映される
+            _list = passed_list.GetUnsafeList();
+        }
+
+        public T this[int index]
+        {
+            get
+            {
+                CheckIndexInRange(index, _list-&gt;Length);
+                return UnsafeUtility.ReadArrayElement&lt;T&gt;(_list-&gt;Ptr, AssumePositive(index));
+            }
+            set
+            {
+                CheckIndexInRange(index, _list-&gt;Length);
+                UnsafeUtility.WriteArrayElement(_list-&gt;Ptr, AssumePositive(index), value);
+            }
+        }
+
+    /* 以下、NativeList.cs の実装で必要そうなものをコピー */
+
+    }
+
+    public unsafe static class UnsafeViewForNativeListUtility
+    {
+        public static void* GetUnsafePtr&lt;T&gt;(this UnsafeRefToNativeList&lt;T&gt; list)
+            where T : unmanaged
+        {
+            return list._list-&gt;Ptr;
+        }
+    }
+
+}
+

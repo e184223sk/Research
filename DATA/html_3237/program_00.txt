@@ -1,0 +1,144 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+
+/// &lt;summary&gt;
+/// パーティクルで使われているTextureをパックする
+/// &lt;/summary&gt;
+public static class ParticlePacker
+{
+    /// &lt;summary&gt;
+    /// シーン内の全てのパーティクルに対して実行する
+    /// ※シーン内のオブジェクトが参照しているPrefabを含む
+    /// &lt;/summary&gt;
+    [MenuItem("Tools/ParticlePacker/Execute(Scene)")]
+    public static void ExecuteScene()
+    {
+        ExecuteCore(Resources.FindObjectsOfTypeAll&lt;ParticleSystem&gt;());
+    }
+
+    /// &lt;summary&gt;
+    /// 選択している全てのオブジェクトの子孫要素のパーティクルに対して実行する
+    /// &lt;/summary&gt;
+    [MenuItem("Tools/ParticlePacker/Execute(Selection)")]
+    public static void ExecuteSelection()
+    {
+        ExecuteCore(Selection.gameObjects.SelectMany(o =&gt; o.GetComponentsInChildren&lt;ParticleSystem&gt;(includeInactive: true)).Distinct());
+    }
+
+    /// &lt;summary&gt;
+    /// 実行処理本体
+    /// &lt;/summary&gt;
+    /// &lt;param name="particles"&gt;対象のパーティクル&lt;/param&gt;
+    private static void ExecuteCore(IEnumerable&lt;ParticleSystem&gt; particles)
+    {
+        try
+        {
+            var i = 0;
+            var progress = 0f;
+            void UpdateProgressBar(string text)
+                =&gt; EditorUtility.DisplayProgressBar(nameof(ParticlePacker), text, progress);
+
+            UpdateProgressBar("オブジェクトを収集中...");
+
+            // textureSheetAnimation を使っているもの、組み込み texture を使っているものは除外
+            var targets = particles.Select(p =&gt; new Data(p))
+                .Where(t =&gt; !t.Particle.textureSheetAnimation.enabled &amp;&amp; t.Importer != null)
+                .ToArray();
+
+            // shader ごとにまとめる
+            foreach (var group in targets.GroupBy(p =&gt; p.Renderer.sharedMaterial.shader))
+            {
+                // texture を readable, 2のべき乗 に変更
+                foreach (var t in group)
+                {
+                    progress = (float)i++ / targets.Length;
+                    UpdateProgressBar($"テクスチャ設定を変更中...({i}/{targets.Length})");
+
+                    var changed = false;
+                    if (!t.Importer.isReadable)
+                    {
+                        t.Importer.isReadable = true;
+                        changed = true;
+                    }
+                    if (t.Importer.npotScale == TextureImporterNPOTScale.None)
+                    {
+                        t.Importer.npotScale = TextureImporterNPOTScale.ToNearest;
+                        changed = true;
+                    }
+                    if (changed) t.Importer.SaveAndReimport();
+                }
+
+                UpdateProgressBar("テクスチャパッキング中...");
+
+                var tex = new Texture2D(1, 1);
+                var packInfos = tex.PackTextures(group.Select(p =&gt; p.Texture).ToArray(), padding: 0, maximumAtlasSize: 4096);
+                var fileName = "Assets/" + group.Key.name.Replace("/", "-") + "_packed.png";
+                File.WriteAllBytes(fileName, tex.EncodeToPNG());
+                AssetDatabase.ImportAsset(fileName);
+
+                UpdateProgressBar("マテリアル生成中...");
+
+                var mat = new Material(group.Key);
+                mat.mainTexture = tex;
+                fileName = fileName.Replace(".png", ".mat");
+                AssetDatabase.CreateAsset(mat, fileName);
+                AssetDatabase.ImportAsset(fileName);
+
+                UpdateProgressBar("マテリアル適用中...");
+
+                group.Zip(packInfos, (p, packInfo) =&gt;
+                {
+                    // x,y を固定して使うための設定
+                    var sheet = p.Particle.textureSheetAnimation;
+                    sheet.enabled = true;
+                    sheet.mode = ParticleSystemAnimationMode.Grid;
+                    sheet.animation = ParticleSystemAnimationType.SingleRow;
+                    sheet.rowMode = ParticleSystemAnimationRowMode.Custom;
+                    sheet.timeMode = ParticleSystemAnimationTimeMode.Lifetime;
+                    sheet.startFrame = 0;
+
+                    // サイズ、位置を指定
+                    sheet.numTilesX = Mathf.RoundToInt(1 / packInfo.width);
+                    sheet.numTilesY = Mathf.RoundToInt(1 / packInfo.height);
+                    sheet.rowIndex = sheet.numTilesY - Mathf.RoundToInt(sheet.numTilesY * packInfo.yMin) - 1;
+                    sheet.frameOverTime = packInfo.xMin;
+
+                    p.Renderer.sharedMaterial = mat;
+                    return p;
+                }).ToArray();
+            }
+        }
+        finally
+        {
+            EditorUtility.ClearProgressBar();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// パーティクルと関連データをまとめたデータ
+    /// &lt;/summary&gt;
+    private class Data
+    {
+        public ParticleSystem Particle { get; }
+        public ParticleSystemRenderer Renderer { get; }
+        public Texture2D Texture { get; }
+        public TextureImporter Importer { get; }
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="particle"&gt;パーティクル本体&lt;/param&gt;
+        public Data(ParticleSystem particle)
+        {
+            Particle = particle;
+            Renderer = particle.GetComponent&lt;ParticleSystemRenderer&gt;();
+            Texture = Renderer.sharedMaterial.mainTexture as Texture2D;
+            Importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(Texture)) as TextureImporter;
+        }
+    }
+}
+
+

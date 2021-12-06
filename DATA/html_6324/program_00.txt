@@ -1,0 +1,78 @@
+using System;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace Test
+{
+    public class ImagePostData
+    {
+        public string id { get; set; }
+        public string kind { get; set; }
+        public byte[] image { get; set; }
+
+　　　　//本来は変数はたくさんあったので、メタプログラミング用
+        IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; GetProperties()
+        {
+            foreach (var item in this.GetType().GetProperties())
+            {
+                if (item.PropertyType != typeof(byte[]))
+                {
+                    yield return new KeyValuePair&lt;string, string&gt;(item.Name, item.GetValue(this).ToString());
+                }
+            }
+        }
+
+        public MultipartFormDataContent CreateMultipartFormDataContent()
+        {
+            var dataContent = new System.Net.Http.MultipartFormDataContent();
+            var byteContent = new ByteArrayContent(image);
+            //Content-Dispositionの指定と、nameを文字列で渡す。
+            byteContent.Headers.Add("Content-Disposition", $"form-data; name=\"image\" ; filename = \"{this.id}_{this.kind}.jpg\"");
+            byteContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+            //nameをつけずに渡す。
+            dataContent.Add(byteContent);
+
+            foreach (var item in GetProperties())
+            {
+                var content = new StringContent(item.Value);
+                //nameをヘッダーにかく
+                content.Headers.Add("Content-Disposition", $"form-data; name=\"{item.Key}\"");
+                //nameをつけずに渡す。
+                dataContent.Add(content);
+            }
+            return dataContent;
+        }
+    }
+
+    [TestClass]
+    public class UnitTest2
+    {
+        string postUrl = "https://****.****.com/****/upload";
+
+        /// &lt;summary&gt;
+        /// 使い方
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        [TestMethod]        
+        public async Task TestMethod1()
+        {
+            System.Net.Http.HttpClient client = new System.Net.Http.HttpClient();
+
+            var imageFile = @"0.jpeg";
+            var post = new ImagePostData()
+            {
+                image = System.IO.File.ReadAllBytes(imageFile),             
+                id = "1",
+                kind = "default",
+            };
+
+            var c = post.CreateMultipartFormDataContent();
+            var result = await client.PostAsync(postUrl, c);
+        }
+    }
+}
+
+

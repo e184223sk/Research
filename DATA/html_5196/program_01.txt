@@ -1,0 +1,107 @@
+
+
+        //----------------------------------------
+        //BitmapSorce
+        //----------------------------------------
+
+        //単純なImageコントロールへの画像のセット
+        BitmapSource GetImageSourceLock(string path,
+            Rotation rotation = Rotation.Rotate0) {
+            var bmpImage = new BitmapImage(new Uri(path));
+            bmpImage.Rotation = rotation;
+            return bmpImage;
+        }
+
+        //画像ファイルロックをしないコントロールへの画像のセット
+        BitmapSource GetImageSource(string path,
+            Rotation rotation = Rotation.Rotate0) {
+            var bmpImage = new BitmapImage();
+            FileStream stream = File.OpenRead(path);
+            bmpImage.BeginInit();
+            bmpImage.CacheOption = BitmapCacheOption.OnLoad;
+            bmpImage.StreamSource = stream;
+            bmpImage.Rotation = rotation;
+            bmpImage.EndInit();
+            stream.Close();
+            return bmpImage;
+        }
+
+        //画像ファイルロックをしないコントロールへの画像のセット
+        //Exif情報を読み取って自動で回転や左右上下反転を行う
+        BitmapSource GetImageSourceAutoExifOrientate(string path) {
+            var bmpImage = new BitmapImage();
+            FileStream stream = File.OpenRead(path);
+            bmpImage.BeginInit();
+            bmpImage.CacheOption = BitmapCacheOption.OnLoad;
+            bmpImage.StreamSource = stream;
+
+            var metaData = (BitmapFrame.Create(stream).Metadata) as BitmapMetadata;
+
+            stream.Position = 0;
+            bmpImage.EndInit();
+            stream.Close();
+
+            string query = "/app1/ifd/exif:{uint=274}";
+            if (!metaData.ContainsQuery(query)) {
+                return bmpImage;
+            }
+
+            switch (Convert.ToUInt32(metaData.GetQuery(query))) {
+                case 1:
+                    return bmpImage;
+                case 3:
+                    return TransformBitmap(
+                        bmpImage,
+                        new RotateTransform(180));
+                case 6:
+                    return TransformBitmap(
+                        bmpImage,
+                        new RotateTransform(90));
+                case 8:
+                    return TransformBitmap(
+                        bmpImage,
+                        new RotateTransform(270));
+                case 2:
+                    return TransformBitmap(
+                        bmpImage,
+                        new ScaleTransform(-1, 1, 0, 0));
+                case 4:
+                    return TransformBitmap(
+                        bmpImage,
+                        new ScaleTransform(1, -1, 0, 0));
+                case 5:
+                    return TransformBitmap(
+                        TransformBitmap(
+                            bmpImage,
+                            new RotateTransform(90)
+                        ),
+                        new ScaleTransform(-1, 1, 0, 0));
+                case 7:
+                    return TransformBitmap(
+                        TransformBitmap(
+                            bmpImage,
+                            new RotateTransform(270)
+                        ),
+                        new ScaleTransform(-1, 1, 0, 0));
+            }
+            return bmpImage;
+        }
+
+        BitmapSource TransformBitmap(BitmapSource source, Transform transform) {
+            var result = new TransformedBitmap();
+            result.BeginInit();
+            result.Source = source;
+            result.Transform = transform;
+            result.EndInit();
+            return result;
+        }
+
+       void ShowImage(string path) {
+            if (File.Exists(path)) {
+                Image.Source = GetImageSourceAutoExifOrientate(path);
+            } else {
+                Image.Source = null;
+            }
+       }
+
+

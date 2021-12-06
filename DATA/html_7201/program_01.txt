@@ -1,0 +1,50 @@
+
+public class AutofillCurrentDateTimeEventListener : IPreUpdateEventListener, IPreInsertEventListener
+{
+    public void Register(Configuration configuration)
+    {
+        configuration.SetListener(ListenerType.PreInsert, this);
+        configuration.SetListener(ListenerType.PreUpdate, this);
+    }
+
+    public bool OnPreInsert(PreInsertEvent @event)
+    {
+        var now = DateTimeOffset.Now;
+
+        @event.Entity.GetType().GetProperties()
+            .Where(_ =&gt; Attribute.IsDefined(_, typeof(AutofillCurrentDateTimeOnInsertAttribute)) &amp;&amp; _.PropertyType == typeof(DateTimeOffset))
+            .ToList()
+            .ForEach(prop =&gt; {
+                Set(@event.Persister, @event.State, prop.Name, now);
+                prop.SetValue(@event.Entity, now);
+            });
+
+
+        return false;
+    }
+
+    public bool OnPreUpdate(PreUpdateEvent @event)
+    {
+        var now = DateTimeOffset.Now;
+
+        @event.Entity.GetType().GetProperties()
+            .Where(_ =&gt; Attribute.IsDefined(_, typeof(AutofillCurrentDateTimeOnUpdateAttribute)) &amp;&amp; _.PropertyType == typeof(DateTimeOffset))
+            .ToList()
+            .ForEach(prop =&gt; {
+                Set(@event.Persister, @event.State, prop.Name, now);
+                prop.SetValue(@event.Entity, now);
+            });
+
+        return false;
+    }
+
+    //ref: http://stackoverflow.com/a/24908880
+    private void Set(IEntityPersister persister, object[] state, string propertyName, object value)
+    {
+        var index = Array.IndexOf(persister.PropertyNames, propertyName);
+        if (index == -1)
+            return;
+        state[index] = value;
+    }
+}
+

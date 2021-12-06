@@ -1,0 +1,482 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Text.RegularExpressions;
+
+namespace Formula
+{
+    public class FormulaConverter
+    {
+        private static readonly Dictionary&lt;string, Type&gt; ALIAS_MAP = new Dictionary&lt;string, Type&gt;()
+        {
+            {"sbyte",typeof(SByte)},{"byte",typeof(Byte)},{"short",typeof(Int16)},{"ushort",typeof(UInt16)},
+            { "int",typeof(Int32)},{"uint",typeof(UInt32)},{"long",typeof(Int64)},{"ulong",typeof(UInt64)},
+            { "decimal",typeof(Decimal)},{"float",typeof(Single)},{"double",typeof(Double)}
+
+        };
+
+        /// &lt;summary&gt;
+        /// 算術式を記述した文字列からデリゲート関数のインスタンスを作成する
+        /// &lt;/summary&gt;
+        /// &lt;param name="formula"&gt;
+        /// 記述例：
+        /// 関数定義なし："(int)para1/4 + 2" → delegate(5)=3
+        ///             パラメータ名はpara1,para2と記述する。パラメータの型はdoubleと見なす。
+        /// 関数定義あり："Func&lt;int,int&gt;(x)=x/4 + 2"
+        /// &lt;/param&gt;
+        /// &lt;returns&gt;デリゲート&lt;/returns&gt;
+        public static Delegate GetDelegate(string formula)
+        {
+            FormStructure funcDef = new FormStructure(formula);
+            int leftPosi;
+            while ((leftPosi = funcDef.FormulaParts.FindLastIndex(x =&gt; x.Part.Equals("("))) &gt;= 0)
+            {
+                if (leftPosi &gt;= 0)
+                {
+                    int rightPosi = funcDef.FormulaParts.Select((part, ix) =&gt; new { Value = part, Index = ix })
+                            .First(x =&gt; x.Value.Part.Equals(")") &amp;&amp; x.Index &gt; leftPosi).Index;
+                    if (rightPosi &gt;= 0)
+                    {
+                        List&lt;Token&gt; innerParts = funcDef.FormulaParts.GetRange(leftPosi + 1, rightPosi - leftPosi);
+                        funcDef.FormulaParts.RemoveRange(leftPosi, rightPosi - leftPosi + 1);
+                        //関数の引数だった場合引数の数を知るためカッコの中をList化する
+                        int commaIndex;
+                        List&lt;Token&gt; argexp = new List&lt;Token&gt;();
+                        if (rightPosi &gt; (leftPosi + 1))
+                        {
+                            while ((commaIndex = innerParts.FindIndex(s =&gt; s.Part.Equals(",") || s.Part.Equals(")"))) &gt;= 0)
+                            {
+                                argexp.Add(ParseInnerParts(innerParts.GetRange(0, commaIndex)));
+                                innerParts.RemoveRange(0, commaIndex + 1);
+                            }
+                        }
+                        funcDef.FormulaParts.Insert(leftPosi, new Token(argexp));
+                    }
+                    else
+                        throw new FormatException(formula + ":Missing right parenthesis.");
+                }
+            }
+            if (funcDef.FormulaParts.Count == 1)
+            {
+                List&lt;Token&gt; rootLst = funcDef.FormulaParts[0].ToBetListValue;
+                Expression rootExpr = rootLst[0].ToBeExprValue;
+                if (funcDef.RtnType != null)
+                {
+                    if (funcDef.RtnType != rootExpr.Type)
+                        rootExpr = ConvertExpression(rootExpr, funcDef.RtnType);
+                }
+                else
+                {
+                    funcDef.RtnType = rootExpr.Type;
+                }
+                return funcDef.GetDelegete(rootExpr);
+            }
+            throw new FormatException(formula + ":Can not parse the formula.");
+        }
+
+        //かっこで括られた式の最小単位を解析する
+        private static Token ParseInnerParts(List&lt;Token&gt; subParts)
+        {
+            //関数
+            MethodExpression(subParts);
+            //キャスト
+            ConvExpression(subParts);
+            //単項演算
+            PreExpression(subParts, "+-~", Expression.UnaryPlus, Expression.Negate, Expression.Not);
+            //2項算術演算 
+            JoinExpression(subParts, "*/%", Expression.Multiply, Expression.Divide, Expression.Modulo);            
+            JoinExpression(subParts, "+-", Expression.Add, Expression.Subtract);
+            //2項論理演算 
+            JoinExpression(subParts, "&amp;^|", Expression.And, Expression.ExclusiveOr, Expression.Or);
+            if (subParts.Count != 1)
+                throw new FormatException("Can not parce part of the formula.");
+            return subParts[0];
+        }
+
+        //関数
+        private static void MethodExpression(List&lt;Token&gt; parts)
+        {            
+            int posi = 0;
+            while (posi &lt; parts.Count)
+            {
+                if (parts[posi].Part is MethodInfo candMethodInfo)
+                {
+                    Expression[] paraArg = parts[posi + 1].ToBetListValue.Select(x =&gt; x.ToBeExprValue).ToArray();
+                    Type[] argTypes = Array.ConvertAll(paraArg, x =&gt; x.Type);
+                    //該当のMethodInfoを取得
+                    var classMethod = candMethodInfo.DeclaringType.GetMethod(candMethodInfo.Name, argTypes);
+                    if (classMethod == null)
+                    {
+                        //パラメータの型が適合するオーバーロードメソッドが見つからない
+                        var argStr = string.Join(",", argTypes.Select(x =&gt; x.Name));
+                        throw new FormatException(candMethodInfo.DeclaringType.Name+"."+candMethodInfo.Name+"(" + argStr+ "): No Method to match the types.");
+                    }
+                    ParameterInfo[] parameters = classMethod.GetParameters();
+                    paraArg = paraArg.Select((value, index) =&gt; new { Value = value, Index = index })
+                        .Select(expr =&gt;
+                        {
+                            if (expr.Value.Type != parameters[expr.Index].ParameterType)
+                                return ConvertExpression(expr.Value, parameters[expr.Index].ParameterType);
+                            else
+                                return expr.Value;
+                        }).ToArray();
+                    parts[posi] = new Token(Expression.Call(classMethod, paraArg));
+                    parts.RemoveRange(posi + 1, 1);
+                }
+                posi++;
+            }
+        }
+
+        //キャスト調査
+        private static void ConvExpression(List&lt;Token&gt; subParts)
+        {
+            int posi = 0;
+            while (posi &lt; subParts.Count)
+            {
+                if (posi &gt;= 0 &amp;&amp; posi &lt; (subParts.Count - 1))
+                {
+                    if (subParts[posi].Part is Type castType)
+                    {
+                        subParts[posi] = new Token(ConvertExpression(subParts[posi + 1].ToBeExprValue, castType));
+                        subParts.RemoveRange(posi + 1, 1);
+                    }
+                }
+                posi++;
+            }
+        }
+
+        //2項算術式のExpression作成 
+        private static void JoinExpression(List&lt;Token&gt; subParts, string opes, params Func&lt;Expression, Expression, Expression&gt;[] joinFuncs)
+        {
+            int partsCount = 0;
+            while (partsCount &lt; subParts.Count)
+            {
+                if (subParts[partsCount].Part is string str)
+                {
+                    int opeIdx = opes.IndexOf(str);
+                    if (opeIdx &gt;= 0)
+                    {
+                        if (partsCount &gt; 0 &amp;&amp; (partsCount + 1) &lt; subParts.Count)
+                        {
+                            Expression rightExpr = subParts[partsCount + 1].ToBeExprValue;
+                            Expression leftExpr = subParts[partsCount - 1].ToBeExprValue;
+                            Type imType;
+                            if (opes[opeIdx] == '&amp;' || opes[opeIdx] == '|' || opes[opeIdx] == '^')
+                                imType = ConvExpressionImplictType(GetImplictTypeOr, leftExpr, rightExpr);                              
+                            else
+                                imType = ConvExpressionImplictType(GetImplictTypeAdd, leftExpr, rightExpr);
+                            leftExpr = ConvertExpression(leftExpr, imType);
+                            rightExpr = ConvertExpression(rightExpr, imType);
+                            Expression join = joinFuncs[opeIdx](leftExpr, rightExpr);
+                            subParts[partsCount - 1] = new Token(join);
+                            subParts.RemoveRange(partsCount, 2);
+                        }
+                        else
+                            throw new FormatException("Operands for binary operator are missing.");
+                    }
+                    else
+                        partsCount++;
+                }
+                else
+                    partsCount++;
+            }
+            return;
+        }
+
+        //前置Expression作成
+        private static void PreExpression(List&lt;Token&gt; subParts, string opes, params Func&lt;Expression, Expression&gt;[] prefixFuncs)
+        {
+            string fowardopes = "+-*/&amp;|^~";
+            string signs = "+-";
+            if (subParts.Count &gt;= 2)
+            {
+                int posi = subParts.Count - 2;
+                while (posi &gt;= 0)
+                {
+                    if (subParts[posi].Part is string opestr)
+                    {
+                        int opeIdx = opes.IndexOf(opestr);
+                        if (opeIdx &gt;= 0)
+                        {
+                            if (signs.IndexOf(opestr) &gt;= 0)
+                            {
+                                //+-
+                                string fowardOpe = string.Empty;
+                                if(posi &gt; 0)
+                                {
+                                    if (subParts[posi - 1].Part is string fstr)
+                                        fowardOpe = fstr;
+
+                                }
+                                if(posi == 0 || (fowardOpe != string.Empty &amp;&amp; fowardopes.IndexOf(fowardOpe) &gt;= 0))
+                                {
+                                    Expression expr = subParts[posi + 1].ToBeExprValue;
+                                    Type imType = ConvExpressionImplictType(GetImplictTypeSign, expr);
+                                    expr = ConvertExpression(expr, imType);
+                                    Expression nexp = prefixFuncs[opeIdx](expr);
+                                    subParts[posi] = new Token(nexp);
+                                    subParts.RemoveRange(posi + 1, 1);
+                                    if (signs.IndexOf(fowardOpe) &gt;= 0)
+                                        //左側の2項演算子の+-はスキップする
+                                        posi--;
+                                }
+                            }
+                            else
+                            {
+                                //~(not)
+                                Expression nexp = prefixFuncs[opeIdx](subParts[posi + 1].ToBeExprValue);
+                                subParts[posi] = new Token(nexp);
+                                subParts.RemoveRange(posi + 1, 1);
+                            }
+                        }
+                    }
+                    posi--;
+                }
+            }
+        }
+
+        //文字列をExpression,キャストType,代表MethodInfoに変換
+        private static object TryConvElement(object part)
+        {
+            if (part is Expression exp)
+                return exp; 
+            else if (part is string str)
+            {
+                Type castType = GetFieldType(str);
+                if (castType != null)
+                    return castType;
+                MethodInfo oneMethod = TryGetOneMethodInfo(str);
+                if(oneMethod != null)
+                    return oneMethod;
+                if (Regex.IsMatch(str, "^0[xX]"))
+                {
+                    if (uint.TryParse(str.Substring(2), NumberStyles.HexNumber, null, out var uintValue))
+                        return Expression.Constant(uintValue);
+                    else
+                        return Expression.Constant(ulong.Parse(str.Substring(2), NumberStyles.HexNumber));
+                }               
+                else
+                {
+                    object fieldValue = GetFieldValue(str);
+                    if (fieldValue != null)
+                        return Expression.Constant(fieldValue);
+                    else if (Regex.IsMatch(str, "[dD]$"))
+                        return Expression.Constant(double.Parse(str.Substring(0, str.Length - 1)));
+                    else if (Regex.IsMatch(str, "[fF]$"))
+                        return Expression.Constant(float.Parse(str.Substring(0, str.Length - 1)));
+                    else if (Regex.IsMatch(str, "[mM]$"))
+                        return Expression.Constant(decimal.Parse(str.Substring(0, str.Length - 1)));
+                    else
+                    {
+                        if (int.TryParse(str, out var iValue))
+                            return Expression.Constant(iValue);
+                        else if (long.TryParse(str, out var lValue))
+                            return Expression.Constant(lValue);
+                        else if(double.TryParse(str, out var dValue))
+                            return Expression.Constant(dValue);
+                    }
+                }
+            }
+            return part;
+        }
+
+        //型が異なるときExpressionを指定した型に変更する。無効な型はここでエラーとなる。
+        private static Expression ConvertExpression(Expression expr,Type type)
+        {
+            try
+            {
+                if (type != null &amp;&amp; type != expr.Type)
+                    return Expression.Convert(expr, type);
+            }
+            catch
+            {
+                throw new FormatException("Formula type conversion error : " + expr.ToString() + "(" + expr.Type.Name + ") to " + type.Name );
+            }
+            return expr;
+        }
+
+        //クラス名または形名だった場合Typeを求める
+        private static Type GetFieldClassType(string candClassName)
+        {
+            Type classType = Type.GetType(candClassName);
+            if (classType != null)
+                return classType;
+            return Type.GetType("System." + candClassName);
+        }
+
+        //フィールド情報だった場合FieldInfoを求める
+        private static FieldInfo GetFieldInfo(string str)
+        {
+            int periodIdx = str.LastIndexOf(".");
+            if(periodIdx &gt;= 0)
+            {
+                Type classType = GetFieldClassType(str.Substring(0, periodIdx));
+                if (classType != null)
+                {
+                    string candFiledName = str.Substring(periodIdx + 1);
+                    FieldInfo[] fields = classType.GetFields();
+                    FieldInfo filed = Array.Find(fields, x =&gt; x.Name == candFiledName);
+                    return filed;
+                }
+            }            
+            return null;
+        }
+
+        //フィールド変数だった場合値を求める
+        private static object GetFieldValue(string str)
+        {
+            FieldInfo field = GetFieldInfo(str);
+            if (field != null)
+                return field.GetValue(field.DeclaringType);
+            else
+                return null;
+        }
+
+        //型名だった場合型を求める
+        private static Type GetFieldType(string str)
+        {
+            if(ALIAS_MAP.ContainsKey(str))
+                return ALIAS_MAP[str];
+            else
+                return GetFieldClassType(str);
+        }
+
+        //代表のMethodInfoを取得する
+        private static MethodInfo TryGetOneMethodInfo(string str)
+        {
+            int periodIdx = str.LastIndexOf(".");
+            if (periodIdx &gt;= 0)
+            {                
+                Type candClassType = GetFieldClassType(str.Substring(0, periodIdx));
+                if (candClassType != null)
+                {
+                    string methodName = str.Substring(periodIdx+1);
+                    MethodInfo[] classMethos = candClassType.GetMethods();
+                    //return Array.Find(classMethos, (xx) =&gt; (candClassType.Name + "." + xx.Name) == str);
+                    return Array.Find(classMethos, (xx) =&gt; candClassType == xx.ReflectedType &amp;&amp; methodName == xx.Name);
+                }
+            }
+            return null;
+        }
+
+        //算術演算の暗黙的な型を求める
+        private static Type GetImplictTypeAdd&lt;T&gt;(T[] values)
+        {
+            return ((dynamic)values[0] + (dynamic)values[1]).GetType();
+        }
+
+        //論理演算の暗黙的な型を求める
+        private static Type GetImplictTypeOr&lt;T&gt;(T[] values)
+        {
+            return ((dynamic)values[0] | (dynamic)values[1]).GetType();
+        }
+
+        //Singed型を求める
+        private static Type GetImplictTypeSign&lt;T&gt;(T[] values)
+        {
+            return (-(dynamic)values[0]).GetType();
+        }
+
+        //2項演算でExpressionの型を演算時の型に変換する
+        private static Type ConvExpressionImplictType(Func&lt;object[], Type&gt; getImplictType, params Expression[] exprs)
+        {
+            try
+            {
+                object[] values = exprs.Select(expr =&gt; TypeDescriptor.GetConverter(expr.Type).ConvertFromString("1")).ToArray();
+                return getImplictType(values);
+            }
+            catch
+            {
+                string[] args = exprs.Select(expr =&gt; expr.ToString() + "(" + expr.Type.Name + ")").ToArray();
+                throw new FormatException("Formula conversion error : " + String.Join(",", args));
+            }
+        }
+
+        //パラメータ情報
+        private class FormulaParameterInfo
+        {
+            public string Name { get; set; }
+            public Type DeclType { get; set; }
+            public ParameterExpression DeclExpression { get; set; }
+            public FormulaParameterInfo(string name, string typeName)
+            {
+                Name = name;
+                DeclType = GetFieldType(typeName);
+                DeclExpression = Expression.Parameter(DeclType);
+            }
+            public FormulaParameterInfo(string name) : this(name, "double") { }
+        }
+
+        //式の要素クラス
+        private class Token
+        {
+            private List&lt;Token&gt; _list = null;
+
+            public Token(object part)
+            {
+                if(part is List&lt;Token&gt; lst)
+                {
+                    _list = lst;
+                    if (_list.Count == 1)
+                        Part = _list[0].Part;
+                    else
+                        Part = _list;
+                }
+                else
+                    Part = part;
+            }
+
+            //要素オブジェクト
+            public object Part { get; private set; } = null;
+
+            //文字列
+            public string ToBeStringValue
+            {
+                get
+                {
+                    if (Part is string str)
+                        return str;
+                    else
+                        throw new FormatException();
+                }
+            }
+
+            //引数のリスト
+            public List&lt;Token&gt; ToBetListValue
+            {
+                get
+                {
+                    if (_list != null)
+                        return _list;
+                    else
+                        throw new FormatException("Paramete arguments expected.");
+                }
+            }
+
+            //Expression
+            public Expression ToBeExprValue
+            {
+                get
+                {
+                    if (Part is Expression expr)
+                        return expr;
+                    else
+                        throw new FormatException("Expression expected.");
+                }
+            }
+        }
+
+        //関数定義情報
+        private class FormStructure
+        {
+            private static readonly string[] DEFAULT_PARA_NAMES =
+            {
+                "para1",  "para2", "para3", "para4", "para5", "para6", "para7"
+            };
+            private static readonly Type[] LAMBDA_DEFS =
+            {
+                typeof(Func&lt;&gt;), typeof(Func&lt;,&gt;), typeof(Func&lt;,,&gt;), typeof(Func&lt;

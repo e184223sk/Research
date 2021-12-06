@@ -1,0 +1,282 @@
+前回はVisual Studio 2019にMySQL Connectors .NETを用いて、とりあえずMySQLに接続して、SELECTを用いてデータの内容を画面に表示しました。今回はDBのデータそのものを変更を施します(˶ ･ᴗ･ )੭テスト用ユーザー：test (パスワード：test1)
+データベース：manutest
+テーブル名：testtb前回のように、Visual Studio 2019とMySQLをインストールし、かつMySQL Connectors .NETがインストールされていること(Visual Studioは自動でMySQL Connectorsのライブラリを認識してくれる)今回はボタンを押下→MySQLでデータを拾ってくる→画面に表示
+これに加えて、名前とメモを入力し、追加や更新などができるようにフォームを追加
+右上のリストボックスを選択すると該当するIDが画面表示されるので、選択している際に該当IDの更新や削除ができるようになりますが、細かいUI制御までは触れませんWindowsのC#フォームのプロジェクトを新規作成し、Form1.csデフォルトで開きましたこれらを貼り付けます。
+データグリッドとリストボックスはSQLのデータを表示させるために配置しましたMySQLインストール時と同じように、参照を追加していきます。「アセンブリ」の中に実際自動で認識してくれるので、参照マネージャーで、右上の検索画面に「mysql」を入力すると、↑の画面のように「MySql.Data」が何行も出てくるので、とりあえず1つだけ、どれでもいいので選択して(行左にマウスを当てると出てくるチェックボックスをON)「OK」を選択すると…「MySql.Data」が追加されました(*˘꒳˘*)
+この中にMySQLを扱うC#オブジェクトが入っているのです。今回も簡単のため、SQLの実行はボタンクリックで読み込むだけで、Form1.csのクリックイベント動作のみをコーディングしました。本来は規模が大きくなることがほとんどなので、formのボタンクリックではなく、独立したクラスに分けるケースがほとんどですが。。。Form1.cs サンプルコード
+
+
+Form1.cs
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Windows.Forms;
+using MySql.Data.MySqlClient;
+
+namespace MySqlFormsTest
+{
+    public partial class Form1 : Form
+    {
+        // 取得したデータのID一覧(フォーム内部変数)
+        private List&lt;int&gt; idNums;
+
+        // 選択中のID
+        private int selId;
+
+        // MySQL接続情報
+        private string connStr = "server=127.0.0.1;user id=test;password=test1;database=manutest";
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        /**
+         * 接続ボタン(MySQLサーバーに接続し、一覧データを取得する)
+         * */
+        private void button1_Click(object sender, EventArgs e)
+        {
+            MySqlConnection conn = new MySqlConnection(this.connStr);
+
+            // 画面と内部変数を初期化
+            listBox1.Items.Clear();
+            listBox2.Items.Clear();
+            this.idNums = new List&lt;int&gt;();
+            selId = -1;
+            idNum.Text = "";
+            buttonEdit.Enabled = false;
+            buttonDel.Enabled = false;
+
+            try
+            {
+                // 接続を開く
+                conn.Open();
+
+                // データを取得するテーブル
+                DataTable tbl = new DataTable();
+
+                // SQLを実行する
+                MySqlDataAdapter dataAdp = new MySqlDataAdapter("SELECT id, name, memo FROM testtb", conn);
+                dataAdp.Fill(tbl);
+
+                // dataGridViewに表示させる
+                dataGridView1.DataSource = tbl;
+
+                // 実行結果を1行ずつ参照する場合
+                for (int i = 0; i &lt; tbl.Rows.Count; i++)
+                {
+                    DataRow row = tbl.Rows[i];  // データ行
+
+                    // 右のリストボックスにアイテムを追加
+                    listBox1.Items.Add(row[1]);
+                    listBox2.Items.Add(row[2]);
+                    // 同時にIDを内部変数に追加
+                    this.idNums.Add((int)row[0]);
+                }
+
+                // 接続を閉じる
+                conn.Close();
+            }
+            catch (MySqlException mse)
+            {
+                MessageBox.Show(mse.Message, "データ取得エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /**
+         * リストボックスの行を選択
+         */
+        private void listBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            this.listBox_SelectedIndexChanged(sender, e);
+
+            // 選択したIDを画面表示
+            if(listBox1.SelectedIndex != -1)
+            {
+                this.selId = idNums[listBox1.SelectedIndex];
+                idNum.Text = idNums[listBox1.SelectedIndex].ToString();
+            }
+            else
+            {
+                this.selId = -1;
+                idNum.Text = "";
+            }
+        }
+        private void listBox2_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            this.listBox_SelectedIndexChanged(sender, e);
+
+            // 選択したIDを画面表示
+            if (listBox2.SelectedIndex != -1)
+            {
+                this.selId = idNums[listBox2.SelectedIndex];
+                idNum.Text = idNums[listBox2.SelectedIndex].ToString();
+            }
+            else
+            {
+                this.selId = -1;
+                idNum.Text = "";
+            }
+        }
+        private void listBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // どちらかを選択していないと追加と削除が使えない
+            if(listBox1.SelectedIndex != -1 || listBox2.SelectedIndex != -1)
+            {
+                buttonEdit.Enabled = true;
+                buttonDel.Enabled = true;
+            }
+            else
+            {
+                buttonEdit.Enabled = false;
+                buttonDel.Enabled = false;
+            }
+        }
+
+
+        /**
+         * 新規追加ボタンを選択
+         */
+        private void buttonAdd_Click(object sender, EventArgs e)
+        {
+            MySqlConnection conn = new MySqlConnection(this.connStr);
+            MySqlTransaction trans = null;          // 実行トランザクション
+
+            // 新規追加のSQLコマンド
+            string sqlCmd = @"INSERT INTO testtb (name, memo) VALUES (@name, @memo)";
+
+            // 追加クエリの開始
+            MySqlCommand cmd = new MySqlCommand(sqlCmd, conn);
+
+            try
+            {
+                // ステークホルダーのセット
+                cmd.Parameters.AddWithValue("name", textBoxName.Text);
+                cmd.Parameters.AddWithValue("memo", textBoxMemo.Text);
+
+                cmd.Connection.Open();              // 接続を開く
+
+                // トランザクション監視開始
+                trans = cmd.Connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+                // SQL実行
+                cmd.ExecuteNonQuery();
+
+                // DBをコミット
+                trans.Commit();
+            }
+            catch (MySqlException mse)
+            {
+                trans.Rollback();                   // 例外発生時はロールバック
+                MessageBox.Show(mse.Message, "データ追加エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                // 接続はクローズする
+                cmd.Connection.Close();
+            }
+        }
+
+        /**
+         * 編集ボタンを選択
+         */
+        private void buttonEdit_Click(object sender, EventArgs e)
+        {
+            MySqlConnection conn = new MySqlConnection(this.connStr);
+            MySqlTransaction trans = null;          // 実行トランザクション
+
+            // 編集のSQLコマンド
+            string sqlCmd = @"UPDATE testtb SET name = @name, memo = @memo WHERE id = @id";
+
+            // 編集クエリの開始
+            MySqlCommand cmd = new MySqlCommand(sqlCmd, conn);
+
+            try
+            {
+                // 選択中のIDを用いて、ステークホルダーのセット
+                cmd.Parameters.AddWithValue("id", this.selId);
+                cmd.Parameters.AddWithValue("name", textBoxName.Text);
+                cmd.Parameters.AddWithValue("memo", textBoxMemo.Text);
+
+                cmd.Connection.Open();              // 接続を開く
+
+                // トランザクション監視開始
+                trans = cmd.Connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+                // SQL実行
+                cmd.ExecuteNonQuery();
+
+                // DBをコミット
+                trans.Commit();
+            }
+            catch (MySqlException mse)
+            {
+                trans.Rollback();                   // 例外発生時はロールバック
+                MessageBox.Show(mse.Message, "データ更新エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                // 接続はクローズする
+                cmd.Connection.Close();
+            }
+        }
+
+        /**
+         * 削除ボタンを選択
+         */
+        private void buttonDel_Click(object sender, EventArgs e)
+        {
+            MySqlConnection conn = new MySqlConnection(this.connStr);
+            MySqlTransaction trans = null;          // 実行トランザクション
+
+            // 削除のSQLコマンド
+            string sqlCmd = @"DELETE FROM testtb WHERE id = @id";
+
+            // 削除クエリの開始
+            MySqlCommand cmd = new MySqlCommand(sqlCmd, conn);
+
+            try
+            {
+                // 選択中のIDを用いて、ステークホルダーのセット
+                cmd.Parameters.AddWithValue("id", this.selId);
+
+                cmd.Connection.Open();              // 接続を開く
+
+                // トランザクション監視開始
+                trans = cmd.Connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+                // SQL実行
+                cmd.ExecuteNonQuery();
+
+                // DBをコミット
+                trans.Commit();
+            }
+            catch (MySqlException mse)
+            {
+                trans.Rollback();                   // 例外発生時はロールバック
+                MessageBox.Show(mse.Message, "データ削除エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                // 接続はクローズする
+                cmd.Connection.Close();
+            }
+        }
+    }
+}
+
+
+
+まずフォームのC#ソースの内部変数として、MySQLのデータでどのIDを取得したかと、右上のリストボックスの項目に対応するIDはどれを選択しているのかを把握するため、Form1にprivate変数を追加しました読み込むSQLを実行するボタンで「SELECT id, name, memo～」をbutton1_Click()内で実行していると思いますが、単に右上のリストボックスにピックアップするだけでなく、対応するIDを内部変数idNumsで受け持つコードも実装しましたrow[0]が取得したデータのID番号ですが、そのままListにAdd()を実行するとObjectを暗黙的に変換できないエラーとなるため、(int)でキャストしました。listBox1_SelectedIndexChanged()などで使っていますが、リストボックスの選択したインデックス番号(0で始まるもの)はこれを使っています(未選択の場合は-1)。選択するとidNumの選択中IDのフィールドに表示する仕組みを入れたんです。選択中のIDは内部変数に入れています。INSERTやUPDATEなどDBの内容を更新するSQLは、MySqlCommandを使ったんですが、こっちのほうがプレースホルダーが使いやすいので、SELECT以外はMySqlCommandを使いました。そして更新の際はトランザクションを使っています。例外が発生したときはいつもロールバックするようにしていますが、正直タイミングは考えるのは大変なので、今回は簡単で例外キャッチのみで；；今回は追加などのボタンに再読み込み機能がないので、追加などのボタンを押した後は「読み込み」ボタンを押して再表示させています(面倒ですが…)最初に下の画像のようなデータがあるとして、IDが6のデータを更新すると…
+
+
+「更新」→「読み込み」で、更新に成功しました(˶ ･ᴗ･ )੭次はIDが5の「Testing」というデータを選択して消してみます
+
+
+再度読み込みボタンを押して、これも削除成功しました！！最後に追加してみます
+
+
+見事成功しました(˶ ･ᴗ･ )੭！！Visual StudioでMySQLのデータがNULLの場合にハマったことがあるので、そっちについて追ってみます
+
+

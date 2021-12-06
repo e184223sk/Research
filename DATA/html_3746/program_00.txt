@@ -1,0 +1,33 @@
+using System;
+using System.Diagnostics;
+using System.Linq;
+using UnityEditor;
+
+public class MessagePackPostprocessor : AssetPostprocessor
+{
+    // 監視するディレクトリ
+    private const string TargetDirectory = "Assets/ServerDefinition";
+
+    private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
+    {
+        // TargetDirectory のファイルが更新されたか確認
+        var files = new[] { importedAssets, deletedAssets, movedAssets, movedFromAssetPaths }.SelectMany(_ =&gt; _);
+        if (files.All(x =&gt; !x.StartsWith(TargetDirectory))) return;
+
+        // 外部プロセス起動
+        var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "/path/to/mpc",
+            Arguments = "-i Assets -o Assets/GeneratedScripts/GeneratedResolver.cs",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        });
+        // 標準出力
+        UnityEngine.Debug.Log(process.StandardOutput.ReadToEnd());
+        // 標準エラー出力
+        var error = process.StandardError.ReadToEnd();
+        if (!string.IsNullOrEmpty(error)) UnityEngine.Debug.LogError(error);
+    }
+}
+

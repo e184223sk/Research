@@ -1,0 +1,47 @@
+
+using Azuki.Behavior;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TestFan
+{
+    class 扇風機
+    {
+        // この扇風機のスレッドになるタスクスケジューラ
+        private QueTaskScheduler queuedTaskScheduler = new QueTaskScheduler("扇風機");
+        // ストップさせるためのキャンセレーショントークンソース
+        private CancellationTokenSource tokenSource = null;
+
+        public void Start()
+        {
+            tokenSource = new CancellationTokenSource();
+            var token = tokenSource.Token;
+            Task task = new Task(() =&gt; {
+                while (token.IsCancellationRequested == false) // 停止されるまで繰り返す
+                {
+                    Console.WriteLine("ブーン");
+                    System.Threading.Thread.Sleep(1000);
+                }
+                Console.WriteLine("止まった");
+            }, token);
+            Task continueTask = task.ContinueWith
+            (t =&gt;
+            {
+                // 後始末
+                tokenSource.Dispose();
+                tokenSource = null;
+            }, queuedTaskScheduler);  // 後始末も同じタスクスケジューラで行う
+            task.Start(queuedTaskScheduler); // タスクを開始するときにタスクスケジューラを指定します
+        }
+
+        public void Stop()
+        {
+            tokenSource?.Cancel();
+        }
+    }
+}
+

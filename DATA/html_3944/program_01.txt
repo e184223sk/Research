@@ -1,0 +1,145 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using UnityEngine;
+
+public class EncryptSample : MonoBehaviour {
+    void Start() {
+        // 保存データクラスをインスタンス化
+        var userData = new UserData() { name = "HOGE", age = 20 };
+        // クラスをJSON文字列に変換
+        string json = JsonUtility.ToJson(userData);
+        // byte配列に変換
+        byte[] arr = System.Text.Encoding.UTF8.GetBytes(json);
+
+        // AES暗号化サンプル処理
+        AesEncryptSample(arr);
+
+        // XOR暗号化サンプル処理
+        XorEncrypt(arr);
+    }
+
+    /// &lt;summary&gt;
+    /// AES暗号化サンプル
+    /// &lt;/summary&gt;
+    private void AesEncryptSample (byte[] arr) {
+        // AES設定値
+        //===================================
+        int aesKeySize = 128;
+        int aesBlockSize = 128;
+        string aesIv = "1234567890123456";
+        string aesKey = "1234567890123456";
+        //===================================
+
+        // AES暗号化
+        byte[] arrEncrypted = AesEncrypt(arr, aesKeySize, aesBlockSize, aesIv, aesKey);
+
+        // ファイル書き込み
+        string path = System.IO.Path.Combine(Application.temporaryCachePath, "UserDataAES");
+        System.IO.File.WriteAllBytes(path, arrEncrypted);
+
+        // ファイル読み込み
+        byte[] arrRead = System.IO.File.ReadAllBytes(path);
+
+        // 復号化
+        byte[] arrDecrypt = AesDecrypt(arrRead, aesKeySize, aesBlockSize, aesIv, aesKey);
+
+        // byte配列を文字列に変換
+        string decryptStr = System.Text.Encoding.UTF8.GetString(arrDecrypt);
+
+        Debug.Log("AES : " + decryptStr);
+    }
+
+    /// &lt;summary&gt;
+    /// XORサンプル
+    /// &lt;/summary&gt;
+    private void XorEncrypt (byte[] arr) {
+        // 暗号化文字列
+        string keyString = "123456789";
+
+        // XOR
+        byte[] keyArr = System.Text.Encoding.UTF8.GetBytes(keyString);
+        byte[] arrEncrypted = Xor(arr, keyArr);
+
+        // ファイル書き込み
+        string path = System.IO.Path.Combine(Application.temporaryCachePath, "UserDataXOR");
+        System.IO.File.WriteAllBytes(path, arrEncrypted);
+
+        // ファイル読み込み
+        byte[] arrRead = System.IO.File.ReadAllBytes(path);
+
+        // XOR
+        byte[] arrDecrypt = Xor(arrRead, keyArr);
+
+        // byte配列を文字列に変換
+        string decryptStr = System.Text.Encoding.UTF8.GetString(arrDecrypt);
+
+        Debug.Log("XOR : " + decryptStr);
+    }
+
+
+
+    /// &lt;summary&gt;
+    /// AES暗号化
+    /// &lt;/summary&gt;
+    public byte[] AesEncrypt (byte[] byteText, int aesKeySize, int aesBlockSize, string aesIv, string aesKey) {
+        // AESマネージャー取得
+        var aes = GetAesManager(aesKeySize, aesBlockSize, aesIv, aesKey);
+        // 暗号化
+        byte[] encryptText = aes.CreateEncryptor().TransformFinalBlock(byteText, 0, byteText.Length);
+
+        return encryptText;
+    }
+
+    /// &lt;summary&gt;
+    /// AES復号化
+    /// &lt;/summary&gt;
+    public byte[] AesDecrypt (byte[] byteText, int aesKeySize, int aesBlockSize, string aesIv, string aesKey) {
+        // AESマネージャー取得
+        var aes = GetAesManager(aesKeySize, aesBlockSize, aesIv, aesKey);
+        // 復号化
+        byte[] decryptText = aes.CreateDecryptor().TransformFinalBlock(byteText, 0, byteText.Length);
+
+        return decryptText;
+    }
+
+    /// &lt;summary&gt;
+    /// AesManagedを取得
+    /// &lt;/summary&gt;
+    /// &lt;param name="keySize"&gt;暗号化鍵の長さ&lt;/param&gt;
+    /// &lt;param name="blockSize"&gt;ブロックサイズ&lt;/param&gt;
+    /// &lt;param name="iv"&gt;初期化ベクトル(半角X文字（8bit * X = [keySize]bit))&lt;/param&gt;
+    /// &lt;param name="key"&gt;暗号化鍵 (半X文字（8bit * X文字 = [keySize]bit）)&lt;/param&gt;
+    private AesManaged GetAesManager (int keySize, int blockSize, string iv, string key) {
+        AesManaged aes = new AesManaged();
+        aes.KeySize = keySize;
+        aes.BlockSize = blockSize;
+        aes.Mode = CipherMode.CBC;
+        aes.IV = Encoding.UTF8.GetBytes(iv);
+        aes.Key = Encoding.UTF8.GetBytes(key);
+        aes.Padding = PaddingMode.PKCS7;
+        return aes;
+    }
+
+
+    /// &lt;summary&gt;
+    /// XOR
+    /// &lt;/summary&gt;
+    public byte[] Xor(byte[] a, byte[] b){
+        int j = 0;
+        for (int i = 0; i &lt; a.Length; i++) {
+            if (j &lt; b.Length){
+                j++;
+            } else {
+                j = 1;
+            }
+            a[i] = (byte)(a[i] ^ b[j - 1]);
+        }
+        return a;
+    }
+}
+
+

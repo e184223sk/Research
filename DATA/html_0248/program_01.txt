@@ -1,0 +1,70 @@
+
+using System;
+using System.Diagnostics;
+using System.IO.Ports;
+
+public class MySerialPort
+{
+    private readonly SerialPort _sp;
+
+    public MySerialPort(string portName)
+    {
+        _sp = new SerialPort()
+        {
+            PortName = portName,
+            BaudRate = 9600,
+            DataBits = 8,
+            Parity = Parity.None,
+            StopBits = StopBits.One,
+            Handshake = Handshake.None
+        };
+
+        _sp.Open();
+        _sp.DataReceived += OnDataReceived;
+    }
+
+    private void OnDataReceived(object sender, SerialDataReceivedEventArgs e)
+    {
+        Debug.Write($"{_sp.PortName} Data Received");
+
+        byte[] receivedBytes= Receive();
+        int receivedBytesLength = Buffer.ByteLength(receivedBytes);
+
+        for(int i = 0; i &lt; receivedBytesLength; i++)
+        {
+            Debug.Write($"{receivedBytes[i]:X},");
+        }
+        Debug.Write("\n");
+    }
+
+    public void Send(string message = "DefaultMessage")
+    {
+        _sp.Write(message);
+        Debug.WriteLine($"{_sp.PortName} send {message}");
+    }
+
+    private byte[] Receive()
+    {
+        byte[] buf = new byte[128];
+        int totalReadBytes = 0;
+
+        while(true)
+        {
+            int bytesToRead = _sp.BytesToRead;
+
+            if (bytesToRead == 0)
+                break;
+
+            int readBytes = _sp.Read(buf, totalReadBytes, bytesToRead);
+
+            totalReadBytes += readBytes;
+            Debug.WriteLine($"{_sp.PortName} toRead: {bytesToRead}, readBytes:{readBytes}, total: {totalReadBytes}");
+        }
+
+        byte[] receivedBytes = new byte[totalReadBytes];
+        Array.Copy(buf, receivedBytes, totalReadBytes);
+
+        return receivedBytes;
+    }
+}
+

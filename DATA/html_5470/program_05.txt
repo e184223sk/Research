@@ -1,0 +1,71 @@
+
+using Npgsql;
+
+public class IndexBenchmark
+{
+    public static void MultiTableBenchmarck()
+    {
+        var builder = new NpgsqlConnectionStringBuilder()
+        {
+            Host = "localhost",
+            Port = 5432,
+            Username = "postgres",
+            Password = "postgres",
+            Database = "foo",
+        };
+        using (var con = new NpgsqlConnection(builder.ConnectionString))
+        {
+            con.Open();
+            var tables = new string[] { "multi_nosorted_noindex", "multi_nosorted_withindex", "multi_sorted_noindex", "multi_sorted_withindex" };
+
+            using (var cmd = new NpgsqlCommand())
+            {
+                cmd.Connection = con;
+
+                var sw = new Stopwatch();
+                var result = new StringBuilder();
+
+                //SELECT *　FROM テーブル(各3回)
+                result.AppendLine("--- SELECT *　FROM テーブル ---");
+                foreach(var table in tables)
+                {
+                    result.AppendLine(table);
+                    foreach(var i in Enumerable.Range(0, 3))
+                    {
+                        sw.Restart();
+                        cmd.CommandText = $"SELECT * FROM {table}";
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read()) ;
+                        }
+                        sw.Stop();
+                        result.AppendLine(sw.Elapsed.TotalMilliseconds.ToString());
+                    }
+                }
+                result.AppendLine();
+
+                //SELECT * FROM テーブル ORDER BY tstz(各5回)
+                result.AppendLine("--- SELECT *　FROM テーブル ORDER BY tstz---");
+                foreach(var table in tables)
+                {
+                    result.AppendLine(table);
+                    foreach(var i in Enumerable.Range(0,5))
+                    {
+                        sw.Restart();
+                        cmd.CommandText = $"SELECT * FROM {table} ORDER BY tstz";
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read()) ;
+                        }
+                        sw.Stop();
+                        result.AppendLine(sw.Elapsed.TotalMilliseconds.ToString());
+                    }
+                }
+
+                //結果の保存
+                System.IO.File.WriteAllText("indexbench.txt", result.ToString());
+            }
+        }
+    }
+}
+

@@ -1,0 +1,84 @@
+
+[UpdateInGroup(typeof(BoidSystemGroup))]
+public class CohesionSystem : SystemBase
+{
+    // チャンク検索のため EntityQuery が必須 (IJobEntityBatch.Schedule()の引数)
+    private EntityQuery query;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        query = GetEntityQuery(new EntityQueryDesc
+        {
+            All = new[] {
+                ComponentType.ReadOnly&lt;BoidType&gt;(),
+                ComponentType.ReadOnly&lt;Translation&gt;(),
+                ComponentType.ReadOnly&lt;NeighborsEntityBuffer&gt;(),
+                ComponentType.ReadWrite&lt;Acceleration&gt;()
+            }
+        });
+    }
+
+    [BurstCompile]
+    public struct CohesionJob : IJobEntityBatch
+    {
+        [ReadOnly] public float alignmentWeight;
+        [ReadOnly] public ComponentDataFromEntity&lt;Translation&gt; positionFromGrovalEntity;
+
+        // アクセサのハンドルを受け取るためのメンバ。 var で受け取れないのでひたすら面倒
+        [ReadOnly] public ComponentTypeHandle&lt;Translation&gt; translationHandle;
+        [ReadOnly] public BufferTypeHandle&lt;NeighborsEntityBuffer&gt; neighborsBufferHandle;
+        public ComponentTypeHandle&lt;Acceleration&gt; accelHandle;
+
+        public void Execute(ArchetypeChunk batchInChunk, int batchIndex)
+        {
+            var pos_array = batchInChunk.GetNativeArray(translationHandle);
+            var neighbors_list = batchInChunk.GetBufferAccessor(neighborsBufferHandle);
+            var acc_array = batchInChunk.GetNativeArray(accelHandle);
+
+            // チャンク内のイテレーションは自分で書く。
+            // 1段ネストが増える分手間だしバグ混入の危険も増える
+            for(int i=0; i&lt;batchInChunk.Count; i++)
+            {
+                var neighbors = neighbors_list[i];
+                if (neighbors.Length == 0) continue;
+
+                float3 pos_avg = float3.zero;
+                float3 pos0 = pos_array[i].Value;
+                float3 acc = acc_array[i].Value;
+
+                for (int j = 0; j &lt; neighbors.Length; j++)
+                {
+                    pos_avg += positionFromGrovalEntity[neighbors[j].entity].Value;
+                }
+                pos_avg /= neighbors.Length;
+
+                acc += (pos_avg - pos0) * alignmentWeight;
+                acc_array[i] = new Acceleration { Value = acc };
+            }
+
+            // ComponentType のアクセサが NativeArray&lt;&gt; を返すので Dispose する必要がある
+            pos_array.Dispose();
+            acc_array.Dispose();
+        }
+    }
+
+    protected override void OnUpdate()
+    {
+        var param = Bootstrap.Param;
+        var job = new CohesionJob
+        {
+            alignmentWeight = param.alignmentWeight,
+            positionFromGrovalEntity = GetComponentDataFromEntity&lt;Translation&gt;(true),
+
+            // 必要な ComponentType, BufferType の Handle をいちいち渡す必要がある
+            translationHandle = GetComponentTypeHandle&lt;Translation&gt;(),
+            neighborsBufferHandle = GetBufferTypeHandle&lt;NeighborsEntityBuffer&gt;(),
+            accelHandle = GetComponentTypeHandle&lt;Acceleration&gt;()
+        };
+        // ここで渡す EntityQuery も自分で組み立てる必要がある
+        Dependency = job.ScheduleParallel(query, 1, Dependency);
+    }
+}
+

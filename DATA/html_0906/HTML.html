@@ -1,0 +1,642 @@
+<!DOCTYPE html><html><head><meta charset="utf-8" /><title>ASP.NET Coreへの同時アクセス時の応答が遅くなるのはスレッドプールの挙動のためかも - Qiita</title><meta content="width=device-width,initial-scale=1,shrink-to-fit=no,viewport-fit=cover" name="viewport" /><meta content="#55c500" name="theme-color" /><meta content="XWpkTG32-_C4joZoJ_UsmDUi-zaH-hcrjF6ZC_FoFbk" name="google-site-verification" /><meta content="telephone=no" name="format-detection" /><link rel="canonical" href="https://qiita.com/1stship/items/dd816cd56605c5ff7ee6" /><link href="/manifest.json" rel="manifest" /><link href="/opensearch.xml" rel="search" title="Qiita" type="application/opensearchdescription+xml" /><link as="script" href="https://www.googletagservices.com/tag/js/gpt.js" rel="preload" /><link href="https://securepubads.g.doubleclick.net" rel="preconnect" /><script async="" src="https://www.googletagservices.com/tag/js/gpt.js"></script><meta name="csrf-param" content="authenticity_token" />
+<meta name="csrf-token" content="w8b1bSZs+zsT3Yc9kk6HxCJjxa9K4xIzW+R/3329qOGDcAydlMaNmOGpr32SeOTvx1SMkCLWat+YwGALE0Bu0A==" /><link rel="shortcut icon" type="image/x-icon" href="https://cdn.qiita.com/assets/favicons/public/production-c620d3e403342b1022967ba5e3db1aaa.ico" /><link rel="apple-touch-icon" type="image/png" href="https://cdn.qiita.com/assets/favicons/public/apple-touch-icon-ec5ba42a24ae923f16825592efdc356f.png" /><link rel="stylesheet" media="all" href="https://cdn.qiita.com/assets/public/article-2eaa7dbedc42a8ea65c722cda46d0ebb.min.css" /><script src="https://cdn.qiita.com/assets/public/v3-article-bundle-63de2d91fef827269d3f6b958db2335b.min.js" defer="defer"></script><meta name="twitter:card" content="summary_large_image"><meta content="@Qiita" name="twitter:site" /><meta property="og:type" content="article"><meta property="og:title" content="ASP.NET Coreへの同時アクセス時の応答が遅くなるのはスレッドプールの挙動のためかも - Qiita"><meta property="og:image" content="https://qiita-user-contents.imgix.net/https%3A%2F%2Fcdn.qiita.com%2Fassets%2Fpublic%2Farticle-ogp-background-1150d8b18a7c15795b701a55ae908f94.png?ixlib=rb-4.0.0&amp;w=1200&amp;mark64=aHR0cHM6Ly9xaWl0YS11c2VyLWNvbnRlbnRzLmltZ2l4Lm5ldC9-dGV4dD9peGxpYj1yYi00LjAuMCZ3PTg0MCZoPTM4MCZ0eHQ2ND1RVk5RTGs1RlZDQkRiM0psNDRHNDQ0R3U1WkNNNXBtQzQ0S2k0NEt2NDRLNzQ0SzU1cG1DNDRHdTViLWM1NjJVNDRHTTZZR0Y0NEdQNDRHcTQ0S0w0NEd1NDRHdjQ0SzU0NE9zNDRPRDQ0T0o0NE9YNDRPODQ0T3I0NEd1NW95WjVZdVY0NEd1NDRHZjQ0S0I0NEdMNDRLQyZ0eHQtY29sb3I9JTIzMzMzJnR4dC1mb250PUhpcmFnaW5vJTIwU2FucyUyMFc2JnR4dC1zaXplPTU0JnR4dC1jbGlwPWVsbGlwc2lzJnR4dC1hbGlnbj1jZW50ZXIlMkNtaWRkbGUmcz02NDJjZjk3NzE4NzY0ZGFmMzdjY2Y1ZGJhMDM3YzZkNA&amp;mark-align=center%2Cmiddle&amp;blend64=aHR0cHM6Ly9xaWl0YS11c2VyLWNvbnRlbnRzLmltZ2l4Lm5ldC9-dGV4dD9peGxpYj1yYi00LjAuMCZ3PTg0MCZoPTUwMCZ0eHQ2ND1RREZ6ZEhOb2FYQSZ0eHQtY29sb3I9JTIzMzMzJnR4dC1mb250PUhpcmFnaW5vJTIwU2FucyUyMFc2JnR4dC1zaXplPTQ1JnR4dC1hbGlnbj1yaWdodCUyQ2JvdHRvbSZzPWZjMDY1YmUyNTQyMTdlMWE4MDBmN2M0MjJiMGRmYjBi&amp;blend-align=center%2Cmiddle&amp;blend-mode=normal&amp;s=7e19ac2eb054184535358ec29ec4111d"><meta property="og:description" content="
+
+はじめに
+
+ASP.NET Coreへの同時アクセスの応答が妙に遅くなるので原因調査したら、スレッドプールの起動の問題、もっと言えば.NET環境での非同期処理の使い方の問題だったので、メモしておく。
+
+
+実験環境
+
+macOS 1..."><meta content="https://qiita.com/1stship/items/dd816cd56605c5ff7ee6" property="og:url" /><meta content="Qiita" property="og:site_name" /><meta content="564524038" property="fb:admins" /><meta content="C#,ThreadPool,ASP.NET_Core" name="keywords" /><script>!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '668972150489891');
+fbq('track', 'PageView');</script><style data-emotion-css="17jxvjw 11t2ec1 1dvr2p8 18lkoru 1g4cku8 1iupg5d ijvq0v 15cocm3 12rp90f 115f4t 1b8uj5v 79elbk 16hhh7b fcbn8c 1gj7nt 154zy0m yikrym 1jqivyb 1ode1bp le4d8r 1hbd3g7 1nzh4zz 38fzdi helsa7 8qb8m4 2imjyh he5w1s 70qvj9 3ojehk 100alwu 1dtnjt5 10ougpm 1ay9vb9 m19uds cgzq40 1wa99t2 1l3zk9f 4czcte 1yzj1fm 1uv1qiv 109dbrr 5jpx49 mnxgyc 1vlpknv fsjkhv 1b17vb0 7i7f4d"}>.css-17jxvjw{display:grid;display:-ms-grid;grid-template-columns:80px minmax(0,1fr) 300px;-ms-grid-columns:80px minmax(0,1fr) 300px;grid-template-rows:minmax(270px,auto) 1fr;-ms-grid-rows:minmax(270px,auto) 1fr;max-width:1280px;margin-right:auto;margin-left:auto;padding-top:24px;padding-right:24px;padding-left:24px;}@media (max-width:1200px){.css-17jxvjw{padding-bottom:0;padding-left:0;padding-right:0;}}@media (max-width:992px){.css-17jxvjw{grid-template-columns:80px 452px 300px;-ms-grid-columns:80px 452px 300px;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;}}@media (max-width:770px){.css-17jxvjw{display:block;}}@media (max-width:480px){.css-17jxvjw{padding-top:0;}}.css-11t2ec1{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;z-index:5;position:-webkit-sticky;position:sticky;top:calc(56px + 24px + 16px + 32px - 16px);display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;padding:16px;width:80px;}.css-11t2ec1:after{content:'';display:table;}.css-11t2ec1:before{content:'';display:table;}@media (max-width:770px){.css-11t2ec1{display:none;}}.css-1dvr2p8{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;margin-bottom:16px;}.css-18lkoru{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;border:2px solid #55C500;border-radius:50%;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;height:40px;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;padding:0;width:40px;background-color:#FFFFFF;}.css-1g4cku8{display:inline-block;vertical-align:middle;height:20px;width:20px;fill:#55C500;}.css-1iupg5d{color:#55C500;cursor:pointer;font-size:14px;font-weight:bold;}.css-ijvq0v{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;margin-bottom:16px;}.css-15cocm3{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-color:#FFFFFF;border:2px solid #6E6F70;border-radius:50%;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;height:40px;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;padding:2px 0px 0px;width:40px;}.css-12rp90f{display:inline-block;vertical-align:bottom;height:17.77777777777778px;width:16px;fill:#6E6F70;}.css-115f4t{color:#6E6F70;font-size:14px;font-weight:bold;}.css-1b8uj5v{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-color:transparent;border:none;color:#6E6F70;cursor:pointer;font-size:20px;height:32px;outline:none;width:32px;margin-bottom:16px;padding:0;}.css-79elbk{position:relative;}.css-16hhh7b{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-color:transparent;border:none;color:#6E6F70;cursor:pointer;font-size:20px;height:32px;outline:none;width:32px;padding:0;}.css-fcbn8c{display:none;bottom:initial;left:initial;right:initial;top:initial;left:100%;top:calc(-8px - (14px * 1.8) - 16px - 4px);}.css-1gj7nt{color:rgba(0,0,0,0.6);font-size:14px;font-weight:bold;line-height:1.8;padding:8px 16px;}.css-154zy0m{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;color:rgba(0,0,0,0.87);cursor:pointer;font-size:16px;font-weight:normal;line-height:1.8;padding:4px 16px;}.css-154zy0m:hover{-webkit-text-decoration:none;text-decoration:none;background-color:#F2F2F2;}.css-yikrym{width:20px;}.css-1jqivyb{color:rgba(0,0,0,0.6);font-size:13px;}.css-1ode1bp{background-color:rgba(0,0,0,0.12);height:1px;width:100%;margin:8px 0;}.css-le4d8r{display:inline-block;vertical-align:middle;height:13px;width:13px;fill:rgba(0,0,0,0.6);}.css-1hbd3g7{height:250px;}.css-1nzh4zz{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;padding:16px 32px;background-color:#FBE69E;color:rgba(0,0,0,0.87);line-height:1.5;font-weight:600;}@media (max-width:770px){.css-1nzh4zz{padding:16px;}}.css-38fzdi{color:#CA832A;margin-right:4px;}.css-helsa7{background-color:#FFFFFF;padding:32px;margin-bottom:24px;}@media (max-width:992px){.css-helsa7{margin:0 auto 40px;}}@media (max-width:480px){.css-helsa7{margin:0 0 40px;padding:32px 16px;}}.css-8qb8m4{margin-bottom:48px;}.css-2imjyh{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;}.css-he5w1s{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-box-pack:justify;-webkit-justify-content:space-between;-ms-flex-pack:justify;justify-content:space-between;width:100%;}@media (max-width:770px){.css-he5w1s{-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;-webkit-align-items:flex-start;-webkit-box-align:flex-start;-ms-flex-align:flex-start;align-items:flex-start;}}.css-70qvj9{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;}.css-3ojehk{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-shrink:0;-ms-flex-negative:0;flex-shrink:0;margin-right:4px;}.css-100alwu{display:inline-block;border-radius:50%;line-height:1;overflow:hidden;vertical-align:middle;}.css-1dtnjt5{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;}.css-10ougpm{color:rgba(0,0,0,0.87);font-size:14px;font-weight:600;line-height:1.8;margin-right:4px;text-wrap:break-word;word-break:break-all;}.css-1ay9vb9{margin-right:16px;}.css-m19uds{color:rgba(0,0,0,0.6);font-size:14px;line-height:1.8;}.css-cgzq40{color:rgba(0,0,0,0.87);font-size:32px;font-weight:bold;line-height:1.4;margin-top:8px;text-wrap:break-word;word-break:break-all;}.css-1wa99t2{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;color:rgba(0,0,0,0.6);display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-top:8px;}.css-1l3zk9f{color:rgba(0,0,0,0.6);font-size:20px;margin-right:8px;}.css-4czcte{margin-right:4px;color:inherit;font-size:14px;line-height:1.8;}.css-4czcte:not(:last-child)::after{content:',';margin-right:4px;}.css-1yzj1fm{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;margin-top:32px;}.css-1uv1qiv{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;background-color:transparent;border:none;color:#6E6F70;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;font-size:20px;height:32px;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;margin-right:16px;outline:none;padding:0;width:32px;}.css-109dbrr{background-color:#F9F9F9;border-top:1px solid rgba(0,0,0,0.12);bottom:0;box-shadow:0px 1px 4px rgba(0,0,0,0.14);display:none;height:calc(env(safe-area-inset-bottom,0px) + 56px);-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;padding-bottom:env(safe-area-inset-bottom);position:-webkit-sticky;position:sticky;width:100%;z-index:2000;}@media (max-width:770px){.css-109dbrr{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;}}.css-5jpx49{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-pack:space-evenly;-webkit-justify-content:space-evenly;-ms-flex-pack:space-evenly;justify-content:space-evenly;width:100%;}.css-mnxgyc{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;}.css-1vlpknv{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;border:2px solid #55C500;border-radius:50%;cursor:pointer;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;height:40px;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;padding:0;width:40px;margin-right:4px;background-color:#FFFFFF;}.css-fsjkhv{-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;-webkit-appearance:none;-moz-appearance:none;appearance:none;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-box-pack:center;-webkit-justify-content:center;-ms-flex-pack:center;justify-content:center;outline:none;}.css-1b17vb0{color:#6E6F70;font-size:14px;font-weight:bold;margin-left:4px;}.css-7i7f4d{display:none;bottom:initial;left:initial;right:initial;top:initial;bottom:32px;right:0;}</style></head><body><div class="allWrapper"><div><div id="GlobalHeader-react-component-dbb74e79-f3f4-4c26-a0cc-2a41364ce0a2"><div class="st-Header"><div class="st-Header_container"><div class="st-Header_start"><a href="/" class="st-Header_logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 426.57 130"><circle cx="167.08" cy="21.4" r="12.28"></circle><path d="M250.81 29.66h23.48v18.9h-23.48z"></path><path d="M300.76 105.26a22.23 22.23 0 01-6.26-.86 12.68 12.68 0 01-5.17-3 14.41 14.41 0 01-3.56-5.76 28 28 0 01-1.3-9.22V48.56h29.61v-18.9h-29.52V3.29h-20.17v83.34q0 11.16 2.83 18.27a27.71 27.71 0 007.7 11.2 26.86 26.86 0 0011.43 5.62 47.56 47.56 0 0012.34 1.53h15.16v-18zM0 61.7a58.6 58.6 0 015-24.21A62.26 62.26 0 0118.73 17.9 63.72 63.72 0 0139 4.78 64.93 64.93 0 0164 0a65 65 0 0124.85 4.78 64.24 64.24 0 0120.38 13.12A62 62 0 01123 37.49a58.6 58.6 0 015 24.21 58.34 58.34 0 01-4 21.46 62.8 62.8 0 01-10.91 18.16l11.1 11.1a10.3 10.3 0 010 14.52 10.29 10.29 0 01-14.64 0l-12.22-12.41a65 65 0 01-15.78 6.65 66.32 66.32 0 01-17.55 2.3 64.63 64.63 0 01-45.23-18A62.82 62.82 0 015 85.81 58.3 58.3 0 010 61.7zm21.64.08a43.13 43.13 0 0012.42 30.63 42.23 42.23 0 0013.43 9.09A41.31 41.31 0 0064 104.8a42 42 0 0030-12.39 42.37 42.37 0 009-13.64 43.43 43.43 0 003.3-17 43.77 43.77 0 00-3.3-17A41.7 41.7 0 0080.55 22 41.78 41.78 0 0064 18.68 41.31 41.31 0 0047.49 22a42.37 42.37 0 00-13.43 9.08 43.37 43.37 0 00-12.42 30.7zM331.89 78a47.59 47.59 0 013.3-17.73 43.22 43.22 0 019.34-14.47A44.25 44.25 0 01359 36a47.82 47.82 0 0118.81-3.58 42.72 42.72 0 019.26 1 46.5 46.5 0 018.22 2.58 40 40 0 017 3.84 44.39 44.39 0 015.71 4.63l1.22-9.47h17.35v85.83h-17.35l-1.17-9.42a42.54 42.54 0 01-5.84 4.67 43.11 43.11 0 01-7 3.79 44.86 44.86 0 01-8.17 2.59 43 43 0 01-9.22 1A47.94 47.94 0 01359 119.9a43.3 43.3 0 01-14.47-9.71 44.17 44.17 0 01-9.34-14.47 47 47 0 01-3.3-17.72zm20.27-.08a29.16 29.16 0 002.17 11.34 27 27 0 005.92 8.88 26.69 26.69 0 008.76 5.76 29.19 29.19 0 0021.44 0 26.11 26.11 0 008.72-5.76 27.57 27.57 0 005.88-8.84 29 29 0 002.16-11.38 28.62 28.62 0 00-2.16-11.22 26.57 26.57 0 00-5.93-8.8 27.68 27.68 0 00-19.51-7.9 28.29 28.29 0 00-10.77 2.05 26.19 26.19 0 00-8.71 5.75 27.08 27.08 0 00-5.84 8.8 28.94 28.94 0 00-2.13 11.31zm-194.97-30.5h19.78v73.54h-19.78zm49.25 0h19.78v73.54h-19.78z"></path><circle cx="216.33" cy="21.4" r="12.28"></circle></svg></a><div class="st-Header_communitySelector" tabindex="0"><span class="fa fa-caret-down"></span></div><div class="st-Header_dropdown"><div class="st-Header_dropdownHeading">Qiita Teams that are logged in</div><div class="st-Header_dropdownItemNote">You are not logged in to any team</div><hr class="st-Header_dropdownDivider st-Header_dropdownDivider-shrink"/><a href="https://teams-center.qiita.com/find_team" class="st-Header_dropdownItem"><span class="fa fa-fw fa-sign-in st-Header_dropdownItemIcon"></span><div>Log in to Qiita Team</div></a><div class="st-Header_dropdownDivider"></div><div class="st-Header_dropdownHeading">Community</div><a href="/organizations" class="st-Header_dropdownItem">Organization</a><a href="/official-events/open" class="st-Header_dropdownItem">Event</a><a href="/advent-calendar" class="st-Header_dropdownItem">Advent Calendar</a><a href="https://qiitadon.com/" class="st-Header_dropdownItem" target="_blank">Qiitadon (β)</a><div class="st-Header_dropdownDivider"></div><div class="st-Header_dropdownHeading">Service</div><a href="https://jobs.qiita.com/?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=header" class="st-Header_dropdownItem" target="_blank">Qiita Jobs</a><a href="https://zine.qiita.com/?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=header" class="st-Header_dropdownItem" target="_blank">Qiita Zine</a><a href="https://blog.qiita.com/?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=header" class="st-Header_dropdownItem" target="_blank">Qiita Blog</a></div><form class="st-Header_search" action="/search" method="get"><span class="fa fa-search st-Header_searchIcon"></span><input type="search" class="st-Header_searchInput" autoComplete="off" placeholder="Search" value="" name="q" required=""/></form><form class="st-Header_searchModal" action="/search" method="get"><input type="text" class="st-Header_searchModalInput" autoComplete="off" placeholder="Search" value="" name="q" required=""/></form></div><div class="st-Header_end"><div class="st-Header_searchButton"><span class="fa fa-search"></span></div><a class="st-Header_signupButton" href="/signup?redirect_to=%2F1stship%2Fitems%2Fdd816cd56605c5ff7ee6">Signup</a><a class="st-Header_loginLink" href="/login?redirect_to=%2F1stship%2Fitems%2Fdd816cd56605c5ff7ee6">Login</a></div><div class="st-Header_overlay"></div></div></div></div>
+      <script type="application/json" class="js-react-on-rails-component" data-component-name="GlobalHeader" data-dom-id="GlobalHeader-react-component-dbb74e79-f3f4-4c26-a0cc-2a41364ce0a2">{"unreadNotificationsCount":null,"realms":[{"humanName":"Qiita","isCurrentRealm":true,"isQiita":true,"isQiitaTeam":false,"loggedInUser":null,"teamId":null,"url":"https://qiita.com/"}],"teamFindUrl":"https://teams-center.qiita.com/find_team","isTeamOnlyUser":null,"currentUser":null}</script>
+      
+</div><div class="st-HeaderAlert st-HeaderAlert-warning"><div class="st-HeaderAlert_body"></div></div><script type="application/ld+json">{"@context":"http://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"item":{"@id":"/","name":"Qiita"}},{"@type":"ListItem","position":2,"item":{"@id":"/tags/csharp","name":"C#"}}]}</script><script type="application/ld+json">{"@context":"http://schema.org","@type":"Article","datePublished":"2020-08-14T22:27:24.000+09:00","dateModified":"2020-08-14T23:05:12.000+09:00","headline":"ASP.NET Coreへの同時アクセス時の応答が遅くなるのはスレッドプールの挙動のためかも","image":"https://qiita-user-contents.imgix.net/https%3A%2F%2Fcdn.qiita.com%2Fassets%2Fpublic%2Farticle-ogp-background-1150d8b18a7c15795b701a55ae908f94.png?ixlib=rb-4.0.0\u0026w=1200\u0026mark64=aHR0cHM6Ly9xaWl0YS11c2VyLWNvbnRlbnRzLmltZ2l4Lm5ldC9-dGV4dD9peGxpYj1yYi00LjAuMCZ3PTg0MCZoPTM4MCZ0eHQ2ND1RVk5RTGs1RlZDQkRiM0psNDRHNDQ0R3U1WkNNNXBtQzQ0S2k0NEt2NDRLNzQ0SzU1cG1DNDRHdTViLWM1NjJVNDRHTTZZR0Y0NEdQNDRHcTQ0S0w0NEd1NDRHdjQ0SzU0NE9zNDRPRDQ0T0o0NE9YNDRPODQ0T3I0NEd1NW95WjVZdVY0NEd1NDRHZjQ0S0I0NEdMNDRLQyZ0eHQtY29sb3I9JTIzMzMzJnR4dC1mb250PUhpcmFnaW5vJTIwU2FucyUyMFc2JnR4dC1zaXplPTU0JnR4dC1jbGlwPWVsbGlwc2lzJnR4dC1hbGlnbj1jZW50ZXIlMkNtaWRkbGUmcz02NDJjZjk3NzE4NzY0ZGFmMzdjY2Y1ZGJhMDM3YzZkNA\u0026mark-align=center%2Cmiddle\u0026blend64=aHR0cHM6Ly9xaWl0YS11c2VyLWNvbnRlbnRzLmltZ2l4Lm5ldC9-dGV4dD9peGxpYj1yYi00LjAuMCZ3PTg0MCZoPTUwMCZ0eHQ2ND1RREZ6ZEhOb2FYQSZ0eHQtY29sb3I9JTIzMzMzJnR4dC1mb250PUhpcmFnaW5vJTIwU2FucyUyMFc2JnR4dC1zaXplPTQ1JnR4dC1hbGlnbj1yaWdodCUyQ2JvdHRvbSZzPWZjMDY1YmUyNTQyMTdlMWE4MDBmN2M0MjJiMGRmYjBi\u0026blend-align=center%2Cmiddle\u0026blend-mode=normal\u0026s=7e19ac2eb054184535358ec29ec4111d","mainEntityOfPage":"https://qiita.com/1stship/items/dd816cd56605c5ff7ee6","author":{"@type":"Person","address":null,"email":null,"identifier":"1stship","name":"1stship","image":"https://qiita-user-profile-images.imgix.net/https%3A%2F%2Fqiita-image-store.s3.ap-northeast-1.amazonaws.com%2F0%2F542185%2Fprofile-images%2F1582031478?ixlib=rb-4.0.0\u0026auto=compress%2Cformat\u0026lossless=0\u0026w=75\u0026s=981035477da242fd7f36c3c1eb66d122","url":"https://qiita.com/1stship","description":null,"memberOf":[]},"publisher":{"@type":"Organization","name":"Qiita","logo":{"@type":"ImageObject","url":"//cdn.qiita.com/assets/public/qiita-logo-c39ded593afa388e2e1ba435b110554e.png"}}}</script><style type="text/css">.wb-CampaignLink {
+  background-color: #333333;
+  width: 100%;
+}
+
+.wb-CampaignLink_container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  max-width: 1100px;
+  margin: 0 auto;
+  font-size: 13px;
+  padding: 0.8em;
+}
+.wb-CampaignLink_container > a {
+  color: #fff;
+}
+
+.wb-CampaignLink_container > a:hover {
+  text-decoration: underline;
+}</style><div class="wb-CampaignLink"><div class="wb-CampaignLink_container"><a target="_blank" id="header_text_message_1" href="https://zine.qiita.com/interview/202107-line-growth-technology/?utm_source=qiita&amp;utm_medium=header-banner">運用ではなくサービス運営の課題解決。LINE Growth Technologyに聞くGrowth開発</a><a target="_blank" id="header_text_message_2" href="https://zine.qiita.com/interview/202107-line-growth-technology/?utm_source=qiita&amp;utm_medium=header-banner">詳しくはこちら</a></div><script>td.trackEvent(
+  'front_events',
+  {"query_parameters":{},"path_parameters":{"controller":"public/items","action":"show","user_id":"1stship","type":"items","id":"dd816cd56605c5ff7ee6"},"user_id":null,"event_category":"Header Text Ads Banner","event_action":"Show","data":{"message":"運用ではなくサービス運営の課題解決。LINE Growth Technologyに聞くGrowth開発","url":"https://zine.qiita.com/interview/202107-line-growth-technology/?utm_source=qiita\u0026utm_medium=header-banner","sub_message":"詳しくはこちら"}}
+)</script><script>document.getElementById('header_text_message_1').addEventListener('click', function() {
+  td.trackEvent(
+    'front_events',
+    {"query_parameters":{},"path_parameters":{"controller":"public/items","action":"show","user_id":"1stship","type":"items","id":"dd816cd56605c5ff7ee6"},"user_id":null,"event_category":"Header Text Ads Banner","event_action":"Click","data":{"index":0,"pos_id":"header_text_message_1","message":"運用ではなくサービス運営の課題解決。LINE Growth Technologyに聞くGrowth開発","url":"https://zine.qiita.com/interview/202107-line-growth-technology/?utm_source=qiita\u0026utm_medium=header-banner","sub_message":"詳しくはこちら"}}
+  )
+})</script><script>document.getElementById('header_text_message_2').addEventListener('click', function() {
+  td.trackEvent(
+    'front_events',
+    {"query_parameters":{},"path_parameters":{"controller":"public/items","action":"show","user_id":"1stship","type":"items","id":"dd816cd56605c5ff7ee6"},"user_id":null,"event_category":"Header Text Ads Banner","event_action":"Click","data":{"index":0,"pos_id":"header_text_message_2","message":"運用ではなくサービス運営の課題解決。LINE Growth Technologyに聞くGrowth開発","url":"https://zine.qiita.com/interview/202107-line-growth-technology/?utm_source=qiita\u0026utm_medium=header-banner","sub_message":"詳しくはこちら"}}
+  )
+})</script></div><script type="application/json" id="js-react-on-rails-context">{"railsEnv":"production","inMailer":false,"i18nLocale":"en","i18nDefaultLocale":"en","href":"https://qiita.com/1stship/items/dd816cd56605c5ff7ee6","location":"/1stship/items/dd816cd56605c5ff7ee6","scheme":"https","host":"qiita.com","port":null,"pathname":"/1stship/items/dd816cd56605c5ff7ee6","search":null,"httpAcceptLanguage":null,"actionPath":"public/items#show","settings":{"analyticsTrackingId":"UA-24675221-12","assetsMap":{},"csrfToken":"D4F7pgh8TNIMzZ/WNp6RFd1ihRm4laPcsvXwCq5lvBRPN4JWutY6cf65t5Y2qPI+OFXMJtCg2zBx0e/ewJh6JQ==","locale":"en"},"currentUser":null,"isLoggedIn":false,"recaptchaSiteKey":"6LfNkiQTAAAAAM3UGnSquBy2akTITGNMO_QDxMw6","serverSide":false}</script>
+<div id="PersonalArticlePage-react-component-9b2ed063-432d-4526-a693-c391a339865f"><div class="p-items_wrapper"><div class=" css-17jxvjw"><div class="css-11t2ec1"><div class="css-1dvr2p8"><button class=" css-18lkoru"><svg size="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 392.81 429" color="#55C500" class="css-1g4cku8 e31pr5q0"><path d="M14.19 5.4h53.86v149.45h90.05v44.87H14.19zM288.4 93.77h100.79q1.29 25-5.66 45.39a96.79 96.79 0 01-20.33 34.89 92 92 0 01-32.13 22.45 104 104 0 01-40.95 7.93 109.71 109.71 0 01-76-29.92 104.05 104.05 0 01-23-32.56 95.46 95.46 0 01-8.47-39.88 94.78 94.78 0 018.47-39.87 104.38 104.38 0 0123-32.42A107.71 107.71 0 01248.23 8a110.79 110.79 0 01118.48 22.49l-35.07 35.08a51.25 51.25 0 00-17.75-15 52.83 52.83 0 00-44.67-1.23 52.92 52.92 0 00-17 12 57.07 57.07 0 00-11.45 18.11 60 60 0 00-4.23 22.77 60 60 0 004.23 22.68 56.57 56.57 0 0011.45 18.19 52.62 52.62 0 0017 12 50.5 50.5 0 0020.9 4.36q20.19 0 31.07-7.51a35.75 35.75 0 0014.46-20.55h-47.39zM51.29 279.55H0v-44.86h156v44.86h-51.13V429H51.29zM283.36 381.71l-41.72-62V429h-53.86V234.69h47.47L290 312l55.9-77.29h46.9V429h-53.86V320.27l-42.43 61.44z"></path></svg></button><a href="/1stship/items/dd816cd56605c5ff7ee6/likers" class="css-1iupg5d">35</a></div><div class="css-ijvq0v"><button class=" css-15cocm3"><svg size="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 353.02 398" color="#6E6F70" class="css-12rp90f e11v00bf0"><path d="M176.72 398c-67.52 0-130.16-29-171.84-79.69l-4.46-5.42V78.05H353v234.84l-4.45 5.42C306.88 369 244.24 398 176.72 398zm-137.2-99.34c34.17 38.37 83.78 60.25 137.2 60.25s103-21.88 137.21-60.25V117.14H39.52zM0 0h351.12v40.94H0z"></path></svg></button><span class="css-115f4t">33</span></div><div class="css-1b8uj5v"><span class="fa fa-twitter"></span></div><div class="css-1b8uj5v"><span class="fa fa-facebook"></span></div><div class="css-79elbk"><button class="css-16hhh7b"><i class="fa fa-ellipsis-h"></i></button><div class="css-fcbn8c"><div class="css-1gj7nt">Improve article</div><a href="/drafts/dd816cd56605c5ff7ee6/edit" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-code-fork css-1jqivyb" aria-hidden="true"></i></span>Send edit request</a><div class="css-1ode1bp"></div><div class="css-1gj7nt">Article information</div><a href="/1stship/items/dd816cd56605c5ff7ee6/revisions" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-history css-1jqivyb" aria-hidden="true"></i></span>Revisions</a><a href="/1stship/items/dd816cd56605c5ff7ee6/patches" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-inbox css-1jqivyb" aria-hidden="true"></i></span>Edit Requests</a><a href="/1stship/items/dd816cd56605c5ff7ee6/likers" class="css-154zy0m"><span class="css-yikrym"><svg size="13" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 392.81 429" color="rgba(0, 0, 0, 0.6)" class="css-le4d8r e31pr5q0"><path d="M14.19 5.4h53.86v149.45h90.05v44.87H14.19zM288.4 93.77h100.79q1.29 25-5.66 45.39a96.79 96.79 0 01-20.33 34.89 92 92 0 01-32.13 22.45 104 104 0 01-40.95 7.93 109.71 109.71 0 01-76-29.92 104.05 104.05 0 01-23-32.56 95.46 95.46 0 01-8.47-39.88 94.78 94.78 0 018.47-39.87 104.38 104.38 0 0123-32.42A107.71 107.71 0 01248.23 8a110.79 110.79 0 01118.48 22.49l-35.07 35.08a51.25 51.25 0 00-17.75-15 52.83 52.83 0 00-44.67-1.23 52.92 52.92 0 00-17 12 57.07 57.07 0 00-11.45 18.11 60 60 0 00-4.23 22.77 60 60 0 004.23 22.68 56.57 56.57 0 0011.45 18.19 52.62 52.62 0 0017 12 50.5 50.5 0 0020.9 4.36q20.19 0 31.07-7.51a35.75 35.75 0 0014.46-20.55h-47.39zM51.29 279.55H0v-44.86h156v44.86h-51.13V429H51.29zM283.36 381.71l-41.72-62V429h-53.86V234.69h47.47L290 312l55.9-77.29h46.9V429h-53.86V320.27l-42.43 61.44z"></path></svg></span>Show all likers</a><a href="/1stship/items/dd816cd56605c5ff7ee6.md" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-file-text-o css-1jqivyb" aria-hidden="true"></i></span>Show article in Markdown</a><div class="css-1ode1bp"></div><div class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-flag css-1jqivyb" aria-hidden="true"></i></span>Report article</div></div><div class="st-Modal"><div class="st-Modal_backdrop"></div><div class="st-Modal_body"><form><div class="st-Form"><span class="st-Form_label">Help us understand the problem. What is going on with this article?</span></div><div class="st-Form"><label><input type="radio" name="reason" value="illegal" required=""/>It&#x27;s illegal (copyright infringement, privacy infringement, libel, etc.)</label></div><div class="st-Form"><label><input type="radio" name="reason" value="inappropriate_content" required=""/>It&#x27;s socially inappropriate (offensive to public order and morals)</label></div><div class="st-Form"><label><input type="radio" name="reason" value="advertising" required=""/>It&#x27;s advertising</label></div><div class="st-Form"><label><input type="radio" name="reason" value="spam" required=""/>It&#x27;s spam</label></div><div class="st-Form"><label><input type="radio" name="reason" value="guideline_violation" required=""/>Other than the above, but not suitable for the Qiita community (violation of guidelines)</label></div><div class="st-Form st-Form-right"><input type="submit" class="st-Form_submit" value="Submit"/></div></form></div></div></div></div><div class="p-items_options"><div class="mt-2"><div class="css-1hbd3g7"></div></div></div><div class="p-items_toc"><div class="mt-2"><div class="css-1hbd3g7"></div></div></div><div class="p-items_main"><div class="css-1nzh4zz"><span class="fa fa-fw fa-warning css-38fzdi"></span><p>More than 1 year has passed since last update.</p></div><div class="css-helsa7"><div class="css-8qb8m4"><div class="css-2imjyh"><div class="css-he5w1s"><div class="css-70qvj9"><div class="css-3ojehk"><a href="/1stship"><img class="css-100alwu eyfquo10" src="https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/542185/profile-images/1582031478" width="24" height="24" loading="lazy"/></a></div><div class="css-1dtnjt5"><a href="/1stship" class="css-10ougpm">@<!-- -->1stship</a><div class="css-1ay9vb9"><span><meta content="2020-08-14T13:27:24Z"/><time dateTime="2020-08-14T14:05:12Z" class="css-m19uds">updated at 2020-08-14</time></span></div></div></div></div></div><h1 class="css-cgzq40">ASP.NET Coreへの同時アクセス時の応答が遅くなるのはスレッドプールの挙動のためかも</h1><div class="css-1wa99t2"><span class="fa fa-tags mr-1of2 css-1l3zk9f" aria-hidden="true"></span><a href="/tags/csharp" class="css-4czcte">C#</a><a href="/tags/threadpool" class="css-4czcte">ThreadPool</a><a href="/tags/asp.net_core" class="css-4czcte">ASP.NET_Core</a></div></div><section class="it-MdContent"><div id="personal-public-article-body"><div>
+<h1>
+<span id="はじめに" class="fragment"></span><a href="#%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB"><i class="fa fa-link"></i></a>はじめに</h1>
+
+<p>ASP.NET Coreへの同時アクセスの応答が妙に遅くなるので原因調査したら、スレッドプールの起動の問題、もっと言えば.NET環境での非同期処理の使い方の問題だったので、メモしておく。</p>
+
+<h1>
+<span id="実験環境" class="fragment"></span><a href="#%E5%AE%9F%E9%A8%93%E7%92%B0%E5%A2%83"><i class="fa fa-link"></i></a>実験環境</h1>
+
+<p>macOS 10.16.6<br>
+ASP.NET Core 3.1<br>
+<code>dotnet new webapi</code> コマンドで作成したWeb API<br>
+<code>ab -n 100 -c 100 URL</code> ab(Apache Bench)コマンドで同時100アクセスの時間を計測</p>
+
+<h1>
+<span id="同期処理の場合" class="fragment"></span><a href="#%E5%90%8C%E6%9C%9F%E5%87%A6%E7%90%86%E3%81%AE%E5%A0%B4%E5%90%88"><i class="fa fa-link"></i></a>同期処理の場合</h1>
+
+<p>以下の単純なAPI処理を用意する。</p>
+
+<div class="code-frame" data-lang="csharp"><div class="highlight"><pre class="with-code"><code><span class="p">[</span><span class="n">HttpGet</span><span class="p">]</span>
+<span class="p">[</span><span class="nf">Route</span><span class="p">(</span><span class="s">"sync"</span><span class="p">)]</span>
+<span class="k">public</span> <span class="kt">string</span> <span class="nf">Sync</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="n">Stopwatch</span> <span class="n">sw</span> <span class="p">=</span> <span class="k">new</span> <span class="nf">Stopwatch</span><span class="p">();</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Start</span><span class="p">();</span>
+    <span class="n">Thread</span><span class="p">.</span><span class="nf">Sleep</span><span class="p">(</span><span class="m">1000</span><span class="p">);</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Stop</span><span class="p">();</span>
+    <span class="k">this</span><span class="p">.</span><span class="n">_logger</span><span class="p">.</span><span class="nf">LogInformation</span><span class="p">(</span><span class="n">sw</span><span class="p">.</span><span class="n">ElapsedMilliseconds</span> <span class="p">+</span> <span class="s">"ms"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s">"sync"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>1秒スリープなので1秒で応答が帰ってくるはず。</p>
+
+<p>結果</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>ab -n 100 -c 100 http://localhost:5000/test/sync
+This is ApacheBench, Version 2.3 &lt;$Revision: 1843412 $&gt;
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient).....done
+
+
+Server Software:        Kestrel
+Server Hostname:        localhost
+Server Port:            5000
+
+Document Path:          /test/sync
+Document Length:        4 bytes
+
+Concurrency Level:      100
+Time taken for tests:   15.031 seconds
+Complete requests:      100
+Failed requests:        39
+   (Connect: 0, Receive: 0, Length: 39, Exceptions: 0)
+Total transferred:      8357 bytes
+HTML transferred:       244 bytes
+Requests per second:    6.65 [#/sec] (mean)
+Time per request:       15031.445 [ms] (mean)
+Time per request:       150.314 [ms] (mean, across all concurrent requests)
+Transfer rate:          0.54 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    5   1.8      5       8
+Processing:  1020 11970 2007.4  13046   14009
+Waiting:        0 7868 6438.3  13046   14009
+Total:       1020 11975 2006.7  13050   14011
+
+Percentage of the requests served within a certain time (ms)
+  50%  13050
+  66%  13052
+  75%  13053
+  80%  13053
+  90%  13055
+  95%  13100
+  98%  13943
+  99%  14011
+ 100%  14011 (longest request)
+</code></pre></div></div>
+
+<p>最悪で14秒。遅い。一方ログを見ると各処理は1秒で終わっていることがわかる。</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>1004ms
+1003ms
+...
+1000ms
+1004ms
+</code></pre></div></div>
+
+<p>つまり処理が始まる前か終わった後の待ちが長いことがわかる。<br>
+これは何に待たされているのかを調べると、スレッドプールにスレッドを追加するのが待たされていることがわかった。</p>
+
+<p>スレッドプールの説明はこちら<br>
+<a href="https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool" rel="nofollow noopener" target="_blank">マネージドスレッドプール</a></p>
+
+<p>ASP.NETによらず、.NET環境ではスレッドはプロセス自身が立ち上げて管理するより、タスクを使ってスレッドプールのスレッドを使い回すことが推奨されている。スレッドプールにはいくつかのスレッドが待機しており、タスク(ASP.NETではHTTPリクエストなど)がキューに入ると、空いているスレッドに割り当て、処理が終わると待機状態に戻す、という処理がされている。</p>
+
+<p>ここで問題なのは、どの程度のスレッドがプールされるのか、ということだが、以下に記載されている。</p>
+
+<p><a href="https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool#thread-pool-minimums" rel="nofollow noopener" target="_blank">スレッドプールの最小値</a></p>
+
+<blockquote>
+<p>スレッドプールでは、カテゴリごとに指定された最小値に達するまで、要求に応じて新しいワーカースレッドまたは I/O完了スレッドが提供されます。<br>
+スレッドプールの最小値に達すると、追加のスレッドが作成されるか、いくつかのタスクが完了するまで待機状態になります。 .NET Framework 4 以降では、スループットを最適化するために、スレッドプールでワーカースレッドの作成と破棄が行われます。スループットは、タスクの単位時間あたりの完了数として定義されます。</p>
+</blockquote>
+
+<p>まとめるとこんな感じ。</p>
+
+<ul>
+<li>スレッドが即起動されるのは指定した最小値まで</li>
+<li>最小値以上の個数のスレッドは作成が待たされる</li>
+<li>タスクの単位時間のあたりの完了数が最適になるように生成は調整される</li>
+</ul>
+
+<p>スレッドは決まった数まではすぐに立ち上がるけど、それ以降は他の処理が終わるか、.NETの実行環境によって新しくスレッドが生成されるまで待たされるということ。</p>
+
+<p>この決まった数というのは、<a href="https://docs.microsoft.com/ja-jp/dotnet/api/system.threading.threadpool.getminthreads?view=netcore-3.1" rel="nofollow noopener" target="_blank">ThreadPool.GetMinThreadsメソッド</a>で取得できる。Macで確認すると、</p>
+
+<p>ワーカースレッド：4<br>
+IO待ち:4</p>
+
+<p>だった。これは<code>既定では、スレッドの最小数はシステム上のプロセッサの数に設定されます。</code>と書かれているようにCPUの数であり、他の環境で確認してもvCPUの数であった。vCPUが2のサーバーだと、即起動されるスレッドは2個まで、ということになる。スレッド2個とか少ないのでは？</p>
+
+<p>以下のコードで処理が開始された時間とスレッドIDをログに出して確認してみる。</p>
+
+<div class="code-frame" data-lang="csharp"><div class="highlight"><pre class="with-code"><code><span class="p">[</span><span class="n">HttpGet</span><span class="p">]</span>
+<span class="p">[</span><span class="nf">Route</span><span class="p">(</span><span class="s">"sync"</span><span class="p">)]</span>
+<span class="k">public</span> <span class="kt">string</span> <span class="nf">Sync</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="kt">var</span> <span class="n">startTime</span> <span class="p">=</span> <span class="n">DateTimeOffset</span><span class="p">.</span><span class="n">Now</span><span class="p">;</span>
+    <span class="n">Stopwatch</span> <span class="n">sw</span> <span class="p">=</span> <span class="k">new</span> <span class="nf">Stopwatch</span><span class="p">();</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Start</span><span class="p">();</span>
+    <span class="n">Thread</span><span class="p">.</span><span class="nf">Sleep</span><span class="p">(</span><span class="m">1000</span><span class="p">);</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Stop</span><span class="p">();</span>
+    <span class="k">this</span><span class="p">.</span><span class="n">_logger</span><span class="p">.</span><span class="nf">LogInformation</span><span class="p">(</span><span class="s">"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms"</span><span class="p">,</span>  <span class="n">Thread</span><span class="p">.</span><span class="n">CurrentThread</span><span class="p">.</span><span class="n">ManagedThreadId</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Hour</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Minute</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Second</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Millisecond</span><span class="p">,</span> <span class="n">sw</span><span class="p">.</span><span class="n">ElapsedMilliseconds</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s">"sync"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>結果はこちら。カッコでほぼ同じ時間に起動したスレッドの数を追記した。</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>   9: 18:31:40:893  1000ms (1個)
+   9: 18:31:41:912  1004ms
+   8: 18:31:41:912  1004ms
+   4: 18:31:41:911  1004ms
+  11: 18:31:41:912  1004ms
+   6: 18:31:41:917  1004ms (5個)
+  12: 18:31:42:907  1001ms
+   4: 18:31:42:918  1000ms
+   8: 18:31:42:918  1000ms
+  11: 18:31:42:918  1000ms
+   9: 18:31:42:919  1000ms
+   6: 18:31:42:921  1004ms (6個)
+   4: 18:31:43:919  1004ms
+   8: 18:31:43:919  1004ms
+  11: 18:31:43:919  1004ms
+   9: 18:31:43:919  1004ms
+   6: 18:31:43:926  1004ms (5個)
+   4: 18:31:44:942  1003ms
+  11: 18:31:44:943  1003ms
+   9: 18:31:44:942  1003ms
+   6: 18:31:44:945  1004ms
+   8: 18:31:44:944  1004ms
+  12: 18:31:44:958  1000ms (6個)
+  13: 18:31:45:933  1004ms
+   8: 18:31:45:956  1004ms
+   9: 18:31:45:956  1005ms
+  11: 18:31:45:958  1003ms
+   6: 18:31:45:957  1003ms
+  12: 18:31:45:961  1003ms
+   4: 18:31:45:985  1001ms (7個)
+  13: 18:31:46:940  1002ms
+  14: 18:31:46:961  1004ms
+   6: 18:31:46:968  1003ms
+  11: 18:31:46:968  1003ms
+  12: 18:31:46:968  1003ms
+   9: 18:31:46:968  1004ms
+   4: 18:31:46:988  1001ms
+   8: 18:31:46:992  1003ms (8個)
+  15: 18:31:47:940  1002ms
+  13: 18:31:47:944  1004ms
+  14: 18:31:47:968  1004ms
+   6: 18:31:47:977  1004ms
+   9: 18:31:47:979  1004ms
+  12: 18:31:47:980  1003ms
+   4: 18:31:47:990  1004ms
+   8: 18:31:47:996  1004ms
+  11: 18:31:48:078  1002ms (9個)
+  13: 18:31:48:950  1000ms
+  14: 18:31:48:973  1002ms
+   6: 18:31:48:982  1003ms
+  12: 18:31:48:984  1002ms
+   9: 18:31:48:984  1003ms
+   4: 18:31:48:995  1001ms
+   8: 18:31:49:001  1004ms
+  15: 18:31:49:081  1003ms
+  11: 18:31:49:081  1003ms (9個)
+  13: 18:31:49:951  1003ms
+  16: 18:31:49:953  1003ms
+  14: 18:31:49:977  1004ms
+   6: 18:31:49:985  1004ms
+   9: 18:31:49:987  1004ms
+  12: 18:31:49:987  1004ms
+   4: 18:31:49:997  1000ms
+   8: 18:31:50:006  1000ms
+  15: 18:31:50:085  1003ms
+  11: 18:31:50:085  1003ms (10個)
+  16: 18:31:50:957  1001ms
+  14: 18:31:50:981  1004ms
+   6: 18:31:50:990  1004ms
+   9: 18:31:50:992  1004ms
+  12: 18:31:50:992  1004ms
+   4: 18:31:50:998  1004ms
+   8: 18:31:51:007  1005ms
+  13: 18:31:51:015  1003ms
+  15: 18:31:51:089  1000ms
+  11: 18:31:51:089  1000ms (10個)
+  16: 18:31:51:962  1004ms
+  14: 18:31:51:987  1001ms
+   6: 18:31:51:995  1003ms
+  12: 18:31:51:997  1003ms
+   9: 18:31:51:996  1003ms
+   4: 18:31:52:003  1002ms
+  13: 18:31:52:021  1001ms
+   8: 18:31:52:021  1001ms
+  11: 18:31:52:090  1001ms
+  15: 18:31:52:090  1001ms (10個)
+  16: 18:31:52:967  1005ms
+  14: 18:31:52:989  1002ms
+   6: 18:31:52:999  1004ms
+   9: 18:31:53:000  1004ms
+  12: 18:31:53:000  1004ms
+   4: 18:31:53:006  1003ms
+   8: 18:31:53:026  1000ms
+  13: 18:31:53:026  1000ms
+  11: 18:31:53:092  1003ms
+  15: 18:31:53:092  1003ms
+  17: 18:31:53:092  1003ms (11個)
+  16: 18:31:53:972  1002ms
+  14: 18:31:53:992  1000ms
+   6: 18:31:54:003  1000ms (3個)
+</code></pre></div></div>
+
+<p>徐々に使えるスレッドが増えていっている、というか徐々にしかスレッド数が増えないのがわかる。</p>
+
+<h1>
+<span id="最低スレッド数を上げる" class="fragment"></span><a href="#%E6%9C%80%E4%BD%8E%E3%82%B9%E3%83%AC%E3%83%83%E3%83%89%E6%95%B0%E3%82%92%E4%B8%8A%E3%81%92%E3%82%8B"><i class="fa fa-link"></i></a>最低スレッド数を上げる</h1>
+
+<p>一番簡単な解決策としては即立ち上げられるスレッドの個数を増やせばよい。<br>
+そのためには、<a href="https://docs.microsoft.com/ja-jp/dotnet/api/system.threading.threadpool.setminthreads?view=netcore-3.1" rel="nofollow noopener" target="_blank">ThreadPool.SetMinThreadsメソッド</a>を使う。<br>
+とりあえず以下のようにワーカースレッドの最低数を100にしてみる。</p>
+
+<div class="code-frame" data-lang="csharp"><div class="highlight"><pre class="with-code"><code><span class="k">public</span> <span class="k">static</span> <span class="k">void</span> <span class="nf">Main</span><span class="p">(</span><span class="kt">string</span><span class="p">[]</span> <span class="n">args</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">ThreadPool</span><span class="p">.</span><span class="nf">SetMinThreads</span><span class="p">(</span><span class="m">100</span><span class="p">,</span> <span class="m">4</span><span class="p">);</span>
+    <span class="nf">CreateHostBuilder</span><span class="p">(</span><span class="n">args</span><span class="p">).</span><span class="nf">Build</span><span class="p">().</span><span class="nf">Run</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>abコマンドを実行すると、</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>ab -n 100 -c 100 http://localhost:5000/test/sync
+This is ApacheBench, Version 2.3 &lt;$Revision: 1843412 $&gt;
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient).....done
+
+
+Server Software:        Kestrel
+Server Hostname:        localhost
+Server Port:            5000
+
+Document Path:          /test/sync
+Document Length:        4 bytes
+
+Concurrency Level:      100
+Time taken for tests:   2.082 seconds
+Complete requests:      100
+Failed requests:        0
+Total transferred:      13700 bytes
+HTML transferred:       400 bytes
+Requests per second:    48.04 [#/sec] (mean)
+Time per request:       2081.569 [ms] (mean)
+Time per request:       20.816 [ms] (mean, across all concurrent requests)
+Transfer rate:          6.43 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0   11   3.0     12      13
+Processing:  1020 1055   5.1   1056    1061
+Waiting:     1007 1054   6.3   1055    1060
+Total:       1020 1066   7.0   1068    1074
+
+Percentage of the requests served within a certain time (ms)
+  50%   1068
+  66%   1069
+  75%   1070
+  80%   1070
+  90%   1072
+  95%   1073
+  98%   1073
+  99%   1074
+ 100%   1074 (longest request)
+</code></pre></div></div>
+
+<p>ほぼ1秒で終了した。このことからも、やはり同時アクセス時の応答が遅くなるのは、スレッドの立ち上げが待たされているためだということがわかった。とはいえ以下の注意書きにもあるように、むやみにスレッド数を増やすのもよくないかもしれない。</p>
+
+<p><a href="https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool#thread-pool-minimums" rel="nofollow noopener" target="_blank">スレッドプールの最小値</a></p>
+
+<blockquote>
+<p>アイドルスレッドの最小数は、ThreadPool.SetMinThreads メソッドを使用して増やすことができます。 ただし、これらの値を必要以上に大きくすると、パフォーマンスの問題が発生する可能性があります。 同時に開始するタスクの数が多すぎる場合は、すべてのタスクで処理速度が低下する可能性があります。 ほとんどの場合、スレッドを割り当てるためのスレッド プール独自のアルゴリズムを使用することでスレッドプールのパフォーマンスが向上します。</p>
+</blockquote>
+
+<h1>
+<span id="io同期待ちの場合" class="fragment"></span><a href="#io%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88"><i class="fa fa-link"></i></a>IO同期待ちの場合</h1>
+
+<p>IO待ちの場合も見てみよう。<br>
+先ほどの1秒待って応答するAPI(<a href="http://localhost:5001" class="autolink" rel="nofollow noopener" target="_blank">http://localhost:5001</a> で待ち受けさせる)に対してリクエストするAPIを以下のように書く。非同期メソッドGetAsyncをResultで同期的に待つようにする。</p>
+
+<div class="code-frame" data-lang="csharp"><div class="highlight"><pre class="with-code"><code><span class="p">[</span><span class="n">HttpGet</span><span class="p">]</span>
+<span class="p">[</span><span class="nf">Route</span><span class="p">(</span><span class="s">"io"</span><span class="p">)]</span>
+<span class="k">public</span> <span class="kt">string</span> <span class="nf">Io</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="kt">var</span> <span class="n">startTime</span> <span class="p">=</span> <span class="n">DateTimeOffset</span><span class="p">.</span><span class="n">Now</span><span class="p">;</span>
+    <span class="n">Stopwatch</span> <span class="n">sw</span> <span class="p">=</span> <span class="k">new</span> <span class="nf">Stopwatch</span><span class="p">();</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Start</span><span class="p">();</span>
+    <span class="kt">var</span> <span class="n">response</span> <span class="p">=</span> <span class="n">client</span><span class="p">.</span><span class="nf">GetAsync</span><span class="p">(</span><span class="s">"http://localhost:5001/test/sync"</span><span class="p">).</span><span class="n">Result</span><span class="p">;</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Stop</span><span class="p">();</span>
+    <span class="k">this</span><span class="p">.</span><span class="n">_logger</span><span class="p">.</span><span class="nf">LogInformation</span><span class="p">(</span><span class="s">"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms"</span><span class="p">,</span>  <span class="n">Thread</span><span class="p">.</span><span class="n">CurrentThread</span><span class="p">.</span><span class="n">ManagedThreadId</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Hour</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Minute</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Second</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Millisecond</span><span class="p">,</span> <span class="n">sw</span><span class="p">.</span><span class="n">ElapsedMilliseconds</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s">"iosy"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>これをワーカースレッド4、IO待ちスレッド4で起動させて、同じくabで同時100アクセスするとどうなるか。</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>ab -n 100 -c 100 -s 300 http://localhost:5000/test/io
+This is ApacheBench, Version 2.3 &lt;$Revision: 1843412 $&gt;
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient).....done
+
+
+Server Software:        Kestrel
+Server Hostname:        localhost
+Server Port:            5000
+
+Document Path:          /test/io
+Document Length:        4 bytes
+
+Concurrency Level:      100
+Time taken for tests:   65.697 seconds
+Complete requests:      100
+Failed requests:        0
+Total transferred:      13700 bytes
+HTML transferred:       400 bytes
+Requests per second:    1.52 [#/sec] (mean)
+Time per request:       65696.601 [ms] (mean)
+Time per request:       656.966 [ms] (mean, across all concurrent requests)
+Transfer rate:          0.20 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    5   1.5      6       7
+Processing:  1021 63970 6359.5  64624   64674
+Waiting:     1014 63970 6360.2  64623   64674
+Total:       1022 63975 6360.0  64630   64681
+
+Percentage of the requests served within a certain time (ms)
+  50%  64630
+  66%  64640
+  75%  64642
+  80%  64648
+  90%  64662
+  95%  64673
+  98%  64675
+  99%  64681
+ 100%  64681 (longest request)
+</code></pre></div></div>
+
+<p>めっちゃくちゃ遅くなった。abのデフォルトタイムアウト30秒では足りないのでタイムアウト時間を伸ばさないといけなかったほど。ログはこんな感じになる(開始時間順に並べ直している)</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>   6: 21:09:51:730  1080ms
+  11: 21:09:54:925  1006ms
+   4: 21:09:55:949 63195ms
+   6: 21:09:55:949 63129ms
+   8: 21:09:55:949 62054ms
+   9: 21:09:55:949 63110ms
+  11: 21:09:55:954 63080ms
+  12: 21:09:57:038 62084ms
+  13: 21:09:57:540 61490ms
+  14: 21:09:58:050 61037ms
+  15: 21:09:59:057 59987ms
+  16: 21:10:00:068 58999ms
+  17: 21:10:01:073 58031ms
+  18: 21:10:01:581 57523ms
+  19: 21:10:02:584 56543ms
+  20: 21:10:03:589 55471ms
+  21: 21:10:04:607 54465ms
+  22: 21:10:05:610 53450ms
+  23: 21:10:06:616 52488ms
+  24: 21:10:07:613 51514ms
+  25: 21:10:08:620 50446ms
+  26: 21:10:09:127 49940ms
+  27: 21:10:10:145 48959ms
+  28: 21:10:11:151 47928ms
+  29: 21:10:12:147 46873ms
+  30: 21:10:13:151 45952ms
+  31: 21:10:13:658 45388ms
+  32: 21:10:14:662 44427ms
+  33: 21:10:15:665 43401ms
+  34: 21:10:16:170 42933ms
+  35: 21:10:16:678 42382ms
+  36: 21:10:17:184 41877ms
+  37: 21:10:17:685 41405ms
+  38: 21:10:18:200 40873ms
+  39: 21:10:19:223 39843ms
+  40: 21:10:20:260 38832ms
+  41: 21:10:21:219 37814ms
+  42: 21:10:21:722 37305ms
+  43: 21:10:22:227 36798ms
+  44: 21:10:22:729 36313ms
+  45: 21:10:23:284 35757ms
+  46: 21:10:24:291 34757ms
+  47: 21:10:25:298 33782ms
+  48: 21:10:26:288 32781ms
+  49: 21:10:27:264 31802ms
+  50: 21:10:28:267 30822ms
+  51: 21:10:28:769 30322ms
+  52: 21:10:29:271 29777ms
+  53: 21:10:29:776 29286ms
+  54: 21:10:30:282 28779ms
+  55: 21:10:30:787 28279ms
+  56: 21:10:31:292 27757ms
+  57: 21:10:31:797 27272ms
+  58: 21:10:32:302 26748ms
+  59: 21:10:32:808 26290ms
+  60: 21:10:33:321 25733ms
+  61: 21:10:34:337 24696ms
+  62: 21:10:35:329 23731ms
+  63: 21:10:35:834 23264ms
+  64: 21:10:36:337 22761ms
+  65: 21:10:36:841 22256ms
+  66: 21:10:37:346 21757ms
+  67: 21:10:37:851 21213ms
+  68: 21:10:38:356 20671ms
+  69: 21:10:38:860 20202ms
+  70: 21:10:39:361 19700ms
+  71: 21:10:39:866 19208ms
+  72: 21:10:40:370 18694ms
+  73: 21:10:40:871 18244ms
+  74: 21:10:41:376 17740ms
+  75: 21:10:41:877 17238ms
+  76: 21:10:42:879 16245ms
+  77: 21:10:43:381 15650ms
+  78: 21:10:43:885 15195ms
+  79: 21:10:44:390 14671ms
+  80: 21:10:44:894 14229ms
+  81: 21:10:45:398 13730ms
+  82: 21:10:45:903 13225ms
+  83: 21:10:46:408 12634ms
+  84: 21:10:46:913 12210ms
+  85: 21:10:47:418 11649ms
+  86: 21:10:47:920 11154ms
+  87: 21:10:48:422 10635ms
+  88: 21:10:48:933 10199ms
+  89: 21:10:49:433  9699ms
+  90: 21:10:49:938  9195ms
+  91: 21:10:50:443  8689ms
+  92: 21:10:50:948  8142ms
+  93: 21:10:51:453  7640ms
+  94: 21:10:51:956  7183ms
+  95: 21:10:52:460  6644ms
+  96: 21:10:52:965  6052ms
+  97: 21:10:53:470  5670ms
+  98: 21:10:53:972  5143ms
+  99: 21:10:54:477  4592ms
+ 100: 21:10:54:982  4158ms
+ 101: 21:10:55:486  3654ms
+ 102: 21:10:55:990  3155ms
+ 103: 21:10:56:492  2541ms
+ 104: 21:10:56:997  2149ms
+ 105: 21:10:57:501  1644ms
+</code></pre></div></div>
+
+<p>スレッドが500msもしくは1秒ごとに1個生成されて、ほぼ100個のスレッドが生成され(正確には98個)、ほぼ同じ時間に終了している。<a href="http://localhost:5000/test/io" class="autolink" rel="nofollow noopener" target="_blank">http://localhost:5000/test/io</a> へのアクセスは徐々に処理されているが、<a href="http://localhost:5001/test/sync" class="autolink" rel="nofollow noopener" target="_blank">http://localhost:5001/test/sync</a> にはほぼ同じ時間にアクセスが届いている。</p>
+
+<p>IO待ちスレッドを100に増やしても同程度。ワーカースレッドを100にすると1秒になった。</p>
+
+<p>アクセス時にスレッドプールのキューに100個溜まって、それを処理するスレッドが順次生成されているが、それが全部消化されるまではIO処理に入っていない感じになっている。正確にはよくわからないが、WaitやResultで待つ処理はワーカースレッドのキューに入り、それが割り当てられない限りは非同期部分の処理にも進めないのかもしれない。この場合も想定される同時リクエスト数分のワーカースレッド数を設定しないとさばけないだろう。結果としては最悪なので、非同期処理を同期的に待つ、というのはあまりやらない方がよさそう。</p>
+
+<h1>
+<span id="io非同期待ちの場合" class="fragment"></span><a href="#io%E9%9D%9E%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88"><i class="fa fa-link"></i></a>IO非同期待ちの場合</h1>
+
+<p>ということでawaitで非同期に待って処理させるようにする。以下のようになる。</p>
+
+<div class="code-frame" data-lang="csharp"><div class="highlight"><pre class="with-code"><code><span class="p">[</span><span class="n">HttpGet</span><span class="p">]</span>
+<span class="p">[</span><span class="nf">Route</span><span class="p">(</span><span class="s">"asyncio"</span><span class="p">)]</span>
+<span class="k">public</span> <span class="k">async</span> <span class="n">Task</span><span class="p">&lt;</span><span class="kt">string</span><span class="p">&gt;</span> <span class="nf">AsyncIo</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="kt">var</span> <span class="n">startTime</span> <span class="p">=</span> <span class="n">DateTimeOffset</span><span class="p">.</span><span class="n">Now</span><span class="p">;</span>
+    <span class="n">Stopwatch</span> <span class="n">sw</span> <span class="p">=</span> <span class="k">new</span> <span class="nf">Stopwatch</span><span class="p">();</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Start</span><span class="p">();</span>
+    <span class="kt">var</span> <span class="n">response</span> <span class="p">=</span> <span class="k">await</span> <span class="n">client</span><span class="p">.</span><span class="nf">GetAsync</span><span class="p">(</span><span class="s">"http://localhost:5001/test/sync"</span><span class="p">);</span>
+    <span class="n">sw</span><span class="p">.</span><span class="nf">Stop</span><span class="p">();</span>
+    <span class="k">this</span><span class="p">.</span><span class="n">_logger</span><span class="p">.</span><span class="nf">LogInformation</span><span class="p">(</span><span class="s">"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms"</span><span class="p">,</span>  <span class="n">Thread</span><span class="p">.</span><span class="n">CurrentThread</span><span class="p">.</span><span class="n">ManagedThreadId</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Hour</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Minute</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Second</span><span class="p">,</span> <span class="n">startTime</span><span class="p">.</span><span class="n">Millisecond</span><span class="p">,</span> <span class="n">sw</span><span class="p">.</span><span class="n">ElapsedMilliseconds</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s">"ioas"</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>コントローラのメソッドにasyncをつけ、戻り値の型をTaskとし、GetAsyncをawaitで待つ。</p>
+
+<p>これまでと同様、ワーカースレッド4、IO待ちスレッド4として起動し、abで同時100アクセスした。</p>
+
+<div class="code-frame" data-lang="text"><div class="highlight"><pre class="with-code"><code>ab -n 100 -c 100 http://localhost:5000/test/asyncio
+This is ApacheBench, Version 2.3 &lt;$Revision: 1843412 $&gt;
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient).....done
+
+
+Server Software:        Kestrel
+Server Hostname:        localhost
+Server Port:            5000
+
+Document Path:          /test/asyncio
+Document Length:        4 bytes
+
+Concurrency Level:      100
+Time taken for tests:   2.206 seconds
+Complete requests:      100
+Failed requests:        0
+Total transferred:      13700 bytes
+HTML transferred:       400 bytes
+Requests per second:    45.32 [#/sec] (mean)
+Time per request:       2206.289 [ms] (mean)
+Time per request:       22.063 [ms] (mean, across all concurrent requests)
+Transfer rate:          6.06 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    5   2.0      4       9
+Processing:  1015 1149  26.1   1156    1165
+Waiting:     1015 1148  26.6   1155    1164
+Total:       1023 1153  25.5   1159    1169
+
+Percentage of the requests served within a certain time (ms)
+  50%   1159
+  66%   1162
+  75%   1164
+  80%   1164
+  90%   1166
+  95%   1167
+  98%   1168
+  99%   1169
+ 100%   1169 (longest request)
+</code></pre></div></div>
+
+<p>スレッド数が少なくても、ほぼ1秒で処理できたことがわかる。ASP.NET Core的にはこれが正解なんだろうと思う。</p>
+
+<p><a href="https://blog.stephencleary.com/2013/11/there-is-no-thread.html" rel="nofollow noopener" target="_blank">IO待ちに関する記事</a>を読むと、IOの結果を待っている間にスレッドは存在しないとのこと。処理がawait client.GetAsyncにまでたどり着けばその時点でスレッドは解放され、次のスレッドを生成することができる。(Resultで待つようなことをしているとスレッドは解放されないものと思われる)</p>
+
+<p>そして非同期待ちが終わると、その時点で処理がスレッドに割り当てられて処理が再開されるが、この時もスレッドは使われていないのでスレッドプールにある少数のスレッドを割り当てることができる。APIアクセスやDBアクセスなどIO待ちがメインの処理の場合は、awaitで呼び出すと少数のスレッドで多数のリクエストをさばけるようになる。基本的にはこの形で作るべきと思われる。</p>
+
+<h1>
+<span id="おわりに" class="fragment"></span><a href="#%E3%81%8A%E3%82%8F%E3%82%8A%E3%81%AB"><i class="fa fa-link"></i></a>おわりに</h1>
+
+<p>スレッド、スレッドプール、タスク、async/awaitなど、C#や.NET Coreの非同期処理の勉強になった。<br>
+async/awaitは一見何やってるかわからないけど、わかればすごく便利。使えるところでは積極的に使っていこう。</p>
+</div></div></section><div class="css-1yzj1fm"><div class="css-1uv1qiv"><span class="fa fa-twitter"></span></div><div class="css-1uv1qiv"><span class="fa fa-facebook"></span></div></div><div class="apm-Content"><div class="apm-Content_title">Why not register and get more from Qiita?</div><ol class="apm-Content_list"><li>We will deliver articles that match you<div class="description">By following users and tags, you can catch up information on technical fields that you are interested in as a whole</div></li><li>you can read useful information later efficiently<div class="description">By &quot;stocking&quot; the articles you like, you can search right away</div></li><div><a class="apm-Content_help" href="https://help.qiita.com/ja/articles/qiita-login-user" target="_blank"><i class="fa fa-fw fa-arrow-circle-right"></i>What you can do with signing up</a></div></ol><a href="/signup?callback_action=login_or_signup&amp;redirect_to=%2F1stship%2Fitems%2Fdd816cd56605c5ff7ee6&amp;realm=qiita" class="apm-Content_button apm-Content_button-signup">Sign up</a><a href="/login?callback_action=login_or_signup&amp;redirect_to=%2F1stship%2Fitems%2Fdd816cd56605c5ff7ee6&amp;realm=qiita" class="apm-Content_button apm-Content_button-signin">Login</a></div></div><div class="css-helsa7"></div></div></div></div><div class="css-109dbrr"><div class="css-5jpx49"><div class="css-mnxgyc"><button class=" css-1vlpknv"><svg size="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 392.81 429" color="#55C500" class="css-1g4cku8 e31pr5q0"><path d="M14.19 5.4h53.86v149.45h90.05v44.87H14.19zM288.4 93.77h100.79q1.29 25-5.66 45.39a96.79 96.79 0 01-20.33 34.89 92 92 0 01-32.13 22.45 104 104 0 01-40.95 7.93 109.71 109.71 0 01-76-29.92 104.05 104.05 0 01-23-32.56 95.46 95.46 0 01-8.47-39.88 94.78 94.78 0 018.47-39.87 104.38 104.38 0 0123-32.42A107.71 107.71 0 01248.23 8a110.79 110.79 0 01118.48 22.49l-35.07 35.08a51.25 51.25 0 00-17.75-15 52.83 52.83 0 00-44.67-1.23 52.92 52.92 0 00-17 12 57.07 57.07 0 00-11.45 18.11 60 60 0 00-4.23 22.77 60 60 0 004.23 22.68 56.57 56.57 0 0011.45 18.19 52.62 52.62 0 0017 12 50.5 50.5 0 0020.9 4.36q20.19 0 31.07-7.51a35.75 35.75 0 0014.46-20.55h-47.39zM51.29 279.55H0v-44.86h156v44.86h-51.13V429H51.29zM283.36 381.71l-41.72-62V429h-53.86V234.69h47.47L290 312l55.9-77.29h46.9V429h-53.86V320.27l-42.43 61.44z"></path></svg></button><a href="/1stship/items/dd816cd56605c5ff7ee6/likers" class="css-1iupg5d">35</a></div><div class="css-fsjkhv"><button class=" css-15cocm3"><svg size="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 353.02 398" color="#6E6F70" class="css-12rp90f e11v00bf0"><path d="M176.72 398c-67.52 0-130.16-29-171.84-79.69l-4.46-5.42V78.05H353v234.84l-4.45 5.42C306.88 369 244.24 398 176.72 398zm-137.2-99.34c34.17 38.37 83.78 60.25 137.2 60.25s103-21.88 137.21-60.25V117.14H39.52zM0 0h351.12v40.94H0z"></path></svg></button><span class="css-1b17vb0">33</span></div><div class="css-79elbk"><button class="css-16hhh7b"><i class="fa fa-ellipsis-h"></i></button><div class="css-7i7f4d"><div class="css-1gj7nt">Improve article</div><a href="/drafts/dd816cd56605c5ff7ee6/edit" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-code-fork css-1jqivyb" aria-hidden="true"></i></span>Send edit request</a><div class="css-1ode1bp"></div><div class="css-1gj7nt">Article information</div><a href="/1stship/items/dd816cd56605c5ff7ee6/revisions" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-history css-1jqivyb" aria-hidden="true"></i></span>Revisions</a><a href="/1stship/items/dd816cd56605c5ff7ee6/patches" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-inbox css-1jqivyb" aria-hidden="true"></i></span>Edit Requests</a><a href="/1stship/items/dd816cd56605c5ff7ee6/likers" class="css-154zy0m"><span class="css-yikrym"><svg size="13" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 392.81 429" color="rgba(0, 0, 0, 0.6)" class="css-le4d8r e31pr5q0"><path d="M14.19 5.4h53.86v149.45h90.05v44.87H14.19zM288.4 93.77h100.79q1.29 25-5.66 45.39a96.79 96.79 0 01-20.33 34.89 92 92 0 01-32.13 22.45 104 104 0 01-40.95 7.93 109.71 109.71 0 01-76-29.92 104.05 104.05 0 01-23-32.56 95.46 95.46 0 01-8.47-39.88 94.78 94.78 0 018.47-39.87 104.38 104.38 0 0123-32.42A107.71 107.71 0 01248.23 8a110.79 110.79 0 01118.48 22.49l-35.07 35.08a51.25 51.25 0 00-17.75-15 52.83 52.83 0 00-44.67-1.23 52.92 52.92 0 00-17 12 57.07 57.07 0 00-11.45 18.11 60 60 0 00-4.23 22.77 60 60 0 004.23 22.68 56.57 56.57 0 0011.45 18.19 52.62 52.62 0 0017 12 50.5 50.5 0 0020.9 4.36q20.19 0 31.07-7.51a35.75 35.75 0 0014.46-20.55h-47.39zM51.29 279.55H0v-44.86h156v44.86h-51.13V429H51.29zM283.36 381.71l-41.72-62V429h-53.86V234.69h47.47L290 312l55.9-77.29h46.9V429h-53.86V320.27l-42.43 61.44z"></path></svg></span>Show all likers</a><a href="/1stship/items/dd816cd56605c5ff7ee6.md" class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-file-text-o css-1jqivyb" aria-hidden="true"></i></span>Show article in Markdown</a><div class="css-1ode1bp"></div><div class="css-154zy0m"><span class="css-yikrym"><i class="fa fa-flag css-1jqivyb" aria-hidden="true"></i></span>Report article</div></div><div class="st-Modal"><div class="st-Modal_backdrop"></div><div class="st-Modal_body"><form><div class="st-Form"><span class="st-Form_label">Help us understand the problem. What is going on with this article?</span></div><div class="st-Form"><label><input type="radio" name="reason" value="illegal" required=""/>It&#x27;s illegal (copyright infringement, privacy infringement, libel, etc.)</label></div><div class="st-Form"><label><input type="radio" name="reason" value="inappropriate_content" required=""/>It&#x27;s socially inappropriate (offensive to public order and morals)</label></div><div class="st-Form"><label><input type="radio" name="reason" value="advertising" required=""/>It&#x27;s advertising</label></div><div class="st-Form"><label><input type="radio" name="reason" value="spam" required=""/>It&#x27;s spam</label></div><div class="st-Form"><label><input type="radio" name="reason" value="guideline_violation" required=""/>Other than the above, but not suitable for the Qiita community (violation of guidelines)</label></div><div class="st-Form st-Form-right"><input type="submit" class="st-Form_submit" value="Submit"/></div></form></div></div></div></div></div></div>
+      <script type="application/json" class="js-react-on-rails-component" data-component-name="PersonalArticlePage" data-dom-id="PersonalArticlePage-react-component-9b2ed063-432d-4526-a693-c391a339865f">{"authorAnalyticsTrackingId":"UA-155168179-1","organizationAnalyticsTrackingId":null}</script>
+      
+<footer id="globalFooter" class="st-Footer"><div class="st-Footer_container"><div class="st-Footer_start"><div class="st-Footer_logo"><svg viewbox="0 0 426.57 130" xmlns="http://www.w3.org/2000/svg"><circle cx="167.08" cy="21.4" r="12.28" /><path d="M250.81 29.66h23.48v18.9h-23.48z" /><path d="M300.76 105.26a22.23 22.23 0 01-6.26-.86 12.68 12.68 0 01-5.17-3 14.41 14.41 0 01-3.56-5.76 28 28 0 01-1.3-9.22V48.56h29.61v-18.9h-29.52V3.29h-20.17v83.34q0 11.16 2.83 18.27a27.71 27.71 0 007.7 11.2 26.86 26.86 0 0011.43 5.62 47.56 47.56 0 0012.34 1.53h15.16v-18zM0 61.7a58.6 58.6 0 015-24.21A62.26 62.26 0 0118.73 17.9 63.72 63.72 0 0139 4.78 64.93 64.93 0 0164 0a65 65 0 0124.85 4.78 64.24 64.24 0 0120.38 13.12A62 62 0 01123 37.49a58.6 58.6 0 015 24.21 58.34 58.34 0 01-4 21.46 62.8 62.8 0 01-10.91 18.16l11.1 11.1a10.3 10.3 0 010 14.52 10.29 10.29 0 01-14.64 0l-12.22-12.41a65 65 0 01-15.78 6.65 66.32 66.32 0 01-17.55 2.3 64.63 64.63 0 01-45.23-18A62.82 62.82 0 015 85.81 58.3 58.3 0 010 61.7zm21.64.08a43.13 43.13 0 0012.42 30.63 42.23 42.23 0 0013.43 9.09A41.31 41.31 0 0064 104.8a42 42 0 0030-12.39 42.37 42.37 0 009-13.64 43.43 43.43 0 003.3-17 43.77 43.77 0 00-3.3-17A41.7 41.7 0 0080.55 22 41.78 41.78 0 0064 18.68 41.31 41.31 0 0047.49 22a42.37 42.37 0 00-13.43 9.08 43.37 43.37 0 00-12.42 30.7zM331.89 78a47.59 47.59 0 013.3-17.73 43.22 43.22 0 019.34-14.47A44.25 44.25 0 01359 36a47.82 47.82 0 0118.81-3.58 42.72 42.72 0 019.26 1 46.5 46.5 0 018.22 2.58 40 40 0 017 3.84 44.39 44.39 0 015.71 4.63l1.22-9.47h17.35v85.83h-17.35l-1.17-9.42a42.54 42.54 0 01-5.84 4.67 43.11 43.11 0 01-7 3.79 44.86 44.86 0 01-8.17 2.59 43 43 0 01-9.22 1A47.94 47.94 0 01359 119.9a43.3 43.3 0 01-14.47-9.71 44.17 44.17 0 01-9.34-14.47 47 47 0 01-3.3-17.72zm20.27-.08a29.16 29.16 0 002.17 11.34 27 27 0 005.92 8.88 26.69 26.69 0 008.76 5.76 29.19 29.19 0 0021.44 0 26.11 26.11 0 008.72-5.76 27.57 27.57 0 005.88-8.84 29 29 0 002.16-11.38 28.62 28.62 0 00-2.16-11.22 26.57 26.57 0 00-5.93-8.8 27.68 27.68 0 00-19.51-7.9 28.29 28.29 0 00-10.77 2.05 26.19 26.19 0 00-8.71 5.75 27.08 27.08 0 00-5.84 8.8 28.94 28.94 0 00-2.13 11.31zm-194.97-30.5h19.78v73.54h-19.78zm49.25 0h19.78v73.54h-19.78z" /><circle cx="216.33" cy="21.4" r="12.28" /></svg></div><div class="st-Footer_catchcopy">How developers code is here.</div><div class="st-Footer_socials"><a class="fa fa-twitter" href="https://twitter.com/qiita"></a><a class="fa fa-facebook-square" href="https://www.facebook.com/qiita/"></a></div></div><div class="st-Footer_end"><div class="st-Footer_qiita"><div class="st-Footer_label">Qiita</div><div class="st-Footer_list"><div class="st-Footer_column"><a href="/about">About</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a target="_blank" href="http://help.qiita.com/ja/articles/qiita-community-guideline">Guideline</a><a target="_blank" href="https://help.qiita.com/ja/articles/others-brand-guideline">Design Guideline</a></div><div class="st-Footer_column"><a href="/release-notes">Release</a><a href="/api/v2/docs">API</a><a href="/feedback/new">ご意見</a><a href="https://help.qiita.com">Help</a><a target="_blank" href="https://qiita.com/ads?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=footer">Advertisement</a></div></div></div><div class="st-Footer_increments"><div class="st-Footer_label">Increments</div><div class="st-Footer_list"><div class="st-Footer_column"><a href="https://increments.co.jp/company/">About</a><a href="https://increments.co.jp/jobs/">採用情報</a><a href="https://blog.qiita.com">Blog</a></div><div class="st-Footer_column"><a href="https://teams.qiita.com/">Qiita Team</a><a href="https://jobs.qiita.com?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=footer">Qiita Jobs</a><a href="https://zine.qiita.com?utm_source=qiita&amp;utm_medium=referral&amp;utm_content=footer">Qiita Zine</a></div></div></div></div></div><div class="st-Footer_copyright">© 2011-2021 Increments Inc.</div></footer><div id="Snackbar-react-component-7ec51824-64e3-44fb-b606-4141d4122475"></div>
+      <script type="application/json" class="js-react-on-rails-component" data-component-name="Snackbar" data-dom-id="Snackbar-react-component-7ec51824-64e3-44fb-b606-4141d4122475">{}</script>
+      
+<div id="LoginModal-react-component-09507755-21d7-4ccd-90ed-79310a17a0e4"></div>
+      <script type="application/json" class="js-react-on-rails-component" data-component-name="LoginModal" data-dom-id="LoginModal-react-component-09507755-21d7-4ccd-90ed-79310a17a0e4">{}</script>
+      
+<div id="StockModal-react-component-ccd35c0a-2a89-4287-8c4a-74b6cd070192"></div>
+      <script type="application/json" class="js-react-on-rails-component" data-component-name="StockModal" data-dom-id="StockModal-react-component-ccd35c0a-2a89-4287-8c4a-74b6cd070192">{}</script>
+      
+</div><div id="dataContainer" style="display: none;" data-config="{&quot;actionPath&quot;:&quot;public/items#show&quot;,&quot;settings&quot;:{&quot;analyticsTrackingId&quot;:&quot;UA-24675221-12&quot;,&quot;assetsMap&quot;:{},&quot;csrfToken&quot;:&quot;Isv2N5JNPHE3WhyP+ivJxo7mEu1SJpoYOLhVW9A0mLhifQ/HIOdK0sUuNM/6Harta9Fb0joT4vT7nEqPvsleiQ==&quot;,&quot;locale&quot;:&quot;en&quot;},&quot;currentUser&quot;:null}" /></body></html><script type="application/json" data-js-react-on-rails-store="AppStoreWithReactOnRails">{"snackbar":{"type":"","body":"","isActive":false},"article":{"article":{"body":"\n\u003ch1\u003e\n\u003cspan id=\"はじめに\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003eはじめに\u003c/h1\u003e\n\n\u003cp\u003eASP.NET Coreへの同時アクセスの応答が妙に遅くなるので原因調査したら、スレッドプールの起動の問題、もっと言えば.NET環境での非同期処理の使い方の問題だったので、メモしておく。\u003c/p\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"実験環境\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#%E5%AE%9F%E9%A8%93%E7%92%B0%E5%A2%83\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003e実験環境\u003c/h1\u003e\n\n\u003cp\u003emacOS 10.16.6\u003cbr\u003e\nASP.NET Core 3.1\u003cbr\u003e\n\u003ccode\u003edotnet new webapi\u003c/code\u003e コマンドで作成したWeb API\u003cbr\u003e\n\u003ccode\u003eab -n 100 -c 100 URL\u003c/code\u003e ab(Apache Bench)コマンドで同時100アクセスの時間を計測\u003c/p\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"同期処理の場合\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#%E5%90%8C%E6%9C%9F%E5%87%A6%E7%90%86%E3%81%AE%E5%A0%B4%E5%90%88\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003e同期処理の場合\u003c/h1\u003e\n\n\u003cp\u003e以下の単純なAPI処理を用意する。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"csharp\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"n\"\u003eHttpGet\u003c/span\u003e\u003cspan class=\"p\"\u003e]\u003c/span\u003e\n\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"nf\"\u003eRoute\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e)]\u003c/span\u003e\n\u003cspan class=\"k\"\u003epublic\u003c/span\u003e \u003cspan class=\"kt\"\u003estring\u003c/span\u003e \u003cspan class=\"nf\"\u003eSync\u003c/span\u003e\u003cspan class=\"p\"\u003e()\u003c/span\u003e\n\u003cspan class=\"p\"\u003e{\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eStopwatch\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"k\"\u003enew\u003c/span\u003e \u003cspan class=\"nf\"\u003eStopwatch\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStart\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eSleep\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"m\"\u003e1000\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStop\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ethis\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003e_logger\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eLogInformation\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eElapsedMilliseconds\u003c/span\u003e \u003cspan class=\"p\"\u003e+\u003c/span\u003e \u003cspan class=\"s\"\u003e\"ms\"\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ereturn\u003c/span\u003e \u003cspan class=\"s\"\u003e\"sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n\u003cspan class=\"p\"\u003e}\u003c/span\u003e\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003e1秒スリープなので1秒で応答が帰ってくるはず。\u003c/p\u003e\n\n\u003cp\u003e結果\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003eab -n 100 -c 100 http://localhost:5000/test/sync\nThis is ApacheBench, Version 2.3 \u0026lt;$Revision: 1843412 $\u0026gt;\nCopyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/\nLicensed to The Apache Software Foundation, http://www.apache.org/\n\nBenchmarking localhost (be patient).....done\n\n\nServer Software:        Kestrel\nServer Hostname:        localhost\nServer Port:            5000\n\nDocument Path:          /test/sync\nDocument Length:        4 bytes\n\nConcurrency Level:      100\nTime taken for tests:   15.031 seconds\nComplete requests:      100\nFailed requests:        39\n   (Connect: 0, Receive: 0, Length: 39, Exceptions: 0)\nTotal transferred:      8357 bytes\nHTML transferred:       244 bytes\nRequests per second:    6.65 [#/sec] (mean)\nTime per request:       15031.445 [ms] (mean)\nTime per request:       150.314 [ms] (mean, across all concurrent requests)\nTransfer rate:          0.54 [Kbytes/sec] received\n\nConnection Times (ms)\n              min  mean[+/-sd] median   max\nConnect:        0    5   1.8      5       8\nProcessing:  1020 11970 2007.4  13046   14009\nWaiting:        0 7868 6438.3  13046   14009\nTotal:       1020 11975 2006.7  13050   14011\n\nPercentage of the requests served within a certain time (ms)\n  50%  13050\n  66%  13052\n  75%  13053\n  80%  13053\n  90%  13055\n  95%  13100\n  98%  13943\n  99%  14011\n 100%  14011 (longest request)\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003e最悪で14秒。遅い。一方ログを見ると各処理は1秒で終わっていることがわかる。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e1004ms\n1003ms\n...\n1000ms\n1004ms\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eつまり処理が始まる前か終わった後の待ちが長いことがわかる。\u003cbr\u003e\nこれは何に待たされているのかを調べると、スレッドプールにスレッドを追加するのが待たされていることがわかった。\u003c/p\u003e\n\n\u003cp\u003eスレッドプールの説明はこちら\u003cbr\u003e\n\u003ca href=\"https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool\" rel=\"nofollow noopener\" target=\"_blank\"\u003eマネージドスレッドプール\u003c/a\u003e\u003c/p\u003e\n\n\u003cp\u003eASP.NETによらず、.NET環境ではスレッドはプロセス自身が立ち上げて管理するより、タスクを使ってスレッドプールのスレッドを使い回すことが推奨されている。スレッドプールにはいくつかのスレッドが待機しており、タスク(ASP.NETではHTTPリクエストなど)がキューに入ると、空いているスレッドに割り当て、処理が終わると待機状態に戻す、という処理がされている。\u003c/p\u003e\n\n\u003cp\u003eここで問題なのは、どの程度のスレッドがプールされるのか、ということだが、以下に記載されている。\u003c/p\u003e\n\n\u003cp\u003e\u003ca href=\"https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool#thread-pool-minimums\" rel=\"nofollow noopener\" target=\"_blank\"\u003eスレッドプールの最小値\u003c/a\u003e\u003c/p\u003e\n\n\u003cblockquote\u003e\n\u003cp\u003eスレッドプールでは、カテゴリごとに指定された最小値に達するまで、要求に応じて新しいワーカースレッドまたは I/O完了スレッドが提供されます。\u003cbr\u003e\nスレッドプールの最小値に達すると、追加のスレッドが作成されるか、いくつかのタスクが完了するまで待機状態になります。 .NET Framework 4 以降では、スループットを最適化するために、スレッドプールでワーカースレッドの作成と破棄が行われます。スループットは、タスクの単位時間あたりの完了数として定義されます。\u003c/p\u003e\n\u003c/blockquote\u003e\n\n\u003cp\u003eまとめるとこんな感じ。\u003c/p\u003e\n\n\u003cul\u003e\n\u003cli\u003eスレッドが即起動されるのは指定した最小値まで\u003c/li\u003e\n\u003cli\u003e最小値以上の個数のスレッドは作成が待たされる\u003c/li\u003e\n\u003cli\u003eタスクの単位時間のあたりの完了数が最適になるように生成は調整される\u003c/li\u003e\n\u003c/ul\u003e\n\n\u003cp\u003eスレッドは決まった数まではすぐに立ち上がるけど、それ以降は他の処理が終わるか、.NETの実行環境によって新しくスレッドが生成されるまで待たされるということ。\u003c/p\u003e\n\n\u003cp\u003eこの決まった数というのは、\u003ca href=\"https://docs.microsoft.com/ja-jp/dotnet/api/system.threading.threadpool.getminthreads?view=netcore-3.1\" rel=\"nofollow noopener\" target=\"_blank\"\u003eThreadPool.GetMinThreadsメソッド\u003c/a\u003eで取得できる。Macで確認すると、\u003c/p\u003e\n\n\u003cp\u003eワーカースレッド：4\u003cbr\u003e\nIO待ち:4\u003c/p\u003e\n\n\u003cp\u003eだった。これは\u003ccode\u003e既定では、スレッドの最小数はシステム上のプロセッサの数に設定されます。\u003c/code\u003eと書かれているようにCPUの数であり、他の環境で確認してもvCPUの数であった。vCPUが2のサーバーだと、即起動されるスレッドは2個まで、ということになる。スレッド2個とか少ないのでは？\u003c/p\u003e\n\n\u003cp\u003e以下のコードで処理が開始された時間とスレッドIDをログに出して確認してみる。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"csharp\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"n\"\u003eHttpGet\u003c/span\u003e\u003cspan class=\"p\"\u003e]\u003c/span\u003e\n\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"nf\"\u003eRoute\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e)]\u003c/span\u003e\n\u003cspan class=\"k\"\u003epublic\u003c/span\u003e \u003cspan class=\"kt\"\u003estring\u003c/span\u003e \u003cspan class=\"nf\"\u003eSync\u003c/span\u003e\u003cspan class=\"p\"\u003e()\u003c/span\u003e\n\u003cspan class=\"p\"\u003e{\u003c/span\u003e\n    \u003cspan class=\"kt\"\u003evar\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"n\"\u003eDateTimeOffset\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eNow\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eStopwatch\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"k\"\u003enew\u003c/span\u003e \u003cspan class=\"nf\"\u003eStopwatch\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStart\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eSleep\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"m\"\u003e1000\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStop\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ethis\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003e_logger\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eLogInformation\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms\"\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e  \u003cspan class=\"n\"\u003eThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eCurrentThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eManagedThreadId\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eHour\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMinute\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eSecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMillisecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eElapsedMilliseconds\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ereturn\u003c/span\u003e \u003cspan class=\"s\"\u003e\"sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n\u003cspan class=\"p\"\u003e}\u003c/span\u003e\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003e結果はこちら。カッコでほぼ同じ時間に起動したスレッドの数を追記した。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e   9: 18:31:40:893  1000ms (1個)\n   9: 18:31:41:912  1004ms\n   8: 18:31:41:912  1004ms\n   4: 18:31:41:911  1004ms\n  11: 18:31:41:912  1004ms\n   6: 18:31:41:917  1004ms (5個)\n  12: 18:31:42:907  1001ms\n   4: 18:31:42:918  1000ms\n   8: 18:31:42:918  1000ms\n  11: 18:31:42:918  1000ms\n   9: 18:31:42:919  1000ms\n   6: 18:31:42:921  1004ms (6個)\n   4: 18:31:43:919  1004ms\n   8: 18:31:43:919  1004ms\n  11: 18:31:43:919  1004ms\n   9: 18:31:43:919  1004ms\n   6: 18:31:43:926  1004ms (5個)\n   4: 18:31:44:942  1003ms\n  11: 18:31:44:943  1003ms\n   9: 18:31:44:942  1003ms\n   6: 18:31:44:945  1004ms\n   8: 18:31:44:944  1004ms\n  12: 18:31:44:958  1000ms (6個)\n  13: 18:31:45:933  1004ms\n   8: 18:31:45:956  1004ms\n   9: 18:31:45:956  1005ms\n  11: 18:31:45:958  1003ms\n   6: 18:31:45:957  1003ms\n  12: 18:31:45:961  1003ms\n   4: 18:31:45:985  1001ms (7個)\n  13: 18:31:46:940  1002ms\n  14: 18:31:46:961  1004ms\n   6: 18:31:46:968  1003ms\n  11: 18:31:46:968  1003ms\n  12: 18:31:46:968  1003ms\n   9: 18:31:46:968  1004ms\n   4: 18:31:46:988  1001ms\n   8: 18:31:46:992  1003ms (8個)\n  15: 18:31:47:940  1002ms\n  13: 18:31:47:944  1004ms\n  14: 18:31:47:968  1004ms\n   6: 18:31:47:977  1004ms\n   9: 18:31:47:979  1004ms\n  12: 18:31:47:980  1003ms\n   4: 18:31:47:990  1004ms\n   8: 18:31:47:996  1004ms\n  11: 18:31:48:078  1002ms (9個)\n  13: 18:31:48:950  1000ms\n  14: 18:31:48:973  1002ms\n   6: 18:31:48:982  1003ms\n  12: 18:31:48:984  1002ms\n   9: 18:31:48:984  1003ms\n   4: 18:31:48:995  1001ms\n   8: 18:31:49:001  1004ms\n  15: 18:31:49:081  1003ms\n  11: 18:31:49:081  1003ms (9個)\n  13: 18:31:49:951  1003ms\n  16: 18:31:49:953  1003ms\n  14: 18:31:49:977  1004ms\n   6: 18:31:49:985  1004ms\n   9: 18:31:49:987  1004ms\n  12: 18:31:49:987  1004ms\n   4: 18:31:49:997  1000ms\n   8: 18:31:50:006  1000ms\n  15: 18:31:50:085  1003ms\n  11: 18:31:50:085  1003ms (10個)\n  16: 18:31:50:957  1001ms\n  14: 18:31:50:981  1004ms\n   6: 18:31:50:990  1004ms\n   9: 18:31:50:992  1004ms\n  12: 18:31:50:992  1004ms\n   4: 18:31:50:998  1004ms\n   8: 18:31:51:007  1005ms\n  13: 18:31:51:015  1003ms\n  15: 18:31:51:089  1000ms\n  11: 18:31:51:089  1000ms (10個)\n  16: 18:31:51:962  1004ms\n  14: 18:31:51:987  1001ms\n   6: 18:31:51:995  1003ms\n  12: 18:31:51:997  1003ms\n   9: 18:31:51:996  1003ms\n   4: 18:31:52:003  1002ms\n  13: 18:31:52:021  1001ms\n   8: 18:31:52:021  1001ms\n  11: 18:31:52:090  1001ms\n  15: 18:31:52:090  1001ms (10個)\n  16: 18:31:52:967  1005ms\n  14: 18:31:52:989  1002ms\n   6: 18:31:52:999  1004ms\n   9: 18:31:53:000  1004ms\n  12: 18:31:53:000  1004ms\n   4: 18:31:53:006  1003ms\n   8: 18:31:53:026  1000ms\n  13: 18:31:53:026  1000ms\n  11: 18:31:53:092  1003ms\n  15: 18:31:53:092  1003ms\n  17: 18:31:53:092  1003ms (11個)\n  16: 18:31:53:972  1002ms\n  14: 18:31:53:992  1000ms\n   6: 18:31:54:003  1000ms (3個)\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003e徐々に使えるスレッドが増えていっている、というか徐々にしかスレッド数が増えないのがわかる。\u003c/p\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"最低スレッド数を上げる\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#%E6%9C%80%E4%BD%8E%E3%82%B9%E3%83%AC%E3%83%83%E3%83%89%E6%95%B0%E3%82%92%E4%B8%8A%E3%81%92%E3%82%8B\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003e最低スレッド数を上げる\u003c/h1\u003e\n\n\u003cp\u003e一番簡単な解決策としては即立ち上げられるスレッドの個数を増やせばよい。\u003cbr\u003e\nそのためには、\u003ca href=\"https://docs.microsoft.com/ja-jp/dotnet/api/system.threading.threadpool.setminthreads?view=netcore-3.1\" rel=\"nofollow noopener\" target=\"_blank\"\u003eThreadPool.SetMinThreadsメソッド\u003c/a\u003eを使う。\u003cbr\u003e\nとりあえず以下のようにワーカースレッドの最低数を100にしてみる。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"csharp\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e\u003cspan class=\"k\"\u003epublic\u003c/span\u003e \u003cspan class=\"k\"\u003estatic\u003c/span\u003e \u003cspan class=\"k\"\u003evoid\u003c/span\u003e \u003cspan class=\"nf\"\u003eMain\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"kt\"\u003estring\u003c/span\u003e\u003cspan class=\"p\"\u003e[]\u003c/span\u003e \u003cspan class=\"n\"\u003eargs\u003c/span\u003e\u003cspan class=\"p\"\u003e)\u003c/span\u003e\n\u003cspan class=\"p\"\u003e{\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eThreadPool\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eSetMinThreads\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"m\"\u003e100\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"m\"\u003e4\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"nf\"\u003eCreateHostBuilder\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"n\"\u003eargs\u003c/span\u003e\u003cspan class=\"p\"\u003e).\u003c/span\u003e\u003cspan class=\"nf\"\u003eBuild\u003c/span\u003e\u003cspan class=\"p\"\u003e().\u003c/span\u003e\u003cspan class=\"nf\"\u003eRun\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n\u003cspan class=\"p\"\u003e}\u003c/span\u003e\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eabコマンドを実行すると、\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003eab -n 100 -c 100 http://localhost:5000/test/sync\nThis is ApacheBench, Version 2.3 \u0026lt;$Revision: 1843412 $\u0026gt;\nCopyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/\nLicensed to The Apache Software Foundation, http://www.apache.org/\n\nBenchmarking localhost (be patient).....done\n\n\nServer Software:        Kestrel\nServer Hostname:        localhost\nServer Port:            5000\n\nDocument Path:          /test/sync\nDocument Length:        4 bytes\n\nConcurrency Level:      100\nTime taken for tests:   2.082 seconds\nComplete requests:      100\nFailed requests:        0\nTotal transferred:      13700 bytes\nHTML transferred:       400 bytes\nRequests per second:    48.04 [#/sec] (mean)\nTime per request:       2081.569 [ms] (mean)\nTime per request:       20.816 [ms] (mean, across all concurrent requests)\nTransfer rate:          6.43 [Kbytes/sec] received\n\nConnection Times (ms)\n              min  mean[+/-sd] median   max\nConnect:        0   11   3.0     12      13\nProcessing:  1020 1055   5.1   1056    1061\nWaiting:     1007 1054   6.3   1055    1060\nTotal:       1020 1066   7.0   1068    1074\n\nPercentage of the requests served within a certain time (ms)\n  50%   1068\n  66%   1069\n  75%   1070\n  80%   1070\n  90%   1072\n  95%   1073\n  98%   1073\n  99%   1074\n 100%   1074 (longest request)\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eほぼ1秒で終了した。このことからも、やはり同時アクセス時の応答が遅くなるのは、スレッドの立ち上げが待たされているためだということがわかった。とはいえ以下の注意書きにもあるように、むやみにスレッド数を増やすのもよくないかもしれない。\u003c/p\u003e\n\n\u003cp\u003e\u003ca href=\"https://docs.microsoft.com/ja-jp/dotnet/standard/threading/the-managed-thread-pool#thread-pool-minimums\" rel=\"nofollow noopener\" target=\"_blank\"\u003eスレッドプールの最小値\u003c/a\u003e\u003c/p\u003e\n\n\u003cblockquote\u003e\n\u003cp\u003eアイドルスレッドの最小数は、ThreadPool.SetMinThreads メソッドを使用して増やすことができます。 ただし、これらの値を必要以上に大きくすると、パフォーマンスの問題が発生する可能性があります。 同時に開始するタスクの数が多すぎる場合は、すべてのタスクで処理速度が低下する可能性があります。 ほとんどの場合、スレッドを割り当てるためのスレッド プール独自のアルゴリズムを使用することでスレッドプールのパフォーマンスが向上します。\u003c/p\u003e\n\u003c/blockquote\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"io同期待ちの場合\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#io%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003eIO同期待ちの場合\u003c/h1\u003e\n\n\u003cp\u003eIO待ちの場合も見てみよう。\u003cbr\u003e\n先ほどの1秒待って応答するAPI(\u003ca href=\"http://localhost:5001\" class=\"autolink\" rel=\"nofollow noopener\" target=\"_blank\"\u003ehttp://localhost:5001\u003c/a\u003e で待ち受けさせる)に対してリクエストするAPIを以下のように書く。非同期メソッドGetAsyncをResultで同期的に待つようにする。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"csharp\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"n\"\u003eHttpGet\u003c/span\u003e\u003cspan class=\"p\"\u003e]\u003c/span\u003e\n\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"nf\"\u003eRoute\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"io\"\u003c/span\u003e\u003cspan class=\"p\"\u003e)]\u003c/span\u003e\n\u003cspan class=\"k\"\u003epublic\u003c/span\u003e \u003cspan class=\"kt\"\u003estring\u003c/span\u003e \u003cspan class=\"nf\"\u003eIo\u003c/span\u003e\u003cspan class=\"p\"\u003e()\u003c/span\u003e\n\u003cspan class=\"p\"\u003e{\u003c/span\u003e\n    \u003cspan class=\"kt\"\u003evar\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"n\"\u003eDateTimeOffset\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eNow\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eStopwatch\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"k\"\u003enew\u003c/span\u003e \u003cspan class=\"nf\"\u003eStopwatch\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStart\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"kt\"\u003evar\u003c/span\u003e \u003cspan class=\"n\"\u003eresponse\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"n\"\u003eclient\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eGetAsync\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"http://localhost:5001/test/sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e).\u003c/span\u003e\u003cspan class=\"n\"\u003eResult\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStop\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ethis\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003e_logger\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eLogInformation\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms\"\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e  \u003cspan class=\"n\"\u003eThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eCurrentThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eManagedThreadId\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eHour\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMinute\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eSecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMillisecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eElapsedMilliseconds\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ereturn\u003c/span\u003e \u003cspan class=\"s\"\u003e\"iosy\"\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n\u003cspan class=\"p\"\u003e}\u003c/span\u003e\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eこれをワーカースレッド4、IO待ちスレッド4で起動させて、同じくabで同時100アクセスするとどうなるか。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003eab -n 100 -c 100 -s 300 http://localhost:5000/test/io\nThis is ApacheBench, Version 2.3 \u0026lt;$Revision: 1843412 $\u0026gt;\nCopyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/\nLicensed to The Apache Software Foundation, http://www.apache.org/\n\nBenchmarking localhost (be patient).....done\n\n\nServer Software:        Kestrel\nServer Hostname:        localhost\nServer Port:            5000\n\nDocument Path:          /test/io\nDocument Length:        4 bytes\n\nConcurrency Level:      100\nTime taken for tests:   65.697 seconds\nComplete requests:      100\nFailed requests:        0\nTotal transferred:      13700 bytes\nHTML transferred:       400 bytes\nRequests per second:    1.52 [#/sec] (mean)\nTime per request:       65696.601 [ms] (mean)\nTime per request:       656.966 [ms] (mean, across all concurrent requests)\nTransfer rate:          0.20 [Kbytes/sec] received\n\nConnection Times (ms)\n              min  mean[+/-sd] median   max\nConnect:        0    5   1.5      6       7\nProcessing:  1021 63970 6359.5  64624   64674\nWaiting:     1014 63970 6360.2  64623   64674\nTotal:       1022 63975 6360.0  64630   64681\n\nPercentage of the requests served within a certain time (ms)\n  50%  64630\n  66%  64640\n  75%  64642\n  80%  64648\n  90%  64662\n  95%  64673\n  98%  64675\n  99%  64681\n 100%  64681 (longest request)\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eめっちゃくちゃ遅くなった。abのデフォルトタイムアウト30秒では足りないのでタイムアウト時間を伸ばさないといけなかったほど。ログはこんな感じになる(開始時間順に並べ直している)\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e   6: 21:09:51:730  1080ms\n  11: 21:09:54:925  1006ms\n   4: 21:09:55:949 63195ms\n   6: 21:09:55:949 63129ms\n   8: 21:09:55:949 62054ms\n   9: 21:09:55:949 63110ms\n  11: 21:09:55:954 63080ms\n  12: 21:09:57:038 62084ms\n  13: 21:09:57:540 61490ms\n  14: 21:09:58:050 61037ms\n  15: 21:09:59:057 59987ms\n  16: 21:10:00:068 58999ms\n  17: 21:10:01:073 58031ms\n  18: 21:10:01:581 57523ms\n  19: 21:10:02:584 56543ms\n  20: 21:10:03:589 55471ms\n  21: 21:10:04:607 54465ms\n  22: 21:10:05:610 53450ms\n  23: 21:10:06:616 52488ms\n  24: 21:10:07:613 51514ms\n  25: 21:10:08:620 50446ms\n  26: 21:10:09:127 49940ms\n  27: 21:10:10:145 48959ms\n  28: 21:10:11:151 47928ms\n  29: 21:10:12:147 46873ms\n  30: 21:10:13:151 45952ms\n  31: 21:10:13:658 45388ms\n  32: 21:10:14:662 44427ms\n  33: 21:10:15:665 43401ms\n  34: 21:10:16:170 42933ms\n  35: 21:10:16:678 42382ms\n  36: 21:10:17:184 41877ms\n  37: 21:10:17:685 41405ms\n  38: 21:10:18:200 40873ms\n  39: 21:10:19:223 39843ms\n  40: 21:10:20:260 38832ms\n  41: 21:10:21:219 37814ms\n  42: 21:10:21:722 37305ms\n  43: 21:10:22:227 36798ms\n  44: 21:10:22:729 36313ms\n  45: 21:10:23:284 35757ms\n  46: 21:10:24:291 34757ms\n  47: 21:10:25:298 33782ms\n  48: 21:10:26:288 32781ms\n  49: 21:10:27:264 31802ms\n  50: 21:10:28:267 30822ms\n  51: 21:10:28:769 30322ms\n  52: 21:10:29:271 29777ms\n  53: 21:10:29:776 29286ms\n  54: 21:10:30:282 28779ms\n  55: 21:10:30:787 28279ms\n  56: 21:10:31:292 27757ms\n  57: 21:10:31:797 27272ms\n  58: 21:10:32:302 26748ms\n  59: 21:10:32:808 26290ms\n  60: 21:10:33:321 25733ms\n  61: 21:10:34:337 24696ms\n  62: 21:10:35:329 23731ms\n  63: 21:10:35:834 23264ms\n  64: 21:10:36:337 22761ms\n  65: 21:10:36:841 22256ms\n  66: 21:10:37:346 21757ms\n  67: 21:10:37:851 21213ms\n  68: 21:10:38:356 20671ms\n  69: 21:10:38:860 20202ms\n  70: 21:10:39:361 19700ms\n  71: 21:10:39:866 19208ms\n  72: 21:10:40:370 18694ms\n  73: 21:10:40:871 18244ms\n  74: 21:10:41:376 17740ms\n  75: 21:10:41:877 17238ms\n  76: 21:10:42:879 16245ms\n  77: 21:10:43:381 15650ms\n  78: 21:10:43:885 15195ms\n  79: 21:10:44:390 14671ms\n  80: 21:10:44:894 14229ms\n  81: 21:10:45:398 13730ms\n  82: 21:10:45:903 13225ms\n  83: 21:10:46:408 12634ms\n  84: 21:10:46:913 12210ms\n  85: 21:10:47:418 11649ms\n  86: 21:10:47:920 11154ms\n  87: 21:10:48:422 10635ms\n  88: 21:10:48:933 10199ms\n  89: 21:10:49:433  9699ms\n  90: 21:10:49:938  9195ms\n  91: 21:10:50:443  8689ms\n  92: 21:10:50:948  8142ms\n  93: 21:10:51:453  7640ms\n  94: 21:10:51:956  7183ms\n  95: 21:10:52:460  6644ms\n  96: 21:10:52:965  6052ms\n  97: 21:10:53:470  5670ms\n  98: 21:10:53:972  5143ms\n  99: 21:10:54:477  4592ms\n 100: 21:10:54:982  4158ms\n 101: 21:10:55:486  3654ms\n 102: 21:10:55:990  3155ms\n 103: 21:10:56:492  2541ms\n 104: 21:10:56:997  2149ms\n 105: 21:10:57:501  1644ms\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eスレッドが500msもしくは1秒ごとに1個生成されて、ほぼ100個のスレッドが生成され(正確には98個)、ほぼ同じ時間に終了している。\u003ca href=\"http://localhost:5000/test/io\" class=\"autolink\" rel=\"nofollow noopener\" target=\"_blank\"\u003ehttp://localhost:5000/test/io\u003c/a\u003e へのアクセスは徐々に処理されているが、\u003ca href=\"http://localhost:5001/test/sync\" class=\"autolink\" rel=\"nofollow noopener\" target=\"_blank\"\u003ehttp://localhost:5001/test/sync\u003c/a\u003e にはほぼ同じ時間にアクセスが届いている。\u003c/p\u003e\n\n\u003cp\u003eIO待ちスレッドを100に増やしても同程度。ワーカースレッドを100にすると1秒になった。\u003c/p\u003e\n\n\u003cp\u003eアクセス時にスレッドプールのキューに100個溜まって、それを処理するスレッドが順次生成されているが、それが全部消化されるまではIO処理に入っていない感じになっている。正確にはよくわからないが、WaitやResultで待つ処理はワーカースレッドのキューに入り、それが割り当てられない限りは非同期部分の処理にも進めないのかもしれない。この場合も想定される同時リクエスト数分のワーカースレッド数を設定しないとさばけないだろう。結果としては最悪なので、非同期処理を同期的に待つ、というのはあまりやらない方がよさそう。\u003c/p\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"io非同期待ちの場合\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#io%E9%9D%9E%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003eIO非同期待ちの場合\u003c/h1\u003e\n\n\u003cp\u003eということでawaitで非同期に待って処理させるようにする。以下のようになる。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"csharp\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003e\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"n\"\u003eHttpGet\u003c/span\u003e\u003cspan class=\"p\"\u003e]\u003c/span\u003e\n\u003cspan class=\"p\"\u003e[\u003c/span\u003e\u003cspan class=\"nf\"\u003eRoute\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"asyncio\"\u003c/span\u003e\u003cspan class=\"p\"\u003e)]\u003c/span\u003e\n\u003cspan class=\"k\"\u003epublic\u003c/span\u003e \u003cspan class=\"k\"\u003easync\u003c/span\u003e \u003cspan class=\"n\"\u003eTask\u003c/span\u003e\u003cspan class=\"p\"\u003e\u0026lt;\u003c/span\u003e\u003cspan class=\"kt\"\u003estring\u003c/span\u003e\u003cspan class=\"p\"\u003e\u0026gt;\u003c/span\u003e \u003cspan class=\"nf\"\u003eAsyncIo\u003c/span\u003e\u003cspan class=\"p\"\u003e()\u003c/span\u003e\n\u003cspan class=\"p\"\u003e{\u003c/span\u003e\n    \u003cspan class=\"kt\"\u003evar\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"n\"\u003eDateTimeOffset\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eNow\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n    \u003cspan class=\"n\"\u003eStopwatch\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"k\"\u003enew\u003c/span\u003e \u003cspan class=\"nf\"\u003eStopwatch\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStart\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"kt\"\u003evar\u003c/span\u003e \u003cspan class=\"n\"\u003eresponse\u003c/span\u003e \u003cspan class=\"p\"\u003e=\u003c/span\u003e \u003cspan class=\"k\"\u003eawait\u003c/span\u003e \u003cspan class=\"n\"\u003eclient\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eGetAsync\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"http://localhost:5001/test/sync\"\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eStop\u003c/span\u003e\u003cspan class=\"p\"\u003e();\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ethis\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003e_logger\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"nf\"\u003eLogInformation\u003c/span\u003e\u003cspan class=\"p\"\u003e(\u003c/span\u003e\u003cspan class=\"s\"\u003e\"{0,2}: {1:D2}:{2:D2}:{3:D2}:{4:D3} {5,5}ms\"\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e  \u003cspan class=\"n\"\u003eThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eCurrentThread\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eManagedThreadId\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eHour\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMinute\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eSecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003estartTime\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eMillisecond\u003c/span\u003e\u003cspan class=\"p\"\u003e,\u003c/span\u003e \u003cspan class=\"n\"\u003esw\u003c/span\u003e\u003cspan class=\"p\"\u003e.\u003c/span\u003e\u003cspan class=\"n\"\u003eElapsedMilliseconds\u003c/span\u003e\u003cspan class=\"p\"\u003e);\u003c/span\u003e\n    \u003cspan class=\"k\"\u003ereturn\u003c/span\u003e \u003cspan class=\"s\"\u003e\"ioas\"\u003c/span\u003e\u003cspan class=\"p\"\u003e;\u003c/span\u003e\n\u003cspan class=\"p\"\u003e}\u003c/span\u003e\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eコントローラのメソッドにasyncをつけ、戻り値の型をTaskとし、GetAsyncをawaitで待つ。\u003c/p\u003e\n\n\u003cp\u003eこれまでと同様、ワーカースレッド4、IO待ちスレッド4として起動し、abで同時100アクセスした。\u003c/p\u003e\n\n\u003cdiv class=\"code-frame\" data-lang=\"text\"\u003e\u003cdiv class=\"highlight\"\u003e\u003cpre class=\"with-code\"\u003e\u003ccode\u003eab -n 100 -c 100 http://localhost:5000/test/asyncio\nThis is ApacheBench, Version 2.3 \u0026lt;$Revision: 1843412 $\u0026gt;\nCopyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/\nLicensed to The Apache Software Foundation, http://www.apache.org/\n\nBenchmarking localhost (be patient).....done\n\n\nServer Software:        Kestrel\nServer Hostname:        localhost\nServer Port:            5000\n\nDocument Path:          /test/asyncio\nDocument Length:        4 bytes\n\nConcurrency Level:      100\nTime taken for tests:   2.206 seconds\nComplete requests:      100\nFailed requests:        0\nTotal transferred:      13700 bytes\nHTML transferred:       400 bytes\nRequests per second:    45.32 [#/sec] (mean)\nTime per request:       2206.289 [ms] (mean)\nTime per request:       22.063 [ms] (mean, across all concurrent requests)\nTransfer rate:          6.06 [Kbytes/sec] received\n\nConnection Times (ms)\n              min  mean[+/-sd] median   max\nConnect:        0    5   2.0      4       9\nProcessing:  1015 1149  26.1   1156    1165\nWaiting:     1015 1148  26.6   1155    1164\nTotal:       1023 1153  25.5   1159    1169\n\nPercentage of the requests served within a certain time (ms)\n  50%   1159\n  66%   1162\n  75%   1164\n  80%   1164\n  90%   1166\n  95%   1167\n  98%   1168\n  99%   1169\n 100%   1169 (longest request)\n\u003c/code\u003e\u003c/pre\u003e\u003c/div\u003e\u003c/div\u003e\n\n\u003cp\u003eスレッド数が少なくても、ほぼ1秒で処理できたことがわかる。ASP.NET Core的にはこれが正解なんだろうと思う。\u003c/p\u003e\n\n\u003cp\u003e\u003ca href=\"https://blog.stephencleary.com/2013/11/there-is-no-thread.html\" rel=\"nofollow noopener\" target=\"_blank\"\u003eIO待ちに関する記事\u003c/a\u003eを読むと、IOの結果を待っている間にスレッドは存在しないとのこと。処理がawait client.GetAsyncにまでたどり着けばその時点でスレッドは解放され、次のスレッドを生成することができる。(Resultで待つようなことをしているとスレッドは解放されないものと思われる)\u003c/p\u003e\n\n\u003cp\u003eそして非同期待ちが終わると、その時点で処理がスレッドに割り当てられて処理が再開されるが、この時もスレッドは使われていないのでスレッドプールにある少数のスレッドを割り当てることができる。APIアクセスやDBアクセスなどIO待ちがメインの処理の場合は、awaitで呼び出すと少数のスレッドで多数のリクエストをさばけるようになる。基本的にはこの形で作るべきと思われる。\u003c/p\u003e\n\n\u003ch1\u003e\n\u003cspan id=\"おわりに\" class=\"fragment\"\u003e\u003c/span\u003e\u003ca href=\"#%E3%81%8A%E3%82%8F%E3%82%8A%E3%81%AB\"\u003e\u003ci class=\"fa fa-link\"\u003e\u003c/i\u003e\u003c/a\u003eおわりに\u003c/h1\u003e\n\n\u003cp\u003eスレッド、スレッドプール、タスク、async/awaitなど、C#や.NET Coreの非同期処理の勉強になった。\u003cbr\u003e\nasync/awaitは一見何やってるかわからないけど、わかればすごく便利。使えるところでは積極的に使っていこう。\u003c/p\u003e\n","createdAt":"2020-08-14T13:27:24Z","elapsedYearsFromLastModifiedAt":1,"encryptedId":"vszvW7qcaXm+GNa3WHhvrtpzC/27fSRAUw==--N16JeymDBMm/CL2f--+bZjK/9FplGmRXfm0MNf8w==","isBanned":false,"isDeprecated":true,"isDestroyableByViewer":false,"isEditRequestReadableByViewer":true,"isEditRequestSendableByViewer":true,"isLikableByViewer":true,"isLikedByViewer":false,"isPublic":true,"isSlide":false,"isStockableByViewer":true,"isStockedByViewer":false,"isSubscribableByViewer":false,"isSubscribedByViewer":false,"isUpdatableByViewer":false,"isUpdated":true,"lastModifiedAt":"2020-08-14T14:05:12Z","likesCount":35,"linkUrl":"https://qiita.com/1stship/items/dd816cd56605c5ff7ee6","organization":null,"originalId":1282044,"stockedCount":33,"title":"ASP.NET Coreへの同時アクセス時の応答が遅くなるのはスレッドプールの挙動のためかも","toc":"\u003cul\u003e\n\u003cli\u003e\n\u003ca href=\"#%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB\"\u003eはじめに\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#%E5%AE%9F%E9%A8%93%E7%92%B0%E5%A2%83\"\u003e実験環境\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#%E5%90%8C%E6%9C%9F%E5%87%A6%E7%90%86%E3%81%AE%E5%A0%B4%E5%90%88\"\u003e同期処理の場合\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#%E6%9C%80%E4%BD%8E%E3%82%B9%E3%83%AC%E3%83%83%E3%83%89%E6%95%B0%E3%82%92%E4%B8%8A%E3%81%92%E3%82%8B\"\u003e最低スレッド数を上げる\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#io%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88\"\u003eIO同期待ちの場合\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#io%E9%9D%9E%E5%90%8C%E6%9C%9F%E5%BE%85%E3%81%A1%E3%81%AE%E5%A0%B4%E5%90%88\"\u003eIO非同期待ちの場合\u003c/a\u003e\n\u003c/li\u003e\n\u003cli\u003e\n\u003ca href=\"#%E3%81%8A%E3%82%8F%E3%82%8A%E3%81%AB\"\u003eおわりに\u003c/a\u003e\n\u003c/li\u003e\n\u003c/ul\u003e\n","totalPv":4093,"uuid":"dd816cd56605c5ff7ee6","banReason":null,"adventCalendarItem":null,"author":{"encryptedId":"Pk76mH/dYADDagloSYzByhW0pkit--U0saVlTGyKtLXvFE--DKa2U7XPkWAop/A7Oog/GA==","originalId":542185,"description":"","facebookUrl":null,"githubUrl":"https://github.com/1stship","isBlockingViewer":false,"isFollowableByViewer":true,"isFollowedByViewer":false,"isTweetWebNotificationReceivable":true,"linkedinUrl":null,"name":"","profileImageUrl":"https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/542185/profile-images/1582031478","profileImageUrlW48":"https://qiita-user-profile-images.imgix.net/https%3A%2F%2Fqiita-image-store.s3.ap-northeast-1.amazonaws.com%2F0%2F542185%2Fprofile-images%2F1582031478?ixlib=rb-4.0.0\u0026auto=compress%2Cformat\u0026lossless=0\u0026w=48\u0026s=400f09f248553e2a5de87e6f1123f3aa","profileImageUrlW75":"https://qiita-user-profile-images.imgix.net/https%3A%2F%2Fqiita-image-store.s3.ap-northeast-1.amazonaws.com%2F0%2F542185%2Fprofile-images%2F1582031478?ixlib=rb-4.0.0\u0026auto=compress%2Cformat\u0026lossless=0\u0026w=75\u0026s=981035477da242fd7f36c3c1eb66d122","urlName":"1stship","websiteUrl":null,"twitterUrl":null,"twitterUrlName":null,"revealedOrganizations":{"edges":[]}},"tags":[{"name":"C#","urlName":"csharp"},{"name":"ThreadPool","urlName":"threadpool"},{"name":"ASP.NET_Core","urlName":"asp.net_core"}],"followingLikers":{"edges":[]},"comments":{"totalCount":2}},"comments":[],"client":null,"ads_event_emitter":null}}</script>

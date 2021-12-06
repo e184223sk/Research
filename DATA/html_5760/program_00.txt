@@ -1,0 +1,83 @@
+using UnityEngine;
+using UnityEditor;
+using System;
+
+
+/// &lt;summary&gt;
+/// 標準スプライトシェーダー
+/// &lt;/summary&gt;
+public sealed class SpriteBasicShaderGUI : ShaderGUI {
+    /// &lt;summary&gt;
+    /// ブレンド方法
+    /// &lt;/summary&gt;
+    public enum BlendMode {
+        Opaque,                 // 不透明
+        Transparent,            // 半透明
+        Additive,               // 加算
+        AdditiveTransparent,    // 加算半透明
+    }
+
+    private MaterialProperty blendProp, cullProp, ztestProp, snapProp;
+
+    /// &lt;summary&gt;
+    /// Inspector表示
+    /// &lt;/summary&gt;
+    public override void OnGUI(MaterialEditor materialEditor, MaterialProperty[] props) {
+        this.blendProp = ShaderGUI.FindProperty("_BlendMode", props);
+        this.cullProp = ShaderGUI.FindProperty("_Cull", props);
+        this.ztestProp = ShaderGUI.FindProperty("_ZTest", props);
+        this.snapProp = ShaderGUI.FindProperty("_PixelSnap", props);
+
+        materialEditor.ShaderProperty(this.cullProp, "Culling");
+        materialEditor.ShaderProperty(this.ztestProp, "Z Test");
+
+        BlendMode mode = (BlendMode)this.blendProp.floatValue;
+        EditorGUI.BeginChangeCheck();
+        mode = (BlendMode)EditorGUILayout.Popup("Blend Mode", (int)mode, Enum.GetNames(typeof(BlendMode)));
+        if (EditorGUI.EndChangeCheck()) {
+            this.blendProp.floatValue = (float)mode;
+            foreach (UnityEngine.Object obj in this.blendProp.targets)
+                this.SetupBlendMode(obj as Material, mode);
+        }
+
+        materialEditor.ShaderProperty(this.snapProp, "Pixel Snap");
+        materialEditor.RenderQueueField();
+        //materialEditor.EnableInstancingField();   // GPU Instancing未対応
+    }
+
+    /// &lt;summary&gt;
+    /// Shader切り替えコールバック
+    /// &lt;/summary&gt;
+    public override void AssignNewShaderToMaterial(Material material, Shader oldShader, Shader newShader) {
+        base.AssignNewShaderToMaterial(material, oldShader, newShader);
+
+
+        // MaterialのShader切り替え時にBlend指定が変更されてしまうので再設定
+        this.SetupBlendMode(material, (BlendMode)material.GetFloat("_BlendMode"));
+    }
+
+    /// &lt;summary&gt;
+    /// ブレンド種類設定
+    /// &lt;/summary&gt;
+    private void SetupBlendMode(Material material, BlendMode blendMode) {
+        switch (blendMode) {
+            case BlendMode.Opaque:
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+                break;
+            case BlendMode.Transparent:
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                break;
+            case BlendMode.Additive:
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                break;
+            case BlendMode.AdditiveTransparent:
+                material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                break;
+        }
+    }
+}
+

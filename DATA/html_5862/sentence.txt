@@ -1,0 +1,15 @@
+More than 3 years have passed since last update.SpatiaLiteとはSQLite上でGISを扱えるようにする拡張モジュールです。
+PostgreSQLに対するPostGISのような位置づけです。さて、こいつをC#で動かそうとすると、なかなか大変だったので、忘れないように手順をメモしておきます。今回は、という前提で話を進めます。まずは、VSでSQLiteが使えるように、C#のプロジェクトのNuGetでSystem.Data.SQLiteをインストールします。
+また、構成マネージャを使ってx64ビルドを作れるようにしておきます。SpatiaLite本家サイト：http://www.gaia-gis.it/gaia-sins/こちらのページの最下部にMS Windows binariesというコーナーがあるので、そこのcurrent stable versionのamd64を選択します。ファイル一覧ページに遷移したら、mod_spatialite-4.3.0a-win-amd64.7zを選択してダウンロード。
+で、この7zファイルを解凍すると、mod_spatialite.dll以下、依存するdll群がまとめて入っているわけですが、こいつが曲者。
+このモジュールたちをそのまま使おうとすると、mod_spatialite.dllのロード時にlibstdc++_64-6.dllでアクセスバイオレーションが発生して落ちます。そこで、アクセスバイオレーションの発生しないものに置き換える必要があります。libstdc++_64-6.dllは、MinGW64に同梱されています。MinGW64: https://sourceforge.net/projects/mingw-w64/?source=typ_redirect上記サイトからダウンロードし、インストールします。こんな感じの設定でインストールしました。
+インストールが完了したら、インストール先ディレクトリのbin以下の「libstdc++-6.dll」「libgcc_s_seh-1.dll」の2つのファイルをコピーし、前節のspatialiteのdll群のものと入れ替えます。この2つのファイルをコピーします。
+置き換える際、ファイル名は以下のようにしてください。「libgcc_s_seh-1.dll」のほうもmod_spatialite同梱版に合わせた名前にリネームすると、私の環境では正しく動作しませんでした。
+まぎらわしいので、もともと同梱されていた「libgcc_s_seh_64-1.dll」は削除してしまいましょう。dll入れ替え後のディレクトリはこんな感じになります。
+
+図中、選択されている2ファイルが入れ替えたものです。なお、このdll入れ替えについては以下を参考にしました。
+http://blog.jrg.com.br/2016/04/25/Fixing-spatialite-loading-problem/mod_spatialite.dll以下関連dll群を、VSのC#プロジェクトが出力するexeと同じディレクトリにコピーするようビルドイベントを設定します。プロジェクトのプロパティの「ビルドイベント」から、「ビルド後イベントのコマンドライン」に以下のような感じで書いておきましょう。さて、ではいよいよ動作確認です。以下のようなコードを実行してみましょう。LoadExtensionメソッドで、SpatiaLiteの拡張モジュールをロードしています。
+ロードする前にEnableExtensionsで拡張を有効化しなければならないので注意です。（さらにいうと、このEnableExtensionsとLoadExtensionの操作は、SQLiteConnectionインスタンスごとに実行する必要があります。）ロードが正しく行われると、その後のINSERT文、SELECT文にあるようなST_xxxの関数が利用できるようになります。
+ここでは適当に座標が(1,2,3)の点をpointカラムに投入し、それが取れていることを確認しています。これで動作確認完了です。お疲れさまでした。
+
+

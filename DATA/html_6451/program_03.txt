@@ -1,0 +1,30 @@
+
+async Task ConcurrentDownloadThrottle()
+{
+    var urls = new[]{
+        "http://www.amazon.com/",
+        "http://www.apple.com/",
+        "http://www.facebook.com/",
+        "http://www.google.com/",
+        "http://www.microsoft.com/",
+        "http://www.twitter.com/",
+    };
+    var hc = new HttpClient();
+    var sem = new SemaphoreSlim(2); // 最大同時実行数:2
+    var downloadTasks = urls.Select(async url =&gt;
+    {
+        await sem.WaitAsync();
+        Debug.WriteLine($"Start: {url}");
+        try
+        {
+            return await hc.GetStringAsync(url);
+        }
+        finally
+        {
+            Debug.WriteLine($"Completed: {url}");
+            sem.Release();
+        }
+    });
+    string[] htmls = await Task.WhenAll(downloadTasks);
+}
+

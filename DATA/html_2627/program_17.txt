@@ -1,0 +1,88 @@
+
+public static class InvokationTreeDumper
+{
+    public static void Dump(TranslationUnitMap map)
+    {
+        var impl = new InvokationTreeDumperImpl();
+
+        impl.Execute(map);
+    }
+
+    public class InvokationTreeDumperImpl : AMessageable
+    {
+        private TranslationUnitMap TranslationUnitMap { get; set; } = new TranslationUnitMap();
+
+        private BehaviorDefinitionMap BehaviorDefinitionMap { get; set; } = new BehaviorDefinitionMap();
+
+        public void Execute(TranslationUnitMap map)
+        {
+            this.TranslationUnitMap = map;
+
+            this.CreateBehaviorDefinitionMap();
+
+            this.SendMessage();
+            this.SendMessage("--------------------------------------");
+            this.SendMessage("Invokation Tree:");
+
+            this.DumpInvokationTrees();
+        }
+
+        private void CreateBehaviorDefinitionMap()
+        {
+            foreach (var tu in this.TranslationUnitMap.Values)
+            {
+                var behavior_definitions = tu.BehaviorMap.Values.Where(b =&gt; b.Type == "Definition").ToList();
+
+                foreach (var behavior_definition in behavior_definitions)
+                {
+                    this.BehaviorDefinitionMap.AddIfNotRegistered(behavior_definition);
+                }
+            }
+        }
+
+        private void DumpInvokationTrees()
+        {
+            var behavior_defnitions = this.BehaviorDefinitionMap.Values;
+
+            foreach (var behavior in behavior_defnitions)
+            {
+                this.SendMessage($"{behavior.Definition} @ {behavior.Location}");
+
+                this.DumpInvokationTree(behavior);
+
+                this.SendMessage();
+            }
+        }
+
+        private void DumpInvokationTree(BehaviorInfo behavior, int depth = 1)
+        {
+            foreach (var invokation in behavior.Invokations)
+            {
+                var indent = new string(' ', depth * 2);
+
+                var indent2 = new string(' ', (depth + 1) * 2);
+
+                this.SendMessage($"{indent}{invokation.Definition} @ {invokation.Location}");
+
+                if (behavior.ID == invokation.ID)
+                {
+                    this.SendMessage($"{indent2} &lt;Recursive Call...&gt;");
+                }
+                else
+                {
+                    if (this.BehaviorDefinitionMap.ContainsKey(invokation.ID))
+                    {
+                        var child_behavior = this.BehaviorDefinitionMap[invokation.ID];
+
+                        this.DumpInvokationTree(child_behavior, depth + 1);
+                    }
+                    else
+                    {
+                        this.SendMessage($"{indent2} &lt;Behavior Definition Not Found...&gt;");
+                    }
+                }
+            }
+        }
+    }
+}
+

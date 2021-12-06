@@ -1,0 +1,54 @@
+using Google.Cloud.Firestore;
+using System;
+using System.IO;
+using System.Xml.Linq;
+
+namespace FirestoreSample
+{
+    class Program
+    {
+        const string ProjectId = "自分のProjectId";
+        static void Main(string[] args)
+        {
+            // API とサービスの認証情報でサービスアカウントを作成し、
+            // ダウンロードしたアクセスキーファイルのパスを環境変数で指定
+            Environment.SetEnvironmentVariable(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                Path.Combine(AppContext.BaseDirectory, "jsonファイルのパス"));
+
+            XElement readXml = XElement.Load("Test.xml");
+            var TestXml = new TestXml(readXml);
+            var db = FirestoreDb.Create(ProjectId);
+            //ここでfirestoreにデータ追加
+            db.Collection("testxml").AddAsync(TestXml).Wait();
+        }
+
+        [FirestoreData()]
+        public class TestXml
+        {
+            public TestXml() { }
+
+            public TestXml(XElement xmlTecMLXml) =&gt; TestXmlXElement = xmlTecMLXml;
+            //XElementはマッピングでエラーになるので登録しない
+            public XElement TestXmlXElement { get; private set; }
+            //登録したい名前をつけれる
+            //なにもない場合はそのまま
+            [FirestoreProperty("test_xml_string")]
+            public string TestXmlString =&gt; TestXmlXElement.ToString();
+            //クラスもできる
+            [FirestoreProperty]
+            public Child Child =&gt; new Child() { XmlChild = TestXmlXElement.Element("Child") };
+        }
+
+        [FirestoreData()]
+        public class Child
+        {
+            public XElement XmlChild { get; set; }
+            [FirestoreProperty]
+            public string Test1 =&gt; XmlChild.Element("Test1").Value;
+            [FirestoreProperty]
+            public int Test2 =&gt; int.Parse(XmlChild.Element("Test2").Value);
+        }
+    }
+}
+

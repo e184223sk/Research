@@ -1,0 +1,17 @@
+More than 1 year has passed since last update.今貢献しているプロジェクトで、AsyncLocal のアドバンスドな使い方をする必要があるので、まずはなんとなく使っている AsyncLocal のリファレンスを読んで挙動を確認してみた。定義を読むと、Asyncのコントロールフロー（例えばAsyncメソッド）の中でローカルとして有効な限定された範囲内でのデータという感じ。読むだけではよくわからないので実験して定義を理解してみる。内容は、AsyncLocal と ThreadLocal を使って、スレッドの挙動と共に振る舞いを調査しています。とそれぞれ AsyncLocal, ThreadLocal を更新してどのスコープで値がシェアされるかを確認しています。実行してみると、AsyncLocal と ThreadLocal で挙動が異なる。AsyncLocal はコールグラフの中で値がシェアされているが、Stack の形式で情報がシェアされるようだ。つまり、Asyncで呼び出した先のコールグラフで何かをAsyncLocal にセットしたとしても、呼び出し元のメソッドに戻るとそれは消えている。一方、ThreadLocal は名前の通り、同じスレッド内だと値がシェアされる。だから、呼び出し先のメソッドで値を変更したら、呼び出し元が参照した、ThreadLocal の値は呼び出し先で変更されたものになる。
+
+Level1:Start: 1 AsyncLocal: Value 1 ThreadLocal: Value 1 Thread: 1
+Level2:Start: 1 AsyncLocal: Value 1.1 ThreadLocal: Value 1.1 Thread: 1
+Level2:End: 1 AsyncLocal: Value 1.1.1 ThreadLocal: Value 1.1.1 Thread: 1
+Level1:End: 1 AsyncLocal: Value 1.1 ThreadLocal: Value 1.1.1 Thread: 1
+Level1:Start: 2 AsyncLocal: Value 2 ThreadLocal: Value 2 Thread: 1
+Level2:Start: 2 AsyncLocal: Value 2.2 ThreadLocal: Value 2.2 Thread: 1
+Level2:End: 2 AsyncLocal: Value 2.2.2 ThreadLocal: Value 2.2.2 Thread: 1
+Level1:End: 2 AsyncLocal: Value 2.2 ThreadLocal: Value 2.2.2 Thread: 1
+Level0: AsyncLocal: Value 2 Thread: 1
+Level0: ThreadLocal: Value 2.2.2 Thread: 1
+コードの中にある await Task.Delay(100); をコメントアウトする。こうすることによって、スレッドがつかまれるので、複数のスレッドが利用される。スレッドが異なるので、ThreadLocal の場合は、値が共有されなくなっている。一方 AsyncLocal の方は値は全く同じだ。async/await 型の非同期処理の場合 Task にどのようにスレッドが割り当てられるかはわからないので、一般的には AsyncLocal を使うのがよさそう。もし、更新先での値を変更したい場合は、オブジェクトを共有したらいけるだろう。単純にオブジェクトの型にすると、共有してくれる。先ほどのプログラムに、オブジェクト参照で AsyncLocal をつかってみた。 予想通り。大体これで挙動が理解できたかと思う。Ambient adj
+(especially of environmental conditions) existing in the surrounding area:
+Represents ambient data that is local to a given asynchronous control flow, such as an asynchronous method.
+
+

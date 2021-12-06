@@ -1,0 +1,82 @@
+
+
+    private bool makeMidiFile(String midiFilePath)
+    {
+        bool ret = false;
+
+        try
+        {
+            byte[] MThd = new byte[] { 0x4D, 0x54, 0x68, 0x64 };
+            byte[] dataLength = new byte[] { 0x00, 0x00, 0x00, 0x06 };
+            byte[] format = new byte[] { 0x00, 0x01 };
+            byte[] tracknum = new byte[] { 0x00, 0x02 };
+            byte[] trackLength = new byte[] { 0x00, 0x30 };
+
+            //ヘッダ作成
+            byte[] Header = JoinByteArray(MThd, dataLength, format, tracknum, trackLength);
+
+            byte[] MTrk = new byte[] { 0x4D, 0x54, 0x72, 0x6B };
+            byte[] TrackEnd = new byte[] { 0x00, 0xFF, 0x2F, 0x00 };
+            byte[] ClockInfo = new byte[] { 0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08 };
+            byte[] TempoInfo = new byte[] { 0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20 };
+
+            byte[] TrackValue = new byte[] { 0x00, 0xC0, 0x19 };
+
+            //playNotes -&gt; GUIで指定した音
+            foreach (byte note in playNotes)
+            {
+                TrackValue = JoinByteArray(TrackValue, new byte[] { 0x00, 0x90, note, 0x5F });
+            }
+
+            bool notFirst = false;
+            foreach (byte note in playNotes)
+            {
+                if (notFirst == false)
+                {
+                    TrackValue = JoinByteArray(TrackValue, new byte[] { 0x40, 0x90, note, 0x00 });
+                    notFirst = true;
+                }
+                else
+                {
+                    TrackValue = JoinByteArray(TrackValue, new byte[] { 0x00, 0x90, note, 0x00 });
+                }
+            }
+
+            //バイナリファイルの内容作成
+            byte[] midifile = JoinByteArray(Header,
+                MTrk, new byte[] { 0x00, 0x00, 0x00, (byte)(ClockInfo.Length + TempoInfo.Length + TrackEnd.Length) }, ClockInfo, TempoInfo, TrackEnd,
+                MTrk, new byte[] { 0x00, 0x00, 0x00, (byte)(TrackValue.Length + TrackEnd.Length) }, TrackValue, TrackEnd);
+
+            FileStream fs = new FileStream(midiFilePath, FileMode.Create);
+            BinaryWriter bw = new BinaryWriter(fs);
+
+            bw.Write(midifile);
+
+            bw.Close();
+            fs.Close();
+
+            ret = true;
+        }
+        catch (Exception ex)
+        {
+            ret = false;
+        }
+
+        return ret;
+    }
+
+    //複数のbyte配列を結合して一つのbyte配列にまとめる
+    private byte[] JoinByteArray(params byte[][] arrays)
+    {
+        List&lt;byte&gt; ret = new List&lt;byte&gt;();
+
+        foreach (byte[] array in arrays)
+        {
+            foreach (byte arr_m in array)
+            {
+                ret.Add(arr_m);
+            }
+        }
+        return ret.ToArray();
+    }
+

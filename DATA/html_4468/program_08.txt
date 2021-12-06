@@ -1,0 +1,103 @@
+
+
+public delegate T NextRandomValue&lt;T&gt;(T minValue, T maxValue);
+
+public class RandomValueGenerator&lt;T&gt; where T : struct
+{
+
+    #region ctor
+
+    public RandomValueGenerator(Func&lt;T&gt; generator, NextRandomValue&lt;T&gt; generatorInRange, Func&lt;double&gt; nullProbabilityGenerator)
+    {
+        m_Generator = generator;
+        m_GeneratorInRange = generatorInRange;
+        m_NullProbabilityGenerator = nullProbabilityGenerator;
+    }
+
+    #endregion
+
+    private readonly Func&lt;T&gt; m_Generator;
+    private readonly NextRandomValue&lt;T&gt; m_GeneratorInRange;
+    private readonly Func&lt;double&gt; m_NullProbabilityGenerator;
+
+    #region NextValue
+
+    public T NextValue()
+    {
+        return m_Generator();
+    }
+
+    public T NextValue(T minValue, T maxValue)
+    {
+        return m_GeneratorInRange(minValue, maxValue);
+    }
+
+    #endregion
+
+    #region Values
+
+    public IObservable&lt;T&gt; Values(int count)
+    {
+        return Observable.Generate(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt; m_Generator());
+    }
+
+    public IObservable&lt;T&gt; Values(int count, T minValue, T maxValue)
+    {
+        return Observable.Generate(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt; m_GeneratorInRange(minValue, maxValue));
+    }
+
+    #endregion
+
+    #region ValuesOrDefault
+
+    public IObservable&lt;T&gt; ValuesOrDefault(int count, double defaultProbability)
+    {
+        return Observable.Generate(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt;
+        {
+            if (IsNextNull(defaultProbability)) { return default(T); }
+            return m_Generator();
+        });
+    }
+
+    public IObservable&lt;T&gt; ValuesOrDefault(int count, double defaultProbability, T minValue, T maxValue)
+    {
+        return Observable.Generate(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt;
+        {
+            if (IsNextNull(defaultProbability)) { return default(T); }
+            return m_GeneratorInRange(minValue, maxValue);
+        });
+    }
+
+    #endregion
+
+    #region ValuesOrNull
+
+    public IObservable&lt;T?&gt; ValuesOrNull(int count, double nullProbability)
+    {
+        return Observable.Generate&lt;int, T?&gt;(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt;
+        {
+            if (IsNextNull(nullProbability)) { return null; }
+            return m_Generator();
+        });
+    }
+
+    public IObservable&lt;T?&gt; ValuesOrNull(int count, double nullProbability, T minValue, T maxValue)
+    {
+        return Observable.Generate&lt;int, T?&gt;(0, i =&gt; i &lt; count, i =&gt; ++i, i =&gt;
+        {
+            if (IsNextNull(nullProbability)) { return null; }
+            return m_GeneratorInRange(minValue, maxValue);
+        });
+    }
+
+    #endregion
+
+    private bool IsNextNull(double probability)
+    {
+        if (probability &lt;= 0) { return false; }
+        if (probability &gt;= 1) { return true; }
+        return m_NullProbabilityGenerator() &lt;= probability;
+    }
+
+}
+

@@ -1,0 +1,109 @@
+using System;
+using CoreTweet;
+using Newtonsoft.Json;
+
+namespace ConsoleApp1
+{
+    #region JsonClass
+    public class Target
+    {
+        public long recipient_id { get; set; }
+    }
+
+    public class Media
+    {
+        public long id { get; set; }
+    }
+
+    public class Attachment
+    {
+        public string type { get; set; }
+        public Media media { get; set; }
+    }
+
+    public class MessageData
+    {
+        public string text { get; set; }
+        public Attachment attachment { get; set; }
+    }
+
+    public class MessageCreate
+    {
+        public Target target { get; set; }
+        public MessageData message_data { get; set; }
+    }
+
+    public class Event
+    {
+        public string type { get; set; }
+        public MessageCreate message_create { get; set; }
+    }
+
+    public class Root
+    {
+        public Event @event { get; set; }
+    }
+    #endregion
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            //今日の日付文字列を取得
+            string yyyyMMdd = DateTime.Now.ToString("yyyyMMdd");
+
+            //ユーザID（DMを送信するuser_id）
+            Int64 useID = ＜ユーザID＞;
+            //メッセージ
+            string dmMessage = @"今日の一枚😘";
+            //画像ファイルパス
+            string imgFilePath = @"C:\Users\＜画像フォルダパス＞\img_" + yyyyMMdd + ".jpg";
+
+            //API key
+            string apiKey = "＜APIキー＞";
+            //API secret key
+            string apiSecretKey = "＜APIシークレットキー＞";
+            //Access token
+            string accessToken = "＜アクセストークン＞";
+            //Access token secret
+            string accessTokenSecret = "＜アクセストークンシークレット＞";
+
+            //認証情報
+            var tokens = CoreTweet.Tokens.Create(apiKey, apiSecretKey, accessToken, accessTokenSecret);
+
+            //画像ファイルを取得
+            System.IO.FileInfo imgFileInfo = new System.IO.FileInfo(imgFilePath);
+            //画像をアップロードしてmedia_idを取得
+            var mediaId = tokens.Media.Upload(imgFileInfo);
+
+            //JSONオブジェクトを生成
+            Media jsonMedia = new Media();
+            jsonMedia.id = Int64.Parse(mediaId.ToString());
+            Attachment jsonAttachment = new Attachment();
+            jsonAttachment.type = "media";
+            jsonAttachment.media = jsonMedia;
+            Target jsonTarget = new Target();
+            jsonTarget.recipient_id = useID;
+            MessageData jsonMessageData = new MessageData();
+            jsonMessageData.text = dmMessage;
+            jsonMessageData.attachment = jsonAttachment;
+            MessageCreate jsonMessageCreate = new MessageCreate();
+            jsonMessageCreate.target = jsonTarget;
+            jsonMessageCreate.message_data = jsonMessageData;
+            Event jsonEvent = new Event();
+            jsonEvent.type = "message_create";
+            jsonEvent.message_create = jsonMessageCreate;
+            Root jsonRoot = new Root();
+            jsonRoot.@event = jsonEvent;
+
+            //JSONを文字列変換
+            var jsonStr = JsonConvert.SerializeObject(jsonRoot);
+            //バイト配列に変換
+            byte[] jsonData = System.Text.Encoding.UTF8.GetBytes(jsonStr);
+
+            //DM送信
+            tokens.PostContent("https://api.twitter.com/1.1/direct_messages/events/new.json", "application/json", jsonData);
+        }
+    }
+}
+

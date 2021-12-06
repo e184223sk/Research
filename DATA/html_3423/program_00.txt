@@ -1,0 +1,144 @@
+class BinaryHandwrittenDigit
+{
+    (Vector&lt;double&gt;, Matrix&lt;double&gt;) Select(Int16[,] labels, Double[,] patterns)
+    {
+        int nrow = patterns.GetLength(0);
+        int ncol = patterns.GetLength(1);
+        int count_3 = 0;
+        int count_5 = 0;
+        for (int j = 0; j &lt; ncol; j++)
+        {
+            if (labels[3, j] == 1) count_3++;
+            else if (labels[5, j] == 1) count_5++;
+        }
+        Vector&lt;double&gt; y = new DenseVector(count_3 + count_5);
+        Matrix&lt;double&gt; x = new DenseMatrix(nrow, count_3 + count_5);
+        int i = 0;
+        for (int j = 0; j &lt; ncol; j++)
+        {
+            if (labels[3, j] == 1)
+            {
+                for (int k = 0; k &lt; nrow; k++) x[k, i] = patterns[k, j];
+                y[i++] = 1;
+            }
+            else if (labels[5, j] == 1)
+            {
+                for (int k = 0; k &lt; nrow; k++) x[k, i] = patterns[k, j];
+                y[i++] = -1;
+            }
+        }
+        return (y, x);
+    }
+    Vector&lt;double&gt; y_train;
+    Matrix&lt;double&gt; x_train;
+    void ReadMat()
+    {
+        string path_to_file = "usps_resampled.mat";
+        var reader = new MatReader(path_to_file);
+        var train_labels = reader.Read&lt;Int16[,]&gt;("train_labels");
+        var train_patterns = reader.Read&lt;Double[,]&gt;("train_patterns");
+        (y_train, x_train) = Select(train_labels, train_patterns);
+    }
+    Matrix&lt;double&gt; x_train_L2;
+    Matrix&lt;double&gt; MakeMatrixL2(Matrix&lt;double&gt; x)
+    {
+        int m = x.ColumnCount;
+        var result = new DenseMatrix(m, m);
+        for (int j = 0; j &lt; m; j++)
+        {
+            var cj = x.Column(j);
+            for (int i = 0; i &lt; m; i++)
+            {
+                var s = x.Column(i) - cj;
+                result[i, j] = s * s;
+            }
+        }
+        return result;
+    }
+    Matrix&lt;double&gt; kernel_train(double k_sigma, double k_scale)
+    {
+        return (x_train_L2 / (-2 * k_scale * k_scale)).PointwiseExp() * (k_sigma * k_sigma);
+    }
+    Vector&lt;double&gt; sigmoid(Vector&lt;double&gt; y, Vector&lt;double&gt; f)
+    {
+        return y.PointwiseMultiply(f).Map((x) =&gt; Normal.CDF(0, 1, x));
+    }
+    Vector&lt;double&gt; sigmoid_log_1st(Vector&lt;double&gt; y, Vector&lt;double&gt; f, Vector&lt;double&gt; prob)
+    {
+        var df = f.Map((x) =&gt; Normal.PDF(0, 1, x));
+        return y.PointwiseDivide(prob).PointwiseMultiply(df);
+    }
+    Vector&lt;double&gt; sigmoid_log_2nd(Vector&lt;double&gt; y, Vector&lt;double&gt; f, Vector&lt;double&gt; prob)
+    {
+        var df = f.Map((x) =&gt; Normal.PDF(0, 1, x));
+        var a = df.PointwiseDivide(prob);
+        return a.PointwiseMultiply(a + y.PointwiseMultiply(f));
+    }
+    Matrix&lt;double&gt; bXbPlusOne(Matrix&lt;double&gt; X, Vector&lt;double&gt; b)
+    {
+        int n = X.RowCount;
+        var result = X.Clone();
+        for (int j = 0; j &lt; n; j++)
+        {
+            for (int i = 0; i &lt; n; i++)
+            {
+                result[i, j] *= b[i] * b[j];
+            }
+            result[j, j] += 1;
+        }
+        return result;
+    }
+    double GetEvidence(Vector&lt;double&gt; par)
+    {
+        double k_scale = Math.Exp(par[0]);
+        double k_sigma = Math.Exp(par[1]);
+        var K11 = kernel_train(k_sigma, k_scale);
+        int n = y_train.Count;
+        Vector&lt;double&gt; f = new DenseVector(n);
+        for (int i = 0; i &lt; n; i++)
+        {
+            f[i] = 1.0 / (n - 1) * i;
+        }
+        double evidence = 0;
+        while (true)
+        {
+            var prob = sigmoid(y_train, f);
+            var V1 = sigmoid_log_1st(y_train, f, prob);
+            var V2 = sigmoid_log_2nd(y_train, f, prob);
+            var V2q = V2.PointwiseMaximum(0).PointwiseSqrt();
+            var B = bXbPlusOne(K11, V2q);
+            var b = V2.PointwiseMultiply(f) + V1;
+            var c = K11.Multiply(b).PointwiseMultiply(V2q);
+            var chol = B.Cholesky();
+            var a = b - chol.Solve(c).PointwiseMultiply(V2q);
+            var f0 = f;
+            f = K11 * a;
+            if ((f - f0).AbsoluteMaximum() &lt; 1e-5)
+            {
+                evidence = -(a * f) / 2 + prob.PointwiseLog().Sum() - Math.Log(chol.Determinant) / 2;
+                break;
+            }
+        }
+        return -evidence;
+    }
+    public void MarginalLikelihoodMaximization()
+    {
+        ReadMat();
+        x_train_L2 = MakeMatrixL2(x_train);
+        var evidence_optim = ObjectiveFunction.Value(GetEvidence);
+        Stopwatch sw = Stopwatch.StartNew();
+        var ret = NelderMeadSimplex.Minimum(evidence_optim, new DenseVector(new[] { 2.85, 2.35 }));
+        sw.Stop();
+        Console.WriteLine("{0}sec", (double)(sw.ElapsedMilliseconds) / 1000);
+        var par_m = ret.MinimizingPoint;
+        Console.WriteLine("par={0},{1}", par_m[0], par_m[1]);
+        Console.WriteLine("Value={0},Reason={1},Iterations={2}", ret.FunctionInfoAtMinimum.Value, ret.ReasonForExit, ret.Iterations);
+    }
+}
+static void Main(string[] args)
+{
+    Control.MaxDegreeOfParallelism = 1;
+    var sample = new BinaryHandwrittenDigit();
+    sample.MarginalLikelihoodMaximization();
+}
+

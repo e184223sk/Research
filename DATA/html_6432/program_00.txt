@@ -1,0 +1,41 @@
+void Main()
+{
+    CancellationTokenSource cts = new CancellationTokenSource();
+    var t = StartListener(cts.Token);
+
+    Console.WriteLine("Press enter to stop.");
+    Console.ReadLine();
+
+    cts.Cancel();
+    try
+    {
+        t.Wait();
+    }
+    catch {}
+}
+
+async Task StartListener(CancellationToken ct)
+{
+    HttpListener listener = new HttpListener();
+    listener.Prefixes.Add("http://localhost:9999/");
+    listener.Start();
+    ct.Register(()=&gt;listener.Stop());
+
+    while (!ct.IsCancellationRequested)
+    {
+        var context = await listener.GetContextAsync();
+        var req = context.Request;
+        var res = context.Response;
+
+        Debug.WriteLine("Connected From: " + req.RemoteEndPoint);
+        await Task.Delay(500);
+
+        var response = $"{req.HttpMethod} {req.RawUrl} HTTP/{req.ProtocolVersion}\r\n";
+        response += String.Join("\r\n", req.Headers.AllKeys.Select(k =&gt; $"{k}: {req.Headers[k]}"));
+
+        var responsedata = Encoding.ASCII.GetBytes(response);
+        res.OutputStream.Write(responsedata, 0, responsedata.Length);
+        res.Close();
+    }
+}
+

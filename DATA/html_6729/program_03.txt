@@ -1,0 +1,118 @@
+
+internal struct AsyncByteReaderInfo
+{
+    public int bufferSize;
+    public int dataSize;
+
+    public Boolean allocated;
+
+    private Boolean _haveReadHandle;
+    private ReadHandle _readHandle;
+
+    public ReadHandle ReadHandle
+    {
+        get { return _readHandle; }
+        set
+        {
+            this.DisposeReadHandle();
+            _readHandle = value;
+            _haveReadHandle = true;
+        }
+    }
+    public void DisposeReadHandle()
+    {
+        if (_haveReadHandle)
+        {
+            _readHandle.Dispose();
+            _haveReadHandle = false;
+        }
+    }
+    public bool HaveReadHandle { get { return _haveReadHandle; } }
+}
+
+// ここで使用している PtrHandle&lt;T&gt; については後述
+public unsafe struct AsyncByteReader : IDisposable
+{
+    private NativeList&lt;byte&gt; _byteBuffer;
+    private PtrHandle&lt;AsyncByteReaderInfo&gt; _info;
+
+    private PtrHandle&lt;ReadCommand&gt; _readCmd;
+
+
+    public int BufferSize { get { return _info.Target-&gt;bufferSize; } }
+    public int Length { get { return _info.Target-&gt;dataSize; } }
+
+    /// &lt;summary&gt;
+    /// the constructor must be called by main thread only.
+    /// &lt;/summary&gt;
+    public AsyncByteReader(Allocator alloc)
+    {
+        _byteBuffer = new NativeList&lt;byte&gt;(Define.MinByteBufferSize, alloc);
+        _info = new PtrHandle&lt;AsyncByteReaderInfo&gt;(alloc);
+
+        _readCmd = new PtrHandle&lt;ReadCommand&gt;(alloc);
+
+        _info.Target-&gt;bufferSize = Define.MinByteBufferSize;
+        _info.Target-&gt;dataSize = 0;
+
+        _info.Target-&gt;allocated = true;
+    }
+
+    public void Dispose()
+    {
+        _byteBuffer.Dispose();
+
+        _info.Target-&gt;DisposeReadHandle();
+        _info.Dispose();
+
+        _readCmd.Dispose();
+    }
+
+    public JobHandle ReadFileAsync(string path)
+    {
+        this.CheckPreviousJob();
+
+        var fileInfo = new System.IO.FileInfo(path);
+        if (!fileInfo.Exists) throw new ArgumentException("the file '" + path + "'is not found.");
+
+        this.Reallocate(fileInfo.Length);
+
+        *_readCmd.Target = new ReadCommand
+        {
+            Offset = 0,
+            Size = fileInfo.Length,
+            Buffer = _byteBuffer.GetUnsafePtr(),
+        };
+
+        _info.Target-&gt;dataSize = (int)fileInfo.Length;
+        _info.Target-&gt;ReadHandle = AsyncReadManager.Read(path, _readCmd.Target, 1);
+        return _info.Target-&gt;ReadHandle.JobHandle;
+    }
+    private void CheckPreviousJob()
+    {
+        if (_info.Target-&gt;HaveReadHandle)
+        {
+            if (!_info.Target-&gt;ReadHandle.JobHandle.IsCompleted)
+            {
+                throw new InvalidOperationException("previous read job is still running. call Complete().");
+            }
+            else
+            {
+                _info.Target-&gt;DisposeReadHandle();
+            }
+        }
+    }
+
+    public void Complete()
+    {
+        _info.Target-&gt;ReadHandle.JobHandle.Complete();
+    }
+
+    public void* GetUnsafePtr() { return _byteBuffer.GetUnsafePtr(); }
+    public byte this[int index]
+    {
+        get { return _byteBuffer[index]; }
+    }
+}
+
+

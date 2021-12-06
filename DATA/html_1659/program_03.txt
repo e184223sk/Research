@@ -1,0 +1,178 @@
+
+using OpenCvSharp;
+using OpenCvSharp.Extensions;
+
+~~
+
+/// &lt;summary&gt;
+/// 円弧検出クラス
+/// &lt;/summary&gt;
+public static class DetectCircle
+{
+    /// &lt;summary&gt;
+    /// 円弧を計算して返します
+    /// &lt;/summary&gt;
+    /// &lt;param name="bmp"&gt;円弧が描かれているBitmap画像&lt;/param&gt;
+    /// &lt;param name="outLine"&gt;計算対象エリア(この範囲でトリミングして計算します。   )&lt;/param&gt;
+    /// &lt;param name="maskArea"&gt;画像中のマスク領域&lt;/param&gt;
+    /// &lt;param name="maxRadius"&gt;最大半径 : この値を超える半径の円弧は返り値から除外します。&lt;/param&gt;
+    /// &lt;param name="minRadius"&gt;最小半径 : この値を下回る半径の円弧は返り値から除外します。&lt;/param&gt;
+    /// &lt;returns&gt;計算した円弧の結果を詰めた配列&lt;/returns&gt;
+    public static Arc[] GetArcs(Bitmap bmp, Rectangle outLine, IEnumerable&lt;Rectangle&gt; maskArea = null, double maxRadius = double.MaxValue, double minRadius = 0)
+    {
+        //円弧計算結果の値チェック 数値か？上限以下？下限以下？
+        Func&lt;double, double, double, bool&gt; checkValueRange = (input, max, min) =&gt;
+        {
+            return !double.IsInfinity(input)
+                     &amp;&amp; !double.IsNaN(input)
+                     &amp;&amp; max &gt;= input &amp;&amp; min &lt;= input;
+        };
+        //直線らしき座標を間引く為、XY座標の変化量がある点のみに絞る
+        Func&lt;OpenCvSharp.Point[], int, int&gt; findNextIndex = (inputContour, startIndex) =&gt;
+        {
+            int j = startIndex;
+            do
+            {
+                j++;
+                if (inputContour.Length &lt;= j)
+                {
+                    return -1;
+                }
+            } while (Math.Abs(inputContour[startIndex].X - inputContour[j].X) &lt;= 1
+                || Math.Abs(inputContour[startIndex].Y - inputContour[j].Y) &lt;= 1);
+            return j;
+        };
+        //直線らしき座標を間引く為、変化点の傾きの違う点を抽出する　(直線は傾きが均一)
+        //contourは概ね近い連続点となっているので順番にアクセスすれば輪郭の端から順番にアクセスできる。
+        Func&lt;OpenCvSharp.Point[], IEnumerable&lt;Point2d&gt;&gt; searchNotStraightContour = (inputContour) =&gt;
+        {
+            var notStraightContour = new List&lt;Point2d&gt;();
+
+            for (int i = 0; i &lt; inputContour.Length;)
+            {
+                //iの次の座標変化がある点を見つける
+                int j = findNextIndex(inputContour, i);
+                if (j &lt; 0)
+                {
+                    break;
+                }
+                //jの次の座標変化がある点を見つける
+                int k = findNextIndex(inputContour, j);
+                if (k &lt; 0)
+                {
+                    break;
+                }
+
+                //それぞれの点の差を取り
+                var x01 = inputContour[j].X - inputContour[i].X;
+                var y01 = inputContour[j].Y - inputContour[i].Y;
+                var x02 = inputContour[k].X - inputContour[i].X;
+                var y02 = inputContour[k].Y - inputContour[i].Y;
+                //1点目と2点目の傾きを算出
+                double xy01 = (double)y01 / (double)x01;
+                //1点目と3点面の傾きを算出
+                double xy02 = (double)y02 / (double)x02;
+
+                if (!double.IsNaN(xy01) &amp;&amp; !double.IsInfinity(xy01)
+                    &amp;&amp; !double.IsNaN(xy02) &amp;&amp; !double.IsInfinity(xy02)
+                    &amp;&amp; Math.Abs(x01) &lt; maxRadius * 2 //最大直径以上の距離が離れた点なら判定しない
+                    &amp;&amp; Math.Abs(y01) &lt; maxRadius * 2 //最大直径以上の距離が離れた点なら判定しない
+                    &amp;&amp; Math.Abs(x02) &lt; maxRadius * 2 //最大直径以上の距離が離れた点なら判定しない
+                    &amp;&amp; Math.Abs(y02) &lt; maxRadius * 2 //最大直径以上の距離が離れた点なら判定しない
+                    &amp;&amp; Math.Abs(xy01 - xy02) &gt; 0.025//傾きの差が小さすぎる点は直線であろう。&lt;--------要調整
+                    )
+                {
+                    notStraightContour.Add(inputContour.ElementAt(j));
+                }
+                i = k + 1;
+
+            }
+            return notStraightContour;
+        };
+
+        //画像中の無視する範囲の輪郭を除去します。
+        Func&lt;OpenCvSharp.Point[], OpenCvSharp.Point[]&gt; getMaskContuour = (inputPoints) =&gt;
+        {
+            List&lt;OpenCvSharp.Point&gt; maskedContour = new List&lt;OpenCvSharp.Point&gt;();
+            if (maskArea == null)
+            {
+                //画像中の無視領域は指定されていないのでそのまま返す。
+                maskedContour.AddRange(inputPoints);
+            }
+            else
+            {
+                foreach (var con in inputPoints)
+                {
+                    if (maskArea
+                        .Where(a =&gt; a.Left &lt; con.X &amp;&amp; a.Right &gt; con.X
+                        &amp;&amp; a.Top &lt; con.Y &amp;&amp; a.Bottom &gt; con.Y).Any())
+                    {
+                        continue;
+                    }
+                    maskedContour.Add(con);
+                }
+            }
+
+            return maskedContour.ToArray();
+        };
+
+        var inputMat = BitmapConverter.ToMat(bmp).CvtColor(ColorConversionCodes.RGB2BGR);
+        var trimMat = inputMat[new Rect(outLine.Left, outLine.Top, outLine.Width, outLine.Height)];
+
+        var gray = trimMat.CvtColor(ColorConversionCodes.BGR2GRAY);
+        //binaryにすると円以外の輪郭が強く出てしまい、これを除去する必要がある。今回は不採用
+        //var bin_img = gray.Threshold(12, 255, ThresholdTypes.Binary);//.Otsu);
+        //ガウシアンフィルタのカーネルサイズは画像(画素数)によって要調整。画素数が多いほど大きくした方が良さそうである。
+        var blur = gray.GaussianBlur(new OpenCvSharp.Size(9, 9), 0);
+        //画像次第でここの数値は要調整 なるべく数値を上げて輪郭数を少なくした方が速いが、輪郭が短くブツ切れになると円の検出が厳しい。
+        var canny_img = blur.Canny(100, 250);
+
+        OpenCvSharp.Point[][] contours;
+        HierarchyIndex[] hierarchyIndexes;
+        canny_img.FindContours(out contours, out hierarchyIndexes, RetrievalModes.CComp, ContourApproximationModes.ApproxNone);
+
+        //検出した円弧を詰めるList
+        var rtnList = new List&lt;Arc&gt;();
+
+
+        //見つけた輪郭を走査
+        foreach (var contour in contours)
+        {
+            //輪郭中の計算点数
+            int numOfPoints = 10;
+            //画像中の処理対象外にある輪郭を除去する
+            var maskedContour = getMaskContuour(contour);
+
+            //完全な直線と疑われるものは除く
+            var notStraightContour = searchNotStraightContour(maskedContour);
+
+            //対象が無ければ処理しない
+            if (!notStraightContour.Any()
+                || notStraightContour.Count() &lt; numOfPoints)
+            {
+                continue;
+            }
+
+            //間引きしてdouble型のPointコレクションを取得
+            var subContour = notStraightContour
+                //間引きする
+                .Where((a, index) =&gt; index % (notStraightContour.Count() / numOfPoints) == 0)
+                //外形トリミング分の座標補正
+                .Select(a =&gt; new Point2d(a.X + outLine.X, a.Y + outLine.Y));
+
+            //円弧を計算
+            var arc = CalcArc.Calc(subContour);
+
+            if (checkValueRange(arc.X, double.MaxValue, 0)
+                &amp;&amp; checkValueRange(arc.Y, double.MaxValue, 0)
+                &amp;&amp; checkValueRange(arc.Radius, maxRadius, minRadius)
+                )
+            {
+                rtnList.Add(arc);
+            }
+        }
+        return rtnList.ToArray();
+
+    }
+}
+

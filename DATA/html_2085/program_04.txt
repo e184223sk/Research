@@ -1,0 +1,76 @@
+
+using System;
+using System.IO;
+using System.Windows.Forms;
+using System.Drawing;
+using QRCodeEncoderDecoderLibrary;
+
+public class makeQR
+{
+    public static string workDir = @"c:\QR-output";
+    public static string QRfilename = "";
+    public static string printingText;
+    public static Font printFont;
+
+    public static void Main(string[] args)
+    {
+        string QRbody;
+        QRbody = @"" + args[0];
+        Directory.CreateDirectory(workDir);
+        QRfilename = workDir + @"\QR-"+ args[0] +".png";
+
+        generateQR(QRbody);
+
+        // 印刷
+        printingText = @"QRの内容: " + args[0];
+        printFont = new Font("ＭＳ Ｐゴシック", 12);
+        System.Drawing.Printing.PrintDocument pd = new System.Drawing.Printing.PrintDocument();
+        pd.PrintPage += new System.Drawing.Printing.PrintPageEventHandler(pd_PrintPage);
+
+        // プリンターを指定して印刷
+        string PrinterName;
+        // PrinterName = @"Microsoft XPS Document Writer";
+        PrinterName = @"Microsoft Print to PDF";
+        pd.PrinterSettings.PrinterName = PrinterName;
+
+        if (pd.PrinterSettings.IsValid) {
+            pd.Print();
+        } else {    
+            MessageBox.Show(@"指定されたプリンターは見つかりません。" + PrinterName);
+        }
+
+    }
+
+    public static void generateQR(string QRbody)
+    {
+        // QR
+        QREncoder QRCodeEncoder;
+        Bitmap    QRCodeImage;
+        QRCodeEncoder = new QREncoder();
+        byte [] bytesData = System.Text.Encoding.UTF8.GetBytes(QRbody);
+        string Data = System.Text.Encoding.UTF8.GetString(bytesData);
+
+        QRCodeEncoder.Encode(ErrorCorrection.H, Data);
+        QRCodeImage = QRCodeToBitmap.CreateBitmap(QRCodeEncoder, 4, 8);
+
+        // QR save
+        QRCodeImage.Save(QRfilename, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    static void pd_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
+    {
+        //画像を読み込む
+        Image img = Image.FromFile(QRfilename);
+        //画像を描画する
+        //e.Graphics.DrawImage(img, e.MarginBounds); // 幅全体に描画する場合。
+        // 20, 10 の位置に表示
+        e.Graphics.DrawImage(img, 20, 10, img.Width, img.Height); // サイズ指定する場合
+        //文字
+        e.Graphics.DrawString(printingText, printFont, Brushes.Black, 0, 0);
+        //次のページがないことを通知する
+        e.HasMorePages = false;
+        //後始末をする
+        img.Dispose();
+    }
+}
+

@@ -1,0 +1,96 @@
+
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.Callbacks;
+using System;
+using System.IO;
+using System.Text;
+
+public class CreateScript : EditorWindow
+{
+    static string templatePath = "Assets/CustomTemplate.txt";
+    static string scriptName = "NewScript";
+    static string tempFilePath = "Temp/TempCreateScriptInfo";
+
+
+    [MenuItem("Project/CreateScript")]
+    static public void Open()
+    {
+        GetWindow&lt;CreateScript&gt;(true, "CreateScene");
+    }
+
+    private void OnGUI()
+    {
+        // コンパイル中は操作できないように
+        EditorGUI.BeginDisabledGroup(EditorApplication.isCompiling);
+
+        // スクリプト名を入力
+        scriptName = EditorGUILayout.TextField("ScriptName", scriptName);
+
+        // Createボタンを押してスクリプトと一時ファイルを生成し、ウィンドウを閉じる
+        if (GUILayout.Button("Create")) {
+            CreateNewScript();
+            CreateTempFile();
+
+            Close();
+        }
+        EditorGUI.EndDisabledGroup();
+    }
+
+    static void CreateNewScript()
+    {
+        // テンプレートを読み込んでtempに格納
+        StreamReader reader = new StreamReader(templatePath, Encoding.GetEncoding("Shift_JIS"));
+        string template = reader.ReadToEnd();
+        reader.Close();
+
+        // テンプレート中の文字列"#SCRIPTNAME#"をスクリプト名に置換
+        string scriptText = template.Replace("#SCRIPTNAME#", scriptName);
+
+        // csファイルとしてScriptsフォルダに保存
+        File.WriteAllText("Assets/Scripts/" + scriptName + ".cs", scriptText, Encoding.UTF8);
+
+        AssetDatabase.Refresh();
+    }
+
+    static void CreateTempFile()
+    {
+        // 一時ファイルを生成し、必要な情報(ここではスクリプト名のみ)を書き込んで保存
+        File.WriteAllText(tempFilePath, scriptName, Encoding.UTF8);
+    }
+
+    [DidReloadScripts]
+    static void OnCompiled()
+    {
+        // 一時ファイルがあれば処理
+        if (File.Exists(tempFilePath)) {
+            StreamReader reader = new StreamReader(tempFilePath, Encoding.GetEncoding("Shift_JIS"));
+
+            // スクリプト名を読み込み
+            scriptName = reader.ReadLine();
+
+            reader.Close();
+
+            // 空のGameObjectを生成してスクリプトをアタッチし、プレハブ化
+            CreateAttachedPrefab();
+
+            // 一時ファイルの削除
+            File.Delete(tempFilePath);
+        }
+    }
+
+    static void CreateAttachedPrefab()
+    {
+        // 空のGameObjectの生成
+        GameObject go = new GameObject(scriptName);
+
+        // 生成したスクリプトをアタッチ
+        go.AddComponent(Type.GetType(scriptName));
+
+        // プレハブの生成
+        string prefabPath = "Assets/" + scriptName + ".prefab";
+        GameObject prefab = PrefabUtility.CreatePrefab(prefabPath, go, ReplacePrefabOptions.ReplaceNameBased);
+        go = PrefabUtility.ConnectGameObjectToPrefab(go, prefab);
+    }
+}
+

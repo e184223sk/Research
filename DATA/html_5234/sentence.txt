@@ -1,0 +1,23 @@
+More than 3 years have passed since last update.C#には等値比較を行なう方法が複数用意されています。この事自体は他の言語を見ても珍しい事ではありませんから、等値比較で混乱したことがある方は多いのではないでしょうか。この記事では、等値比較の種類について簡単にご紹介しつつ、愚かな私がハマった「既定の等値比較子」に関する罠について書きたいと思います。演算子による等値比較です。
+演算子を定義するには以下の条件があります。つまり、インターフェイス同士に対する演算子を定義することはできないのです。
+残念すぎる(´・ω・｀)参照型の場合、既定ではobject.ReferenceEquals(object, object)が呼ばれますので、参照の等値を判定します。
+値型の場合、既定では各フィールドそれぞれのobject.Equals(object)を使用して比較されます。
+このメソッドはオーバーライド可能です。staticなEqualsです。等値比較の効率化のために使用されるint型のハッシュ値です。
+List&lt;T&gt;.IndexOf(T)やDictionary&lt;TKey, TValue&gt;.this[TKey]などで使用されています。
+Equals系メソッドを再定義した場合、このメソッドを正しく定義し直してやる必要があります。
+このとき、オブジェクトAとオブジェクトBが等値であるなら、ハッシュ値も等値であるという性質を満たす必要があります。IEquatable&lt;T&gt;を実装することで、型に特化したEqualsを定義することができます。
+このメソッドを実装した場合、必ずobject.Equals(object)を適切にオーバーライドしてください。（後述の罠参照）IEqualityComparer&lt;T&gt;は、任意の型同士に関して等値比較を定義することができる便利インターフェイスです。
+IEquatable&lt;T&gt;と異なり、クラスの外部から等値性を上塗りできるため、使い勝手がいい場合があります。
+また、複雑な型同士の比較も定義することが可能です。
+DictionaryやLINQで使用できます。DictionaryやLINQにおいて、IEqualityComparer&lt;T&gt;を指定しない場合に使用される「既定の等値比較子」です。
+この等値比較子は、次の振る舞いをするEquals(T, T)を持っています。このEqualityComparer&lt;T&gt;.Defaultが本記事の主役です。LINQのGroupByを使用してデータをグループ化するサンプルです。LastNameでグループ化できていません。
+グループ化部分をキャストするとどうかな？今度はグループ化できました。つまり、型の解釈によって結果が変わる怪しげなコードになっているということです。前述のEqualityComparer&lt;T&gt;.Default.Equals(T, T)の動作を再掲します。このIEquatable&lt;T&gt;のTは、親クラスをさかのぼって検査するわけではなく、T型のみしか感知しないのです！先程の例では、AVocaloid型がIEquatable&lt;AVocaloid&gt;を実装していましたが、Vocaloid型は実装していません。
+これが静的に解釈されてしまっているのです。IEquatable&lt;T&gt;のMSDNドキュメントに、次のような記述があります。Notes to Implementers:
+If you implement IEquatable, you should also override the base class implementations of Object.Equals(Object) and GetHashCode so that their behavior is consistent with that of the IEquatable.Equals method.
+If you do override Object.Equals(Object), your overridden implementation is also called in calls to the static Equals(System.Object, System.Object) method on your class.
+In addition, you should overload the op_Equality and op_Inequality operators.
+This ensures that all tests for equality return consistent results.先程の例では、object.Equals(object)を実装していませんでしたね(´・ω・｀)
+そのためにおかしな挙動になっていました。AVocaloidクラスに以下のメソッドを追加します。正しくグループ化されました。Equalsの実装は基本的なことですが、忘れがちでハマりがちです（私は）。
+実装する際はお互い気をつけて記述していきましょう。
+
+

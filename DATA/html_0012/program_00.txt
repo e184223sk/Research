@@ -1,0 +1,75 @@
+    // CSV読み込み用のクラス
+    public class KenAllCSV
+    {
+        public string PostalCode { get; set; }                  //郵便番号
+        public string PrefectureKana { get; set; }              //都道府県名カナ
+        public string MunicipalityKana { get; set; }            //市区町村名カナ
+        public string TownAreaKana { get; set; }                //町域名カナ
+        public string Prefecture { get; set; }                  //都道府県名
+        public string Municipality { get; set; }                //市区町村名
+        public string TownArea { get; set; }                    //町域名
+        public int TownAreaContainAnyPostalCode { get; set; }   //一町域が二以上の郵便番号で表される場合の表示
+        public int PostalCodeContainAnyTownArea { get; set; }   //一つの郵便番号で二以上の町域を表す場合の表示 
+    }
+
+    // CSV Mapperクラス
+    public class CsvMapperKenAll : CsvHelper.Configuration.ClassMap&lt;KenAllCSV&gt;
+    {
+        public CsvMapperKenAll()
+        {
+            Map(x =&gt; x.PostalCode).Name("郵便番号");
+            Map(x =&gt; x.PrefectureKana).Name("都道府県名カナ");
+            Map(x =&gt; x.MunicipalityKana).Name("市区町村名カナ");
+            Map(x =&gt; x.TownAreaKana).Name("町域名カナ");
+            Map(x =&gt; x.Prefecture).Name("都道府県名");
+            Map(x =&gt; x.Municipality).Name("市区町村名");
+            Map(x =&gt; x.TownArea).Name("町域名");
+            Map(x =&gt; x.TownAreaContainAnyPostalCode).Name("一町域が二以上の郵便番号で表される場合の表示");
+            Map(x =&gt; x.PostalCodeContainAnyTownArea).Name("一つの郵便番号で二以上の町域を表す場合の表示");
+        }
+    }
+
+    // CSV読み込み
+    private async Task ReadCsvAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(ImportPath))
+        {
+            var tempDatas = new ObservableCollection&lt;KenAllCSV&gt;();
+
+            await Task.Run(() =&gt;
+            {
+                CultureInfo cultureInfo = new CultureInfo("ja-JP");
+                using (var r = new StreamReader(ImportPath, Encoding.GetEncoding("SHIFT_JIS")))
+                using (var csv = new CsvHelper.CsvReader(r, cultureInfo))
+                {
+                    // ヘッダー
+                    csv.Configuration.HasHeaderRecord = true;
+                    // マッピングルールを登録
+                    csv.Configuration.RegisterClassMap&lt;CsvMapperKenAll&gt;();
+                    // データを読み出し
+                    var records = csv.GetRecords&lt;KenAllCSV&gt;();
+
+                    // DataGridに出力
+                    tempDatas = new ObservableCollection&lt;KenAllCSV&gt;();
+                    foreach (var record in records)
+                    {
+                        tempDatas.Add(new KenAllCSV()
+                        {
+                            PostalCode = record.PostalCode,
+                            PrefectureKana = Microsoft.VisualBasic.Strings.StrConv(record.PrefectureKana, VbStrConv.Wide),
+                            MunicipalityKana = Microsoft.VisualBasic.Strings.StrConv(record.MunicipalityKana, VbStrConv.Wide),
+                            TownAreaKana = Microsoft.VisualBasic.Strings.StrConv(record.TownAreaKana, VbStrConv.Wide),
+                            Prefecture = record.Prefecture,
+                            Municipality = record.Municipality,
+                            TownArea = record.TownArea,
+                            TownAreaContainAnyPostalCode = record.TownAreaContainAnyPostalCode,
+                            PostalCodeContainAnyTownArea = record.PostalCodeContainAnyTownArea
+                        });
+                    }
+                }
+            });
+
+            AddressDatas = new ObservableCollection&lt;KenAllCSV&gt;(tempDatas);
+        }
+    }
+

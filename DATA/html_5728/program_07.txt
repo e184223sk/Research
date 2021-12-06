@@ -1,0 +1,102 @@
+
+//usingいろいろ
+using DxLibDLL;//DxLibを使用
+using CoreTweet;//CoreTweetを使用
+using System.IO;//FileInfoを使用
+
+namespace DesktopMascot {
+    public partial class Form1 : Form {
+        private int modelHandle;
+        private int attachIndex;
+        private float totalTime;
+        private float playTime;
+        private float playSpeed;
+        private Tokens tokens;
+
+        public Form1()
+        {
+            InitializeComponent();//フォームの初期設定
+
+            ClientSize = new Size(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);//画面サイズの設定
+            Text = "DesktopMascot";//ウインドウの名前を設定
+            AllowDrop = true;//ドラッグ&amp;ドロップを許可
+
+            tokens = Tokens.Create("ConsumerKey", "ConsumerSecret", "AccessToken", "AccessSecret");//Twitterアカウント認証
+
+            DX.SetOutApplicationLogValidFlag(DX.FALSE);//Log.txtを生成しないように設定
+            DX.SetUserWindow(Handle);//DxLibの親ウインドウをこのフォームに設定
+            DX.DxLib_Init();//DxLibの初期化処理
+            DX.SetDrawScreen(DX.DX_SCREEN_BACK);//描画先を裏画面に設定
+
+            modelHandle = DX.MV1LoadModel("Data/結月ゆかり_純.pmd");//3Dモデルの読み込み
+            attachIndex = DX.MV1AttachAnim(modelHandle, 2, -1, DX.FALSE);//モーションの選択
+            totalTime = DX.MV1GetAttachAnimTotalTime(modelHandle, attachIndex);//モーションの総再生時間を取得
+            playTime = 0.0f;//モーションの再生位置
+            playSpeed = 0.2f;//モーションの再生位置を進める速度
+
+            DX.SetCameraNearFar(0.1f, 1000.0f);//奥行0.1～1000をカメラの描画範囲とする
+            DX.SetCameraPositionAndTarget_UpVecY(DX.VGet(12.0f, 25.0f, -35.0f), DX.VGet(0.0f, 15.0f, 0.0f));//第1引数の位置から第2引数の位置を見る角度にカメラを設置
+        }
+
+        public void MainLoop()
+        {
+            DX.ClearDrawScreen();//裏画面を消す
+            DX.DrawBox(0, 0, Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height, DX.GetColor(1, 1, 1), DX.TRUE);//背景を設定(透過させる)
+
+            playTime += playSpeed;//時間を進める
+
+            //モーションの再生位置が終端まで来たら最初に戻す
+            if (playTime &gt;= totalTime) {
+                playTime = 0.0f;
+            }
+
+            DX.MV1SetAttachAnimTime(modelHandle, attachIndex, playTime);//モーションの再生位置を設定
+
+
+            DX.MV1DrawModel(modelHandle);//3Dモデルの描画
+
+            //ESCキーを押したら終了
+            if (DX.CheckHitKey(DX.KEY_INPUT_ESCAPE) != 0) {
+                Close();
+            }
+
+            DX.ScreenFlip();//裏画面を表画面にコピー
+        }
+
+        private void Form1_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            DX.DxLib_End();//DxLibの終了処理
+        }
+
+        private void Form1_Shown(object sender, EventArgs e)
+        {
+            FormBorderStyle = FormBorderStyle.None;//フォームの枠を非表示にする
+            TransparencyKey = Color.FromArgb(1, 1, 1);//透過色を設定
+        }
+
+        private void Form1_DragEnter(object sender, DragEventArgs e)
+        {
+            //ファイルがドラッグされた場合受け付ける
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+                e.Effect = DragDropEffects.Copy;
+            } else {
+                e.Effect = DragDropEffects.None;
+            }
+        }
+
+        private void Form1_DragDrop(object sender, DragEventArgs e)
+        {
+            string[] path = (string[])e.Data.GetData(DataFormats.FileDrop, false);//ドロップされたファイルのパスを取得(複数可)
+            var ids = new List&lt;long&gt;();
+
+            //各画像をアップロードしIDを取得
+            foreach(var p in path) {
+                MediaUploadResult image = tokens.Media.Upload(media: new FileInfo(p));
+                ids.Add(image.MediaId);
+            }
+
+            Status s = tokens.Statuses.Update(status: "upload image", media_ids: ids);//画像をツイート
+        }
+    }
+}
+

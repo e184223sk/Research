@@ -1,0 +1,65 @@
+using System;
+using System.Net;
+using System.Text;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Host;
+using Twilio;
+using Twilio.Rest.Api.V2010.Account;
+using Twilio.Types;
+
+namespace GiveMeSwitch
+{
+    public static class Function
+    {
+        [FunctionName("TimerTriggerCSharp")]
+        public static void Run([TimerTrigger("0 */5 * * * *")]TimerInfo myTimer, TraceWriter log)
+        {
+            string htmlData;
+
+            try
+            {
+                var webClient = new WebClient {Encoding = Encoding.UTF8};
+                //マイニンテンドーストアの Switch 販売ページを取得
+                htmlData = webClient.DownloadString("https://store.nintendo.co.jp/customize.html");
+                webClient.Dispose();
+            }
+            catch (WebException ecWebException)
+            {
+                htmlData = "";
+                log.Info($"データ取得に失敗しました。{DateTime.UtcNow.AddHours(9)}");
+                log.Info(ecWebException.ToString());
+            }
+
+            //注文ボタンが無効になっているか確認(SOLD OUTになっているか確認)
+            if (htmlData.Contains("btn btn__primary_soldout to_cart") || string.IsNullOrEmpty(htmlData))
+            {
+                log.Info($"売り切れかエラーでした。{DateTime.UtcNow.AddHours(9)}");
+            }
+            else
+            {
+                //Twilioの管理画面で、アカウントSIDと認証トークンを確認可能。
+                const string accountSid = "アカウントSID";
+                const string authToken = "SIDと認証トークン";
+
+                TwilioClient.Init(accountSid, authToken);
+
+                //発信先の電話番号(自分の電話番号)
+                var to = new PhoneNumber("+8190xxxxxxxx");
+
+                //Twilioで購入/設定した電話番号を設定
+                var from = new PhoneNumber("+8150xxxxxxxx");
+
+                //電話をかける
+                var call = CallResource.Create(
+                    to,
+                    from,
+                    //適当な場所に置いたTwiMLのURL
+                    url: new Uri("https://www.noraneko.co.jp/voice.xml"));
+
+                log.Info($"電話をしました！{DateTime.UtcNow.AddHours(9)}");
+                log.Info(call.Sid);
+            }
+        }
+    }
+}
+

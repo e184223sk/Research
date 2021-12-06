@@ -1,0 +1,140 @@
+
+using System;
+using System.IO;
+using System.Net;
+using System.Text;
+using System.Threading;
+
+namespace CSharp1
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (Semaphore semaphore = new Semaphore(0, 1))
+            {
+                // 非同期で読み込む処理を開始して
+                WebRequest req = WebRequest.Create("https://example.com");
+                req.BeginGetResponse(new AsyncCallback(BeginGetResponseCallback), new GetResponseState(req, semaphore));
+                // 終わるのを信じて待つ。信じてるので、非同期処理の先で開放漏れがあると終わらないプログラムになる。
+                semaphore.WaitOne();
+            }
+        }
+
+        static void BeginGetResponseCallback(IAsyncResult asyncResult)
+        {
+            GetResponseState state = (GetResponseState)asyncResult.AsyncState;
+            try
+            {
+                WebResponse res = state.WebRequest.EndGetResponse(asyncResult);
+                // 本来なら超巨大ページみたいなのに当たった時用に適当な大きさのバッファーを作っておいて
+                // ループぐるぐるしたほうがいいんだろうけど、非同期処理でそれをやる事を考えると辛かったので
+                // ギブアップした。一括読み込み！
+                byte[] buffer = new byte[res.ContentLength];
+                Stream stream = res.GetResponseStream();
+                stream.BeginRead(
+                    buffer,
+                    0,
+                    buffer.Length,
+                    new AsyncCallback(BeginReadCallback), 
+                    new ReadState(stream, buffer, state.Semaphore));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                state.Semaphore.Release();
+            }
+        }
+
+        static void BeginReadCallback(IAsyncResult asyncResult)
+        {
+            ReadState state = (ReadState)asyncResult.AsyncState;
+            try
+            {
+                int length = state.Stream.EndRead(asyncResult);
+                if (length != state.Buffer.Length)
+                {
+                    Console.WriteLine("何かデータうまく読めなかった");
+                    state.Semaphore.Release();
+                    return;
+                }
+
+                // UTF-8 決め打ちにしました…
+                Console.WriteLine(Encoding.UTF8.GetString(state.Buffer));
+                state.Semaphore.Release();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                state.Semaphore.Release();
+            }
+        }
+    }
+
+    // BeginGetResponse のコールバックに渡したい情報 (今ならこんなクラスはレコードでよさそう)
+    class GetResponseState
+    {
+        private WebRequest _webRequest;
+        public WebRequest WebRequest
+        {
+            get
+            {
+                return _webRequest;
+            }
+        }
+
+        private Semaphore _semaphore;
+        public Semaphore Semaphore
+        {
+            get
+            {
+                return _semaphore;
+            }
+        }
+
+        public GetResponseState(WebRequest req, Semaphore sem)
+        {
+            _webRequest = req;
+            _semaphore = sem;
+        }
+    }
+
+    // BeginRead のコールバックに渡したい情報
+    class ReadState
+    {
+        private Stream _stream;
+        public Stream Stream
+        {
+            get
+            {
+                return _stream;
+            }
+        }
+
+        private byte[] _buffer;
+        public byte[] Buffer
+        {
+            get
+            {
+                return _buffer;
+            }
+        }
+
+        private Semaphore _semaphore;
+
+        public Semaphore Semaphore
+        {
+            get
+            {
+                return _semaphore;
+            }
+        }
+        public ReadState(Stream stream, byte[] buffer, Semaphore semaphore)
+        {
+            _stream = stream;
+            _buffer = buffer;
+            _semaphore = semaphore;
+        }
+    }
+}
+

@@ -1,0 +1,62 @@
+
+using System.Web.Mvc;
+using System.Data;
+using System.Data.Common;
+using MvcBasic.Models;
+
+namespace MvcBasic.Controllers
+{
+    public class LatestResultController : Controller
+    {
+        public ActionResult List()
+        {
+            var vm = new DropDownListViewModel();
+
+            // ここでビューモデルに選択肢をセットしています。
+            vm.FactoryOptions = this.GetFactoryOptions();
+
+            return View(vm);
+        }
+
+        [HttpPost]
+        public ActionResult List(DropDownListViewModel vm)
+        {
+            // もう一度ビューモデルに選択肢をセットしています。
+            // Post されてこの箇所に来た時点で、
+            // FactoryOptions プロパティは null になっているので、
+            // 再度セットする必要があります。
+            vm.FactoryOptions = this.GetFactoryOptions();
+
+            DataTable tb = new DataTable();
+
+            using (var context = new StandardContext(vm.Factory))
+            {
+                DbProviderFactory factory = DbProviderFactories.GetFactory(context.Database.Connection);
+                using (var cmd = factory.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT MAX(update_time) AS update_time_max FROM RESULTDATA";
+                    cmd.CommandType = CommandType.Text;
+                    cmd.Connection = context.Database.Connection;
+                    using (var adapter = factory.CreateDataAdapter())
+                    {
+                        adapter.SelectCommand = cmd;
+                        adapter.Fill(tb);
+                    }
+                }
+            }
+
+            ViewData["msg"] = String.Format("{0} {1}", "RESULTDATA", tb.Rows[0]["update_time_max"].ToString());
+
+            return View(vm);
+        }
+
+        // 工場一覧の選択肢を取得するためのメソッドです。
+        private IEnumerable&lt;FactoryViewModel&gt; GetFactoryOptions()
+        {
+            string[] sourceDatas = new string[] { "Context190", "Context173" };
+
+            return sourceDatas.Select(t =&gt; new FactoryViewModel() { Value = t });
+        }
+    }
+}
+

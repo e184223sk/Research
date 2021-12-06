@@ -1,0 +1,85 @@
+using System;
+using System.IO;
+using System.Xml;
+namespace StripHTMLs{
+    class Program{
+        static void Main(string[] args){
+            StreamReader reader = new StreamReader(new FileStream(args[0], FileMode.Open, FileAccess.Read));
+            String motoData = reader.ReadToEnd();
+            Console.WriteLine("FileName: " + args[0]);
+            Console.WriteLine("Input Data is: ");
+            Console.WriteLine(motoData);
+            Console.WriteLine("========================");
+            Console.WriteLine("ans is");
+
+            Sgml.SgmlReader tempSgmlReader = new Sgml.SgmlReader();
+            tempSgmlReader.DocType = "HTML";
+            tempSgmlReader.IgnoreDtd = true;
+
+            StringReader tempStringReader = new StringReader(motoData);
+            tempSgmlReader.InputStream = tempStringReader;
+
+            XmlDocument myXmlDocument = new XmlDocument();
+            // myXmlDocument.XmlResolver = null;
+            myXmlDocument.Load(tempSgmlReader);
+
+            try{
+                String str = "";
+                XmlNodeList myXmlNodeList = myXmlDocument.ChildNodes;
+                for(int i=0;i&lt;myXmlNodeList.Count;i++){
+                    str += EscapeHTML(myXmlNodeList[i]);
+                }
+                Console.WriteLine(str);
+            }catch (Exception ee){
+                Console.Error.WriteLine(ee.ToString());
+            }
+        }
+
+        private static String EscapeHTML(XmlNode node) {
+            // B and I and Font/Color/Size permit only
+            String ansStr = "";
+            String tagStart = "";
+            String tagEnd = "";
+#if DEBUG
+            Console.WriteLine("node.name:" + node.Name);
+            Console.WriteLine("node.value:" + node.Value);
+            Console.WriteLine("node.HasChildNodes:" + node.HasChildNodes.ToString());
+#endif
+            //
+            switch (node.Name.ToLower()) { 
+                case "b":
+                    tagStart = "&lt;b&gt;";
+                    tagEnd = "&lt;/b&gt;";
+                    break;
+                case "i":
+                    tagStart = "&lt;i&gt;";
+                    tagEnd = "&lt;/i&gt;";
+                    break;
+                case "font":
+                    tagStart = "&lt;font";
+                    tagEnd = "&lt;/font&gt;";
+                    XmlAttributeCollection xmlAttributeCollection = node.Attributes;
+                    foreach(XmlAttribute attr in xmlAttributeCollection){
+                        switch (attr.Name.ToLower()) {
+                            case "color":
+                            case "size":
+                                tagStart += " " + attr.Name + "=\"" + System.Security.SecurityElement.Escape(attr.Value) + "\"";
+                                break;
+                        }
+                    }
+                    tagStart += "&gt;";
+                    break;
+            }
+            if (node.HasChildNodes == true){
+                XmlNodeList list = node.ChildNodes;
+                for (int i = 0; i &lt; list.Count; i++) {
+                    ansStr += EscapeHTML(list[i]);
+                }
+            }else {
+                ansStr = System.Security.SecurityElement.Escape(node.Value);
+            }
+            return tagStart + ansStr + tagEnd;
+        }
+    }
+}
+

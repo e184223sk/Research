@@ -1,0 +1,13 @@
+Keyが定まっていないメンバーを含むJsonをParse(Desrialize)する方法Json形式はAPIのResponseなどとしてよく使われています。
+Jsonの最小要素はKeyとValueのペアですが、このKey側があらかじめ定まっていない場合（静的でない）は、情報の取り出しに少し工夫がいります。
+（C#での話です。Pythonだと"request"モジュールで自動的にParseしてくれたりします。）
+（ちなみに、あらかじめKeyが定まっている場合はC#標準のDataContractJsonSerializerとかを使えば簡単にParseできます。）  題材がないと説明しにくいので、Keyが定まってないJsonの例を一つ書きます。
+これは、SlackのWorkspaceに登録されている絵文字一覧を取得するAPI のResponseとして渡されるJsonです。最初にある"ok":trueは、Requestが上手くできたかの値なのでここでは関係ありません。問題は次の"emoji"に対応する項目です。
+"bowtie", "squirrel".. というように、登録されている絵文字の名前がKeyとして並んでいます。しかし、登録されている絵文字はあらかじめ決まっていない（Slackではユーザーが新しく絵文字を追加さることができる）です。つまり、"emoji"の中身の情報を取り出そうとすると、Keyが定まっていないJsonをParseする必要があります。  この記事では、このJsonを例にとって、Parse方法を見ていきます。今回は、Newtonsoft.Json(Json.NET)を使ってParseを行います。Newtonsoft.JsonはNugetからインストールします。
+（C#標準でもJsonを扱うためのクラス群が用意されているのですが、予めKey（文字列）が定まっていないJsonのParse方法はなさそうでした。やり方知っている方いれば教えてください。）本題に入る前に、Newtonsoft.Jsonの基本事項を確認しておきます。Newtonsoft.Jsonを使ってJsonをParseする場合は、対象のJsonを、Jvalue, JObject, JArrayの3つの型に変換していく必要があります。Jvalue, JObject, JArrayの3つは、Parse対象のJsonの構成によって、適切に使い分ける必要があります。
+（※Jsonの構成によっては、明示的にJValue, JObject, JArrayなどに変換しなくても、自動的に変換してくれるメソッドが用意されています。）JValue, JObject, JArrayについて、以下に説明と簡単な例を示します。まずParseしたいJsonの構成を見て、使う型を選びます。下記のJsonなら以下のようにParseできそうです。（今回はJObject型のみ使用）実際に、1~3までの流れをコードで書くとこうです。コード中にここまでで解説していないものがいくつかあるので、補足していきます。引数に与えられたstring型をJObject型に変換するメソッドです。
+コード中では、まずこのメソッドを使って、Responseなどで受け取ったstring型をJObjectに変換しています。なお、引数に渡すstring型はJson形式になっている必要があります。（Json形式になっていない場合は、Newtonsoft.Json.JsonReaderExceptionがthrowされます。）JObject型から特定のKeyに対応するValueを取り出したい場合は、Dictionary型などと同様に、["(Key)"]の形で指定してやると取り出すことができます。
+この際、取り出したValueを適切な型にCastしてやる必要があります。（正確にいうと、この時点ではCastしなくても大丈夫です。Castしない場合はJToken型となります。）  例ではJObject型にCastしていますが、JArray型にCast使用とすると例外(System.InvalidCastException)がthrowされます。ここで、変数emojisはJObject型であり、その実態はKeyとValueの羅列です。  JObject型はIEnumerableを継承しており、foreachで扱えます。
+このとき、各要素（GetEnumerator()の戻り値）は、KeyValuePairとなります。（↑の例だと、Keyのstringが絵文字の名前、Valueが絵文字のuriとなります）なお、KeyValuePairのValueは、JToken型となるので利用するにはCastが必要となります。この記事では、Keyの名前が静的でないJsonのParse(Deserialize)方法を書きました。  簡潔にまとめると以下です。
+
+

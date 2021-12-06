@@ -1,0 +1,91 @@
+
+        private void buttonImport_Click(object sender, EventArgs e)
+        {
+            // ファイル選択
+            string fullPath = "";
+            using (var ofd = new OpenFileDialog())
+            {
+                ofd.FileName = "user.config";
+                ofd.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                ofd.Filter = "設定ファイル(*.config)|*.config";
+                ofd.FilterIndex = 1;
+                ofd.Title = "インポートするファイルを選択してください";
+                ofd.RestoreDirectory = true;
+                if (ofd.ShowDialog() != DialogResult.OK)
+                {
+                    return;
+                }
+
+                fullPath = ofd.FileName;
+            }
+
+            // 読み込み
+            ClientSettingsSection section = null;
+            try
+            {
+                // ExeConfigFilenameにインポートするファイルだけ指定しても、そのファイルにはセクション情報が書かれていないためGetSectionで正しく読めない。
+                // さらに、ExeConfigFilenameにアプリケーション設定、RoamingUserConfigFilenameにインポートするファイルを指定しても、正しく動かない場合がある。
+                // 例えばインポートするファイルに吐かれていない新規設定がある場合、本来は現在値を保持してほしいが、デフォルト値で上書きしてしまう。
+                // ということで、ExeConfigFilename/RoamingUserConfigFilenam/LocalUserConfigFilenameの3つを指定して読み込む。
+                var tmpAppConfig  = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var tmpUserCOnfig = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.PerUserRoamingAndLocal);
+                var exeFileMap = new ExeConfigurationFileMap
+                {
+                    ExeConfigFilename         = tmpAppConfig.FilePath,
+                    RoamingUserConfigFilename = tmpUserCOnfig.FilePath,
+                    LocalUserConfigFilename   = fullPath
+                };
+                var config = ConfigurationManager.OpenMappedExeConfiguration(exeFileMap, ConfigurationUserLevel.PerUserRoamingAndLocal);
+                section = (ClientSettingsSection)config.GetSection($"userSettings/{typeof(Settings).FullName}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "インポート失敗", MessageBoxButtons.OK);
+                return;
+            }
+
+            // データの更新
+            try
+            {
+                // Key:プロパティ名、Value:読み込んだファイルの該当プロパティのSettingElement、のDictionaryを作成する
+                var dict = new Dictionary&lt;string, SettingElement&gt;();
+                foreach (SettingElement v in section.Settings)
+                {
+                    dict.Add(v.Name, v);
+                }
+
+                // 現在の設定を更新する
+                foreach (SettingsPropertyValue value in copiedSettings.PropertyValues)
+                {
+                    SettingElement element;
+                    if (dict.TryGetValue(value.Name, out element))
+                    {
+                        // SerializedValueを1度も参照していないと、参照したときの元の値に戻ってしまうという仕様になっている。
+                        // https://referencesource.microsoft.com/#System/sys/system/configuration/SettingsPropertyValue.cs,69
+                        // その対策として、リフレクションで無理やり内部のメンバをfalseに変更する。
+                        // リフレクションを使わなくても、var dummy = value.SerializedValueを実行して1度参照する方法でもよい。
+                        var _ChangedSinceLastSerialized = typeof(SettingsPropertyValue).GetField("_ChangedSinceLastSerialized", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Instance);
+                        _ChangedSinceLastSerialized.SetValue(value, false);
+
+                        // 値の設定
+                        value.SerializedValue = element.Value.ValueXml.InnerXml;
+
+                        // value.Deserializedをfalseにすると、value.PropertyValueにアクセスしたときにDeserializeされる.
+                        // https://referencesource.microsoft.com/#System/sys/system/configuration/SettingsPropertyValue.cs,40
+                        value.Deserialized = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "インポート失敗", MessageBoxButtons.OK);
+                return;
+            }
+
+            // 画面を更新
+            propertyGrid1.SelectedObject = copiedSettings;
+
+            // メッセージ
+            MessageBox.Show("インポートした設定を反映するには保存を押してください");
+        }
+

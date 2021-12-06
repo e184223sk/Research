@@ -1,0 +1,129 @@
+public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+
+            //イベントの設定　共通にしたいので手動で
+            pictureBox1.MouseDown += PictureBox_MouseDown;
+            pictureBox2.MouseDown += PictureBox_MouseDown;
+            pictureBox1.MouseMove += PictureBox_MouseMove;
+            pictureBox2.MouseMove += PictureBox_MouseMove;
+            pictureBox1.MouseUp += PictureBox_MouseUp;
+            pictureBox2.MouseUp += PictureBox_MouseUp;
+        }
+
+        WaveOutEvent outputDevice;
+        AudioFileReader audioFile;
+        string filePath;//音声ファイルのパス
+        int bytePerSec;//一秒あたりのバイト数
+        int length;//曲の長さ（秒）
+        int position;//再生位置（秒）
+        bool mouseDownFlag;//ドラッグ時に使うフラグ　MouseDown中にtrue
+
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                filePath = openFileDialog1.FileName;
+
+                //黒い波形の設定
+                var soundCloudDarkBlocks = new SoundCloudBlockWaveFormSettings(Color.FromArgb(52, 52, 52), Color.FromArgb(55, 55, 55), Color.FromArgb(154, 154, 154),
+                    Color.FromArgb(204, 204, 204));//バーの色の設定
+
+                soundCloudDarkBlocks.Width = pictureBox1.Width;//生成する画像の幅
+                soundCloudDarkBlocks.TopHeight = pictureBox1.Height / 4 * 3;//上に伸びるバーの高さ
+                soundCloudDarkBlocks.BottomHeight = pictureBox1.Height / 4;//下に伸びるバーの長さ
+                soundCloudDarkBlocks.BackgroundColor = Color.Transparent;//生成される画像の背景色　今回は透明
+                soundCloudDarkBlocks.PixelsPerPeak = 2;//バーの幅
+                //soundCloudDarkBlocks.SpacerPixels = 1;　バーの間に挟まる細いバーの幅
+
+
+                //オレンジの波形の設定
+                var soundCloudOrangeBlocks = new SoundCloudBlockWaveFormSettings(Color.FromArgb(255, 76, 0), Color.FromArgb(255, 52, 2), Color.FromArgb(255, 171, 141),
+                     Color.FromArgb(255, 213, 199));
+
+                soundCloudOrangeBlocks.Width = pictureBox1.Width;
+                soundCloudOrangeBlocks.TopHeight = pictureBox1.Height / 4 * 3;
+                soundCloudOrangeBlocks.BottomHeight = pictureBox1.Height / 4;
+                soundCloudOrangeBlocks.BackgroundColor = Color.Transparent;
+                soundCloudOrangeBlocks.PixelsPerPeak = 2;
+
+
+                var renderer = new WaveFormRenderer(); //波形レンダラの生成
+                var averagePeakProvider = new AveragePeakProvider(3); //波形レンダラ内部で使用されるもの
+
+                //レンダリングした画像をPictureBoxに設定
+                pictureBox1.BackgroundImage = renderer.Render(filePath, averagePeakProvider, soundCloudDarkBlocks);
+                pictureBox2.BackgroundImage = renderer.Render(filePath, averagePeakProvider, soundCloudOrangeBlocks);
+                pictureBox2.Width = 0;
+
+                label1.Text = Path.GetFileName(filePath);
+
+                outputDevice = new WaveOutEvent();
+                audioFile = new AudioFileReader(filePath);
+                outputDevice.Init(audioFile);
+                playButton.BackgroundImage = Properties.Resources.play;
+            }
+        }
+
+        private void playButton_Click(object sender, EventArgs e)
+        {
+            switch (outputDevice.PlaybackState)
+            {
+                case PlaybackState.Stopped://ファイルが読み込まれてまだ一度も再生されていない場合
+
+                    //必要な値を求める
+                    bytePerSec = audioFile.WaveFormat.BitsPerSample / 8 * audioFile.WaveFormat.SampleRate * audioFile.WaveFormat.Channels;
+                    length = (int)audioFile.Length / bytePerSec;
+
+                    label3.Text = new TimeSpan(0, 0, length).ToString();
+                    timer1.Enabled = true;
+
+                    outputDevice.Play();
+                    playButton.BackgroundImage = Properties.Resources.pause;
+                    break;
+                case PlaybackState.Paused://一時停止時の場合
+                    outputDevice.Play();
+                    playButton.BackgroundImage = Properties.Resources.pause;
+                    break;
+                case PlaybackState.Playing://再生中の場合
+                    outputDevice.Pause();
+                    playButton.BackgroundImage = Properties.Resources.play;
+                    break;
+            }
+
+        }
+
+　　　　private void timer1_Tick(object sender, EventArgs e)
+        {
+            //再生位置（秒）を計算して表示
+            position = (int)audioFile.Position / bytePerSec;
+            label2.Text = new TimeSpan(0, 0, position).ToString();
+
+            if (!mouseDownFlag)//ドラッグ時に幅を変更するとチカチカするのを防止
+                //再生位置からオレンジ波形をすすめる
+                pictureBox2.Width = (int)(((double)position / length) * pictureBox1.Width);
+        }
+
+        private void PictureBox_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (audioFile == null) return;
+            mouseDownFlag = true;//ドラッグ時のフラグをtrueに
+        }
+
+        private void PictureBox_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (mouseDownFlag) pictureBox2.Width = e.X;//ドラッグ中にオレンジの波形の幅を変更
+        }
+
+        private void PictureBox_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (!mouseDownFlag) return;
+            mouseDownFlag = false;
+
+            //ドラッグが終了した場所から曲の再生位置を計算して設定
+            audioFile.Position = (int)(((double)e.X / pictureBox1.Width) * audioFile.Length);
+        }
+    }
+

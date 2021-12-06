@@ -1,0 +1,115 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Cysharp.Threading.Tasks;
+using UnityEngine;
+using VRM;
+
+public class HumanRanch : MonoBehaviour
+{
+    private void Start()
+    {
+        InitializeCage().ContinueWith(Rearing);
+    }
+
+    #region Ranch
+
+    [SerializeField]
+    private Transform[] _cage;
+
+    [SerializeField]
+    private RuntimeAnimatorController _animator;
+
+    private GameObject[] _liveStocks;
+
+    private async UniTask InitializeCage()
+    {
+        // wait for first update
+        await UniTask.Yield(PlayerLoopTiming.Update);
+
+        _liveStocks = new GameObject[_cage.Length];
+    }
+
+    private const float ProductionCycle = 3f;
+    private readonly Vector3 CageGap = new Vector3(0, -1, 0);
+
+    private async UniTask Rearing()
+    {
+        var token = this.GetCancellationTokenOnDestroy();
+        while (!token.IsCancellationRequested)
+        {
+            var changeIndex = UnityEngine.Random.Range(0, _liveStocks.Length);
+            if (_liveStocks[changeIndex] == null)
+            {
+                var context = await LoadVRM();
+                var avatar = context.Root;
+                avatar.GetComponent&lt;Animator&gt;().runtimeAnimatorController = _animator;
+                avatar.transform.SetPositionAndRotation(
+                    _cage[changeIndex].position + CageGap,
+                    _cage[changeIndex].rotation
+                );
+                _liveStocks[changeIndex] = avatar;
+                context.ShowMeshes();
+            }
+            else
+            {
+                Destroy(_liveStocks[changeIndex]);
+                _liveStocks[changeIndex] = null;
+            }
+
+            await UniTask.Delay(TimeSpan.FromSeconds(ProductionCycle), cancellationToken: token);
+        }
+    }
+
+    #endregion
+
+    #region LoadVRM
+
+    private readonly Dictionary&lt;string, byte[]&gt; _VRMBufferCache = new Dictionary&lt;string, byte[]&gt;();
+
+    private string[] _VRMFullPaths = null;
+
+    private static string[] SearchStreamingAssetsVRM()
+    {
+        var dirPath = Path.Combine(Application.streamingAssetsPath, "vrm");
+        if (!Directory.Exists(dirPath))
+        {
+            Directory.CreateDirectory(dirPath);
+        }
+
+        return Directory.GetFiles(dirPath, "*.vrm");
+    }
+
+    private async UniTask&lt;VRMImporterContext&gt; LoadVRM()
+    {
+        if (_VRMFullPaths == null)
+        {
+            _VRMFullPaths = SearchStreamingAssetsVRM();
+        }
+
+        var path = _VRMFullPaths[UnityEngine.Random.Range(0, _VRMFullPaths.Length)];
+        if (!_VRMBufferCache.ContainsKey(path))
+        {
+            await UniTask.SwitchToThreadPool();
+            var buffer = File.ReadAllBytes(path);
+            await UniTask.SwitchToMainThread();
+            _VRMBufferCache[path] = buffer;
+        }
+
+        var context = await LoadVRMFromBuffer(_VRMBufferCache[path]);
+        return context;
+    }
+
+    private static async UniTask&lt;VRMImporterContext&gt; LoadVRMFromBuffer(byte[] buffer)
+    {
+        var context = new VRMImporterContext();
+        context.ParseGlb(buffer);
+        await context.LoadAsyncTask();
+        return context;
+    }
+
+    #endregion
+}
+
+

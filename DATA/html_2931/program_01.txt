@@ -1,0 +1,25 @@
+
+private void Implement(BuildReport report)
+{
+    string[] guidArray = AssetDatabase.FindAssets("t:" + nameof(ProgramStatus));
+    ProgramStatus programStatus = AssetDatabase.LoadAssetAtPath&lt;ProgramStatus&gt;(AssetDatabase.GUIDToAssetPath(guidArray[0]));
+    programStatus.Initialize();
+    IEnumerable&lt;string&gt; targetNames = programStatus.Enables.Zip(programStatus.OutputPaths, (enable, outputPath) =&gt; (enable, Path.GetFileName(outputPath))).ToArray();
+    IEnumerable&lt;string&gt; assemblyPaths = report.files.Where(buildFile =&gt;
+    {
+        if (buildFile.role != "ManagedLibrary")
+        {
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(buildFile.path)) return false;
+        string buildName = Path.GetFileName(buildFile.path);
+        return targetNames.All(pair =&gt; pair.Item2 != buildName) || targetNames.First(pair =&gt; pair.Item2 == buildName).Item1;
+    }).Select(buildFile =&gt; buildFile.path);
+    string directoryName = Path.GetDirectoryName(report.files[0].path);
+    Debug.Log(directoryName);
+    using (var extender = new EnumExtender(searchDirectory: new string[1] { directoryName }))
+    {
+        extender.Extend(assemblyPaths);
+    }
+}
+

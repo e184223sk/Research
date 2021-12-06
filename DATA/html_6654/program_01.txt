@@ -1,0 +1,68 @@
+
+namespace Rein.Functions.Set{
+    public class Mean: UnaryFunction{
+        private int Axis;
+        private bool KeepDim;
+        public Mean(int axis, bool keepDim = true):base("Mean"){
+            this.Axis = axis;
+            this.KeepDim = keepDim;
+        }
+
+        protected override Tensor UnaryForward(Tensor inTensor){
+            List&lt;int&gt; shape = new List&lt;int&gt;(inTensor.Shape);
+            int biggerStep, step, vecSize, outSize;
+            R[] data;
+
+            vecSize = shape[this.Axis];
+            outSize = this.In.Size / vecSize;
+            step = this.In.Size / shape.GetRange(0, this.Axis + 1).Aggregate((now, next) =&gt; now * next);
+            biggerStep = step * vecSize;
+            data = new R[this.In.Size / vecSize];
+
+            for (int i = 0; i &lt; outSize; i+=step){
+                for (int j = 0; j &lt; biggerStep; j+=step){
+                    for (int k = 0; k &lt; step; k++)
+                        data[i + k] += this.In.Data[vecSize * i + j + k] / vecSize;
+                }
+            }
+
+            if (this.KeepDim){
+                shape[Axis] = 1;
+            }else{
+                shape.RemoveAt(Axis);
+            }
+
+            return new Tensor(data, shape);
+        }
+
+
+        protected override void UnaryBackward(){
+
+            List&lt;int&gt; shape = new List&lt;int&gt;(this.In.Shape);
+            int meanNum = 1;
+
+            meanNum *= shape[this.Axis];
+            shape[this.Axis] = 1;
+
+            int step, repNum;
+            R[] grad;
+
+            step = this.Out.Size / shape.GetRange(0, this.Axis + 1).Aggregate((now, next) =&gt; now * next);
+            repNum = this.In.Shape[this.Axis];
+            grad = new R[this.In.Size];
+
+            // 総和処理
+            for (int i = 0; i &lt; this.Out.Size; i+=step){
+                for (int j = 0; j &lt; repNum; j++){
+                    Array.Copy(this.Out.Grad, i, grad, i * repNum + j * step, step);
+                }
+            }
+
+
+            for (int i = 0; i &lt; this.In.Size; i++){
+                this.In.Grad[i] += grad[i] / meanNum;
+            }
+        }
+    }
+}
+

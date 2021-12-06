@@ -1,0 +1,68 @@
+        /// &lt;summary&gt;指定のPDFに、指定の文字列があれば、指定のbyte（初期値は半角SP）で埋めます。&lt;/summary&gt;
+        static private bool replace_PDF_textCONTENTS_proc(string in_in_filepath, string in_out_filepath, string in_moto_text,byte in_埋めるbyte ,int in_replace_count = 0)
+        {
+            if (File.Exists(in_in_filepath) == false)
+                return false;
+
+            byte[] tmp_sarch_bytes = System.Text.Encoding.UTF8.GetBytes(in_moto_text);
+            PdfReader reader = new PdfReader(in_in_filepath);
+            for (int i番 = 1; i番 &lt;= reader.NumberOfPages; i番++)
+            {
+                PdfDictionary dict = reader.GetPageN(i番);
+                PdfObject object2 = dict.GetDirectObject(PdfName.CONTENTS);
+                if (object2 is PRStream)
+                {
+                    PRStream stream = (PRStream)object2;
+                    byte[] data = PdfReader.GetStreamBytes(stream);
+
+                    int match_count = 0;
+                    for (int i = 0; i &lt; data.Length - tmp_sarch_bytes.Length; i++)
+                    {
+                        byte type_by = data[i];
+
+
+
+                        Func&lt;bool&gt; get_match = () =&gt;
+                        {
+                            for (int p = 0; p &lt; tmp_sarch_bytes.Length; p++)
+                            {
+                                if (data[i + p] != tmp_sarch_bytes[p])
+                                    return false;
+                            }
+                            return true;
+                        };
+                        bool is_match = get_match();
+                        if (is_match == false)
+                            continue;
+                        //
+                        // 合致したケース
+                        match_count++;
+                        for (int p = 0; p &lt; tmp_sarch_bytes.Length; p++)
+                        {
+                            data[i + p] = in_埋めるbyte;
+                        }
+                        if (in_replace_count != 0 &amp;&amp; match_count == in_replace_count)   // 置換の回数指定があれば、その回数の置換で終了します。
+                            break;
+                    }
+
+                    stream.SetData(data);
+                }
+            }
+
+            try
+            {
+                PdfStamper stamper = new PdfStamper(reader, new FileStream(in_out_filepath, FileMode.Create));
+                stamper.Close();
+                reader.Close();
+            }
+            catch (Exception ex)
+            {
+            }
+            finally
+            {
+                reader.Close();
+            }
+
+            return true;
+        }
+

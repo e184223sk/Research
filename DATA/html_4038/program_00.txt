@@ -1,0 +1,82 @@
+namespace Examples.GrpcConfiguration.Servers
+{
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="args"&gt;&lt;/param&gt;
+        static void Main(string[] args)
+        {
+            // 設定ファイルを読み込みます。
+            RpcConfigurationConfig config = LoadConfig(@".\GrpcServer.config");
+
+            // コンテキストを生成します。
+            // 第二引数は、コンテキストが dispose された時に生成した gRPC オブジェクトを破棄（チャネルをシャットダウン）するかどうかを表します。
+            using (RpcConfigurationContext context = new RpcConfigurationContext(config, true))
+            {
+
+                Server server = new Server();
+
+                // 設定上のサービス名を指定してサービスに対してインターセプターを適用します。
+                server.Services.Add(context.Intercept(ExampleService.BindService(new ExampleServiceImpl()), "example1"));
+
+                // 設定上のチャネル名を指定してサーバーポートを生成します。
+                server.Ports.Add(context.GetServerPort("channel1"));
+
+                server.Start();
+
+                Console.WriteLine("The server has started.");
+                Console.WriteLine("If you press any key, this application will terminate.");
+                Console.ReadLine();
+
+            }
+
+            Console.WriteLine("The server has shutdown.");
+            System.Threading.Thread.Sleep(1000);
+        }
+
+        /// &lt;summary&gt;
+        /// 指定された設定ファイルを読み込みます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="filePath"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static RpcConfigurationConfig LoadConfig(string filePath)
+        {
+            // ExtraInterceptors などに指定した型をシリアライザに渡します。
+            Type[] extraTypes =
+            {
+                typeof(ExampleInterceptorConfig)
+            };
+
+            XmlSerializer serializer = new XmlSerializer(typeof(RpcConfigurationConfig), extraTypes);
+
+            RpcConfigurationConfig config = new RpcConfigurationConfig();
+
+            using (XmlReader reader = XmlReader.Create(filePath))
+            {
+                return (RpcConfigurationConfig)serializer.Deserialize(reader);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// インターセプターを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="config"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static Interceptor CreateExampleInterceptor(CustomInterceptorConfig config)
+        {
+            // MethodArgs で指定した引数を取得できます。
+            if (config.TryGetMethodArgs("name", out object name))
+            {
+                return new ExampleInterceptor(name.ToString());
+            }
+            else
+            {
+                return new ExampleInterceptor();
+            }
+        }
+
+    }
+}
+

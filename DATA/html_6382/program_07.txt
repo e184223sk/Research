@@ -1,0 +1,53 @@
+
+// Copyright(c) 2017 Takahiro Miyaura
+// Released under the MIT license
+// http://opensource.org/licenses/mit-license.php
+
+private void OnVoiceMessage(object sender, MessageWebSocketMessageReceivedEventArgs messageEventArgs)
+{
+    using (var reader = messageEventArgs.GetDataStream())
+    using (var stream = reader.AsStreamForRead())
+    using (var mStream = new MemoryStream())
+    {
+        var bufferSize = 32000;
+        var bytes = new List&lt;byte&gt;();
+        var buf = new byte[bufferSize];
+        var length = stream.Read(buf, 0, buf.Length);
+        while (length - bufferSize == 0)
+        {
+            bytes.AddRange(buf);
+            length = stream.Read(buf, 0, buf.Length);
+        }
+        if (length &gt; 0)
+            bytes.AddRange(buf.Take(length).ToArray());
+
+        var fullData = bytes.ToArray();
+        mStream.Write(fullData, 0, fullData.Length);
+        mStream.Position = 0;
+        var bitsPerSampleBytes = fullData.Skip(34).Take(2).ToArray();
+        var channelBytes = fullData.Skip(22).Take(2).ToArray();
+        var samplingBytes = fullData.Skip(24).Take(4).ToArray();
+        var bitsPerSample = BitConverter.ToInt16(bitsPerSampleBytes, 0);
+        var channel = BitConverter.ToInt16(channelBytes, 0);
+        var samplingRate = BitConverter.ToInt32(samplingBytes, 0);
+
+        using (var player = new WasapiOutRT(AudioClientShareMode.Shared, 250))
+        {
+            player.Init(() =&gt;
+            {
+                var waveChannel32 =
+                    new WaveChannel32(new RawSourceWaveStream(mStream,
+                        new WaveFormat(samplingRate, bitsPerSample, channel)));
+                var mixer = new MixingSampleProvider(new[] {waveChannel32.ToSampleProvider()});
+
+                return mixer.ToWaveProvider16();
+            });
+
+            player.Play();
+            while (player.PlaybackState == PlaybackState.Playing)
+            {
+            }
+        }
+    }
+}
+

@@ -1,0 +1,59 @@
+
+public async Task InitThermalCamera()
+{
+    // すべてのI2Cデバイスを取得するためのセレクタ文字列を取得
+    string aqs = I2cDevice.GetDeviceSelector(I2cDeviceName);
+    DeviceInformationCollection dis = null;
+
+    try
+    {
+        // セレクタ文字列を使ってI2Cコントローラデバイスを取得
+        dis = await DeviceInformation.FindAllAsync(aqs);
+
+        if (dis.Count == 0)
+        {
+            Debug.WriteLine("I2Cコントローラデバイスが見つかりませんでした");
+            return;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine(ex.Message);
+        throw;
+    }
+
+    // I2Cアドレスを指定して、デフォルトのI2C設定を作成する
+    var settings = new I2cConnectionSettings(ThermalCameraI2CAddress);
+
+    // バス速度を設定(FastMode：400 kHz)(指定しないと、標準設定(StandardMode：100kHz)になる)
+    settings.BusSpeed = I2cBusSpeed.FastMode;
+
+    // 取得したI2Cデバイスと作成した設定で、I2cDeviceのインスタンスを作成
+    I2CThermalCamera = await I2cDevice.FromIdAsync(dis[0].Id, settings);
+
+    if (I2CThermalCamera == null)
+    {
+        Debug.WriteLine(string.Format("スレーブアドレス {0} の I2C コントローラー {1} はほかのアプリで使用されています。他のアプリで使用されていないか、確認してください。", settings.SlaveAddress, dis[0].Id));
+        return;
+    }
+
+    // サーマルカメラの設定
+    try
+    {
+        // コントロールレジスタを取得
+        var ctrreg = ReadRegisterData(0x800D, 1).FirstOrDefault();
+
+        // リフレッシュレートを変更する(現在のコントロールレジスタを読み出して、そいつに対して変更を実施)
+        var ctrregset = (ushort)(ctrreg | 0x0300);
+        WriteRegisterData(0x800D, ctrregset);
+    }
+    catch (Exception ex)
+    {
+        Debug.WriteLine("デバイスとの通信に失敗しました。: " + ex.Message);
+        return;
+    }
+
+    // EEPROM読み出し
+    this.MLX90640_DumpEE();
+}
+

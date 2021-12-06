@@ -1,0 +1,65 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+namespace DiagnosticsTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var counterList = new List&lt;(string machine, string category, string counter, string instance)&gt;();
+            var pcList = new List&lt;PerformanceCounter&gt;();
+
+            // コンピュータ名 = "." はローカルコンピュータを表す。コンピュータ名は省略可能（省略時は"."）
+            // Memory/Available MBytesのようにインスタンスを指定できない項目は、インスタンスを空文字にする
+
+            // 取りたい情報を並べる
+            counterList.Add((".", "Processor", "% Processor Time", "_Total"));
+            counterList.Add((".", "Network Interface", "Bytes Total/Sec", "Realtek PCIe GBE Family Controller"));
+            counterList.Add((".", "PhysicalDisk", "% Disk Time", "_Total"));
+            counterList.Add((".", "Memory", "Available MBytes", ""));
+            counterList.Add((".", "Process", "Working Set", "_Total"));
+            counterList.Add((".", "Process", "IO Data Bytes/Sec", "_Total"));
+
+            // エラーチェック後、PerformanceCounterオブジェクトの作成を作成
+            counterList.ForEach((x) =&gt;
+            {
+                if (!PerformanceCounterCategory.Exists(x.category, x.machine))
+                {
+                    //カテゴリが存在するか確かめる
+                    Console.WriteLine("登録されていないカテゴリです：" + x.category);
+                }
+                else if (!PerformanceCounterCategory.CounterExists(x.counter, x.category, x.machine))
+                {
+                    //カウンタが存在するか確かめる
+                    Console.WriteLine("登録されていないカウンタです：" + x.counter);
+                }
+                else
+                {
+                    //PerformanceCounterオブジェクトの作成
+                    pcList.Add(new PerformanceCounter(x.category, x.counter, x.instance, x.machine));
+                }
+            });
+
+            //1秒おきに値を取得する
+            while (true)
+            {
+                Console.Clear();
+
+                pcList.ForEach((x) =&gt;
+                {
+                    //計算された値を取得し、表示する
+                    Console.WriteLine(x.CategoryName + " / " + x.CounterName + "：" + x.NextValue());
+                });
+
+                Console.WriteLine("");
+
+                //1秒待機する
+                System.Threading.Thread.Sleep(1000);
+            }
+        }
+    }
+}
+
+

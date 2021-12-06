@@ -1,0 +1,34 @@
+
+public static IEnumerable&lt;IEnumerable&lt;T&gt;&gt; Buffer&lt;T&gt;(this IEnumerable&lt;T&gt; source, int count)
+{
+    if (source == null)
+        throw new ArgumentNullException(nameof(source));
+    if (count &lt;= 0)
+        throw new ArgumentOutOfRangeException(nameof(count));
+
+    return source.BufferImpl(count, count);
+}
+
+private static IEnumerable&lt;IEnumerable&lt;T&gt;&gt; BufferImpl&lt;T&gt;(this IEnumerable&lt;T&gt; source, int count, int skip)
+{
+    var buffer = new List&lt;T&gt;();
+    using (var enumerator = source.GetEnumerator())
+    {
+        int i = 0;
+        for (; i &lt; count &amp;&amp; enumerator.MoveNext(); ++i)
+            buffer.Add(enumerator.Current);
+
+        for (; enumerator.MoveNext(); ++i)
+        {
+            if ((i - count) % skip == 0)
+                yield return new SubList&lt;T&gt;(buffer, i - count, count);
+            if (!enumerator.MoveNext())
+                break;
+            buffer.Add(enumerator.Current);
+        }
+
+        if ((i - count) % skip != 0)
+            yield return new SubList&lt;T&gt;(buffer, i - (i % skip));
+    }
+}
+

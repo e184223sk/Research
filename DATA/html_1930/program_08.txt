@@ -1,0 +1,122 @@
+
+        /// &lt;summary&gt;
+        /// Creates a new repository for the assembly specified.
+        /// &lt;/summary&gt;
+        /// &lt;param name="repositoryAssembly"&gt;the assembly to use to create the repository to associate with the &lt;see cref="ILoggerRepository"/&gt;.&lt;/param&gt;
+        /// &lt;param name="repositoryType"&gt;The type of repository to create, must implement &lt;see cref="ILoggerRepository"/&gt;.&lt;/param&gt;
+        /// &lt;param name="repositoryName"&gt;The name to assign to the created repository&lt;/param&gt;
+        /// &lt;param name="readAssemblyAttributes"&gt;Set to &lt;c&gt;true&lt;/c&gt; to read and apply the assembly attributes&lt;/param&gt;
+        /// &lt;returns&gt;The repository created.&lt;/returns&gt;
+        /// &lt;remarks&gt;
+        /// &lt;para&gt;
+        /// The &lt;see cref="ILoggerRepository"/&gt; created will be associated with the repository
+        /// specified such that a call to &lt;see cref="M:GetRepository(Assembly)"/&gt; with the
+        /// same assembly specified will return the same repository instance.
+        /// &lt;/para&gt;
+        /// &lt;para&gt;
+        /// The type of the &lt;see cref="ILoggerRepository"/&gt; created and
+        /// the repository to create can be overridden by specifying the
+        /// &lt;see cref="log4net.Config.RepositoryAttribute"/&gt; attribute on the 
+        /// &lt;paramref name="repositoryAssembly"/&gt;.  The default values are to use the 
+        /// &lt;paramref name="repositoryType"/&gt; implementation of the 
+        /// &lt;see cref="ILoggerRepository"/&gt; interface and to use the
+        /// &lt;see cref="AssemblyName.Name"/&gt; as the name of the repository.
+        /// &lt;/para&gt;
+        /// &lt;para&gt;
+        /// The &lt;see cref="ILoggerRepository"/&gt; created will be automatically
+        /// configured using any &lt;see cref="log4net.Config.ConfiguratorAttribute"/&gt; 
+        /// attributes defined on the &lt;paramref name="repositoryAssembly"/&gt;.
+        /// &lt;/para&gt;
+        /// &lt;para&gt;
+        /// If a repository for the &lt;paramref name="repositoryAssembly"/&gt; already exists
+        /// that repository will be returned. An error will not be raised and that 
+        /// repository may be of a different type to that specified in &lt;paramref name="repositoryType"/&gt;.
+        /// Also the &lt;see cref="log4net.Config.RepositoryAttribute"/&gt; attribute on the
+        /// assembly may be used to override the repository type specified in 
+        /// &lt;paramref name="repositoryType"/&gt;.
+        /// &lt;/para&gt;
+        /// &lt;/remarks&gt;
+        /// &lt;exception cref="ArgumentNullException"&gt;&lt;paramref name="repositoryAssembly"/&gt; is &lt;see langword="null" /&gt;.&lt;/exception&gt;
+        public ILoggerRepository CreateRepository(Assembly repositoryAssembly, Type repositoryType, string repositoryName, bool readAssemblyAttributes)
+        {
+            if (repositoryAssembly == null)
+            {
+                throw new ArgumentNullException("repositoryAssembly");
+            }
+
+            // If the type is not set then use the default type
+            if (repositoryType == null)
+            {
+                repositoryType = m_defaultRepositoryType;
+            }
+
+            lock(this)
+            {
+                // Lookup in map
+                ILoggerRepository rep = m_assembly2repositoryMap[repositoryAssembly] as ILoggerRepository;
+                if (rep == null)
+                {
+                    // Not found, therefore create
+                    LogLog.Debug(declaringType, "Creating repository for assembly [" + repositoryAssembly + "]");
+
+                    // Must specify defaults
+                    string actualRepositoryName = repositoryName;
+                    Type actualRepositoryType = repositoryType;
+
+                    if (readAssemblyAttributes)
+                    {
+                        // Get the repository and type from the assembly attributes
+                        GetInfoForAssembly(repositoryAssembly, ref actualRepositoryName, ref actualRepositoryType);
+                    }
+
+                    LogLog.Debug(declaringType, "Assembly [" + repositoryAssembly + "] using repository [" + actualRepositoryName + "] and repository type [" + actualRepositoryType + "]");
+
+                    // Lookup the repository in the map (as this may already be defined)
+                    rep = m_name2repositoryMap[actualRepositoryName] as ILoggerRepository;
+                    if (rep == null)
+                    {
+                        // Create the repository
+                        rep = CreateRepository(actualRepositoryName, actualRepositoryType);
+
+                        if (readAssemblyAttributes)
+                        {
+                            try
+                            {
+                                // Look for aliasing attributes
+                                LoadAliases(repositoryAssembly, rep);
+
+                                // Look for plugins defined on the assembly
+                                LoadPlugins(repositoryAssembly, rep);
+
+                                // Configure the repository using the assembly attributes
+                                ConfigureRepository(repositoryAssembly, rep);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogLog.Error(declaringType, "Failed to configure repository [" + actualRepositoryName + "] from assembly attributes.", ex);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        LogLog.Debug(declaringType, "repository [" + actualRepositoryName + "] already exists, using repository type [" + rep.GetType().FullName + "]");
+
+                        if (readAssemblyAttributes)
+                        {
+                            try
+                            {
+                                // Look for plugins defined on the assembly
+                                LoadPlugins(repositoryAssembly, rep);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogLog.Error(declaringType, "Failed to configure repository [" + actualRepositoryName + "] from assembly attributes.", ex);
+                            }
+                        }
+                    }
+                    m_assembly2repositoryMap[repositoryAssembly] = rep;
+                }
+                return rep;
+            }
+        }
+

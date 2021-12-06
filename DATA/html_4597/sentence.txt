@@ -1,0 +1,48 @@
+More than 1 year has passed since last update.Unity 3DでUpdateとFixedUpdate間のタイミングを考慮したジャンプ（基礎） - Qiita の続きです。上記記事で作成したジャンプの基礎処理をベースに、ジャンプアニメーションを付けていきます。前回記事 で作った基礎的なジャンプ処理に、まずはアニメーション一個をそのまま追加してみます。ユニティちゃんのアセットには、UnityChan/Animations/unitychan_JUMP00 の中の JUMP00 にジャンプアニメーションも入っているので、これを使わせていただきます。
+
+Animator の説明をしてから使いますので、今は場所の確認だけです。Unityでアニメーションを行うには、モーションの再生/停止等を管理する Animation Controller と、Animation ControllerとGameObjectとの橋渡しとなる Animator と、実際のアニメーションのモーションひとつ分となる Animation Clip の3つの要素が必要です。まず Animator は、GameObject に Component としてアタッチ出来るので、Add Component から選択してアタッチします。
+
+
+Animator のプロパティに Controller を設定する部分がありますので、ここに Animation Controller を設定します。UnityChan/Animators の中にサンプルのAnimation Controllerがいくつか入っているのですが、今回使いたい用途に合うものがありませんので、新しく作ってしまいます。Assets/Animators ディレクトリを作成し、その中に右クリックメニュー -&gt; Create -&gt; Animator Controller でAnimator Controllerを新規作成します。
+
+名前は JumpAnimator としましたが、ここは自分がわかれば何でも大丈夫です。
+
+作った JumpAnimator をAnimatorにアタッチします。
+
+アタッチした Animator Controller は、Animator Windowで設定を行う必要があります。Animator Windowが表示されていない方は、上部メニューの Window -&gt; Animation -&gt; Animator から表示できます。
+
+Animator Windowを表示して、JumpAnimator を選択すると、デフォルトの設定が表示されます。
+
+このままでは動かないので、ジャンプ入力がない時（Idle状態）と、あった時（Jump状態）のステートを追加します。
+ステートを追加したら、Inspectorで名前を付けて整理しやすくします。
+
+
+Jumpステートを選択すると、InspectorにMotionの欄があります。
+さきほど場所を確認したユニティちゃんのジャンプアニメーションをここにアタッチします。
+
+また、Idleのほうも UnityChan/Animations/unitychan_WAIT00 に WAIT00 があるので、これを設定します。
+
+ステートは、Entryから始まってExitで終わるのが基本ですが、今回はゲーム再生中はずっと入力を受け付けてジャンプアニメーションが起こって欲しいので、Exitは使用しません。先に作ったIdleにEntryからトランジションが接続されていると思いますが、これがステートの変遷を表します。
+
+Idleを右クリックして Make Transition を選択、矢印が引っ張れるようになるので、Jumpを選択して接続します。
+Jumpが終わったらIdleに帰ってきて欲しいので、逆方向にも同じように接続します。
+
+接続完了ですが、これだと無条件で遷移することになってしまうので、遷移するための条件付けを行います。Animator Windowの左側をParametersタブを表示して、＋マークをクリック、Boolを選択します。
+
+Float、Intはそれぞれ数値が一致したときや不一致の時、上回った時、下回った時なんかに状態が遷移するように出来て、BoolはTrueになった時またはFalseになった時に状態を遷移出来るようにします。
+Triggerはちょっと毛色が違って、一瞬だけONになりすぐにOFFになる性質があります。今回はBoolを2つ追加し、それぞれIdle、Jumpと名付けます。それからトランジションの矢印を選択して、InspectorのConditionsの＋マークを押します。
+
+
+Parametersのリストの先頭のアイテムが自動で選択されていますが、これを、
+Idleの状態の時にJumpのtrueが来たらJump状態に、Jump状態の時にIdleのtrueが来たらIdle状態に戻る、としたいので、IdleからJumpへの矢印は Jump, true を、JumpからIdleへの矢印は Idle, true を、それぞれ選択します。
+
+
+これで、Animation Controllerの設定は一通り終わりました。
+あとはコードからAnimator.SetBoolを発行すれば、それぞれの条件にあった状態遷移が行われます。略した部分は前回記事をご確認ください。
+追加したのは3箇所のみです。次のモーションへ移る際に、今のモーションに入ってきた時のフラグをOFFしておかないと、自動では片付けてくれません。
+これを忘れると遷移条件が次々全部ONになって、状態を遷移しまくってしまい各状態のアニメーションが成立しなくなってしまいます。Animator.parameters() で遷移条件に使うParametersのリストが取得できるので、必要な設定だけを行い他の条件はデフォルトに戻すようなメソッドを用意するのもアリかもしれません。
+ジャンプアニメーションが起こるようになりました。しかし、細かく見てみると、飛び上がってからジャンプアニメーションが開始されており、モーション開始とジャンプ開始のタイミングがズレています。それに、定時間でアニメーションが終了してしまうため、ジャンプの強さを変えると着地のタイミングもズレているのが分かります。
+
+簡単なジャンプアニメーションならこれでも十分なのですが、次回、ジャンプアニメーションのタイミングの調整と溜めて大ジャンプの記事が書ければと思います。長くなってしまったので本記事はこれまで。
+
+

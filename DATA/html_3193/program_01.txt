@@ -1,0 +1,87 @@
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using Random = UnityEngine.Random;
+
+public class JsonUtilityDictionaryTest : MonoBehaviour {
+
+    void Start () {
+        var x = new ItemDict (new string [] { "a", "b", "c", "d", "e", "f" }); // 生成
+        var y = JsonUtility.ToJson (x, true); // シリアライズ
+        var z = JsonUtility.FromJson&lt;ItemDict&gt; (y); // デシリアライズ
+
+        Debug.Log (x);
+        Debug.Log (y);
+        Debug.Log (z);
+    }
+
+}
+
+
+[Serializable]
+public class ItemDict : ISerializationCallbackReceiver {
+    public int this [Item i] { get { return Items [i]; } }
+    [NonSerialized] public Dictionary&lt;Item, int&gt; Items;
+    [SerializeField] private List&lt;Item&gt; _keys;
+    [SerializeField] private List&lt;int&gt; _values;
+
+    public ItemDict (ICollection&lt;string&gt; names) {
+        Items = new Dictionary&lt;Item, int&gt; { };
+        foreach (var name in names) {
+            Items.Add (new Item (name), Random.Range (0, 100));
+        }
+    }
+
+    public void OnBeforeSerialize () {
+        _keys = new List&lt;Item&gt; { };
+        _values = new List&lt;int&gt; { };
+        foreach (KeyValuePair&lt;Item, int&gt; keyvalue in Items) {
+            _keys.Add (keyvalue.Key);
+            _values.Add (keyvalue.Value);
+        }
+    }
+
+    public void OnAfterDeserialize () {
+        Items = new Dictionary&lt;Item, int&gt; { };
+        for (var i = 0; i &lt; _keys.Count; i++) {
+            Items.Add (_keys [i], _values [i]);
+        }
+    }
+
+    public override string ToString () {
+        var items = new List&lt;KeyValuePair&lt;Item, int&gt;&gt; { };
+        foreach (var item in Items) {
+            items.Add (item);
+        }
+        return $"\"Items\":[ {string.Join (",", items.ConvertAll (item =&gt; $"{item.Key}:{item.Value}"))}]";
+    }
+}
+
+[Serializable]
+public class Item : ISerializationCallbackReceiver {
+
+    [SerializeField] public string Name;
+    [NonSerialized] public Guid Id;
+    [SerializeField] private string _id;
+
+    public Item (string name) {
+        Id = Guid.NewGuid ();
+        this.Name = name ?? Id.ToString ();
+    }
+
+    public void OnBeforeSerialize () {
+        _id = Id.ToString ();
+    }
+
+    public void OnAfterDeserialize () {
+        Id = Guid.Empty;
+        Guid.TryParse (_id, out Id);
+    }
+
+    public override string ToString () {
+        return $"{{\"name\":\"{Name}\", \"id\":\"{Id}\"}}";
+    }
+
+}
+

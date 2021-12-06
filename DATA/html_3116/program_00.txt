@@ -1,0 +1,46 @@
+// このコードを実装したアプリが立ち上がったタイミングでDataGridViewに登録されている値のみ表示できるはず
+
+        /// &lt;param name = "parent"&gt; UIAutomationする対象フォーム&lt;/param&gt;
+        private List&lt;List&lt;string&gt;&gt; ReadDataGridViewCellValues(AutomationElement parent)
+        {
+            var rows = new List&lt;List&lt;string&gt;&gt;();
+
+            // Find the DataGridView in question
+            // AutomationIDはSPY++とかで調べる感じで
+            var datagrid = parent.FindFirst(
+                               TreeScope.Descendants, 
+                               new PropertyCondition(AutomationElement.AutomationIdProperty, "dataGridView1")); 
+            // Find all rows from the DataGridView
+            var loginLines = datagrid.FindAll(TreeScope.Descendants, PropertyCondition.TrueCondition);
+
+            foreach (AutomationElement loginLine in loginLines)
+            {
+                var row = new List&lt;string&gt;();
+                var loginLinesDetails = loginLine.FindAll(
+                                            TreeScope.Descendants, 
+                                            new PropertyCondition(
+                                                AutomationElement.ControlTypeProperty,
+                                                ControlType.Custom)
+                                        );
+
+                for (var i = 0; i &lt; loginLinesDetails.Count; i++)
+                {
+                    var targetText = loginLinesDetails[i].FindFirst(
+                                         TreeScope.Descendants, 
+                                         new PropertyCondition(AutomationElement.ClassNameProperty, "TextBlock"));
+
+                    const int automationPropID_dgvCellValue = 30045; // 地道な調査で突き止めたID。環境によって違ったりしたらごめんね。
+                    var temp = (string)loginLinesDetails[i].GetCurrentPropertyValue(
+                                   AutomationProperty.LookupById(automationPropID_dgvCellValue));
+                    // GetCachedPropertyValue()てのもあって、気にはなるけどそっちを使うとInvalidOperationExceptionを投げられちゃう
+                    string cellValue = string.Empty;
+                    if( temp != null)
+                        cellValue = temp;
+                    row.Add(cellValue);
+                }
+                rows.Add(row);
+            }
+
+            return rows;
+        };
+

@@ -1,0 +1,88 @@
+
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Runtime.CompilerServices;
+
+namespace FormsMvvm
+{
+    public class PropertySetter
+    {
+        public PropertySetter(INotifyPropertyChanged owner, Action&lt;string&gt; OnPropertyChanged = null, Action&lt;string&gt; OnPropertyChanging = null)
+        {
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            PropertyChangedHandler = OnPropertyChanged;
+            PropertyChangingHandler = OnPropertyChanging;
+        }
+
+        protected INotifyPropertyChanged Owner { get; private set; }
+
+        protected Action&lt;string&gt; PropertyChangedHandler;
+        protected Action&lt;string&gt; PropertyChangingHandler;
+
+        public bool Set&lt;T&gt;(ref T backStore, T value, [CallerMemberName]string propertyName = null)
+        {
+            if (Equals(backStore, value)) return false;
+            PropertyChangingHandler?.Invoke(propertyName);
+            backStore = value;
+            PropertyChangedHandler?.Invoke(propertyName);
+            return true;
+        }
+
+        private IObservable&lt;string&gt; observeChanged;
+        public IObservable&lt;string&gt; ObserveChanged()
+        {
+            if (observeChanged == null)
+            {
+                observeChanged = Observable
+                    .FromEvent&lt;PropertyChangedEventHandler, string&gt;(
+                        h =&gt; (sender, args) =&gt; h(args.PropertyName),
+                        h =&gt; Owner.PropertyChanged += h,
+                        h =&gt; Owner.PropertyChanged -= h
+                    );
+            }
+            return observeChanged;
+        }
+
+        private IObservable&lt;string&gt; observeChanging;
+        public IObservable&lt;string&gt; ObserveChanging()
+        {
+            if (observeChanging == null)
+            {
+                var owner = Owner as INotifyPropertyChanging;
+                if (owner == null)
+                {
+                    observeChanging = Observable.Empty&lt;string&gt;();
+                }
+                else
+                {
+                    observeChanging = Observable
+                        .FromEvent&lt;PropertyChangingEventHandler, string&gt;(
+                            h =&gt; (sender, args) =&gt; h(args.PropertyName),
+                            h =&gt; owner.PropertyChanging += h,
+                            h =&gt; owner.PropertyChanging -= h
+                        );
+                }
+            }
+            return observeChanging;
+        }
+
+        public IObservable&lt;string&gt; ObserveChanged(string propertyName)
+        {
+            return Observable
+                .Return(propertyName)
+                .Merge(ObserveChanged())
+                .Where(a =&gt; a == propertyName);
+        }
+
+        public IObservable&lt;string&gt; ObserveChanging(string propertyName)
+        {
+            return Observable
+                .Return(propertyName)
+                .Merge(ObserveChanging())
+                .Where(a =&gt; a == propertyName);
+        }
+    }
+}
+

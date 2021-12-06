@@ -1,0 +1,62 @@
+using Google.Apis.Admin.Reports.reports_v1;
+using Google.Apis.Admin.Reports.reports_v1.Data;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using static Google.Apis.Admin.Reports.reports_v1.ActivitiesResource.ListRequest;
+
+namespace GoogleWorkspaceReportsFunctionApp
+{
+    public static class Function1
+    {
+        static string[] Scopes = { ReportsService.Scope.AdminReportsAuditReadonly, ReportsService.Scope.AdminReportsUsageReadonly };
+        static string ApplicationName = "Reports API .NET Quickstart";
+        static string User = "foo@example.com";
+        static string JsonPath = "azurefunctionproject-123456789.json";
+        [FunctionName("Function1")]
+        public static void RunAsync([TimerTrigger("0 */1 * * * *")] TimerInfo myTimer, ILogger log)
+        {
+            log.LogInformation($"C# Timer trigger function executed at: {DateTime.Now}");
+
+
+            //以下のドキュメントが参考になった。
+            //CreateWithUserで特定のユーザとしてクレデンシャルを作成すると401にならない。
+            //https://github.com/googleapis/google-api-dotnet-client/issues/1629
+            var credential = GoogleCredential.FromFile(JsonPath).CreateScoped(Scopes).CreateWithUser(User);
+
+            // Create Reports API service.
+            var service = new ReportsService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = ApplicationName,
+            });
+
+            // Define parameters of request.
+            ActivitiesResource.ListRequest request = service.Activities.List("all", ApplicationNameEnum.Login);
+            request.MaxResults = 10;
+            // List activities.
+            IList&lt;Activity&gt; activities = request.Execute().Items;
+            Console.WriteLine("Logins:");
+            if (activities != null &amp;&amp; activities.Count &gt; 0)
+            {
+                foreach (var activityItem in activities)
+                {
+                    Console.WriteLine("{0}: {1} {2}", activityItem.Id.Time,
+                        activityItem.Actor.Email,
+                        activityItem.Events.First&lt;Activity.EventsData&gt;().Name);
+                }
+            }
+            else
+            {
+                Console.WriteLine("No logins found.");
+            }
+            Console.Read();
+        }
+    }
+}
+
+

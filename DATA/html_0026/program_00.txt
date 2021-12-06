@@ -1,0 +1,96 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Host;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
+
+namespace GreatRaceBot
+{
+    public static class Function1
+    {
+        [FunctionName("Function1")]
+        public static void Run([TimerTrigger("0 0 20 * * *")]TimerInfo myTimer, ILogger log)
+        {
+            var API_KEY = "&lt;取得した API KEY&gt;";
+            var SLACK_WEBHOOK_URL = "&lt;取得した Webhook URL&gt;";
+
+            log.LogInformation($"C# Timer trigger function executed at: {DateTime.Now}");
+
+            var url = "https://api.nhk.or.jp/v2/pg/list/130/s1/" + DateTime.Now.AddDays(0).ToString("yyyy-MM-dd")
+                + ".json?key=" + API_KEY;
+
+            WebRequest request = WebRequest.Create(url);
+            Stream response_stream = request.GetResponse().GetResponseStream();
+            StreamReader reader = new StreamReader(response_stream);
+            string rawdata = reader.ReadToEnd();
+
+            // 無理やりだが要素数を取得
+            var line1 = rawdata;
+            var line2 = "\"title\":";
+            var arr = line1.Split(line2, StringSplitOptions.None);
+            var max_count = arr.Length - 1;
+
+            var jsondata = JObject.Parse(rawdata);
+            var hoso = false;
+            var result = new List&lt;string&gt;();
+
+            // 放送があるかどうか確認
+            for (int i=0; i&lt;max_count; i++)
+            {
+                var title = jsondata["list"]["s1"][i]["title"].ToString();
+                if(title.Contains("ＧＲＥＡＴ　ＲＡＣＥ"))
+                {
+                    hoso = true;
+                    result.Add(jsondata["list"]["s1"][i]["start_time"].ToString());
+                }
+                log.LogInformation($"[Debug] {title}");
+            }
+
+            log.LogInformation($"Today's GREAT RACE : {hoso}");
+
+            // Slack への出力準備
+            var output = "Today's GREAT RACE : {hoso}";
+            var emoji = ":scream:";
+            if (hoso)
+            {
+                output = output + "\n" + $"Time : {result[0]}";
+                emoji = ":wink:";
+            }
+
+            // Slack に出力する
+            var payload = new Payload
+            {
+                text = output,
+                username = "GREAT RACE Bot",
+                icon_emoji = emoji
+            };
+
+            Send(SLACK_WEBHOOK_URL, payload);
+        }
+
+        static void Send(string url, Payload payload)
+        {
+            var json = JsonSerializer.Serialize(payload);
+            var client = new HttpClient();
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var res = client.PostAsync(url, content).Result;
+            Console.WriteLine(res);
+        }
+    }
+
+    public class Payload
+    {
+        public string channel { get; set; }
+        public string username { get; set; }
+        public string text { get; set; }
+        public string icon_emoji { get; set; }
+        public string icon_url { get; set; }
+    }
+}
+

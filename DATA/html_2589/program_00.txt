@@ -1,0 +1,71 @@
+&lt;#@ template debug="false" hostspecific="true" language="C#" #&gt;
+&lt;#@ assembly name="System.Core" #&gt;
+&lt;#@ import namespace="System.Linq" #&gt;
+&lt;#@ import namespace="System.Text" #&gt;
+&lt;#@ import namespace="System.Collections.Generic" #&gt;
+&lt;#@ assembly name="EnvDTE" #&gt;
+&lt;#@ assembly name="VSLangProj" #&gt;
+&lt;#@ import namespace="EnvDTE" #&gt;
+&lt;#@ import namespace="VSLangProj" #&gt;
+&lt;#@ import namespace="System.Runtime.InteropServices" #&gt;
+&lt;# 
+
+void ReleaseComObjects(params object[] objects) {
+    foreach (object o in objects) {
+    try {
+        if (o == null) { continue; }
+        if (!Marshal.IsComObject(o)) { continue; }
+            Marshal.FinalReleaseComObject(o);
+        } catch (Exception) {
+        }
+    }
+}
+
+IDictionary&lt;string, string&gt; GetReferences(string projectName)
+{
+    Dictionary&lt;string, string&gt; dic = new Dictionary&lt;string, string&gt;();
+
+    IServiceProvider service = (IServiceProvider)this.Host;
+    DTE dte = service.GetService(typeof(DTE)) as DTE;
+    Solution solution = null;
+
+    try
+    {
+        solution = dte.Solution;
+
+        foreach (Project project in solution.Projects)
+        {
+            VSProject vsProject = null;
+            References refs = null;
+
+            try
+            {
+                if (project.Name != projectName) { continue; }
+
+                vsProject = (VSProject)project.Object;
+                if (vsProject == null) { continue; }
+
+                refs = vsProject.References;
+                if ( refs == null ) { continue; }
+
+                foreach (Reference reference in refs)
+                {
+                    dic.Add(reference.Name, reference.Path);
+                    ReleaseComObjects(reference);
+                }
+            }
+            finally
+            {
+                ReleaseComObjects(refs, vsProject, project);
+            }
+        }
+    }
+    finally
+    {
+        ReleaseComObjects(solution);
+    }
+
+    return dic;
+}
+#&gt;
+

@@ -1,0 +1,60 @@
+using System;
+using Windows.Devices.Power;
+using System.Threading;
+
+// C:\Program Files (x86)\Windows Kits\10\UnionMetadata\Windows.winmd を参照に追加必要
+namespace ConsoleApp49
+{
+    class Program
+    {
+        static Battery AggBattery = Battery.AggregateBattery;
+
+        static void Main(string[] args)
+        {
+            // 変化したときに読んでもらう
+            AggBattery.ReportUpdated += AggBattery_ReportUpdated;
+            // 定期的にも表示する
+            var timer = new Timer(((param) =&gt; { AggBattery_ReportUpdated(null, null); }), null, 0, 1000);
+
+            Console.ReadLine();
+        }
+
+        private static void AggBattery_ReportUpdated(Battery sender, object args)
+        {
+            var report = Battery.AggregateBattery.GetReport();
+
+            var Maximum = Convert.ToDouble(report.FullChargeCapacityInMilliwattHours);
+            var Value = Convert.ToDouble(report.RemainingCapacityInMilliwattHours);
+            var Percent = (Value / Maximum) * 100;
+
+            var ValToFull = Maximum - Value;
+            var TimeToFull = (ValToFull / report.ChargeRateInMilliwatts) * 60.0;
+            var TimeToEmpty = (Value / report.ChargeRateInMilliwatts) * 60.0;
+
+            if (sender != null)
+                Console.Write("*");// 変化検出時に呼ばれた場合は*つける
+
+            Console.Write("St:" + report.Status + " Charge:" + Percent.ToString("F2") + "% Charge Rate:" + report.ChargeRateInMilliwatts);
+            Console.Write(" DesignCapacityInMilliwattHours:" + report.DesignCapacityInMilliwattHours + " FullChargeCapacityInMilliwattHours = " + report.FullChargeCapacityInMilliwattHours + "  RemainingCapacityInMilliwattHours:" + report.RemainingCapacityInMilliwattHours);
+
+            if (report.ChargeRateInMilliwatts == 0)
+            {
+                // ChargeRateInMilliwattsが0ならACアダプタ挿抜直後等
+                Console.WriteLine(" Calcurating...");
+            }
+            else if (report.ChargeRateInMilliwatts &gt; 0)
+            {
+                // ChargeRateInMilliwattsが＋なら充電中(AC)
+                Console.WriteLine(" TimeToFull = " + TimeToFull + " min");
+            }
+            else
+            {
+                // ChargeRateInMilliwattsが－なら放電中(SC)
+                Console.WriteLine(" TimeToEmpty = " + (-TimeToEmpty) + " min");
+            }
+
+        }
+    }
+}
+
+

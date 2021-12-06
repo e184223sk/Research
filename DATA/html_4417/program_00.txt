@@ -1,0 +1,29 @@
+// Bluetoothを使う場合は AVAudioSessionCategoryOptions.AllowBluetooth が必須
+AVAudioSession.SharedInstance().SetCategory(AVAudioSessionCategory.PlayAndRecord, AVAudioSessionCategoryOptions.AllowBluetooth);
+AVAudioSession.SharedInstance().SetActive(true);
+
+// 音声入出力のルート変更を検知する場合は、AVAudioSession.RouteChangeNotification を指定
+NSNotificationCenter.DefaultCenter.AddObserver(AVAudioSession.RouteChangeNotification, (notification) =&gt;
+{
+    // ルート変更理由の取得と判定
+    if (notification.UserInfo["AVAudioSessionRouteChangeReasonKey"] is NSNumber key)
+    {
+        var error = new NSError();
+        switch (key.Int32Value)
+        {
+            // 新しくデバイス（Bluetoothやイヤホンジャック）が接続された場合
+            case (int)AVAudioSessionRouteChangeReason.NewDeviceAvailable:
+                // 出力先を既定にする
+                AVAudioSession.SharedInstance().OverrideOutputAudioPort(AVAudioSessionPortOverride.None, out error);
+                AVAudioSession.SharedInstance().SetActive(true);
+                break;
+            // デバイスが使えなくなった場合（Bluetoothの切断やイヤホンジャックを抜いた場合）
+            case (int)AVAudioSessionRouteChangeReason.OldDeviceUnavailable:
+                // 出力先を内蔵スピーカーに強制する
+                AVAudioSession.SharedInstance().OverrideOutputAudioPort(AVAudioSessionPortOverride.Speaker, out error);
+                AVAudioSession.SharedInstance().SetActive(true);
+                break;
+        }
+    }
+});
+

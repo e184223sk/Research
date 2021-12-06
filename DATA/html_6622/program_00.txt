@@ -1,0 +1,40 @@
+namespace Rein.Functions.Process{
+    public class Repeat: UnaryFunction{
+        int Dim, RepeatNum, Step;
+        public Repeat(int dim, int rep): base($"Expand-d:{dim}-r:{rep}"){
+            this.Dim = dim;
+            this.RepeatNum = rep;
+        }
+
+        protected override Tensor UnaryForward(Tensor tensor)
+        {
+            if (tensor.Shape.Count &lt; this.Dim - 1) throw new InvalidShapeException();
+            R[] data = new R[tensor.Size * this.RepeatNum];
+            // 対象となるDim以下の要素数を取得
+            this.Step = tensor.Shape[this.Dim] * tensor.Size / tensor.Shape.GetRange(0, this.Dim + 1).Aggregate((now, next) =&gt; now * next);
+
+            for (int i = 0; i &lt; tensor.Size; i += this.Step){
+                for (int j = 0; j &lt; this.RepeatNum; j++){
+                    Array.Copy(tensor.Data, i, data, i * this.RepeatNum + j * this.Step, this.Step);
+                }
+            }
+
+            List&lt;int&gt; shape = new List&lt;int&gt;(tensor.Shape);
+            shape[this.Dim] *= this.RepeatNum;
+
+            return new Tensor(data, shape);
+        }
+
+        protected override void UnaryBackward()
+        {
+            for (int i = 0; i &lt; this.In.Size; i += this.Step){
+                for (int j = 0; j &lt; this.RepeatNum; j++){
+                    for (int k = 0; k &lt; this.Step; k++){
+                        this.In.Grad[i + k] += this.Out.Grad[i * this.RepeatNum + j * this.Step + k];
+                    }
+                }
+            }
+        }
+    }
+}
+

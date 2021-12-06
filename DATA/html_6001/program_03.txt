@@ -1,0 +1,30 @@
+
+/// &lt;summary&gt;ひたすらシークしまくりつつパイプ使って一定時間ごとに抽出する&lt;/summary&gt;
+public async Task&lt;Image[]&gt; ExtractImagesByPipeAsync(string inputMoviePath, TimeSpan interval)
+{
+    var duration = GetMovieDuration(inputMoviePath);
+    var seekSecEnum = Enumerable.Range(0, (int)(duration.TotalSeconds / interval.TotalSeconds))
+                                .Select(x =&gt; new { SeekSec = x * interval.TotalSeconds, No = x });
+
+    var tasks = seekSecEnum
+        .AsParallel()
+        .AsOrdered()
+        .Select(x =&gt; Task.Run(() =&gt;
+        {
+            var arguments = $"-loglevel error -ss {x.SeekSec} -i \"{inputMoviePath}\" -vframes 1 -f image2 pipe:1";
+
+            var process = Process.Start(new ProcessStartInfo(FfmpegPath, arguments)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = false,
+            });
+            var image = Image.FromStream(process.StandardOutput.BaseStream);
+            process.WaitForExit();
+            return image;
+        }));
+
+    return await Task.WhenAll(tasks);
+}
+

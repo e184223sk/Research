@@ -1,0 +1,58 @@
+
+        /// &lt;summary&gt;
+        /// 年齢をテキストボックスから編集できるかテスト
+        /// &lt;/summary&gt;
+        [TestMethod]
+        public void TestEditAgeByTextBox()
+        {
+            AppVar mainVar = _app.Type&lt;Application&gt;().Current.MainWindow;
+            var logicalTree = mainVar.LogicalTree();
+            var editButton = new WPFButtonBase(logicalTree.ByBinding("EditCommand").Single());
+
+            var dataGrid = new WPFDataGrid(logicalTree.ByBinding("PeopleModel.People").Single());
+            var row = dataGrid.GetRow(0);
+            row.EmulateChangeSelected(true);
+            string name = dataGrid.GetCellText(0, 0);
+
+            editButton.EmulateClick(new Async());
+
+            AppVar subWindow = WindowControl.IdentifyFromWindowText(this._app, name + " - 編集").AppVar;
+            Assert.IsNotNull(subWindow);
+            var subLogicalTree = subWindow.LogicalTree();
+
+            // インジェクション
+            // WPFToolKitのIntegerUpDownのように複数の標準コントロールを組み合わせたコントロールは
+            // 取得できないため、VisualTreeからTextBox部分のみを取り出す
+            WindowsAppExpander.LoadAssembly(this._app, GetType().Assembly);
+
+            { //テキストボックスから編集
+                var targetTextBox = this._app.Type(this.GetType())
+                                        .GetAgeTextBox(subWindow);
+                var ageTextBox = new WPFTextBox(targetTextBox);
+
+                // 年齢を99に変更
+                ageTextBox.EmulateChangeText("99");
+            }
+
+            // 確定
+            var commitButton = new WPFButtonBase(subLogicalTree.ByBinding("CommitCommand").Single());
+            commitButton.EmulateClick(new Async());
+
+            // ちゃんと年齢が書き換わっていることを確認
+            Assert.AreEqual("99", dataGrid.GetCellText(0, 1));
+        }
+
+        /// &lt;summary&gt;
+        /// 「年齢」のテキストボックス部分のみを取得します
+        /// &lt;/summary&gt;
+        /// &lt;param name="window"&gt;詳細ウィンドウ&lt;/param&gt;
+        /// &lt;returns&gt;「年齢」のテキストボックス部分&lt;/returns&gt;
+        static TextBox GetAgeTextBox(Window window)
+        {
+            var logicalTree = window.LogicalTree();
+            DependencyObject IntegerUpDown = logicalTree.ByBinding("Age.Value").Single();
+
+            // IntegerUpDownのVisualTreeから検索
+            return IntegerUpDown.Descendants&lt;TextBox&gt;().Single();
+        }
+

@@ -1,0 +1,32 @@
+More than 1 year has passed since last update.この記事はUnity #2 Advent Calendar 2019の20日目の記事です．前日の記事
+https://qiita.com/herieru/items/ab3ec79610bf2deae8da先日，pixiv社がWebRTCの.NETバインディングを公開しました．
+WindowsはもちろんiOS, Androidなど様々なプラットフォームでテストされているようで気になった（Oculus Questで動かしてみたかった）ので試してみました．
+今回はSora Laboとの映像の送受信までの動作確認をします．リリース記事
+https://inside.pixiv.blog/nekomanma/7920Unity Hubから新規プロジェクトを作成します．
+リリース記事を参考にWebRTC.NETをプロジェクトに導入していきます．公開されているGitHubのreleases( https://github.com/pixiv/webrtc/releases )からパッケージファイルcom.pixiv.webrtc.tgzをダウンロードします．
+ダウンロードしたパッケージをプロジェクトのルートディレクトリなど，好きな場所に移動します．プロジェクトからパッケージを利用するため，Packages/manifest.jsonを編集します．
+パッケージの場所をPackagesからの相対パスで指定するため，dependenciesに以下を追加します．{ "dependencies": { "com.pixiv.webrtc": "file:../com.pixiv.webrtc.tgz" } }追加後プロジェクトを開くとパッケージのインポートが走り，WebRTCが追加されていることがわかります．
+pixiv/webrtcのリポジトリをClone，あるいはzipでダウンロードします．
+Unityのサンプルプロジェクトはwebrtc/examples/unity/に含まれています．
+Assets/以下のファイルを先程作成したプロジェクトにまとめてD&amp;Dします．
+ここまで問題なく進んでいれば，Scenes/SampleSceneを開くとこのような画面が出てくるかと思います．
+今回は，動作確認のため株式会社時雨堂さんが提供してくださっているSora Laboを利用します．
+これは，同社が提供しているWebRTC SFU Soraを検証目的であれば無料で試せるサービスです．Sora Laboのアカウント作成などは公式ドキュメント等をご参照ください．
+https://sora-labo.shiguredo.jp/
+https://github.com/shiguredo/sora-labo-docWebRTC.NETのUnityサンプルはSFU Sora用に作られていますが，Sora Laboの利用に必要なsignaling_keyなどのmetadataの設定がされていないので，コードを少しだけ改造します．Sora/Connection.csの中のinternal async Task Standby(string sdp)の中にJsonWriterでSoraに送るJSONが記述されています．
+そこにmetadataの加筆を行います．_signalingKeyには直接signaling_keyを記述しても動作しますが，Connectionクラスに_signalingKey変数を定義してそれに伴って初期化の定義などを追加するとサンプルシーンのスクリプトMain.csからもsignaling_keyが指定できるようになります．Sora Laboとの接続を行うため，Main.csにSora LaboのSignalingUri，作成したchannelId，(signalng_key)を設定します．metadataの設定が完了したので，実際の映像の送受信のテストを行います．
+テストのため，Sora Laboのブラウザ上のサンプルを利用します．
+今回のテストでは，の２種類を利用します．まず，Unityから出た映像をブラウザで受信します．Unityのサンプルシーンを実行し，Upstreamボタンをクリックします．
+これで，Sora Laboとの接続が完了します．ブラウザでは，シングルストリーム受信のサンプルを開き，videoの設定をVP8に変更しconnectをクリックします．すると以下のようにUnityのゲームビューのキャプチャがブラウザに送られていることがわかります．(低遅延ですごい）
+Unity -&gt; ブラウザと同様の操作でUnityではDownstreamをクリックします．ブラウザでは，シングルストリーム送信のサンプルを開き，videoをVP8に，音声入力や映像入力のデバイスを設定してconnectをクリックします．正しく動作していればブラウザで取得した映像デバイスの映像がUnityに送られていることがわかります．
+（以下で利用しているのはテスト用の仮想デバイスです）
+pixiv社によると，Androidでの動作もテストされているようですのでOculus Questでの利用が可能か検討しました．
+具体的には，VR内のカメラの映像を別のVRヘッドセットに流すようなものを想定しています．結論を言うと，VRヘッドセットでの利用は厳しいという結論に至りました．サンプルプロジェクトでは，VideoTrackSource.csでWebRTCに流すテクスチャを取得する処理を行っているようです．
+具体的には，ScreenCapture.CaptureScreenshotAsTexture()でスクリーンキャプチャのTexture2Dを取得し，Texture2D.GetRawTextureData&lt;Color32&gt;()でNativeArray&lt;Color32&gt;を取り出しています．これより，最終的にプラグインに渡すのはNativeArray&lt;Color32&gt;であり，それに伴ってTexture2Dの取得が必要であることがわかります．
+つまり，通常カメラから取得できるRenderTextureからTexture2Dへの変換が必要であるということだと思います．察してくださった方も多いと思いますが，このRenderTextureからTexture2Dに変換する処理はかなり重い処理で毎フレーム実行するのはVRヘッドセットでの利用に際して現実的ではなく，今回Oculus Questで利用するのは厳しいという結論に至りました．
+実際，上記の動作テストでもUpstreamとDownstreamを比較するとUpstreamでかなりfpsが低下しています．参考 : RenderTexture to Texture2D
+https://docs.unity3d.com/jp/460/ScriptReference/Texture2D.ReadPixels.html
+https://docs.unity3d.com/ScriptReference/Rendering.AsyncGPUReadback.html当初の目的での利用は厳しい，という悲しい結論に至りましたが，WebRTCをUnityで利用できる（しかも複数プラットフォームで）のはやれることの幅が広がる素晴らしいことだと思います．処理負荷の軽減の策がある方いらっしゃいましたら教えてくださると嬉しいです...!
+（RenderTexture.GetNativeTexturePtrとか使いたい）
+
+

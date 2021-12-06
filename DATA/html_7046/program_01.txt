@@ -1,0 +1,104 @@
+
+using System;
+using SuperSocket.Common;
+using SuperSocket.Facility.Protocol;
+using SuperSocket.SocketBase;
+using SuperSocket.SocketBase.Protocol;
+
+namespace ServerSample
+{
+    public class CustomReceiverFilter : FixedHeaderReceiveFilter&lt;BinaryRequestInfo&gt;
+    {
+        public CustomReceiverFilter() : base(4)
+        {
+        }
+
+        protected override int GetBodyLengthFromHeader(byte[] header, int offset, int length)
+        {
+            return (int)header[offset + 2] * 256 + (int)header[offset + 3];
+        }
+
+        protected override BinaryRequestInfo ResolveRequestInfo(ArraySegment&lt;byte&gt; header, byte[] bodyBuffer, int offset, int length)
+        {
+            byte[] data = new byte[header.Count + length];
+            Array.Copy(header.Array, 0, data, 0, header.Count);
+            Array.Copy(bodyBuffer, offset, data, header.Count, length);
+            return new BinaryRequestInfo(null, data);
+        }
+    }
+
+    public class CustomSession : AppSession&lt;CustomSession, BinaryRequestInfo&gt;
+    {
+    }
+
+    public class CustomSocketServer : AppServer&lt;CustomSession, BinaryRequestInfo&gt;
+    {
+        public CustomSocketServer()
+            : base(new DefaultReceiveFilterFactory&lt;CustomReceiverFilter, BinaryRequestInfo&gt;())
+        {
+        }
+    }
+
+    class MyServer
+    {
+        int port;
+        CustomSocketServer appServer = null;
+        SessionHandler&lt;CustomSession, CloseReason&gt; sessionClosedDelegate;
+        SessionHandler&lt;CustomSession&gt; newSessionConnectedDelegate;
+        RequestHandler&lt;CustomSession, BinaryRequestInfo&gt; newRequestReceivedDelegate;
+
+        public MyServer(int port)
+        {
+            this.port = port;
+            this.sessionClosedDelegate = new SessionHandler&lt;CustomSession, CloseReason&gt;(sessionClosed);
+            this.newSessionConnectedDelegate = new SessionHandler&lt;CustomSession&gt;(newSessionConnected);
+            this.newRequestReceivedDelegate = new RequestHandler&lt;CustomSession, BinaryRequestInfo&gt;(newRequestReceived);
+        }
+
+        public bool open()
+        {
+            close();
+            appServer = new CustomSocketServer();
+            appServer.SessionClosed += this.sessionClosedDelegate;
+            appServer.NewSessionConnected += this.newSessionConnectedDelegate;
+            appServer.NewRequestReceived += this.newRequestReceivedDelegate;
+            if (!appServer.Setup(this.port))
+            {
+                return false;
+            }
+            if (!appServer.Start())
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public void close()
+        {
+            if (appServer != null)
+            {
+                appServer.Stop();
+                appServer.SessionClosed -= this.sessionClosedDelegate;
+                appServer.NewSessionConnected -= this.newSessionConnectedDelegate;
+                appServer.NewRequestReceived -= this.newRequestReceivedDelegate;
+                appServer = null;
+            }
+        }
+
+        private void sessionClosed(CustomSession session, CloseReason closeReason)
+        {
+            Console.WriteLine("session close:" + session.LocalEndPoint.ToString() + " " + closeReason.ToString());
+        }
+
+        private void newSessionConnected(CustomSession session)
+        {
+            Console.WriteLine("session connect:" + session.LocalEndPoint.ToString());
+        }
+
+        private void newRequestReceived(CustomSession session, BinaryRequestInfo requestInfo)
+        {
+            //requestInfo.Bodyにバイナリデータが入っている
+        }
+    }
+}
+

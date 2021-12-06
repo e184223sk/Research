@@ -1,0 +1,148 @@
+More than 1 year has passed since last update.モチベーションも大事だと思うので覚書として使用します。
+十週目の感想
+
+一貫性のないメモ帳のようになってしまいました。
+前回の記事色々付け足しながらローカル関数で、いやSwitch使えるか、プロパティも、別ファイルにわけると…
+調べてるうちに時間を溶かし気づいたらObserverというゲームに没頭していました☔
+これはあくまでイベントの方法論だから深くやる事はないと端折り、いずれ自作で試します。
+Eventの前に参考書で初見のキーワードが多いので書き出し。
+・ Console.ReadLine（）：String""を受け取り、そのStringを返す静的メソッド・ Console.Read（）：String""を受け取り、整数を返す静的メソッド・ Console.ReadKey（）：Character''を受け取り、その文字のASCII(アスキー)値('0'→48)を返す静的メソッド・ Console.ReadKey (true)：trueが付くと、入力検知だけで表示はしない・ ConsoleKeyInfo cki = Console.ReadKey（）：ReadKeyの戻り値 Charならcki.KeyCharで呼出・ Console.KeyAvailable：Keyが存在するか判定・ (int)char.GetNumericValue(ch) ：castしたcharをdouble等に変換
+※ReadKey入力がASCII値のため(int.Parse(ch.ToString())でもintなる)上記用いた参考書の内容(+改変)
+
+namespace DlegateEvent
+{
+    // 1.delegate
+    delegate void Handler(char ch);
+
+    // 2.field
+    class DelegateClass
+    {
+        public event Handler KeyHit;
+
+        public void OnKeyHit(char ch)
+        {
+            if (KeyHit != null)
+                KeyHit(ch);
+        }
+    }
+
+    // 3.handler
+    class Show
+    {
+        int sum = 0;
+
+        public void KeyShow(char ch)
+        {
+            if (Char.IsDigit(ch))// Char chがIsDigit(10進数)なら加算
+            {
+                int a = int.Parse(ch.ToString());// こっちの方がいいかも
+                //(int)char.GetNumericValue(ch);
+　　　　　　　　　//↑castしたcharをdoubleとしてGet()内は変数 ※入力のReadKeyがASCII値のため
+                sum += a;
+                Console.Write($"+{a}\n");
+                Console.Write($"={sum}\n");
+            }
+            else if (ch == 'c')// cならクリア
+            {
+                sum = 0;
+                Console.Write("合計がクリアされました\n");
+            }
+            else return;
+        }
+    }
+
+    // 4.Main
+    class Event2
+    {
+        public static void Main()
+        {
+            ConsoleKeyInfo cki;
+
+            DelegateClass dc = new DelegateClass();
+            Show s = new Show();
+
+            dc.KeyHit += new Handler(s.KeyShow);// 必須。ｲﾍﾞ名 += new ﾃﾞﾘ名(実行ﾒｿｯﾄﾞ)
+
+            while (true)
+            {
+                if (Console.KeyAvailable)// 有効なキーなら
+                {
+                    cki = Console.ReadKey(true);
+// ReadKey(true)入力検知だけで表示をしない、falseは表示する[何もないReadKey()と等価] 呼出はcki.KeyChar
+                    if (cki.KeyChar == 'x')
+                    {
+                        Console.Write("終了");
+                        break;
+                    }
+                    else dc.OnKeyHit(cki.KeyChar);// Event発生
+                }
+            }
+        }
+    }
+
+}
+
+
+Eventは基本はDelegateだが、void(戻り値なし)ならActionで宣言省略可能
+発生元パブリッシャーと受け取り手サブスクライバーとも言う。①Event：自動実装Event宣言public event Action
+同じクラス内で最後に呼び出される実行条件設定。
+public void OnEvents名() =&gt;イベント名null例外if (!= null)や?.Invoke`等②handler：内容③Main：登録用にNewインスタンス化して(ｲﾍﾞ名+=ﾃﾞﾘ名で、登録)、最後に.OnEvents()で実行イベントAction引数なしラムダ.invoke null
+
+
+イベントAction引数なしラムダ
+    public class Observer
+    {
+        // 自動実装ｲﾍﾞﾝﾄ
+        public event Action EventAction;
+
+        // ?.Invokeで全部呼出
+        public void OnEvents() =&gt; this.EventAction?.Invoke();
+    }
+
+
+
+②handler：内容③Main：Newインスタンス化して登録(ｲﾍﾞ名+=ﾃﾞﾘ名)、最後の実行文呼出この後もっと省略できるような気がして調べていたらC#7ローカル関数が使えそうだった。ローカル関数でハンドラ内容をMain内にいれてみた
+
+namespace AcFu
+{
+
+    public class Observer
+    {
+        public event Action EventAction;
+        public void OnEvents() =&gt; this.EventAction?.Invoke();
+    }
+
+
+    class Event1
+    {
+        public static void Main(string[] args)
+        {
+            void SubjectAction()
+            {
+                Console.WriteLine("Action!");
+            }
+
+            var observer = new Observer();
+
+            observer.EventAction += SubjectAction;
+            observer.EventAction += SubjectAction;
+
+            observer.OnEvents();
+
+            // 出力内容
+            // &gt; "Action!"
+            // &gt; "Action!"
+        }
+    }
+}
+
+
+memo:
+ローカル関数はまだ1つのハンドラだからいいけど何十個になるとMainが大きくなるので可読性悪い。
+戻り値を持つデリゲート宣言を省略はFunc
+複数あるならプロパティで1箇所管理
+Switchも使える、結局eventの方法論だからeventできればいいか…
+複数あるけど規格同じならvirtualメソッドで1箇所管理?
+別ファイルならインタフェースでもいいのか全部試すべきなのか…一旦端折ろうと思う。
+
+

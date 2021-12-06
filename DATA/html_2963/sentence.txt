@@ -1,0 +1,21 @@
+More than 1 year has passed since last update.UnityのuGUIのImageにOutlineスクリプトを適用すると、画像に輪郭線を付けることが出来るが、Glowの様なぼやけた輪郭線を付けるのは難しい。
+対応策としてはこちらのコガネブログさんでも紹介されているが、以下のGlowImageというプロジェクト内にあるC#とShaderコードを使うという方法がある。
+http://baba-s.hatenablog.com/entry/2017/12/31/211500
+GlowImageのGithub
+https://github.com/SylarLi/GlowImage今回自分の勉強がてらこちらのコードを解読していた時に、「UnityのMask機能に対応していない事」と「シェーダーで最適化出来そうな所がある事」に気づいたので、改良してみた。箇条書きにすると以下のようになる
+・Imageコンポーネントを継承したGlowImageクラスを作成
+・GlowImageクラスのパラメーターから、既存Imageにアウトライン用の頂点とメッシュを追加する
+・シェーダーでアウトラインを描画しつつガウシアン処理でぼかす
+・最後に通常のImageを描画して行い終了UnityのMask機能は、canvasRendererに登録されているマテリアルからマスク処理が適用されているコードを選別して処理を行っている。
+既存コードではcanvasRendererに登録する処理が抜けていたため、canvasRendererをオーバーライドして、Image.materialにマテリアルを格納してからGraphicクラスのmaterialForRenderingを呼んで対応した既存コードのシェーダーだと通常の平滑化処理のため重み(3x3, 7x7など)の数が増えるほど、ループ数が9, 49などかなり顕著に多くなっている。
+画像処理のぼかし処理でよく使われるガウシアンブラーを使用する時、xとyの要素を切り離して処理できる場合ループ数を抑えることが出来る。
+今回は以下のサイトを参考にコードを組んだ。【Unity】【シェーダ】ガウス関数を使ってブラーを掛ける
+http://light11.hatenadiary.com/entry/2018/05/20/010105
+Unityでガウシアンブラーを実装する
+http://edom18.hateblo.jp/entry/2018/12/30/171214コード全文は以下のプロジェクトを参照してください
+※Windows10 + Unity2018.4.0f1で動作確認済み。
+※ImageのTypeが「Simple」のみ対応
+https://github.com/madoramu/GlowImageImprovement実行結果
+UnityのOutlineは頂点と頂点カラーを追加しているだけなので元画像も含めて1passで描画しているが、今回のコードはガウシアン処理の関係上2passで描画しなくてはいけないので、処理的には少し重いかも・・・
+
+

@@ -1,0 +1,47 @@
+using System;
+using System.Reactive.Linq;
+
+namespace RxNET.Extensions
+{
+    public static class RetryWhenExtension
+    {
+        public static IObservable&lt;T&gt; RetryWhen&lt;T&gt;(
+            this IObservable&lt;T&gt; source,
+            Func&lt;IObservable&lt;Exception&gt;, IObservable&lt;T&gt;&gt; predicate)
+        {
+            return RetryWhenRecursive(source, predicate);
+        }
+
+        private static IObservable&lt;T&gt; RetryWhenRecursive&lt;T&gt;(
+            IObservable&lt;T&gt; source,
+            Func&lt;IObservable&lt;Exception&gt;, IObservable&lt;T&gt;&gt; predicate)
+        {
+            return source.Catch((Exception e) =&gt;
+            {
+                //
+                // シーケンスから例外が Throw された場合、
+                // predicate でリトライするかどうかを判定する。
+                //
+                return
+                     predicate(Observable.Return(e))
+                    .Catch((Exception ee) =&gt;
+                     {
+                        //
+                        // predicate から例外が Throw された場合、
+                        // 後続のシーケンスに例外を流す（＝リトライせずオブザーバーに例外を捕捉させる）。
+                        //
+                        return Observable.Throw&lt;T&gt;(e);
+                     })
+                    .SelectMany(_ =&gt;
+                     {
+                        //
+                        // predicate から例外が Throw されなかった場合、
+                        // 再度、起点となったシーケンスに繋げる（＝リトライ）。
+                        //
+                        return RetryWhenRecursive(source, predicate);
+                     });
+            });
+        }
+    }
+}
+

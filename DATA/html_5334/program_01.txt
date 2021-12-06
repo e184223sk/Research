@@ -1,0 +1,74 @@
+
+        /// &lt;summary&gt;
+        /// アイテムから、宛先(Recipient)のリスト取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="Item"&gt;Outlookアイテムオブジェクト&lt;/param&gt;
+        /// &lt;param name="type"&gt;アイテムの種類&lt;/param&gt;
+        /// &lt;param name="IgnoreMeetingResponse"&gt;会議招集の返信かどうか&lt;/param&gt;
+        /// &lt;returns&gt;Recipientsインスタンス(会議招集の返信や、MailItem,MeetingItem,AppointmentItemでない場合null)&lt;/returns&gt;
+        public static List&lt;Outlook.Recipient&gt; GetRecipients(object Item, ref OutlookItemType type, bool IgnoreMeetingResponse = false)
+        {
+            Outlook.Recipients recipients = null;
+            bool isAppointmentItem = false;
+
+            Outlook.MailItem mail = Item as Outlook.MailItem;
+            // MailItemの場合
+            if (mail != null)
+            {
+                recipients = mail.Recipients;
+                type = OutlookItemType.Mail;
+            }
+
+            // (中略)
+
+            else if (Item is Outlook.ReportItem)
+            {
+                Outlook.ReportItem item = Item as Outlook.ReportItem;
+
+                //ReportItemのままだと送信先が取れないため、
+                //いったんIPM.Noteとして別名保存⇒ロードしてからRecipientsを取得する
+                Outlook.ReportItem copiedReport = item.Copy();
+                copiedReport.MessageClass = "IPM.Note";
+                copiedReport.Save();
+
+                //IPM.Noteとして保存してからロードするとMailItemとして扱えるようになる
+                var newReportItem = Globals.ThisAddIn.Application.Session.GetItemFromID(copiedReport.EntryID);
+                Outlook.MailItem newMailItem = newReportItem as Outlook.MailItem;
+                recipients = newMailItem.Recipients;
+                type = OutlookItemType.Report;
+
+                copiedReport.Delete();
+            }
+
+            // 受信者の情報をリストに入れる
+            List&lt;Outlook.Recipient&gt; recipientsList = new List&lt;Outlook.Recipient&gt;();
+
+            int i = isAppointmentItem ? 2 : 1;
+
+            for (; i &lt;= recipients.Count; i++)
+            {
+                // recipients[i]がBccまたはリソース
+                if (recipients[i].Type == (int)Outlook.OlMailRecipientType.olBCC)
+                {
+                    // Bccや、選択されたリソースの場合
+                    if (recipients[i].Sendable)
+                    {
+                        recipientsList.Add(recipients[i]);
+                    }
+                    // 選択されていないリソースの場合
+                    else
+                    {
+                        continue;
+                    }
+                }
+                // 送信者、To、Ccの場合
+                else
+                {
+                    recipientsList.Add(recipients[i]);
+                }
+            }
+
+            return recipientsList;
+        }
+
+

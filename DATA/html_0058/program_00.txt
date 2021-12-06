@@ -1,0 +1,92 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using OpenCvSharp;
+
+namespace MyApp
+{
+    /// &lt;summary&gt;
+    /// マウス操作の判定クラス
+    /// &lt;/summary&gt;
+    class OpeJudger
+    {
+        private const double MatchThreshold = 0.9;
+
+        /// &lt;summary&gt;
+        /// どのような操作を行った時の画像か判別する
+        /// &lt;/summary&gt;
+        /// &lt;param name="imgFilePath"&gt;判別したい画像ファイルのパス&lt;/param&gt;
+        /// &lt;returns&gt;マッチしたテンプレファイル名&lt;/returns&gt;
+        public string Exec(string imgFilePath)
+        {
+            var targetMat = new Mat(imgFilePath);
+
+            // テンプレート画像で回してマッチするものを探す
+            string[] templateFiles = Directory.GetFiles(@".\MatchTemplate", "*", SearchOption.TopDirectoryOnly);
+            foreach (var fileName in templateFiles)
+            {
+                // マッチング
+                var templateMat = new Mat(fileName);
+                var match = this.Matching(targetMat, templateMat, out var maxPoint);
+                // マッチなし
+                if (match &lt; 0)
+                {
+                    continue;
+                }
+
+                Console.WriteLine($"マッチしたテンプレ画像={fileName}");
+
+                // 確認用の画像表示
+                // マッチした箇所を赤で囲む
+                targetMat.Rectangle(maxPoint, new Point(maxPoint.X + templateMat.Width, maxPoint.Y + templateMat.Height), Scalar.Red, 2, LineTypes.AntiAlias, 0);
+                // マッチ度を画面上部に表示
+                targetMat.Rectangle(new Point(0, 0), new Point(800, 60), Scalar.White, -1, LineTypes.AntiAlias, 0);
+                Cv2.PutText(targetMat, match.ToString("0.##"), new Point(0, 50), HersheyFonts.HersheyPlain, 2, Scalar.Black, 1, LineTypes.AntiAlias);
+                Cv2.ImShow("確認用", targetMat);
+                Cv2.WaitKey(0);
+
+                return fileName;
+            }
+
+            return "NoMatch";
+        }
+
+        /// &lt;summary&gt;
+        /// テンプレートマッチングを実行する
+        /// &lt;/summary&gt;
+        /// &lt;param name="targetMat"&gt;探索対象とする画像&lt;/param&gt;
+        /// &lt;param name="templateMat"&gt;テンプレート画像&lt;/param&gt;
+        /// &lt;param name="matchPoint"&gt;探索対象画像内に存在するテンプレート画像の位置&lt;/param&gt;
+        /// &lt;returns&gt;マッチ度。マッチ無しの場合は負数を返す&lt;/returns&gt;
+        private double Matching(Mat targetMat, Mat templateMat, out Point matchPoint)
+        {
+            // 探索画像を二値化
+            var targetBinMat = new Mat();
+            Cv2.CvtColor(targetMat, targetBinMat, ColorConversionCodes.BGR2GRAY);
+            Cv2.Threshold(targetBinMat, targetBinMat, 128, 255, ThresholdTypes.Binary);
+
+            // テンプレ画像を二値化
+            var templateBinMat = new Mat();
+            Cv2.CvtColor(templateMat, templateBinMat, ColorConversionCodes.BGR2GRAY);
+            Cv2.Threshold(templateBinMat, templateBinMat, 128, 255, ThresholdTypes.Binary);
+
+            // マッチング
+            var resultMat = new Mat();
+            Cv2.MatchTemplate(targetBinMat, templateBinMat, resultMat, TemplateMatchModes.CCoeffNormed);
+
+            // 一番マッチした箇所のマッチ具合（0～1）と、その位置を取得する（画像内でマッチした左上座標）
+            Cv2.MinMaxLoc(resultMat, out _, out var maxVal, out _, out matchPoint);
+            if (maxVal &lt; MatchThreshold)
+            {
+                return -1.0;
+            }
+
+            // 閾値超えのマッチ箇所を強調させておく
+            var binMat = new Mat();
+            Cv2.Threshold(resultMat, binMat, MatchThreshold, 1.0, ThresholdTypes.Binary);
+
+            return maxVal;
+        }
+    }
+}
+

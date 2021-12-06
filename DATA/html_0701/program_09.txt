@@ -1,0 +1,76 @@
+
+@page "/"
+@using SimpleChat.Client.Services
+@using System.Diagnostics
+@using Azure.Communication.Chat
+@inject CommunicationService communicationService
+@inject Microsoft.Extensions.Configuration.IConfiguration configuration;
+
+&lt;h1&gt;Simple chat&lt;/h1&gt;
+
+@if (communicationService.IsJoined)
+{
+    &lt;div&gt;
+        ユーザー名：@displayName
+    &lt;/div&gt;
+    &lt;div&gt;
+        &lt;input type="text" @bind-value="message" /&gt;
+        &lt;button @onclick="SendButton_Click" disabled="@(string.IsNullOrEmpty(message))"&gt;Send&lt;/button&gt;
+        &lt;hr /&gt;
+        &lt;ul&gt;
+            @foreach (var message in messages)
+            {
+                &lt;li @key="message.Id"&gt;@message.SenderDisplayName : @message.Content&lt;/li&gt;
+            }
+        &lt;/ul&gt;
+    &lt;/div&gt;
+}
+else
+{
+    &lt;button @onclick="JoinButton_Click" disabled="@(string.IsNullOrEmpty(displayName))"&gt;Join&lt;/button&gt;
+    &lt;input type="text" @bind-value="displayName" /&gt;
+}
+
+@code {
+    private readonly HashSet&lt;string&gt; messageIds = new HashSet&lt;string&gt;();
+    private readonly List&lt;ChatMessage&gt; messages = new List&lt;ChatMessage&gt;();
+    private string displayName;
+    private string message;
+    private async void JoinButton_Click()
+    {
+        await communicationService.JoinToChatAsync();
+        StateHasChanged();
+        _ = StartReadMessagesAsync();
+    }
+
+    private async ValueTask StartReadMessagesAsync()
+    {
+        while (true)
+        {
+            await foreach (var message in communicationService.GetMessagesAsync())
+            {
+                Debug.WriteLine($"{message.Type}: {message.SenderDisplayName} &gt; {message.Content}");
+                if (message.Type == "Text")
+                {
+                    Debug.WriteLine("Text!!");
+                    if (!messageIds.Contains(message.Id))
+                    {
+                        messages.Add(message);
+                        messageIds.Add(message.Id);
+                    }
+                }
+            }
+
+            StateHasChanged();
+            await Task.Delay(3000);
+        }
+    }
+
+    private async void SendButton_Click()
+    {
+        await communicationService.SendMessageAsync(displayName, message);
+        message = "";
+        StateHasChanged();
+    }
+}
+

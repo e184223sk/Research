@@ -1,0 +1,59 @@
+
+        static void Main(string[] args)
+        {
+            MtpResponse res;
+            MtpCommand command = new MtpCommand();
+
+            // 接続されているデバイスIDを取得する
+            string[] deviceIds = command.GetDeviceIds();
+            if (deviceIds.Length == 0) { return; }
+
+            // RICOH THETA V デバイスを取得する
+            string targetDeviceId = String.Empty;
+            foreach (string deviceId in deviceIds)
+            {
+                Console.WriteLine(command.GetDeviceFriendlyName(deviceId));
+                if ("RICOH THETA V".Equals(command.GetDeviceFriendlyName(deviceId)))
+                {
+                    targetDeviceId = deviceId;
+                    break;
+                }
+            }
+            if (targetDeviceId.Length == 0) { return; }
+            command.Open(targetDeviceId);
+
+            // イベントを受け取れるようにする
+            command.MtpEvent += MtpEventListener;
+
+
+            // DeviceInfo
+            res = command.Execute(MtpOperationCode.GetDeviceInfo, null, null);
+            DeviceInfo deviceInfo = new DeviceInfo(res.Data);
+            Console.WriteLine(deviceInfo.Manufacturer);
+
+            res = command.Execute(MtpOperationCode.GetAccessPointHandles, null, null);
+            uint[] accessPointHandles = Utils.GetUIntArray(res.Data);
+            foreach(uint handle in accessPointHandles)
+            {
+
+                res = command.Execute(MtpOperationCode.GetAccessPointInfo, new uint[1] { handle }, null);
+                foreach(byte b in res.Data)
+                {
+                    Console.Write(b);
+                    Console.Write(" ");
+                }
+                AccessPointInfo accessPointInfo = new AccessPointInfo(res.Data);
+                Console.WriteLine("");
+                Console.WriteLine(accessPointInfo.SSID);
+
+                res = command.Execute(MtpOperationCode.DeleteAccessPoint, new uint[1] { handle }, null);
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Press any key to continue.");
+            Console.ReadKey();
+
+            // デバイスよさようなら
+            command.Close();
+        }
+

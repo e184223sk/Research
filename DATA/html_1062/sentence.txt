@@ -1,0 +1,103 @@
+以下の環境で実行しています
+- MacOS
+- Unity2021.2.0b2
+- MessagePipe v1.6.1
+- Zenject前回のMessagePipeの記事こちらのMessagePipeのReadmeを元に学んだことを記事にまとめていますMessagePipeはSubcribeでイベント受信（購読）を行います。Subscribeの戻り値はIDisposable
+このIDisposableを適切に処理しなければリークが発生します。つまり、クラスが破棄されたとしてもイベント購読し続けることになる
+（バグが出る可能性が非常に高い！）基本的には購読しているクラスの破棄と同時にイベントの購読も消したいはず。
+今回はイベントの破棄を担当するDisposeについて書いていきます。Subscribeの戻り値に対してAddToメソッドを呼び出すそこに DisposableBag.CreateBuilder() で作り出した DisposableBagBuilder を渡します。
+そして _disposable.Dispose を呼び出すことでイベントすべての購読が破棄されます。イベント単体の破棄であればSubscribeの戻り値をそのままメンバ変数に持ち、最後にDisposeするだけでも良Disposeは明示的に呼び出す必要があるので注意UniRxを組み込んでいる場合、Monobehaviourクラスはもう少し楽に破棄の処理ができますUniRxではおなじみの処理ですが
+AddToに自分自身を渡してGameObjectのライフサイクルに結びつけます。
+これでGameObjectが破棄されるときにイベントも破棄されます。Disposeの仕方はわかりましたが『Subcribeを適切に処理しているかどうか』は結局コードを書く人に委ねられている状態です。忘れないように心がけていても抜けは必ず発生します(必ず）しかし！ (Unity2020.2以降であれば)Subcribeの戻り値をハンドリングしてないものがあれば、ビルド時にエラーになるMessagePipe.Analyzerという便利機能が公開されているようですMessagePipe.AnalyzerはRoslyn analyzers という、ユーザー独自のコード解析を組み込める仕組みを利用されています(以下記事参考）結果からいうと MessagePipe.Analyzer.dll  を組み込むことで
+Subscribeに対して何も処理をしていない場合Unityのコンソール上やVisualStudio上でエラーが出るようになりますVisualStudio
+↓ Subscribeに対して何もしていない
+Unity
+こうしてエラーが出てくれれば忘れることもない(実行できないので)++++++++++++++++++++++++++++++++++++++++++++++++
+Unity2021.2.0b2 で動作を確認しています。
+Unity2020.3.X系だとUnityでエラーが出ませんでした...(VisualStudioではエラーが出る)バグか自分の設定が悪いのか.. 調査中
+++++++++++++++++++++++++++++++++++++++++++++++++MessagePipeのGithubにMessagePipe.Analyzer.dll が上がっています。
+(以下GithubのReleaseを参照)DLLをダウンロード
+そしてAsset以下のどこか適切なディレクトリにぶっこむ。
+MessagePipe.AnalyzerのInspectorで以下のように設定変更すること
+ロード終了後、Subscribeを処理していない箇所に対してUnityがエラーを出すようになりますVisualStudio上でもエラーを出すためには、Unityに対して更に一工夫する必要がありました。同じくCysharpが公開しているCsprojModifierを導入します公開されている最新バージョンのパッケージをインストールしますUnity &gt; Project Settings &gt; C# Project Modifier を開き、Add Roslyn Analyzer references to .csproj にチェックを付け、 Regenerate project files を押して .csproj を作り直します。終了後再度VIsualStudioを開き直したらVisualStudio上でも検知できるようになりました(現状、Unity2020.2以降のバージョンを使用している場合VisualStudioCode, Rider ではこの機能は使用できないようです。
+MacのVisualStudioでは正常に確認ができました）
+Unityでエラーが出る以上実行ができないのでUnityでカバーしていればまあよし！とも捉えられるMessagePipeは更に機能があり(凄い)、実行中のプロジェクトで現在Subscribeされている数や情報を取得できる機能があります。(MessagePipeDiagnosticsInfo)そして気軽に情報を見れるようにSubscribeしている箇所のモニターが出来る拡張機能が用意してあります(凄い)Window &gt; MessagePipeDiagnostics を開くと、EditorWindowが立ち上がります。そして実行中にWindowを見みると以下画像のようにSubscribeしている箇所が確認できますこの機能を利用するには GlobalMessagePipe.SetProvider を予め設定しておく事と、optionのEnableCaptureStackTraceをtrueにしておく必要があります。今回はSubscribeした結果のイベント購読破棄について書きました。
+Subscribeは適切に処理をしないと不具合の原因になるので標準にAnalyer機能、モニターEditor機能が用意されているのは本当に素晴らしいと感じました。今回のDispose周りについて更に理解したことができたら追記していきますDisposeで破棄
+
+using NUnit.Framework;
+using MessagePipe;
+using Zenject;
+using UnityEngine;
+using System;
+
+namespace XXXX
+{
+    public class DisposableTest
+    {
+        // イベント送る方
+        public class Publisher
+        {
+            [Inject] private IPublisher&lt;MyEvent&gt; _publisher;
+
+            public void Send(MyEvent ev) =&gt;
+                _publisher.Publish(ev);
+        }
+
+        // イベント受け取る方
+        public class Subscriber : IDisposable
+        {
+            private readonly IDisposable _disposable;
+
+            public Subscriber(ISubscriber&lt;MyEvent&gt; subscriber)
+            {
+                var bag = DisposableBag.CreateBuilder();
+
+                subscriber
+                    .Subscribe(x =&gt; Debug.Log($"{x.Message}"))
+                    .AddTo(bag);
+
+                _disposable = bag.Build();
+            }
+
+            void IDisposable.Dispose()
+            {
+                _disposable.Dispose();
+            }
+        }
+
+        // 送るイベント
+        public class MyEvent 
+        { 
+            public string Message; 
+        }
+
+
+        private DiContainer _container;
+
+        /// &lt;summary&gt;
+        /// SubscribeのIDosposableをかならず何らかの形でハンドリングする必要がある。
+        /// しなければリークする
+        /// &lt;/summary&gt;
+        [Test]
+        public void イベントを破棄する()
+        {
+            _container = new DiContainer();
+
+            var option = _container.BindMessagePipe();
+            _container.BindMessageBroker&lt;MyEvent&gt;(option);
+
+            // イベントを受ける方
+            using (_container.Instantiate&lt;Subscriber&gt;())
+            {
+                // イベントを投げる方
+                var publisher = _container.Instantiate&lt;Publisher&gt;();
+                publisher.Send(new MyEvent { Message = "テストメッセージ" });
+            }
+        }
+    }
+}
+
+
+
+
+

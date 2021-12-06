@@ -1,0 +1,83 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using NBitcoin;
+using QBitNinja.Client;
+
+namespace sendBtc
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 自アドレスの秘密鍵(WIF形式)からBitcoinSecretを取得する
+            var bitcoinPrivateKey = new BitcoinSecret("cPoEcLELGdXjHK5HB4tFxWf11UabeBJX4muBZSTZoavL8ZbDpBGa");
+            var network = bitcoinPrivateKey.Network;
+
+            // これから送金するためのトランザクションの左側(TxIn)をつくる
+            // - UTXO = Unspent Transaction Output（自アドレス宛の未使用トランザクション）の確認
+            // - トランザクションインプットの作成
+            var client = new QBitNinjaClient(network);
+            var transactionId = uint256.Parse("4c82922f0e3f04f98ac7809a15ce15d66505bc1627c86ede82341fd5d5089a2f");
+            var transactionResponse = client.GetTransaction(transactionId).Result;
+            var receivedCoins = transactionResponse.ReceivedCoins;
+            OutPoint outPointToSpend = null;
+            foreach (var coin in receivedCoins)
+            {
+                if (coin.TxOut.ScriptPubKey == bitcoinPrivateKey.ScriptPubKey)
+                {
+                    outPointToSpend = coin.Outpoint;
+                }
+            }
+            if (outPointToSpend == null)
+            {
+                throw new Exception("TxOut doesn't contain our ScriptPubKey");
+            }
+            var transaction = Transaction.Create(network);
+            transaction.Inputs.Add(new TxIn()
+            {
+                PrevOut = outPointToSpend
+            });
+
+            // これから送金するためのトランザクションの右側(TxOut)をつくる
+            // - BitcoinAddressの生成
+            // - 送金額の設定
+            var destinationAddress = BitcoinAddress.Create("mhk39wXeb1ZsDegtPb6xnrUquctp6Rusko", network);
+            var spendAmount = new Money(0.0001m, MoneyUnit.BTC);
+            var minerFee = new Money(0.00008m, MoneyUnit.BTC);
+            var txInAmount = (Money)receivedCoins[(int)outPointToSpend.N].Amount;
+            var changeAmount = txInAmount - spendAmount - minerFee;
+            transaction.Outputs.Add(spendAmount, destinationAddress.ScriptPubKey);
+            transaction.Outputs.Add(changeAmount, bitcoinPrivateKey.ScriptPubKey);
+
+            // メッセージ編集
+            // ブロックチェーンに永遠に残るオリジナルメッセージを付けて送金する
+            var message = "From Qiita, Japan, @ysskjck.";
+            var bytes = Encoding.UTF8.GetBytes(message);
+            transaction.Outputs.Add(Money.Zero, TxNullDataTemplate.Instance.GenerateScriptPubKey(bytes));
+
+            // これから送金するためのトランザクションに署名する
+            // (TxInにある自アドレス宛の送金額の所有権を証明する必要がある)
+            transaction.Inputs[0].ScriptSig = bitcoinPrivateKey.ScriptPubKey;
+            transaction.Sign(bitcoinPrivateKey, receivedCoins.ToArray());
+
+            // トランザクションの出力（送金確定前の内容確認）
+            Console.WriteLine(transaction.ToString());
+
+            // 送金確定
+            // (ブロックチェーンへの書き込み)
+            var broadcastResponse = client.Broadcast(transaction).Result;
+            if (!broadcastResponse.Success)
+            {
+                Console.Error.WriteLine("Error! ErrorCode: " + broadcastResponse.Error.ErrorCode);
+                Console.Error.WriteLine("ErrorMsg: " + broadcastResponse.Error.Reason);
+            }
+            else
+            {
+                Console.WriteLine("Success! You can check out the hash of the transaciton in any block explorer:");
+                Console.WriteLine("TransactionID: " + transaction.GetHash());
+            }
+        }
+    }
+}
+

@@ -1,0 +1,41 @@
+
+/// &lt;summary&gt;
+/// 全てのコマンドの購読を開始します。
+/// &lt;/summary&gt;
+/// &lt;param name="lastPosition"&gt;最後の読み込み位置&lt;/param&gt;
+/// &lt;param name="onReceiveAsync"&gt;コマンドを受信したときに実行するメソッド&lt;/param&gt;
+/// &lt;returns&gt;購読の状態を管理するオブジェクト&lt;/returns&gt;
+private async Task&lt;StreamSubscriptionState&gt; SubcribeAllCommandAsync(Position lastPosition, Func&lt;IEventCommand, Task&gt; onReceiveAsync)
+{
+    // 購読をキャンセルするためのトークン
+    CancellationTokenSource cancellation = new CancellationTokenSource();
+
+    EventStoreClient client = CreateEventStoreClient();
+
+    // イベントを受け取ったときの処理
+    async Task OnEventAsync(StreamSubscription subscription, ResolvedEvent @event, CancellationToken cancellation)
+    {
+        // TODO: 最後に読み込んだときの位置と同じ場合はスキップする。位置が不変であるのか調査が必要。
+        if (lastPosition.CommitPosition &gt;= @event.Event.Position.CommitPosition)
+        {
+            return;
+        }
+
+        // イベントからコマンドを取得する
+        if (TryGetCommand(@event, out IEventCommand cmd))
+        {
+            await onReceiveAsync(cmd).ConfigureAwait(false);
+        }
+    }
+
+    var subscription = await client.SubscribeToAllAsync(
+        lastPosition
+        , OnEventAsync
+        , cancellationToken: cancellation.Token
+        , userCredentials: new EventStore.Client.UserCredentials("admin", "changeit")
+        ).ConfigureAwait(false);
+
+    // 購読に関連するオブジェクトをまとめた状態オブジェクトを返す
+    return new StreamSubscriptionState(client, subscription, cancellation);
+}
+

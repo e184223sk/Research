@@ -1,0 +1,99 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace Sample {
+    public class ScrollSynchronizer {
+        //ScrollViewerとグループ名の対応リスト
+        private static Dictionary&lt;ScrollViewer, string&gt; _scrollViewers 
+            = new Dictionary&lt;ScrollViewer, string&gt;();
+
+        //水平方向のスクロール位置のリスト
+        private static Dictionary&lt;string, double&gt; _horizontalScrollOffsets 
+            = new Dictionary&lt;string, double&gt;();
+
+        //垂直方向のスクロール位置のリスト
+        private static Dictionary&lt;string, double&gt; _verticalScrollOffsets 
+            = new Dictionary&lt;string, double&gt;();
+
+        //グループ名の添付プロパティ
+        public static readonly DependencyProperty ScrollGroupProperty 
+            = DependencyProperty.RegisterAttached(
+                "ScrollGroup",
+                typeof(string),
+                typeof(ScrollSynchronizer),
+                new PropertyMetadata(new PropertyChangedCallback(OnScrollGroupChanged))
+            );
+
+        public static void SetScrollGroup(DependencyObject obj, string scrollGroup)
+            =&gt; obj.SetValue(ScrollGroupProperty, scrollGroup);
+
+        public static string GetScrollGroup(DependencyObject obj)
+            =&gt; (string)obj.GetValue(ScrollGroupProperty);
+
+        private static void OnScrollGroupChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var scrollViewer = d as ScrollViewer;
+
+            if (scrollViewer == null)
+                return;
+
+            var oldGroup = (string)e.OldValue ?? "";
+            var newGroup = (string)e.NewValue ?? "";
+
+            if (oldGroup != "") {
+                if (_scrollViewers.ContainsKey(scrollViewer)) {
+                    //登録解除
+                    scrollViewer.ScrollChanged -= ScrollViewer_ScrollChanged;
+                    _scrollViewers.Remove(scrollViewer);
+                }
+            }
+
+            if (newGroup != "") {
+                if (_scrollViewers.ContainsValue(newGroup)) {
+                    //既存のグループ名の場合は、現在のスクロール位置を反映する
+                    scrollViewer.ScrollToHorizontalOffset(_horizontalScrollOffsets[newGroup]);
+                    scrollViewer.ScrollToVerticalOffset(_verticalScrollOffsets[newGroup]);
+                } else {
+                    //新しいグループ名の場合は、スクロール位置を記録する
+                    _horizontalScrollOffsets[newGroup] = scrollViewer.HorizontalOffset;
+                    _verticalScrollOffsets[newGroup] = scrollViewer.VerticalOffset;
+                }
+
+                //ScrollViewerを登録
+                _scrollViewers.Add(scrollViewer, newGroup);
+                scrollViewer.ScrollChanged += ScrollViewer_ScrollChanged;
+            }
+        }
+
+        private static void ScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) {
+            var changedScrollViewer = sender as ScrollViewer;
+            var group = _scrollViewers[changedScrollViewer];
+            var scrollViewers = _scrollViewers.Where(s =&gt; s.Value == group &amp;&amp; s.Key != changedScrollViewer);
+
+            //垂直方向
+            if (e.VerticalChange != 0) {
+                _verticalScrollOffsets[group] = changedScrollViewer.VerticalOffset;
+
+                //同じグループのScrollViewerにスクロール位置を反映
+                scrollViewers
+                    .Where(s =&gt; s.Key.VerticalOffset != _verticalScrollOffsets[group])
+                    .Select(x =&gt; x.Key)
+                    .ForEach(scrollViewer =&gt; scrollViewer.ScrollToVerticalOffset(_verticalScrollOffsets[group]));
+            }
+
+            //水平方向
+            if (e.HorizontalChange != 0) {
+                _horizontalScrollOffsets[group] = changedScrollViewer.HorizontalOffset;
+
+                //同じグループのScrollViewerにスクロール位置を反映
+                scrollViewers
+                    .Where(s =&gt; s.Key.HorizontalOffset != _horizontalScrollOffsets[group])
+                    .Select(x =&gt; x.Key)
+                    .ForEach(scrollViewer =&gt; scrollViewer.ScrollToHorizontalOffset(_horizontalScrollOffsets[group]));
+            }
+        }
+    }
+}
+

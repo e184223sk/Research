@@ -1,0 +1,199 @@
+
+class Logger
+{
+    /// &lt;summary&gt;
+    /// ログレベル
+    /// &lt;/summary&gt;
+    private enum LogLevel
+    {
+        ERROR,
+        WARN,
+        INFO,
+        DEBUG
+    }
+
+    private static Logger singleton = null;
+    private readonly string logFilePath = null;
+    private readonly object lockObj = new object();
+    private StreamWriter stream = null;
+
+    /// &lt;summary&gt;
+    /// インスタンスを生成する
+    /// &lt;/summary&gt;
+    public static Logger GetInstance()
+    {
+        if (singleton == null)
+        {
+            singleton = new Logger();
+        }
+        return singleton;
+    }
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    private Logger()
+    {
+        this.logFilePath = Settings.Default.LOGDIR_PATH + Settings.Default.LOGFILE_NAME + ".log";
+
+        // ログファイルを生成する
+        CreateLogfile(new FileInfo(logFilePath));
+    }
+
+    /// &lt;summary&gt;
+    /// ERRORレベルのログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="msg"&gt;メッセージ&lt;/param&gt;
+    public void Error(string msg)
+    {
+        if ((int)LogLevel.ERROR &lt;= Settings.Default.LOG_LEVEL)
+        {
+            Out(LogLevel.ERROR, msg);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ERRORレベルのスタックトレースログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="ex"&gt;例外オブジェクト&lt;/param&gt;
+    public void Error(Exception ex)
+    {
+        if ((int)LogLevel.ERROR &lt;= Settings.Default.LOG_LEVEL)
+        {
+            Out(LogLevel.ERROR, ex.Message + Environment.NewLine + ex.StackTrace);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// WARNレベルのログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="msg"&gt;メッセージ&lt;/param&gt;
+    public void Warn(string msg)
+    {
+        if ((int)LogLevel.WARN &lt;= Settings.Default.LOG_LEVEL)
+        {
+            Out(LogLevel.WARN, msg);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// INFOレベルのログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="msg"&gt;メッセージ&lt;/param&gt;
+    public void Info(string msg)
+    {
+        if ((int)LogLevel.INFO &lt;= Settings.Default.LOG_LEVEL)
+        {
+            Out(LogLevel.INFO, msg);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// DEBUGレベルのログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="msg"&gt;メッセージ&lt;/param&gt;
+    public void Debug(string msg)
+    {
+        if ((int)LogLevel.DEBUG &lt;= Properties.Settings.Default.LOG_LEVEL)
+        {
+            Out(LogLevel.DEBUG, msg);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="level"&gt;ログレベル&lt;/param&gt;
+    /// &lt;param name="msg"&gt;メッセージ&lt;/param&gt;
+    private void Out(LogLevel level, string msg)
+    {
+        if (Settings.Default.IS_LOGFILE)
+        {
+            int tid = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            string fullMsg = string.Format("[{0}][{1}][{2}] {3}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), tid, level.ToString(), msg);
+
+            lock (this.lockObj)
+            {
+                this.stream.WriteLine(fullMsg);
+
+                FileInfo logFile = new FileInfo(this.logFilePath);
+                if (Settings.Default.LOGFILE_MAXSIZE &lt; logFile.Length)
+                {
+                    // ログファイルを圧縮する
+                    CompressLogFile();
+
+                    // 古いログファイルを削除する
+                    DeleteOldLogFile();
+                }
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ログファイルを生成する
+    /// &lt;/summary&gt;
+    /// &lt;param name="logFile"&gt;ファイル情報&lt;/param&gt;
+    private void CreateLogfile(FileInfo logFile)
+    {
+        if (!Directory.Exists(logFile.DirectoryName))
+        {
+            Directory.CreateDirectory(logFile.DirectoryName);
+        }
+
+        this.stream = new StreamWriter(logFile.FullName, true, Encoding.UTF8)
+        {
+            AutoFlush = true
+        };
+    }
+
+    /// &lt;summary&gt;
+    /// ログファイルを圧縮する
+    /// &lt;/summary&gt;
+    private void CompressLogFile()
+    {
+        this.stream.Close();
+        string oldFilePath = Settings.Default.LOGDIR_PATH + Settings.Default.LOGFILE_NAME + "_" + DateTime.Now.ToString("yyyyMMddHHmmss");
+        File.Move(this.logFilePath, oldFilePath + ".log");
+
+        FileStream inStream = new FileStream(oldFilePath + ".log", FileMode.Open, FileAccess.Read);
+        FileStream outStream = new FileStream(oldFilePath + ".gz", FileMode.Create, FileAccess.Write);
+        GZipStream gzStream = new GZipStream(outStream, CompressionMode.Compress);
+
+        int size = 0;
+        byte[] buffer = new byte[Settings.Default.LOGFILE_MAXSIZE + 1000];
+        while (0 &lt; (size = inStream.Read(buffer, 0, buffer.Length)))
+        {
+            gzStream.Write(buffer, 0, size);
+        }
+
+        inStream.Close();
+        gzStream.Close();
+        outStream.Close();
+
+        File.Delete(oldFilePath + ".log");
+        CreateLogfile(new FileInfo(this.logFilePath));
+    }
+
+    /// &lt;summary&gt;
+    /// 古いログファイルを削除する
+    /// &lt;/summary&gt;
+    private void DeleteOldLogFile()
+    {
+        Regex regex = new Regex(Settings.Default.LOGFILE_NAME + @"_(\d{14}).*\.gz");
+        DateTime retentionDate = DateTime.Today.AddDays(-Settings.Default.LOGFILE_PERIOD);
+        string[] filePathList = Directory.GetFiles(Settings.Default.LOGDIR_PATH, Settings.Default.LOGFILE_NAME + "_*.gz", SearchOption.TopDirectoryOnly);
+        foreach (string filePath in filePathList)
+        {
+            Match match = regex.Match(filePath);
+            if (match.Success)
+            {
+                DateTime logCreatedDate = DateTime.ParseExact(match.Groups[1].Value.ToString(), "yyyyMMddHHmmss", null);
+                if (logCreatedDate &lt; retentionDate)
+                {
+                    File.Delete(filePath);
+                }
+            }
+        }
+    }
+}
+

@@ -1,0 +1,159 @@
+
+/// &lt;summary&gt;
+/// コンストラクタ
+/// &lt;/summary&gt;
+public MainUcViewModel()
+{
+    //初期値指定
+    PenSize = 10;
+    PenStyle = true;
+
+    //ペンのスタイル指定
+    PenStyleChanged();
+}
+
+/// &lt;summary&gt;
+/// DrawingAttributesの変更
+/// &lt;/summary&gt;
+private void PenStyleChanged()
+{
+    //DrawingAttributesの指定
+    PenAttrivutes = new DrawingAttributes()
+    {
+        //太さ
+        Width = PenSize,
+        //高さ
+        Height = PenSize,
+        //形状
+        StylusTip = PenStyle == true ? StylusTip.Ellipse : StylusTip.Rectangle,
+        //色
+        Color = Colors.Green,
+        //滑らかな線（ギザギザするのでTrue推奨）
+        FitToCurve = true,
+        //蛍光ペン（背景画像の上に色を置くのでTrue推奨）
+        IsHighlighter = true
+    };
+}
+
+/// &lt;summary&gt;
+/// ペンボタンコマンドの処理
+/// &lt;/summary&gt;
+private void InkCommandExecute()
+{
+    InkEditingMode = InkCanvasEditingMode.Ink;
+}
+
+/// &lt;summary&gt;
+/// 選択ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void InkSelectEexecute()
+{
+    InkEditingMode = InkCanvasEditingMode.Select;
+}
+/// &lt;summary&gt;
+/// 消しゴム（ポイント）ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void EraseByPointCommandExectuite()
+{
+    InkEditingMode = InkCanvasEditingMode.EraseByPoint;
+}
+
+/// &lt;summary&gt;
+/// 消しゴム（線）ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void EraseByStrokeCommandExecute()
+{
+    InkEditingMode = InkCanvasEditingMode.EraseByStroke;
+}
+
+/// &lt;summary&gt;
+/// 保存（画像）ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void SaveCommandExecute(InkCanvas inkCanvas)
+{
+    Microsoft.Win32.SaveFileDialog dlgSave = new Microsoft.Win32.SaveFileDialog();
+
+    dlgSave.Filter = "PNGファイル(*.png)|*.png";
+    dlgSave.AddExtension = true;
+
+    if ((bool)dlgSave.ShowDialog())
+    {
+        // 拡張子を取得する
+        string extension = System.IO.Path.GetExtension(dlgSave.FileName).ToUpper();
+
+        // ストロークが描画されている境界を取得
+        Rect rectBounds = inkCanvas.Strokes.GetBounds();
+        Rect rect = new Rect(0, 0, inkCanvas.Width, inkCanvas.Height);
+
+        // 描画先を作成
+        DrawingVisual drawingVisual = new DrawingVisual();
+        DrawingContext context = drawingVisual.RenderOpen();
+
+        // 描画エリアを作成
+        context.DrawRectangle(inkCanvas.Background, null, rect);
+        inkCanvas.Strokes.Draw(context);
+        context.Close();
+
+        // ビットマップに変換
+        RenderTargetBitmap rtb = new RenderTargetBitmap((int)rect.Width, (int)rect.Height, 96, 96, PixelFormats.Default);
+        rtb.Render(drawingVisual);
+
+        // ビットマップエンコーダー変数の宣言
+        BitmapEncoder enc = new PngBitmapEncoder();
+
+        if (enc != null)
+        {
+            // ビットマップフレームを作成してエンコーダーにフレームを追加する
+            enc.Frames.Add(BitmapFrame.Create(rtb));
+            // ファイルに書き込む
+            System.IO.Stream stream = System.IO.File.Create(dlgSave.FileName);
+            enc.Save(stream);
+            stream.Close();
+        }
+
+    }
+}
+
+/// &lt;summary&gt;
+/// 保存（ISF）ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void SaveAsIsfCommandExecute(InkCanvas inkCanvas)
+{
+    Microsoft.Win32.SaveFileDialog dlgSave = new Microsoft.Win32.SaveFileDialog();
+
+    dlgSave.Filter = "ISFファイル(*.isf)|*.isf";
+
+    if ((bool)dlgSave.ShowDialog())
+    {
+        using (System.IO.FileStream fs = new System.IO.FileStream(dlgSave.FileName, System.IO.FileMode.Create))
+        {
+            inkCanvas.Strokes.Save(fs);
+        }
+
+        MessageBox.Show("保存しました");
+    }
+}
+
+
+/// &lt;summary&gt;
+/// 開く（ISF）ボタンコマンドの処理
+/// &lt;/summary&gt;
+private void OpenAsIsfCommandExecute(InkCanvas inkCanvas)
+{
+
+    Microsoft.Win32.OpenFileDialog dlgOpen = new Microsoft.Win32.OpenFileDialog();
+
+    dlgOpen.Filter = "ISFファイル(*.isf)|*.isf";
+
+    if ((bool)dlgOpen.ShowDialog())
+    {
+        // 現在のストロークをクリア
+        inkCanvas.Strokes.Clear();
+
+        using (System.IO.FileStream fs = new System.IO.FileStream(dlgOpen.FileName, System.IO.FileMode.Open))
+        {
+            inkCanvas.Strokes = new System.Windows.Ink.StrokeCollection(fs);
+        }
+    }
+}
+

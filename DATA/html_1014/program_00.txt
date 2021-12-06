@@ -1,0 +1,30 @@
+public class ImageListViewModel : ViewModelBase
+{
+    private readonly IDetectMenuTextUseCase _detectMenuTextUseCase;
+    private readonly IDialogService _dialogService;
+
+    public ReadOnlyReactivePropertySlim&lt;ReadOnlyObservableCollection&lt;ImageInfo&gt;&gt; Images { get; }
+
+    public ReactivePropertySlim&lt;ImageInfo&gt; SelectedImage { get; } = new ReactivePropertySlim&lt;ImageInfo&gt;();
+
+    public ImageListViewModel(IDetectMenuTextUseCase detectMenuTextUseCase, IDialogService dialogService)
+    {
+        _detectMenuTextUseCase = detectMenuTextUseCase ?? throw new ArgumentNullException(nameof(detectMenuTextUseCase));
+        _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        Images = _detectMenuTextUseCase
+            .RestaurantMenu
+            .CurrentText
+            .Select(x =&gt; x?.Images)
+            .ToReadOnlyReactivePropertySlim()
+            .AddTo(Disposables);
+
+        SelectedImage.Where(x =&gt; x != null)
+            .Subscribe(x =&gt;
+            {
+                _dialogService.ShowDialog(ViewNames.ImageDialogView, 
+                    new DialogParameters { { "image", x } }, 
+                    _ =&gt; { });
+            });
+    }
+}
+

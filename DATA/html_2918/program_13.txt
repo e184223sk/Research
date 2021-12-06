@@ -1,0 +1,52 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.Purchasing;
+using UnityInAppPuchaser;
+
+public class Sample : MonoBehaviour {
+
+    [SerializeField] private Transform CatalogHolder = default;
+    [SerializeField] private Button RestoreButton = default;
+
+    /// &lt;summary&gt;製品目録&lt;/summary&gt;
+    private readonly ProductDefinition [] products = new [] {
+            new ProductDefinition ("jp.nyanta.tetr4lab.unityiaptest.item1", ProductType.Consumable),
+            new ProductDefinition ("jp.nyanta.tetr4lab.unityiaptest.item2", ProductType.NonConsumable),
+            new ProductDefinition ("jp.nyanta.tetr4lab.unityiaptest.item3", ProductType.NonConsumable),
+        };
+
+    /// &lt;summary&gt;起動&lt;/summary&gt;
+    private void Start () {
+        StartCoroutine (initPurchaser ());
+    }
+
+    /// &lt;summary&gt;開始処理&lt;/summary&gt;
+    private IEnumerator initPurchaser () {
+        RestoreButton.interactable = false;
+        Purchaser.Init (products);
+        yield return new WaitUntil (() =&gt; Purchaser.Valid || Purchaser.Unavailable); // 初期化完了を待つ
+        if (Purchaser.Valid) {
+            Catalog.Create (CatalogHolder);
+            foreach (var product in Purchaser.Products.all) {
+                CatalogItem.Create (Catalog.ScrollRect.content, product);
+            }
+        }
+        RestoreButton.interactable = true;
+    }
+
+    /// &lt;summary&gt;復元ボタン&lt;/summary&gt;
+    public void OnPushRestoreButton () {
+        if (Purchaser.Unavailable) {
+            StartCoroutine (initPurchaser ());
+        } else if (Purchaser.Valid) {
+            Purchaser.Restore (success =&gt; {
+                if (!success) { ModalDialog.Create (transform.parent, "リストアに失敗しました。\nネットワーク接続を確認してください。"); }
+            });
+        }
+    }
+
+}
+

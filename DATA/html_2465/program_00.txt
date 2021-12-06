@@ -1,0 +1,250 @@
+
+using System;
+using System.IO;
+
+public class Arcfour
+{
+    byte[] _S; // S-Box
+    byte[] _key;
+    byte _Index;
+    byte _J;
+
+    Arcfour(){}
+
+    public static Arcfour CreateArcfour(byte[] key)
+    {
+        Arcfour ret = new Arcfour();
+
+        if (key.Length&lt;5){return null;}
+        ret._key = new byte[key.Length];
+        Array.Copy(key,0,ret._key,0,key.Length);  // _key[i] = key[i]
+        ret._S = InitializeSBox(ret._key);
+        ret._Index = 0;
+        ret._J = 0;
+
+        return ret;
+    }
+
+    // 3.1 Key Setup
+    static byte[] InitializeSBox(byte[] key)
+    {
+        // step.1.
+        byte[] S  = new byte[256];
+
+        // step.2.
+        for ( int i=0 ; i&lt;256 ; i++ ) { // ループカウンタをbyteにするとoverflowして無限ループするはずなので注意
+            S[i] = (byte)i;
+        }
+
+        // step.3.
+        byte[] S2 = new byte[256];
+        for ( int i=0 ; i&lt;256 ; i++ ) {
+            S2[i] = key[i % key.Length];
+        }
+
+        // step.4.
+        int j = 0;
+        for ( int i=0 ; i&lt;256 ; i++ ) {
+            j = (byte)(j + S[i] + S2[i]);
+            byte temp = S[i];
+            S[i] = S[j];
+            S[j] = temp;
+        }
+
+        // step.5. セキュリティの観点でメモリにゴミが残らないようi,j,S2を0クリア推奨されている。
+        // (iをクリアしても意味ないような)
+        // 効果が不明だがクリアしておく。
+        j = 0;
+        for ( int i=0 ; i&lt;256 ; i++ ) {
+            S2[i] = 0;
+        }
+
+        return S;
+    }
+
+    // 3.2 Stream Generation
+    // EncryptとDecryptは同一処理
+    public void Encrypt(Stream src, Stream dest, int length)
+    {
+        for ( int count=0 ; count&lt;length ; count++ ) {
+            int sByte = src.ReadByte();
+            if (sByte &lt; 0) {return;} // End of stream
+
+            _Index++;
+            _J += _S[_Index];
+            byte temp = _S[_Index];
+            _S[_Index] = _S[_J];
+            _S[_J] = temp;
+
+            temp = (byte)(_S[_Index] + _S[_J]);
+            byte K = _S[temp];
+
+            dest.WriteByte((byte)(((byte)sByte) ^ K)); // XOR
+        }
+    }
+}
+
+// -------------------------------------------------------------
+
+class ArcfourTest
+{
+    static void Test1()
+    {
+        byte[] plain = new byte[8]; // all zero
+        byte[] chipher = new byte[8];
+        byte[] key = new byte[]{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};  // 128bit
+        Arcfour arcfour = Arcfour.CreateArcfour(key);
+
+        MemoryStream src  = new MemoryStream(plain, false); // 第2引数=falseでreadonly
+        MemoryStream dest = new MemoryStream(chipher);
+        arcfour.Encrypt(src, dest, plain.Length);
+
+        src.Close();
+        dest.Close();
+
+        DumpBytes(chipher);
+    }
+
+    static void Test1d()
+    {
+        byte[] plain = new byte[]{0x74, 0x94, 0xC2, 0xE7, 0x10, 0x4B, 0x08, 0x79};
+        byte[] chipher = new byte[8];
+        byte[] key = new byte[]{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};  // 64bit
+        Arcfour arcfour = Arcfour.CreateArcfour(key);
+
+        MemoryStream src  = new MemoryStream(plain, false); // 第2引数=falseでreadonly
+        MemoryStream dest = new MemoryStream(chipher);
+        arcfour.Encrypt(src, dest, plain.Length);
+
+        src.Close();
+        dest.Close();
+
+        DumpBytes(chipher);
+    }
+
+    static void Test2()
+    {
+        //  Cipher Text:   0xf1, 0x38, 0x29, 0xc9, 0xde
+        byte[] plain = new byte[]{0xdc, 0xee, 0x4c, 0xf9, 0x2c};
+        byte[] chipher = new byte[5];
+        byte[] key = new byte[]{0x61, 0x8a, 0x63, 0xd2, 0xfb};  // 40bit
+        Arcfour arcfour = Arcfour.CreateArcfour(key);
+
+        MemoryStream src  = new MemoryStream(plain, false); // 第2引数=falseでreadonly
+        MemoryStream dest = new MemoryStream(chipher);
+        arcfour.Encrypt(src, dest, plain.Length);
+
+        src.Close();
+        dest.Close();
+
+        DumpBytes(chipher);
+    }
+
+    static byte[] TestVector3_PlainText = new byte[] {
+            0x52, 0x75, 0x69, 0x73, 0x6c, 0x69, 0x6e, 0x6e,
+            0x75, 0x6e, 0x20, 0x6c, 0x61, 0x75, 0x6c, 0x75,
+            0x20, 0x6b, 0x6f, 0x72, 0x76, 0x69, 0x73, 0x73,
+            0x73, 0x61, 0x6e, 0x69, 0x2c, 0x20, 0x74, 0xe4,
+            0x68, 0x6b, 0xe4, 0x70, 0xe4, 0x69, 0x64, 0x65,
+            0x6e, 0x20, 0x70, 0xe4, 0xe4, 0x6c, 0x6c, 0xe4,
+            0x20, 0x74, 0xe4, 0x79, 0x73, 0x69, 0x6b, 0x75,
+            0x75, 0x2e, 0x20, 0x4b, 0x65, 0x73, 0xe4, 0x79,
+            0xf6, 0x6e, 0x20, 0x6f, 0x6e, 0x20, 0x6f, 0x6e,
+            0x6e, 0x69, 0x20, 0x6f, 0x6d, 0x61, 0x6e, 0x61,
+            0x6e, 0x69, 0x2c, 0x20, 0x6b, 0x61, 0x73, 0x6b,
+            0x69, 0x73, 0x61, 0x76, 0x75, 0x75, 0x6e, 0x20,
+            0x6c, 0x61, 0x61, 0x6b, 0x73, 0x6f, 0x74, 0x20,
+            0x76, 0x65, 0x72, 0x68, 0x6f, 0x75, 0x75, 0x2e,
+            0x20, 0x45, 0x6e, 0x20, 0x6d, 0x61, 0x20, 0x69,
+            0x6c, 0x6f, 0x69, 0x74, 0x73, 0x65, 0x2c, 0x20,
+            0x73, 0x75, 0x72, 0x65, 0x20, 0x68, 0x75, 0x6f,
+            0x6b, 0x61, 0x61, 0x2c, 0x20, 0x6d, 0x75, 0x74,
+            0x74, 0x61, 0x20, 0x6d, 0x65, 0x74, 0x73, 0xe4,
+            0x6e, 0x20, 0x74, 0x75, 0x6d, 0x6d, 0x75, 0x75,
+            0x73, 0x20, 0x6d, 0x75, 0x6c, 0x6c, 0x65, 0x20,
+            0x74, 0x75, 0x6f, 0x6b, 0x61, 0x61, 0x2e, 0x20,
+            0x50, 0x75, 0x75, 0x6e, 0x74, 0x6f, 0x20, 0x70,
+            0x69, 0x6c, 0x76, 0x65, 0x6e, 0x2c, 0x20, 0x6d,
+            0x69, 0x20, 0x68, 0x75, 0x6b, 0x6b, 0x75, 0x75,
+            0x2c, 0x20, 0x73, 0x69, 0x69, 0x6e, 0x74, 0x6f,
+            0x20, 0x76, 0x61, 0x72, 0x61, 0x6e, 0x20, 0x74,
+            0x75, 0x75, 0x6c, 0x69, 0x73, 0x65, 0x6e, 0x2c,
+            0x20, 0x6d, 0x69, 0x20, 0x6e, 0x75, 0x6b, 0x6b,
+            0x75, 0x75, 0x2e, 0x20, 0x54, 0x75, 0x6f, 0x6b,
+            0x73, 0x75, 0x74, 0x20, 0x76, 0x61, 0x6e, 0x61,
+            0x6d, 0x6f, 0x6e, 0x20, 0x6a, 0x61, 0x20, 0x76,
+            0x61, 0x72, 0x6a, 0x6f, 0x74, 0x20, 0x76, 0x65,
+            0x65, 0x6e, 0x2c, 0x20, 0x6e, 0x69, 0x69, 0x73,
+            0x74, 0xe4, 0x20, 0x73, 0x79, 0x64, 0xe4, 0x6d,
+            0x65, 0x6e, 0x69, 0x20, 0x6c, 0x61, 0x75, 0x6c,
+            0x75, 0x6e, 0x20, 0x74, 0x65, 0x65, 0x6e, 0x2e,
+            0x20, 0x2d, 0x20, 0x45, 0x69, 0x6e, 0x6f, 0x20,
+            0x4c, 0x65, 0x69, 0x6e, 0x6f};
+
+    static byte[] TestVector3_Key = new byte[] {
+        0x29, 0x04, 0x19, 0x72, 0xfb, 0x42, 0xba, 0x5f,
+        0xc7, 0x12, 0x77, 0x12, 0xf1, 0x38, 0x29, 0xc9
+    };
+
+    static void Test3()
+    {
+        byte[] plain = TestVector3_PlainText;
+        //Array.Copy(TestVector3_PlainText, 0, plain, 0, plain.Length);
+        byte[] chipher = new byte[plain.Length];
+        byte[] key = TestVector3_Key;
+        Arcfour arcfour = Arcfour.CreateArcfour(key);
+
+        MemoryStream src  = new MemoryStream(plain, false); // 第2引数=falseでreadonly
+        MemoryStream dest = new MemoryStream(chipher);
+        arcfour.Encrypt(src, dest, plain.Length);
+
+        src.Close();
+        dest.Close();
+
+        DumpBytes(chipher);
+    }
+
+    static void Test3_2()
+    {
+        byte[] plain = TestVector3_PlainText;
+        //Array.Copy(TestVector3_PlainText, 0, plain, 0, plain.Length);
+        byte[] chipher = new byte[plain.Length];
+        byte[] key = TestVector3_Key;
+        Arcfour arcfour = Arcfour.CreateArcfour(key);
+
+        MemoryStream src  = new MemoryStream(plain, false); // 第2引数=falseでreadonly
+        MemoryStream dest = new MemoryStream(chipher);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+        arcfour.Encrypt(src, dest, 50);
+
+        src.Close();
+        dest.Close();
+
+        DumpBytes(chipher);
+    }
+
+    static void DumpBytes(byte[] a)
+    {
+        bool first = true;
+        foreach(byte b in a) {
+            if(!first){Console.Write(" ");}
+            Console.Write(b.ToString("x2"));
+            first=false;
+        }
+        Console.WriteLine();
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Test3_2();
+    }
+}
+
+

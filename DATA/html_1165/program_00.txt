@@ -1,0 +1,42 @@
+using System;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace kanazawa.Function
+{
+    public static class get_qiita_views
+    {
+        [FunctionName("get_qiita_views")]
+        public static async void Run([TimerTrigger("0 0 * * * *")]TimerInfo myTimer, ILogger log)
+        {
+            TimeZoneInfo jstTimeZone = TZConvert.GetTimeZoneInfo("Tokyo Standard Time");
+            DateTime utcTime = DateTime.UtcNow;
+            DateTime jstTime = TimeZoneInfo.ConvertTimeFromUtc(utcTime, jstTimeZone);
+            log.LogInformation($"C# Timer trigger function executed at: {jstTime}");
+
+            // Qiita APIのURL
+            string url = "https://qiita.com/api/v2/users/" + Parameter.getQiitaUserName() + "/items";
+            // 投稿記事情報取得
+            string json = await GetJson(url);
+        }
+
+        private static async Task&lt;string&gt; GetJson(string url)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+            // OAuth 2.0 Authorization Headerの設定
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Parameter.getQiitaAccessToken());
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+            string result = await response.Content.ReadAsStringAsync();
+
+            return result;
+        }
+    }
+}
+

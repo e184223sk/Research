@@ -1,0 +1,43 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Windows.Forms;
+
+namespace FormsMvvm
+{
+    public static class Binder
+    {
+        public static void Bind&lt;T, U&gt;(Expression&lt;Func&lt;T&gt;&gt; item1, Expression&lt;Func&lt;U&gt;&gt; item2)
+        {
+            Tuple&lt;object, string&gt; ResolveLambda&lt;V&gt;(Expression&lt;Func&lt;V&gt;&gt; expression)
+            {
+                var lambda = expression as LambdaExpression;
+                if (lambda == null) throw new ArgumentException();
+                var property = lambda.Body as MemberExpression;
+                if (property == null) throw new ArgumentException();
+                var members = new List&lt;MemberInfo&gt;();
+                var parent = property.Expression;
+                return new Tuple&lt;object, string&gt;(Expression.Lambda(parent).Compile().DynamicInvoke(), property.Member.Name);
+            }
+            var tuple1 = ResolveLambda(item1);
+            var tuple2 = ResolveLambda(item2);
+            var control = tuple1.Item1 as Control;
+            if (control == null) throw new ArgumentException();
+            control.DataBindings.Add(new Binding(tuple1.Item2, tuple2.Item1, tuple2.Item2));
+        }
+
+        public static void Bind(this Button button, Command command)
+        {
+            Bind(() =&gt; button.Enabled, () =&gt; command.CanExecute);
+            button.Click += (sender, args) =&gt; command.Execute();
+        }
+
+        public static void Bind&lt;T&gt;(this Label label, Expression&lt;Func&lt;T&gt;&gt; expression)
+        {
+            Bind(() =&gt; label.Text, expression);
+        }
+    }
+}
+

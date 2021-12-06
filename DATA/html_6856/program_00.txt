@@ -1,0 +1,334 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Reflection;
+
+namespace AbstractFactoryPattern
+{
+    using Factory;
+    class Program
+    {
+        // Client
+        // AbstractFactoryとAbstractProductのインターフェース（API）だけを使って仕事を行う
+        static void Main(string[] args)
+        {
+            if(args.Length != 1)
+            {
+                Console.WriteLine("Usage: C# Main class.name.of.ConcreteFactory");
+                Console.WriteLine("Example 1: C# Main ListFactory.ListFactory");
+                Console.WriteLine("Example 2: C# Main TableFactory.TableFactory");
+                Environment.Exit(0);
+            }
+            Factory factory = Factory.GetFactory(args[0]);
+
+            Link asahi = factory.CreateLink("朝日新聞", "http://www.asashi.com/");
+            Link yomiuri = factory.CreateLink("読売新聞", "http://www.yomiuri.co.jp/");
+
+            Link usYahoo = factory.CreateLink("Yahoo!", "http://www.yahoo.com/");
+            Link jpYahoo = factory.CreateLink("Yahoo!Japan", "http://www.yahoo.co.jp/");
+            Link excite = factory.CreateLink("Excite", "http://www.excite.co.jp/");
+            Link google = factory.CreateLink("Google", "http://www.google.com/");
+
+            Tray traynews = factory.CreateTray("新聞");
+            traynews.Add(asahi);
+            traynews.Add(yomiuri);
+
+            Tray trayyahoo = factory.CreateTray("Yahoo!");
+            trayyahoo.Add(usYahoo);
+            trayyahoo.Add(jpYahoo);
+
+            Tray traysearch = factory.CreateTray("サーチエンジン");
+            traysearch.Add(trayyahoo);
+            traysearch.Add(excite);
+            traysearch.Add(google);
+
+            Page page = factory.CreatePage("LinkPage", "結城 浩");
+            page.Add(traynews);
+            page.Add(traysearch);
+            page.Output();
+
+            // 実行が一瞬で終わって確認できないので、キーの入力を待ちます
+            Console.ReadLine();
+        }
+    }
+}
+
+namespace Factory
+{
+    // AbstractProduct
+    // ・AbstractFactoryによって作り出される抽象的な部品や製品のインターフェース（API）を定める
+    public abstract class Item
+    {
+        protected string caption;
+        public Item(string caption)
+        {
+            this.caption = caption;
+        }
+        public abstract string MakeHTML();
+    }
+
+    // AbstractProduct
+    public abstract class Link : Item
+    {
+        protected string url;
+        public Link(string caption, string url) : base(caption)
+        {
+            this.url = url;
+        }
+    }
+
+    // AbstractProduct
+    public abstract class Tray : Item
+    {
+        protected List&lt;Item&gt; tray = new List&lt;Item&gt;();
+        public Tray(string caption) : base(caption) { }
+
+        public void Add(Item item)
+        {
+            tray.Add(item);
+        }
+    }
+
+    // AbstractProduct
+    public abstract class Page
+    {
+        protected string title;
+        protected string author;
+        protected List&lt;Item&gt; content = new List&lt;Item&gt;();
+        public Page(string title, string author)
+        {
+            this.title = title;
+            this.author = author;
+        }
+
+        public void Add(Item item)
+        {
+            this.content.Add(item);
+        }
+
+        public void Output()
+        {
+            try
+            {
+                string filename = title + ".html";
+                using (StreamWriter writer = new StreamWriter(filename, false, Encoding.UTF8))
+                {
+                    writer.Write(this.MakeHTML());
+                }
+                Console.WriteLine($"{filename}を作成しました。");
+            }
+            catch(IOException e)
+            {
+                Console.Error.WriteLine(e);
+            }
+        }
+        public abstract string MakeHTML();
+    }
+
+    // AbstractFactory
+    // ・AbstractProductのインスタンスを作り出すためのインターフェース（API）を定める
+    public abstract class Factory
+    {
+        public static Factory GetFactory(string classname)
+        {
+            Factory factory = null;
+            try
+            {
+                Assembly assembly = Assembly.GetExecutingAssembly();
+
+                factory = (Factory)assembly.CreateInstance(
+                  classname,
+                  false,
+                  BindingFlags.CreateInstance,
+                  null,
+                  null,
+                  null,
+                  null
+                );
+            }
+            catch(TypeLoadException)
+            {
+                Console.Error.WriteLine($"クラス{classname}が見つかりません。");
+            }
+            catch(Exception e)
+            {
+                Console.Error.WriteLine(e.StackTrace);
+            }
+            return factory;
+        }
+        public abstract Link CreateLink(string caption, string url);
+        public abstract Tray CreateTray(string caption);
+        public abstract Page CreatePage(string title, string author);
+    }
+}
+
+namespace ListFactory
+{
+    using Factory;
+
+    // ConcreteFactory
+    public class ListFactory : Factory
+    {
+        public override Link CreateLink(string caption, string url)
+        {
+            return new ListLink(caption, url);
+        }
+
+        public override Tray CreateTray(string caption)
+        {
+            return new ListTray(caption);
+        }
+
+        public override Page CreatePage(string title, string author)
+        {
+            return new ListPage(title, author);
+        }
+
+
+    }
+
+    // ConcreteProduct
+    public class ListLink : Link
+    {
+        public ListLink(string caption, string url) : base(caption, url) { }
+
+        public override string MakeHTML()
+        {
+            return $"  &lt;li&gt;&lt;a href=\"{url}\"&gt;{caption}&lt;/a&gt;&lt;/li&gt;\n";
+        }
+    }
+
+
+    // ConcreteProduct
+    public class ListTray : Tray
+    {
+        public ListTray(string caption) : base(caption) { }
+
+        public override string MakeHTML()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("&lt;li&gt;\n");
+            sb.Append($"{caption}\n");
+            sb.Append("&lt;ul&gt;\n");
+            IEnumerator&lt;Item&gt; e = tray.GetEnumerator();
+            while (e.MoveNext())
+            {
+                sb.Append(e.Current.MakeHTML());
+            }
+            sb.Append("&lt;/ul&gt;\n");
+            sb.Append("&lt;/li&gt;\n");
+            return sb.ToString();
+        }
+    }
+
+    // ConcreteProduct
+    public class ListPage : Page
+    {
+        public ListPage(string title, string author) : base(title, author) { }
+        public override string MakeHTML()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append($"&lt;html&gt;&lt;head&gt;&lt;title&gt;{title}&lt;/title&gt;&lt;/head&gt;\n");
+            sb.Append("&lt;body&gt;\n");
+            sb.Append($"&lt;h1&gt;{title}&lt;/h1&gt;");
+            sb.Append("&lt;ul&gt;\n");
+            IEnumerator&lt;Item&gt; e = content.GetEnumerator();
+            while (e.MoveNext())
+            {
+                sb.Append(e.Current.MakeHTML());
+            }
+            sb.Append("&lt;/ul&gt;\n");
+            sb.Append($"&lt;hr&gt;&lt;address&gt;{author}&lt;/address&gt;");
+            sb.Append("&lt;/body&gt;&lt;/html&gt;\n");
+            return sb.ToString();
+        }
+    }
+}
+
+namespace TableFactory
+{
+    using Factory;
+
+    // Concrete Factory
+    public class TableFactory : Factory
+    {
+        public override Link CreateLink(string caption, string url)
+        {
+            return new TableLink(caption, url);
+        }
+
+        public override Tray CreateTray(string caption)
+        {
+            return new TableTray(caption);
+        }
+
+        public override Page CreatePage(string title, string author)
+        {
+            return new TablePage(title, author);
+        }
+    }
+
+    // ConcreteProduct
+    public class TableLink : Link
+    {
+        public TableLink(string caption, string url) : base(caption, url) { }
+
+        public override string MakeHTML()
+        {
+            return $"&lt;td&gt;&lt;a href=\"{url}\"&gt;{caption}&lt;/a&gt;&lt;/td&gt;\n";
+        }
+    }
+
+    // ConcreteProduct
+    public class TableTray : Tray
+    {
+        public TableTray(string caption) : base(caption) { }
+
+        public override string MakeHTML()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("&lt;td&gt;");
+            sb.Append("&lt;table width=\"100%\" border=\"1\"&gt;&lt;tr&gt;");
+            sb.Append($"&lt;td bgcolor=\"#cccccc\" align=\"center\" colspan=\"{tray.Count}\"&lt;b&gt;{caption}&lt;/b&gt;&lt;/td&gt;");
+            sb.Append("&lt;/tr&gt;\n");
+            sb.Append("&lt;tr&gt;\n");
+            IEnumerator&lt;Item&gt; e = tray.GetEnumerator();
+            while (e.MoveNext())
+            {
+                sb.Append(e.Current.MakeHTML());
+            }
+            sb.Append("&lt;tr&gt;&lt;/table&gt;");
+            sb.Append("&lt;/tr&gt;");
+            return sb.ToString();
+        }
+    }
+
+    // ConcreteProduct
+    public class TablePage : Page
+    {
+        public TablePage(string title, string author) : base(title, author) { }
+
+        public override string MakeHTML()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append($"&lt;html&gt;&lt;head&gt;&lt;title&gt;{title}&lt;/title&gt;&lt;/head&gt;\n");
+            sb.Append("&lt;body&gt;\n");
+            sb.Append($"&lt;h1&gt;{title}&lt;/h1&gt;\n");
+            sb.Append("&lt;table width=\"80%\" border=\"3\"&gt;\n");
+            IEnumerator&lt;Item&gt; e = content.GetEnumerator();
+            while (e.MoveNext())
+            {
+                sb.Append($"&lt;tr&gt;{e.Current.MakeHTML()}&lt;/tr&gt;");
+            }
+            sb.Append("&lt;/table&gt;\n");
+            sb.Append($"&lt;hr&gt;&lt;address&gt;{author}&lt;/address&gt;");
+            sb.Append("&lt;/body&gt;&lt;/html&gt;\n");
+            return sb.ToString();
+        }
+    }
+}
+
+
+

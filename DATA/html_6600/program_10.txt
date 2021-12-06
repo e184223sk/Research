@@ -1,0 +1,47 @@
+
+using System;
+using Xunit;
+using FunctionApp1;
+using Microsoft.Extensions.Logging;
+using Moq;
+
+namespace XUnitTestProject1
+{
+    public static class MyMockExtension
+    {
+        public static Mock&lt;ILogger&lt;T&gt;&gt; VerifyLogging&lt;T&gt;(this Mock&lt;ILogger&lt;T&gt;&gt; logger, string expectedMessage, LogLevel expectedLogLevel = LogLevel.Debug, Times? times = null)
+        {
+            times ??= Times.Once();
+
+            Func&lt;object, Type, bool&gt; state = (v, t) =&gt; v.ToString().CompareTo(expectedMessage) == 0;
+
+            logger.Verify(
+                x =&gt; x.Log(
+                    It.Is&lt;LogLevel&gt;(l =&gt; l == expectedLogLevel),
+                    It.IsAny&lt;EventId&gt;(),
+                    It.Is&lt;It.IsAnyType&gt;((v, t) =&gt; state(v, t)),
+                    It.IsAny&lt;Exception&gt;(),
+                    It.Is&lt;Func&lt;It.IsAnyType, Exception, string&gt;&gt;((v, t) =&gt; true)), (Times)times);
+
+            return logger;
+        }
+    }
+
+    public class UnitTest1
+    {
+        [Fact]
+        public void Test_ログの確認_引数複数_拡張()
+        {
+            var loggerMock = new Mock&lt;ILogger&lt;LogTest&gt;&gt;();
+
+            Assert.True(LogTest.LogWrite(loggerMock.Object));
+            loggerMock.VerifyLogging("test a:a b:b c:c", LogLevel.Warning)
+                .VerifyLogging("test a:1", LogLevel.Information)
+                .VerifyLogging("test")
+                .VerifyLogging("test2", LogLevel.Debug, Times.AtLeastOnce());
+        }
+    }
+}
+
+
+

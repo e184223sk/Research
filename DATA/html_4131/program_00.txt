@@ -1,0 +1,427 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Unity.Mathematics;
+using Unity.Jobs;
+using Unity.Collections;
+using static Unity.Mathematics.math;
+using UnityEngine.Jobs;
+using System.Linq;
+
+namespace VRM
+{
+    public class VRMSpringBoneOptimizer : MonoBehaviour
+    {
+        // gにVRMSpringBoneOptimizerがまだついてないなら追加する
+        public static void Attach(GameObject g)
+        {
+            if (!g.GetComponent&lt;VRMSpringBoneOptimizer&gt;())
+            {
+                g.AddComponent&lt;VRMSpringBoneOptimizer&gt;();
+            }
+        }
+
+        private void Start()
+        {
+            // 全てのVRMSpringBoneを登録する
+            foreach (var a in gameObject.GetComponentsInChildren&lt;VRMSpringBone&gt;())
+            {
+                VRMSpringBoneJobGroup.Register(gameObject, a);
+            }
+        }
+    }
+
+    public class VRMSpringBoneJobGroup : MonoBehaviour
+    {
+        bool initialized = false;
+
+        List&lt;VRMSpringBoneColliderGroup&gt; groups;
+        Transform m_center;
+        List&lt;VRMSpringBoneLogicInfo&gt; logicInfoList = new List&lt;VRMSpringBoneLogicInfo&gt;();
+        VRMSpringBoneLogic logic;
+        JobHandle jobHandle;
+
+        struct VRMSpringBoneLogicInfo
+        {
+            public VRMSpringBone bone;
+            public Transform center;
+            public Transform transform;
+            public Vector3 pos;
+        }
+
+        struct SphereCollider
+        {
+            public float3 Position;
+            public float Radius;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// original from
+        /// 
+        /// http://rocketjump.skr.jp/unity3d/109/
+        /// 
+        /// &lt;/summary&gt;
+        [Unity.Burst.BurstCompile]
+        struct VRMSpringBoneLogic : System.IDisposable
+        {
+            GetRotationJob rotjob;
+            CalcColliderPosJob coljob;
+            CalcNextPosJob job;
+
+            TransformAccessArray transformList;
+            TransformAccessArray parentList;
+            TransformAccessArray colliderGroupList;
+
+            NativeArray&lt;SphereCollider&gt; precolliders;
+            NativeArray&lt;SphereCollider&gt; colliders;
+            NativeArray&lt;VariableParam&gt; vparamList;
+            NativeArray&lt;FixedParam&gt; fparamList;
+            NativeArray&lt;ReadParam&gt; paramList;
+
+
+            // 変化がないパラメータ群
+            public struct FixedParam
+            {
+                public float m_length;
+                public quaternion m_localRotation;
+                public float3 m_boneAxis;
+                public float radius;
+                public float stiffnessForce;
+                public float dragForce;
+                public float3 external;
+            }
+
+            // 今回と前回の頂点情報
+            public struct VariableParam
+            {
+                public float3 m_currentTail;
+                public float3 m_prevTail;
+            }
+
+            public struct ReadParam
+            {
+                public quaternion parentRotation;
+            }
+
+            public void InitializeColliderGroup(List&lt;Transform&gt; transforms, List&lt;SphereCollider&gt; spcolliders)
+            {
+                colliderGroupList = new TransformAccessArray(transforms.ToArray());
+                precolliders = new NativeArray&lt;SphereCollider&gt;(spcolliders.ToArray(), Allocator.Persistent);
+                colliders = new NativeArray&lt;SphereCollider&gt;(spcolliders.Count, Allocator.Persistent);
+                coljob.inputList = precolliders;
+                coljob.outputList = colliders;
+                job.colliderList = colliders;
+            }
+
+            public void Initialize(List&lt;VRMSpringBoneLogicInfo&gt; alist)
+            {
+                transformList = new TransformAccessArray(alist.Select(x =&gt; x.transform).ToArray());
+                parentList = new TransformAccessArray(alist.Select(x =&gt; x.transform.parent).ToArray());
+                paramList = new NativeArray&lt;ReadParam&gt;(alist.Count, Allocator.Persistent);
+                fparamList = new NativeArray&lt;FixedParam&gt;(alist.Count, Allocator.Persistent);
+                vparamList = new NativeArray&lt;VariableParam&gt;(alist.Count, Allocator.Persistent);
+                job.paramList = paramList;
+                job.fparamList = fparamList;
+                job.vparamList = vparamList;
+                rotjob.paramList = paramList;
+
+                for (int i = 0; i &lt; alist.Count; ++i)
+                {
+                    var info = alist[i];
+
+                    var worldChildPosition = info.transform.TransformPoint(info.pos);
+
+                    var pp = info.center != null
+                            ? info.center.InverseTransformPoint(worldChildPosition)
+                            : worldChildPosition
+                            ;
+
+                    job.fparamList[i] = new FixedParam
+                    {
+                        m_localRotation = info.transform.localRotation,
+                        m_boneAxis = info.pos.normalized,
+                        m_length = info.pos.magnitude,
+                        radius = info.bone.m_hitRadius,
+                        stiffnessForce = info.bone.m_stiffnessForce,
+                        dragForce = info.bone.m_dragForce,
+                        external = info.bone.m_gravityDir * info.bone.m_gravityPower,
+                    };
+
+                    job.vparamList[i] = new VariableParam
+                    {
+                        m_currentTail = pp,
+                        m_prevTail = pp,
+                    };
+                }
+            }
+
+            public void Dispose()
+            {
+                job.paramList.Dispose();
+                job.fparamList.Dispose();
+                job.vparamList.Dispose();
+                transformList.Dispose();
+                parentList.Dispose();
+                colliderGroupList.Dispose();
+                colliders.Dispose();
+                precolliders.Dispose();
+            }
+
+            // トランスフォームからrotationを取り出すだけのJob
+            [Unity.Burst.BurstCompile]
+            struct GetRotationJob : IJobParallelForTransform
+            {
+                [WriteOnly] public NativeArray&lt;ReadParam&gt; paramList;
+                void IJobParallelForTransform.Execute(int index, TransformAccess taccess)
+                {
+                    paramList[index] = new ReadParam
+                    {
+                        parentRotation = taccess.rotation
+                    };
+                }
+            }
+
+            // コライダーの位置を更新する
+            [Unity.Burst.BurstCompile]
+            struct CalcColliderPosJob : IJobParallelForTransform
+            {
+                [ReadOnly] public NativeArray&lt;SphereCollider&gt; inputList;
+                [WriteOnly] public NativeArray&lt;SphereCollider&gt; outputList;
+                void IJobParallelForTransform.Execute(int index, TransformAccess taccess)
+                {
+                    outputList[index] = new SphereCollider
+                    {    // 2019/01/10修正
+                         Position = (float3)taccess.position + mul(taccess.rotation, inputList[index].Position),
+                         Radius = inputList[index].Radius,
+                    };
+                }
+            }
+
+            // 物理計算を行う
+            [Unity.Burst.BurstCompile]
+            struct CalcNextPosJob : IJobParallelForTransform
+            {
+                public NativeArray&lt;VariableParam&gt; vparamList;
+                [ReadOnly] public NativeArray&lt;SphereCollider&gt; colliderList;
+                [ReadOnly] public NativeArray&lt;FixedParam&gt; fparamList;
+                [ReadOnly] public NativeArray&lt;ReadParam&gt; paramList;
+
+                [ReadOnly] public float4x4 centerTrans;
+                [ReadOnly] public float4x4 centerInvTrans;
+                [ReadOnly] public float deltaTime;
+
+                void IJobParallelForTransform.Execute(int index, TransformAccess taccess)
+                {
+                    float3 tposition = taccess.position;
+
+                    var fparam = fparamList[index];
+                    float3 currentTail = math.transform(centerTrans, vparamList[index].m_currentTail);
+                    float3 prevTail = math.transform(centerTrans, vparamList[index].m_prevTail);
+
+                    var param = paramList[index];
+
+                    // verlet積分で次の位置を計算
+                    var nextTail = currentTail
+                        + (currentTail - prevTail) * (1.0f - fparam.dragForce) // 前フレームの移動を継続する(減衰もあるよ)
+                        + mul(mul(param.parentRotation, fparam.m_localRotation), fparam.m_boneAxis) * (fparam.stiffnessForce * deltaTime) // 親の回転による子ボーンの移動目標
+                        + (fparam.external * deltaTime) // 外力による移動量
+                        ;
+
+                    // 長さをboneLengthに強制
+                    nextTail = tposition + normalize(nextTail - tposition) * fparam.m_length;
+
+                    // Collisionで移動
+                    for (int i = 0; i &lt; colliderList.Length; ++i)
+                    {
+                        var collider = colliderList[i];
+
+                        var r = fparam.radius + collider.Radius;
+                        var dir = nextTail - collider.Position;
+                        if (dot(dir, dir) &lt;= (r * r))
+                        {
+                            // ヒット。Colliderの半径方向に押し出す
+                            var normal = normalize(dir);
+                            var posFromCollider = collider.Position + normal * (fparam.radius + collider.Radius);
+                            // 長さをboneLengthに強制
+                            nextTail = tposition + normalize(posFromCollider - tposition) * fparam.m_length;
+                        }
+                    }
+
+                    var rotation = mul(param.parentRotation, fparam.m_localRotation);
+                    taccess.rotation = Quaternion.FromToRotation(mul(rotation, fparam.m_boneAxis), nextTail - (float3)taccess.position) * rotation;
+
+                    vparamList[index] = new VariableParam
+                    {
+                        m_prevTail = transform(centerInvTrans, currentTail),
+                        m_currentTail = transform(centerInvTrans, nextTail),
+                    };
+                }
+            }
+
+            // Jobのための事前計算をし、Jobを発行する
+            public JobHandle Process(Transform center)
+            {
+                job.deltaTime = Time.deltaTime;
+                job.centerTrans = center != null ? center.localToWorldMatrix : Matrix4x4.identity;
+                job.centerInvTrans = center != null ? center.worldToLocalMatrix : Matrix4x4.identity;
+
+                return job.Schedule(transformList, JobHandle.CombineDependencies(rotjob.Schedule(parentList), coljob.Schedule(colliderGroupList)));
+            }
+        }
+
+        // VRMSprintBoneを登録する
+        public static void Register(GameObject target, VRMSpringBone bone)
+        {
+            VRMSpringBoneColliderGroup[] groups = bone.ColliderGroups;
+
+            if (groups == null)
+            {
+                return;
+            }
+
+            bone.enabled = false;
+
+            foreach (var item in target.GetComponents&lt;VRMSpringBoneJobGroup&gt;())
+            {
+                if (item.groups.Count != groups.Length || item.m_center != bone.m_center)
+                {
+                    continue;
+                }
+
+                bool same = true;
+                for (int j = 0; j &lt; groups.Length; ++j)
+                {
+                    if (groups[j] != item.groups[j])
+                    {
+                        same = false;
+                        break;
+                    }
+                }
+
+                if (!same)
+                {
+                    continue;
+                }
+
+                item.Setup(bone);
+                return;
+            }
+
+            {
+                var item = target.AddComponent&lt;VRMSpringBoneJobGroup&gt;();
+                item.Setup(bone);
+            }
+        }
+
+        void SetupColliders()
+        {
+            List&lt;Transform&gt; transforms = new List&lt;Transform&gt;();
+            List&lt;SphereCollider&gt; spcolliders = new List&lt;SphereCollider&gt;();
+
+            foreach (var group in groups)
+            {
+                if (group != null)
+                {
+                    foreach (var collider in group.Colliders)
+                    {
+                        transforms.Add(group.transform);
+
+                        spcolliders.Add(new SphereCollider
+                        {
+                            Position = collider.Offset,
+                            Radius = collider.Radius,
+                        });
+                    }
+                }
+            }
+
+            logic.InitializeColliderGroup(transforms, spcolliders);
+        }
+
+        void Setup(VRMSpringBone bone)
+        {
+            groups = bone.ColliderGroups.ToList();
+            m_center = bone.m_center;
+
+            if (bone.RootBones != null)
+            {
+                foreach (var go in bone.RootBones)
+                {
+                    if (go != null)
+                    {
+                        SetupRecursive(bone, bone.m_center, go, logicInfoList);
+                    }
+                }
+            }
+        }
+
+        void SetupRecursive(VRMSpringBone bone, Transform center, Transform parent, List&lt;VRMSpringBoneLogicInfo&gt; list)
+        {
+            if (parent.childCount == 0)
+            {
+                var delta = parent.position - parent.parent.position;
+                var childPosition = parent.position + delta.normalized * 0.07f;
+                list.Add(new VRMSpringBoneLogicInfo
+                {
+                    bone = bone,
+                    center = center,
+                    transform = parent,
+                    pos = parent.worldToLocalMatrix.MultiplyPoint(childPosition)
+                });
+            }
+            else
+            {
+                var firstChild = parent.childCount &gt; 0 ? parent.GetChild(0) : null;
+                var localPosition = firstChild.localPosition;
+                var scale = firstChild.lossyScale;
+                list.Add(new VRMSpringBoneLogicInfo
+                {
+                    bone = bone,
+                    center = center,
+                    transform = parent,
+                    pos = new Vector3(
+                        localPosition.x * scale.x,
+                        localPosition.y * scale.y,
+                        localPosition.z * scale.z
+                        )
+                });
+            }
+
+            foreach (Transform child in parent)
+            {
+                SetupRecursive(bone, center, child, list);
+            }
+        }
+
+        private void LateUpdate()
+        {
+            if (!initialized)
+            {
+                SetupColliders();
+                logic.Initialize(logicInfoList);
+                initialized = true;
+            }
+            else
+            {
+                jobHandle.Complete();
+            }
+
+            jobHandle = logic.Process(m_center);
+
+            JobHandle.ScheduleBatchedJobs();
+        }
+
+        private void OnDestroy()
+        {
+            if (initialized)
+            {
+                jobHandle.Complete();
+
+                logic.Dispose();
+            }
+        }
+    }
+}
+
+

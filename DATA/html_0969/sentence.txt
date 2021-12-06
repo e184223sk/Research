@@ -1,0 +1,72 @@
+これは「C#によるPOSレジ・サーマルプリンター開発入門」と称して連載している記事の1つです。他はこちらやっとプログラミングに辿り着きました。ここまで長かった……この記事では、Microsoft Point of Service for .NET（POS for .NET）を用いてPOS機器を制御する方法を説明します。
+なお、私に教えてくれるような人など周りにいなかったため、ここに書いてあるのはサンプルやマニュアルの見ながらの完全独学な知識です。「ここ良くないよー」という所があれば教えて下さると泣いて喜びます。機器を購入する際のポイントやPOS for .NET以外の機器制御方法については、記事の一番上にあるリンクから見ることが出来ます。良ければ参考にして下さい。Microsoftが定めた、POS機器を扱うための共通規格です。機器メーカーにPOS for .NETを通じて動作させるドライバーを作らせることで、使用する機器を入れ替えても今までのコードをそのまま使えるのがポイントです。※POS for .NETで機器を制御するには、事前にPOS for .NETとその機器のOPOS（POS for .NET）対応ドライバーをPCにインストールする必要があります。このあたりの流れは、POS for .NETのSDKに入っているサンプルアプリケーション（Microsoft Point Of Service\SDK\Samples\Sample Application\TestApp.exe）が非常に分かりやすいです。
+左のメニューから制御したい機器を選択します。ここではEPSON OPOS ADK同梱のSetupPOSで事前に登録しておいたEPSON DM-D30を使用します。なお、このサンプルアプリケーション内で使える機器のシミュレーターも準備されているので、機器を持っていなくても使い勝手を試してみることが出来ます。
+Openボタン→Claimボタン→DeviceEnabledチェックボックスの順に押します。これで機器が使用可能が状態になりました。
+ここでは無難に「Hello, POS for .NET!」とでも表示することにします。「Hello, POS for .NET!」と入力し、Display Textボタンを押します。
+問題が無ければ、これで無事表示されたはずです。
+終了するときは、DeviceEnabledチェックボックス→Releaseボタン→Closeボタンの順に押します。
+OPOSの正式名称は「OLE for Retail POS」、要するにPOS for .NETのラップ元はOLEです。なので、この終了処理を怠ると、オブジェクトが解放されずプロセスに残り続けます。また、プロセスが残るせいで、他のアプリケーションがOPOSのサービスを利用できなくなります。終了処理はちゃんとやりましょう。前項でボタンやチェックボックスを操作していたところをコードに落とし込むのみで、基本形が完成します。以下のサンプルコードを使う場合はMicrosoft.PointOfService名前空間をusingして下さい。どう書くのか知ってさえいれば簡単ですね。ちなみにカスタマーディスプレイの場合は、ウィンドウを作成して1行目に「いらっしゃいませ」を固定表示し、2行目にお知らせをスクロール表示する、といったことも出来ます。最適化できているかは怪しいですが、以下のように書きます。カスタマディスプレイ以外でも、前準備と後始末の書き方はほぼ同じです。カスタマーディスプレイと異なり、印刷に関しては難解です。
+まずは基本的なコードです。「Hello, POS for .NET!」と印刷し、紙をカットします。印字以外の特殊な操作を行うには、エスケープシーケンスをPrintNormalメソッドから送信します。このエスケープシーケンスはESC/POSコマンドとは異なったものです。リファレンスはこちらからどうぞ。
+紙をカットするためのCutPaperメソッドもあるのですが、EPSON OPOS ADK同梱のサンプルではコマンドを送信する方法で記述されていたので、恐らくこちらの方が良いのでしょう。画像を印刷する方法は3通りあります。画像の印刷には罠が2つ仕掛けられています。これについては別の記事でまとめたので、良ければそちらも参照して下さい。店のロゴを毎回レシートの先頭に印刷する場合、決まった割引の案内を末尾に印刷する場合などは、毎回PCから画像のデータを送信すると時間がかかってしまうため、あらかじめプリンターの記憶領域に画像を保存しておくという手法をとります。※文字列を組み合わせてロゴを作成するSetLogoメソッドもありますが、ここでは割愛します。画像をプリンターの記憶領域に事前に保存せず、その都度読み込んでプリンターに送信する方法です。System.Drawing.Bitmapのインスタンスを渡して印刷する方法です。
+この方法で使用するPrintMemoryBitmapメソッドなのですが、渡すBitmapでGraphicsのインスタンスが作成されている場合、エラーが起こるという謎仕様となっています。Graphicsを使えないとなるとこのメソッドの魅力がほぼ0になってしまうんですが……
+私はゴリ押しでなんとかやりました。詳しくはこちらへ。
+ここにはコードのみ載せておきます。コードを見たい方は展開して下さい
+
+// 32bitアルファチャンネル付bmpを24bitに変換
+// EPSON製のプリンターではアルファチャンネルが無視されて真っ黒になるため、アルファチャンネル無しに変換する必要がある
+BitmapData bmpData = baseBmp.LockBits(new Rectangle(0, 0, baseBmp.Width, baseBmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+byte[] basePixels = new byte[bmpData.Stride * bmpData.Height];
+Marshal.Copy(bmpData.Scan0, basePixels, 0, basePixels.Length);
+
+int stride = (int)Math.Ceiling(3.0 * bmpData.Width / 4) * 4;
+byte[] pixels = new byte[14 + 40 + stride * bmpData.Height];
+for (int y = 0; y &lt; bmpData.Height; y++)
+{
+  for (int x = 0; x &lt; bmpData.Width; x++)
+  {
+    int basePos = 4 * x + bmpData.Stride * y;
+    int pos = 14 + 40 + 3 * x + stride * (bmpData.Height - y - 1);
+
+    pixels[pos] = (byte)(255 + (basePixels[basePos] - 255) * basePixels[basePos + 3] / 255);
+    pixels[pos + 1] = (byte)(255 + (basePixels[basePos + 1] - 255) * basePixels[basePos + 3] / 255);
+    pixels[pos + 2] = (byte)(255 + (basePixels[basePos + 2] - 255) * basePixels[basePos + 3] / 255);
+  }
+}
+
+// bmpファイルのヘッダーバイナリを自作
+byte[] bfSize = BitConverter.GetBytes(pixels.GetLength(0));
+byte[] biWidth = BitConverter.GetBytes(bmpData.Width);
+byte[] biHeight = BitConverter.GetBytes(bmpData.Height);
+byte[] biSizeImage = BitConverter.GetBytes(pixels.GetLength(0) - 14 - 40);
+
+byte[] header = new byte[14 + 40]
+{
+  0x42, 0x4d, // bfType
+  bfSize[0], bfSize[1], bfSize[2], bfSize[3], // bfSize
+  0x00, 0x00, // bfReserved1
+  0x00, 0x00, // bfReserved2
+  0x01, 0x00, 0x00, 0x00, // bfOffBits
+
+  0x28, 0x00, 0x00, 0x00, // biSize
+  biWidth[0], biWidth[1], biWidth[2], biWidth[3], // biWidth
+  biHeight[0], biHeight[1], biHeight[2], biHeight[3], // biHeight
+  0x01, 0x00, // biPlanes
+  0x18, 0x00, // biBitCount
+  0x00, 0x00, 0x00, 0x00, // biCompression
+  biSizeImage[0], biSizeImage[1], biSizeImage[2], biSizeImage[3], // biSizeImage
+  0xc4, 0x0e, 0x00, 0x00, // biXPixPerMeter
+  0xc4, 0x0e, 0x00, 0x00, // biYPixPerMeter
+  0x00, 0x00, 0x00, 0x00, // biCirUsed
+  0x00, 0x00, 0x00, 0x00, // biCirImportant
+};
+
+
+Array.Copy(header, 0, pixels, 0, 14 + 40); // ヘッダーとビットマップデータをくっつける
+Bitmap newBmp = new Bitmap(new MemoryStream(pixels)); // Graphicsに汚染されていないBitmapの出来上がり
+posPrinter.PrintMemoryBitmap(PrinterStation.Receipt, newBmp, PosPrinter.PrinterBitmapAsIs, PosPrinter.PrinterBitmapRight); // これでOK
+
+
+もっと良い方法をご存知の方がいらっしゃれば教えて下さいm(_ _)mサーマルプリンターの場合とは打って変わってとても簡単なので、コードのみ載せておきます。この記事以外にもPOS開発関連の記事を投稿しています。もし良ければこちらからどうぞ。
+
+

@@ -1,0 +1,79 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using iTextSharp;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+using System.IO;
+using System;
+
+public class PDFTest : MonoBehaviour {
+
+    public Camera mainCam;
+    private Texture2D capturedTex;
+
+
+    public void Start(){
+        GeneratePDF();
+    }
+
+
+    public void GeneratePDF () {
+        string path = Application.persistentDataPath + "/screenshot-"+System.DateTime.Now.ToString("yyy-MM-dd_HH-mm-ss")+".pdf";
+        StartCoroutine(CreatePDF(path));
+    }
+
+    // create pdf to specific path
+    public IEnumerator CreatePDF (string path) {
+        Document doc = new Document(PageSize.A4.Rotate()); 
+
+        var writer = PdfWriter.GetInstance(doc, new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None));
+
+
+        doc.Open();
+        doc.NewPage();
+
+        yield return StartCoroutine(TakeScreenshot(mainCam, Screen.width, Screen.height));
+
+
+        AddImageToPDF(writer, capturedTex, 0, 0);
+
+
+        doc.Close();
+
+    }
+
+    // coroutine to take screenshot
+    public IEnumerator TakeScreenshot (Camera cam, int width, int height) {
+
+        RenderTexture rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+        rt.antiAliasing = 8; 
+        cam.targetTexture = rt;
+        cam.Render();
+
+        yield return new WaitForEndOfFrame();
+
+        RenderTexture.active = rt;
+
+        capturedTex = new Texture2D(width, height, TextureFormat.RGB24, false);
+        capturedTex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+        capturedTex.Apply();
+
+        cam.targetTexture = null;
+    }
+
+    // add image to pdf
+    public void AddImageToPDF(PdfWriter pdfWriter, Texture2D img, float posX, float posY){
+        byte[] imageBytes = img.EncodeToPNG();
+        iTextSharp.text.Image finalImage = iTextSharp.text.Image.GetInstance(imageBytes);
+        finalImage.ScaleAbsolute(PageSize.A4.Rotate());
+        finalImage.SetAbsolutePosition(posX, posY);
+
+        var pdfContentByte = pdfWriter.DirectContent;
+        pdfContentByte.AddImage(finalImage);
+    }
+
+
+}
+
+

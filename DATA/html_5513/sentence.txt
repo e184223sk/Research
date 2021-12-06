@@ -1,0 +1,10 @@
+More than 3 years have passed since last update.LZ4という解凍特化で高速に圧縮展開できる大変便利なフォーマットがあります。C#でこの圧縮形式を利用できるライブラリはいくつかあるのですが、圧縮したファイルを他言語で読ませるときにハマりました。Pythonとやり取りする場合を例に、問題点と解決方法を検討します。環境：Python3.6(64bit)、lz4(0.21.6)、u-msgpack-python(2.4.1)
+.NET Framework 4.6、lz4net(v1.0.15.93 - 2017/3/18)、MessagePack(v1.7.3.4 - 2018/1/30)
+VisualStudio 2017 CommunityPythonのLZ4ライブラリである「python-lz4（パッケージ名はlz4）」を見ていたら興味深いことが書いてありました。The bindings provided in this package cover the frame format and the block format specifications. The frame format bindings are the recommended ones to use, as this guarantees interoperability with other implementations and language bindings.要約すると、「Frame FormatとBlock Formatがあり、他言語とやりとりするなら相互運用性を保証できるFrame Formatを使いなさい」ということ。読んでみると、確かにFrame Formatのほうがヘッダーが厳密に決まっているため、相互運用時のトラブルが起きづらそうに見えます。C#のLZ4ライブラリでダウンロード数が最多でおそらく一番有名な「lz4net」を見ると、Frame Formatを明示的に指定できないのですよね。リポジトリをFrameで検索してもそれっぽいものが出てきませんでした。似た名前のライブラリがありますが同じ結果になります。例えば、lz4netを使って簡単なテキストを圧縮してPythonに渡してみます。このjyugemu.lz4をバイナリーエディタで見ると次のようになります。
+
+Frame Formatの最初4バイトのマジックナンバー「0x184D2204」（詳しくはドキュメントを参照してください）が付与されていません。Pythonのスクリプトのあるディレクトリにコピーし、Pythonで読んでみます。当然Frame Formatで解凍するとエラーになります。あらかじめlz4のモジュールをインストールしておきます。じゃあBlock Formatで解凍すればいいのかと言ったらそう上手くは行きませんでした。バイト数が明らかにおかしい。やはりドキュメントにある通り、他言語と相互運用するならFrame Formatを使うべきでしょう。MessagePack for C#という大変便利なライブラリがあります。このライブラリのオプションで、MessagePackにLZ4圧縮をかける、つまり高速なシリアライザーにさらに高速の圧縮をかけるという、シリアライザーの頂点のようなことができます。
+これを他言語との相互運用に使うというケースはそうないと思いますが、このLZ4シリアライザーもv1.7.3.4の2018年1月末現在、Frame Formatに対応していないようです。（LZ4を使わずにMessagePackだけ使う場合は問題ありません）例えばとMessagePackを挟むとヘッダーは次のようになります。
+
+同様にPythonで読めません。C#の間でやり取りするならいいんですけどね。Frame Formatが使えるLZ4ライブラリがありました。DL数もlz4netの1/100ぐらいであまり有名ではないのですが、「IonKiwi.lz4.net」です。ライブラリの説明からThis package is a .NET wrapper arround the C lz4 library (v1.8.0), compliant with the LZ4 Framing Format.CのLZ4のラッパーとのこと。Framing Formatが使えます。早速試してみます。せっかくなのでMessagePackを挟んでやってみます（もちろんわざわざMessagePackを挟まなくても使えます）。frameformat.msg.lz4をPythonのスクリプトのあるのディレクトリにコピーします。MessagePackのモジュール（u-msgpack-python）もインストールしておきます。無事読むことができました。せっかくなので逆もやってみましょう。できたファイルをC#の実行ディレクトリにコピーします。Unpackした後の扱い方については他に方法あると思いますが、LZ4の受け渡しはFrame Formatにしてしまえば簡単ですね。バイナリのまま動かすと管理が楽そうです。
+
+

@@ -1,0 +1,9 @@
+More than 1 year has passed since last update..Net FreameworkのDirectory.GetFiles()とかDirectory.EnumerateFiles()とか、サブディレクトリも含むオプション(SearchOption.AllDirectories)をつけるとすぐに権限不足で例外を吐く使えない子なので、代替手段をいろいろ考えたりしている。要はディレクトリを全部列挙してから各ディレクトリをサブディレクトリを含まずに検索する。
+ところが、ディレクトリを列挙するDirectory.GetDirectories()やDirectory.EnumerateDirectories()も同じ理由で使えない子なのである。クラシカルな手法としてはtryとcatchで例外をハンドリングしながら個別のディレクトリを再帰を使いながら検索していく方法。
+プログラムの入門者が勉強するのにはいいのだけど、例外は重いので処理は遅くなるのだ。そこで、Processで$“cmd /c dir {DirectoryName} /a:d /s /b”を投げて標準出力をリダイレクトしてみた。標準出力にディレクトリの列挙がベタテキストで返ってくるのだ。これはWindowsでしか使えないけど、Windows以外のOSなら$"ls -lR {DirectoryName}"でいける。
+具体的にはこんな感じ。これが強烈に遅い。
+遅いのは当たり前で、ReadToEnd()を使っているから、子プロセスが全部ディレクトリを吐くまでこの行の処理が終わらないのだ。
+メソッド呼んで60秒経つとVisualStudioちゃんに怒られるので、こういうのはやめましょう。そこで、doループで回しながらyield return ps.StandardOutput.ReadLine();
+で列挙を返すようにしたら、かなり速くなった。具体的にはこんな感じ。これだと、この後の、各ディレクトリのファイル検索のための検索が呼ばれるまで次の行を読みに行かないのだ。
+
+

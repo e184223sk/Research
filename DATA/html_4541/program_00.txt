@@ -1,0 +1,101 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+abstract class SyntaxHighlighter : IDisposable
+{
+    /// &lt;summary&gt;RTF 生成用コントロール&lt;/summary&gt;
+    private readonly RichTextBox control = new RichTextBox();
+
+    /// &lt;summary&gt;
+    /// リソース解放済みフラグを取得します。
+    /// &lt;/summary&gt;
+    public bool IsDisposed { get; private set; }
+
+    /// &lt;summary&gt;
+    /// リソースを解放します。
+    /// &lt;/summary&gt;
+    public void Dispose()
+    {
+        this.Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// &lt;summary&gt;
+    /// リソースを解放します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="disposing"&gt;&lt;/param&gt;
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!this.IsDisposed)
+        {
+            if (disposing)
+            {
+                this.control.Dispose();
+            }
+            this.IsDisposed = true;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// リッチテキスト形式のテキストを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="text"&gt;&lt;/param&gt;
+    /// &lt;param name="font"&gt;&lt;/param&gt;
+    /// &lt;param name="wideFont"&gt;全角文字のフォント&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public string GetRtf(string text, Font font, Font wideFont = null)
+    {
+        this.control.Clear();
+        this.control.Text = text;
+        if (!string.IsNullOrEmpty(text))
+        {
+            // 各パターンに一致する文字色を設定
+            foreach (var syntax in this.EnumerateSyntaxes())
+            {
+                foreach (Match m in Regex.Matches(text, syntax.Pattern, RegexOptions.IgnoreCase))
+                {
+                    this.control.Select(m.Index, m.Length);
+                    this.control.SelectionColor = syntax.Color;
+                }
+            }
+
+            // フォントを設定
+            this.control.SelectAll();
+            this.control.SelectionFont = font;
+            if (wideFont != null)
+            {
+                // 全角 (半角以外) のフォントを設定
+                foreach (Match m in Regex.Matches(text, @"[^\x01-\x7E]", RegexOptions.IgnoreCase))
+                {
+                    this.control.Select(m.Index, m.Length);
+                    this.control.SelectionFont = wideFont ?? font;
+                }
+            }
+        }
+        return this.control.Rtf;
+    }
+
+    /// &lt;summary&gt;
+    /// &lt;see cref="Syntax"/&gt; を列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    protected abstract IEnumerable&lt;Syntax&gt; EnumerateSyntaxes();
+
+    /// &lt;summary&gt;
+    /// ハイライトのパターンと色を表します。
+    /// &lt;/summary&gt;
+    protected struct Syntax
+    {
+        public Syntax(string pattern, Color color)
+        {
+            this.Pattern = pattern;
+            this.Color = color;
+        }
+        public string Pattern { get; }
+        public Color Color { get; }
+    }
+}
+

@@ -1,0 +1,32 @@
+class Program
+{
+    static void Main()
+    {
+        LogProxy logProxy = new LogProxy(new Sample());
+        var sample = logProxy.GetTransparentProxy() as Sample;
+        sample.SampleMethod();
+    }
+}
+
+public class Sample : MarshalByRefObject
+{
+    public void SampleMethod() =&gt; Console.WriteLine($"{nameof(SampleMethod)}処理");
+}
+
+public class LogProxy : RealProxy
+{
+    private Sample _sample;
+    public LogProxy(Sample sample) : base(typeof(Sample)) =&gt; _sample = sample;
+    public override IMessage Invoke(IMessage msg)
+    {
+        var methodCall = msg as IMethodCallMessage;
+        // SampleMethod()情報が入ってきます
+        var methodInfo = methodCall.MethodBase as MethodInfo;
+        Console.WriteLine($"これから{methodCall.MethodName}処理に入ります。");
+        // SampleMethod()実行
+        var result = methodInfo.Invoke(_sample, methodCall.InArgs);
+        Console.WriteLine($"{methodCall.MethodName}処理が終わりました。");
+        return new ReturnMessage(result, null, 0, methodCall.LogicalCallContext, methodCall);
+    }
+}
+

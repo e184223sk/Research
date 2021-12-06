@@ -1,0 +1,50 @@
+using AngleSharp;
+...
+
+namespace QiitaRankingBot
+{
+    internal class WebScraper
+    {
+        public async Task&lt;string&gt; GenerateText()
+        {
+            // 対象ページを読み込み
+            const string targetUrl = "https://qiita.com/takeharu/items/bb154a4bc198fb102ff3";
+            var config = Configuration.Default.WithDefaultLoader();
+            var context = BrowsingContext.New(config);
+            var doc = await context.OpenAsync(targetUrl);
+
+            // 更新日を取得
+            var date = System.DateTime.Parse(doc.QuerySelector("time[itemprop='dateModified']").GetAttribute("datetime"));
+
+            // ランキングを取得
+            const int rankingCount_Daily = 10;
+            var elements = doc.QuerySelectorAll("h4").Take(rankingCount_Daily);
+            var items = elements.Select((_, i) =&gt;
+            {
+                var link = _.QuerySelector("a[href^='https://qiita.com/']");
+                return new Item
+                {
+                    Ranking = i + 1, // 構成上取得が難しかったのでちょっとダサいけど手動カウント
+                    Title = link.InnerHtml,
+                    Url = link.GetAttribute("href"),
+                };
+            });
+
+            // 整形
+            var separator = Environment.NewLine + Environment.NewLine;
+            var text = new StringBuilder();
+            text.Append($"更新日: {date:yyyy/MM/dd}");
+            text.Append(separator);
+            text.Append(items.Select(_ =&gt; $"&lt;{_.Url}|{_.Ranking}. {_.Title}&gt;").Aggregate((x, y) =&gt; $"{x}{separator}{y}"));
+            return text.ToString();
+        }
+
+        private class Item
+        {
+            public int Ranking { get; set; }
+            public string Title { get; set; }
+            public string Url { get; set; }
+        }
+    }
+}
+

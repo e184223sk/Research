@@ -1,0 +1,128 @@
+
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Windows.Forms;
+
+class ClipboardTest : Form
+{
+    ListView lsv;
+    TextBox txtDestFilepath;
+    Button btnGetList;
+    Button btnSaveFile;
+
+    ClipboardTest()
+    {        
+        txtDestFilepath = new TextBox();
+        txtDestFilepath.Text = (new FileInfo("out_dat")).FullName;
+        txtDestFilepath.ReadOnly = true;
+        txtDestFilepath.Width = 400;
+        Controls.Add(txtDestFilepath);
+
+        btnGetList = new Button();
+        btnGetList.Text = "Get Format List";
+        btnGetList.Size = new Size(150, 30);
+        btnGetList.Location = new Point(0,40);
+        btnGetList.Click += (sender,e)=&gt;{ListupClipboardFormat();};
+        Controls.Add(btnGetList);
+
+        btnSaveFile = new Button();
+        btnSaveFile.Text = "Save as selected format";
+        btnSaveFile.Size = new Size(150, 30);
+        btnSaveFile.Location = new Point(0,80);
+        btnSaveFile.Click += (sender,e)=&gt;{SaveClipboardData();};
+        btnSaveFile.Enabled = false;
+        Controls.Add(btnSaveFile);
+
+        lsv = new ListView();
+        lsv.Location = new Point(0, 120);
+        lsv.Size = new Size(400,400);
+        lsv.View = View.Details;
+        lsv.FullRowSelect = true;
+        lsv.GridLines = true;
+        lsv.HideSelection = false;
+        lsv.Columns.Add("Format", 200);
+        lsv.Columns.Add("Class",  180);
+        Controls.Add(lsv);
+
+        ClientSize = new Size(400,560);
+    }
+
+
+    void SaveClipboardData()
+    {
+        var items = lsv.SelectedItems;
+        if (items.Count != 1) {
+            return;
+        }
+
+        try {
+            btnSaveFile.Enabled = false;
+            string fmt = items[0].SubItems[0].Text;
+            //Console.WriteLine(fmt);
+            SaveClipboardDataAs(txtDestFilepath.Text, fmt);
+        }
+        finally {
+            btnSaveFile.Enabled = true;
+        }
+    }
+
+    static void SaveClipboardDataAs(string destPath, string fmt)
+    {
+        IDataObject data = Clipboard.GetDataObject();
+
+        object t = data.GetData(fmt);
+        if (t is string) {
+            File.WriteAllText(destPath+".txt", t as string);
+            //Console.WriteLine(t);
+        }
+        else if (t is MemoryStream) {
+            var ms = t as MemoryStream;
+            using ( var fs = new FileStream(destPath+".dat", FileMode.Create) ) {
+                ms.WriteTo(fs);
+            }
+        }
+        else if (t is Bitmap) {
+            Bitmap bmp = t as Bitmap;
+            bmp.Save(destPath+".png", ImageFormat.Png);
+        }
+        else {
+            MessageBox.Show("Not supported.");
+        }
+    }
+
+    void ListupClipboardFormat()
+    {
+        lsv.Items.Clear();
+        lsv.BeginUpdate();
+        try {
+            IDataObject data = Clipboard.GetDataObject();
+            if (data != null) {
+                foreach (string fmt in data.GetFormats()) {
+                    object tmp = data.GetData(fmt);
+                    string typeName = "&lt;null&gt;";
+                    if ( tmp != null ) {
+                        typeName = tmp.GetType().ToString();
+                    }
+                    lsv.Items.Add(new ListViewItem(new string[]{fmt,typeName}));
+                    Console.WriteLine(fmt+"\t"+typeName);
+                }
+            }
+        }
+        finally {
+            lsv.EndUpdate();
+        }
+        if ( lsv.Items.Count &gt;= 1 ) {
+            btnSaveFile.Enabled = true;
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new ClipboardTest());
+    }
+}
+
+

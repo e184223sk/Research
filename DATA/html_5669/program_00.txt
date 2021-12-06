@@ -1,0 +1,117 @@
+
+public class LazyAction
+{
+    private class ExceptionHolder
+    {
+        private readonly ExceptionDispatchInfo dispatchInfo;
+
+        public ExceptionHolder(Exception exception)
+        {
+            dispatchInfo = ExceptionDispatchInfo.Capture(exception);
+        }
+
+        public ExceptionDispatchInfo DispatchInfo =&gt; dispatchInfo;
+    }
+
+
+    private static readonly object ALREADY_INVOKED_SENTINEL = new object();
+    private Action&lt;object[]&gt; _lazyAction;
+    private object _threaSafeObjet;
+    private object _box = null;
+    public bool Invoked =&gt; _box != null;
+
+    private LazyAction()
+    {
+        _threaSafeObjet = new object();
+    }
+
+    public LazyAction(Action lazyAction) : this()
+    {
+        _lazyAction = x=&gt; lazyAction();
+    }
+
+    public LazyAction(Action&lt;object[]&gt; lazyAction) : this()
+    {
+        _lazyAction = lazyAction;
+    }
+
+    public void Invoke()
+    {
+        Invoke(null);
+    }
+    internal void Invoke(params object[] args)
+    {
+        if (_box is ExceptionHolder)
+        {
+            var holder = _box as ExceptionHolder;
+            holder.DispatchInfo.Throw();
+        }
+        else if (_box == (object)ALREADY_INVOKED_SENTINEL)
+        {
+            return;
+        }
+
+        object threadSafeObj = Volatile.Read(ref _threaSafeObjet);
+        var lockToken = false;
+        try
+        {
+            if(threadSafeObj != (object)ALREADY_INVOKED_SENTINEL)
+                Monitor.Enter(threadSafeObj, ref lockToken);
+
+            if (!Invoked)
+            {
+                var action = _lazyAction;
+                _lazyAction = null;
+                try
+                {
+                    action?.Invoke(args);
+                    Volatile.Write(ref _box, ALREADY_INVOKED_SENTINEL);
+                }
+                catch (Exception e)
+                {
+                    _box = new ExceptionHolder(e);
+                    throw;
+                }
+                Volatile.Write(ref _threaSafeObjet, ALREADY_INVOKED_SENTINEL);
+            }
+        }
+        finally
+        {
+            if(lockToken)
+                Monitor.Exit(threadSafeObj);
+        }
+
+    }
+}
+
+public class LazyAction&lt;T&gt; : LazyAction
+{
+    public LazyAction(Action&lt;T&gt; lazyAction) : base(x =&gt; lazyAction.Invoke((T)x[0])){ }
+
+    public void Invoke(T param)
+    {
+        base.Invoke(param);
+    }
+}
+
+public class LazyAction&lt;T1, T2&gt; : LazyAction
+{
+    public LazyAction(Action&lt;T1, T2&gt; lazyAction) : base(x =&gt; lazyAction.Invoke((T1)x[0], (T2)x[1])) { }
+
+    public void Invoke(T1 p1, T2 p2)
+    {
+        base.Invoke(p1, p2);
+    }
+}
+
+public class LazyAction&lt;T1, T2, T3&gt; : LazyAction
+{
+    public LazyAction(Action&lt;T1, T2, T3&gt; lazyAction) : base(x =&gt; lazyAction.Invoke((T1)x[0], (T2)x[1], (T3)x[2])) { }
+
+    public void Invoke(T1 p1, T2 p2, T3 p3)
+    {
+        base.Invoke(p1, p2, p3);
+    }
+}
+
+

@@ -1,0 +1,40 @@
+
+public override void Initialize(AnalysisContext context)
+{
+    context.EnableConcurrentExecution();
+    context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+
+    context.RegisterSyntaxNodeAction(
+        action =&gt;
+        {
+            // メンバーアクセスでないのをフィルター
+            if (!(action.Node is MemberAccessExpressionSyntax expression))
+            {
+                return;
+            }
+
+            // Name がフィールド変数かどうか
+            if(!(action.SemanticModel.GetSymbolInfo(expression.Name).Symbol is IFieldSymbol field))
+            {
+                return;
+            }
+
+            // Name が Empty でない
+            if (field.Name.ToLower() != "empty")
+            {
+                return;
+            }
+
+            // System.String でない
+            if (field.Type.SpecialType != SpecialType.System_String)
+            {
+                return;
+            }
+
+            // string.Empty と断定し通報
+            var diagnostic = Diagnostic.Create(Rule, expression.GetLocation(), expression.Expression.GetText());
+            action.ReportDiagnostic(diagnostic);
+        },
+        SyntaxKind.SimpleMemberAccessExpression);
+}
+

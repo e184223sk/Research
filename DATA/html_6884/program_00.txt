@@ -1,0 +1,40 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Threading.Tasks;
+using System.Reactive.Threading.Tasks;
+
+namespace PPAPConsole
+{
+    class PPAPClass
+    {
+        public static void Main(string[] args)
+        {
+            var random = new Random();
+            var FIN = "Pen-Pineapple-Apple-Pen";
+            var PPAP = new string[] { "ペン", "パイナッポー", "アッポー", "ペン" };
+            var WORDS = new string[] { "ペン", "パイナッポー", "アッポー" };
+
+            var ppapObservable = Observable.Interval(TimeSpan.FromMilliseconds(100))
+                .Select(_ =&gt; WORDS[random.Next(WORDS.Length)]) // ランダムに
+                .Buffer(PPAP.Length, 1) // 要素数4のBufferを1ずつズラしてく
+                .SelectMany(queue =&gt; queue.SequenceEqual(PPAP) ? // パターンと一致したら…
+                    Observable.Concat(
+                        Observable.Return(queue.Last()),   // Queueの最後
+                        Observable.Return(string.Empty)) : // + 空文字(終了判定用)
+                    Observable.Return(queue.Last()))
+                    .TakeWhile(x =&gt; !string.IsNullOrEmpty(x));  // 空文字になるまで繰り返す
+
+            Observable.Return("PPAP") // 最初に言うので
+                .Concat(Task.Delay(TimeSpan.FromMilliseconds(1000)).ToObservable() // なんとなく待つ
+                .SelectMany(ppapObservable))
+                .Subscribe(
+                    x =&gt; Console.WriteLine(x),
+                    () =&gt; Console.WriteLine(FIN));
+
+            Console.Read();
+        }
+    }
+}
+

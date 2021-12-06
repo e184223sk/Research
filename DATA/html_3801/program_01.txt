@@ -1,0 +1,35 @@
+
+// room name you want to join
+var roomName = "roomName";
+
+// OnNext --- （ConnectedToMaster =&gt; OnJoinedRoom）
+var successStream =
+    this.OnConnectedToMasterAsObservable().Take(1).IgnoreElements()
+        .DoOnCompleted(() =&gt;
+            {
+                Debug.Log("connect finish!");
+                Debug.Log("join room!");
+                var roomOptions = new RoomOptions();
+                PhotonNetwork.JoinOrCreateRoom(roomName, roomOptions, TypedLobby.Default);
+            }
+        ).Concat(this.OnJoinedRoomAsObservable());
+
+
+// OnError --- （OnDisconnected or OnJoinRoomFailed）
+var failureStream = this.OnDisconnectedAsObservable()
+    .Where(cause =&gt; cause != DisconnectCause.None &amp;&amp; cause != DisconnectCause.DisconnectByClientLogic)
+    .Select(cause =&gt;
+    {
+        throw PUN2Exception.Create((short) cause, cause.ToString());
+        return Unit.Default;
+    }).Merge(this.OnCreateRoomFailedAsObservable(), this.OnJoinRoomFailedAsObservable());
+
+Observable.Amb(successStream, failureStream)
+    .Subscribe(
+        unit =&gt; { Debug.Log("join room finish!"); },
+        exception =&gt; { Debug.Log(exception); })
+    .AddTo(this);
+
+Debug.Log("connect!");
+PhotonNetwork.ConnectUsingSettings();
+

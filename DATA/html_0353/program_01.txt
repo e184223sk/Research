@@ -1,0 +1,63 @@
+
+class VrRenderer : Java.Lang.Object, CardboardView.StereoRenderer
+{
+    private Shader Shader;
+    private Shape Shape;
+
+    public void OnSurfaceCreated(Javax.Microedition.Khronos.Egl.EGLConfig config)
+    {
+        GL.ClearColor(0.1f, 0.1f, 0.4f, 1.0f); // 背景色の設定。
+        GL.Enable(EnableCap.DepthTest); // Depthバッファの有効化(Z座標で手前に表示)
+
+        Shader = new Shader();
+        Shape = new Triangle(0.5f);
+    }
+
+    public void OnSurfaceChanged(int width, int height)
+    {
+        GL.Viewport(0, 0, width, height);
+    }
+
+    private float Rotate = 0;
+
+    public void OnNewFrame(HeadTransform transform)
+    {
+        Shader.Activate();
+
+        // 回転角度を更新する。
+        Rotate++;
+    }
+
+    public void OnDrawEye(EyeTransform transform)
+    {
+        // 画面をクリアする。
+        GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
+        float[] prj = transform.GetPerspective();
+        OpenTK.Matrix4 prjMat = MatrixFromArray(ref prj);
+        Shader.SetProjection(prjMat);
+
+        // 手前から、Y軸を上に、原点を見る視点を作成。
+        OpenTK.Matrix4 lookat = Matrix4.LookAt(-Vector3.UnitZ, Vector3.Zero, Vector3.UnitY);
+        // eyeMatをかけて左目または右目の視点にする。
+        float[] eye = transform.GetEyeView();
+        OpenTK.Matrix4 eyeMat = MatrixFromArray(ref eye);
+        Shader.SetLookAt(lookat * eyeMat);
+
+        // 図形を描画する。
+        Shader.IdentityMatrix();
+        Shader.Rotate(Rotate, Vector3.UnitY);
+        Shader.SetMaterial(OpenTK.Graphics.Color4.Red);
+        Shape.Draw(Shader);
+    }
+
+    public void OnFinishFrame(Viewport viewport) { }
+
+    public void OnRendererShutdown() { }
+
+    private static Matrix4 MatrixFromArray(ref float[] m)
+    {
+        return new Matrix4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
+    }
+}
+

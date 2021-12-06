@@ -1,0 +1,596 @@
+using System.Linq;
+
+namespace Matrix
+{
+    class Mat
+    {
+        private int r = 0;
+        public int R
+        {
+            get { return r; }
+        }
+        private int c = 0;
+        public int C
+        {
+            get { return c; }
+        }
+        private bool err = false;
+        public bool Err
+        {
+            get { return err; }
+        }
+        private double[][] matrix_data;
+        public double[][] Matrix_data
+        {
+            get {
+                double[][] a = new double[2][];
+                a[0] = new double[] { 0, 0 };
+                a[1] = new double[] { 0, 0 };
+                if (err) return a;
+                else return matrix_data;
+            }
+            set
+            {
+                matrix_data = value;
+            }
+        }
+        public double[][] Zero_matrix
+        {
+            get
+            {
+                double[][] zm = new double[this.r][];
+                for (int i = 0; i &lt; this.r; i++)
+                {
+                    zm[i] = new double[this.c];
+                    for (int j = 0; j &lt; this.c; j++)
+                    {
+                        zm[i][j] = 0;
+                    }
+                }
+                return zm;
+            }
+        }
+        public Mat(params double[][] vs)
+        {
+            int len = vs[0].Length;
+
+            for (int i = 0; i &lt; vs.Length; i++)
+            {
+                if (i != 0 &amp;&amp; len != vs[i].Length)
+                {
+                    err = true;
+                }
+            }
+            if (!err)
+            {
+                r = vs.Length;
+                c = vs[0].Length;
+                matrix_data = vs;
+            }
+        }
+        public double[][] sigmoid()
+        {
+            double[][] sig = new double[1][];
+            sig[0] = new double[this.c];
+
+            for(int i = 0; i &lt; this.c; i++)
+            {
+                sig[0][i] = 1 / (1 + System.Math.Exp(this.matrix_data[0][i]));
+            }
+
+            return sig;
+        }
+        public double[][] softmax()
+        {
+            double[][] sm = new double[1][];
+            sm[0] = new double[this.c];
+
+            double m = this.matrix_data[0].Max();
+
+            double[] exp_a = new double[this.c];
+            for (int i = 0; i &lt; this.c; i++)
+            {
+                exp_a[i] = System.Math.Exp(this.matrix_data[0][i] - m);
+            }
+
+            double sum = 0.0;
+            for (int i = 0; i &lt; this.c; i++)
+            {
+                sum = sum + exp_a[i];
+            }
+
+            for (int i = 0; i &lt; this.c; i++)
+            {
+                sm[0][i] = exp_a[i] / sum;
+            }
+
+            return sm;
+        }
+        public double cross_etp_err(Mat t)
+        {
+            double delta = 0.0000001;
+            double sum = 0.0;
+            for (int i = 0; i &lt; this.c; i++)
+            {
+                sum = sum + t.matrix_data[0][i] * System.Math.Log(this.matrix_data[0][i] + delta);
+            }
+
+            return -sum;
+        }
+        public double[][] numerical_gradient(System.Func&lt;double&gt; loss)
+        {
+            double h = 0.0001;
+            double[][] grad = new double[this.r][];
+            double tmp_val = 0.0;
+            double fxh1 = 0.0;
+            double fxh2 = 0.0;
+
+            for(int i = 0; i &lt; this.r; i++)
+            {
+                grad[i] = new double[this.c];
+                for(int j = 0; j &lt; this.c; j++)
+                {
+                    tmp_val = this.matrix_data[i][j];
+                    this.matrix_data[i][j] = tmp_val + h;
+                    fxh1 = loss();
+
+                    this.matrix_data[i][j] = tmp_val - h;
+                    fxh2 = loss();
+
+                    grad[i][j] = (fxh1 - fxh2) / (2 * h);
+                    this.matrix_data[i][j] = tmp_val;
+                }
+            }
+
+            return grad;
+        }
+        //以下　演算子オーバーロード
+        public static double[][] operator +(Mat p1, Mat p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2.C &amp;&amp; p1.R == p2.R)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] + p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator +(double[][] p1, Mat p2)
+        {
+            double[][] d = new double[p1.Length][];
+
+            if (p1[0].Length == p2.C &amp;&amp; p1.Length == p2.R)
+            {
+                for (int i = 0; i &lt; p1.Length; i++)
+                {
+                    d[i] = new double[p1[0].Length];
+                    for (int j = 0; j &lt; p1[0].Length; j++)
+                    {
+                        d[i][j] = p1[i][j] + p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.Length; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator +(Mat p1, double[][] p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2[0].Length &amp;&amp; p1.R == p2.Length)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] + p2[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator +(double p1, Mat p2)
+        {
+            double[][] d = new double[p2.R][];
+            for (int i = 0; i &lt; p2.R; i++)
+            {
+                d[i] = new double[p2.C];
+                for (int j = 0; j &lt; p2.C; j++)
+                {
+                    d[i][j] = p2.Matrix_data[i][j] + p1;
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator +(Mat p1, double p2)
+        {
+            double[][] d = new double[p1.R][];
+            for (int i = 0; i &lt; p1.R; i++)
+            {
+                d[i] = new double[p1.C];
+                for (int j = 0; j &lt; p1.C; j++)
+                {
+                    d[i][j] = p1.Matrix_data[i][j] + p2;
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator -(Mat p1, Mat p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2.C &amp;&amp; p1.R == p2.R)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] - p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator -(double[][] p1, Mat p2)
+        {
+            double[][] d = new double[p1.Length][];
+
+            if (p1[0].Length == p2.C &amp;&amp; p1.Length == p2.R)
+            {
+                for (int i = 0; i &lt; p1.Length; i++)
+                {
+                    d[i] = new double[p1[0].Length];
+                    for (int j = 0; j &lt; p1[0].Length; j++)
+                    {
+                        d[i][j] = p1[i][j] - p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.Length; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator -(Mat p1, double[][] p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2[0].Length &amp;&amp; p1.R == p2.Length)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] - p2[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+
+        public static double[][] operator -(double p1, Mat p2)
+        {
+            double[][] d = new double[p2.R][];
+            for (int i = 0; i &lt; p2.R; i++)
+            {
+                d[i] = new double[p2.C];
+                for (int j = 0; j &lt; p2.C; j++)
+                {
+                    d[i][j] = p1 - p2.Matrix_data[i][j];
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator -(Mat p1, double p2)
+        {
+            double[][] d = new double[p1.R][];
+            for (int i = 0; i &lt; p1.R; i++)
+            {
+                d[i] = new double[p1.C];
+                for (int j = 0; j &lt; p1.C; j++)
+                {
+                    d[i][j] = p1.Matrix_data[i][j] - p2;
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator *(Mat p1, Mat p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2.C &amp;&amp; p1.R == p2.R)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] * p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator *(double[][] p1, Mat p2)
+        {
+            double[][] d = new double[p1.Length][];
+
+            if (p1[0].Length == p2.C &amp;&amp; p1.Length == p2.R)
+            {
+                for (int i = 0; i &lt; p1.Length; i++)
+                {
+                    d[i] = new double[p1[0].Length];
+                    for (int j = 0; j &lt; p1[0].Length; j++)
+                    {
+                        d[i][j] = p1[i][j] * p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.Length; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator *(Mat p1, double[][] p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2[0].Length &amp;&amp; p1.R == p2.Length)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] * p2[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+
+        public static double[][] operator *(double p1, Mat p2)
+        {
+            double[][] d = new double[p2.R][];
+            for (int i = 0; i &lt; p2.R; i++)
+            {
+                d[i] = new double[p2.C];
+                for (int j = 0; j &lt; p2.C; j++)
+                {
+                    d[i][j] = p1 * p2.Matrix_data[i][j];
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator *(Mat p1, double p2)
+        {
+            double[][] d = new double[p1.R][];
+            for (int i = 0; i &lt; p1.R; i++)
+            {
+                d[i] = new double[p1.C];
+                for (int j = 0; j &lt; p1.C; j++)
+                {
+                    d[i][j] = p1.Matrix_data[i][j] * p2;
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator /(Mat p1, Mat p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2.C &amp;&amp; p1.R == p2.R)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] / p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator /(double[][] p1, Mat p2)
+        {
+            double[][] d = new double[p1.Length][];
+
+            if (p1[0].Length == p2.C &amp;&amp; p1.Length == p2.R)
+            {
+                for (int i = 0; i &lt; p1.Length; i++)
+                {
+                    d[i] = new double[p1[0].Length];
+                    for (int j = 0; j &lt; p1[0].Length; j++)
+                    {
+                        d[i][j] = p1[i][j] / p2.Matrix_data[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.Length; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator /(Mat p1, double[][] p2)
+        {
+            double[][] d = new double[p1.R][];
+
+            if (p1.C == p2[0].Length &amp;&amp; p1.R == p2.Length)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p1.C];
+                    for (int j = 0; j &lt; p1.C; j++)
+                    {
+                        d[i][j] = p1.Matrix_data[i][j] / p2[i][j];
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+
+        public static double[][] operator /(double p1, Mat p2)
+        {
+            double[][] d = new double[p2.R][];
+            for (int i = 0; i &lt; p2.R; i++)
+            {
+                d[i] = new double[p2.C];
+                for (int j = 0; j &lt; p2.C; j++)
+                {
+                    d[i][j] = p1 / p2.Matrix_data[i][j];
+                }
+            }
+
+            return d;
+        }
+        public static double[][] operator /(Mat p1, double p2)
+        {
+            double[][] d = new double[p1.R][];
+            for (int i = 0; i &lt; p1.R; i++)
+            {
+                d[i] = new double[p1.C];
+                for (int j = 0; j &lt; p1.C; j++)
+                {
+                    d[i][j] = p1.Matrix_data[i][j] / p2;
+                }
+            }
+
+            return d;
+        }
+        public static double[][] dot(Mat p1, Mat p2)
+        {
+            double[][] d = new double[p1.R][];
+            double temp = 0;
+
+            if (p1.C == p2.R)
+            {
+                for (int i = 0; i &lt; p1.R; i++)
+                {
+                    d[i] = new double[p2.C];
+                    for (int j = 0; j &lt; p2.C; j++)
+                    {
+                        for(int a = 0; a &lt; p1.C; a++)
+                        {
+                            temp = temp + p1.Matrix_data[i][a] * p2.Matrix_data[a][j];
+                        }
+                        d[i][j] = temp;
+                        temp = 0.0;
+                    }
+                }
+            }
+            else
+            {
+                for (int k = 0; k &lt; p1.R; k++)
+                {
+                    d[k] = new double[2] { 0, 0 };
+                }
+            }
+
+            return d;
+        }
+    }
+}
+

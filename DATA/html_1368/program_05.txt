@@ -1,0 +1,117 @@
+
+using System.Collections.ObjectModel;
+using System.Linq;
+using Android.Content;
+using Android.Views;
+using Android.Widget;
+using MyProject.Models;
+using MyProject.Views.Renderer;
+
+namespace MyProject.Droid.Views.Adapter
+{
+    class AndroidCustomGridViewAdapter : BaseAdapter
+    {
+        private PCLCustomGridViewRenderer element;
+        public PCLCustomGridViewRenderer Element
+        {
+            get =&gt; element;
+            set
+            {
+                element = value;
+                UpdateItems();
+            }
+        }
+
+        Context context;
+
+        private ObservableCollection&lt;Item&gt; viewModels = new ObservableCollection&lt;Item&gt;();
+
+        public AndroidCustomGridViewAdapter(Context c)
+        {
+            context = c;
+        }
+
+        public override int Count
+        {
+            get { return viewModels.Count(); }
+        }
+
+        public override Java.Lang.Object GetItem(int position)
+        {
+            return null;
+        }
+
+        public override long GetItemId(int position)
+        {
+            return 0;
+        }
+        public void UpdateItems()
+        {
+            viewModels.Clear();
+
+            if (Element?.ItemsSource != null)
+            {
+                foreach (var item in Element.ItemsSource)
+                {
+                    if (item is Item model)
+                    {
+                        viewModels.Add(model);
+                    }
+                }
+            }
+
+            NotifyDataSetChanged();
+        }
+
+        public override Android.Views.View GetView(int position, Android.Views.View convertView, ViewGroup parent)
+        {
+            var view = (CustomGridViewLinearLayout)LayoutInflater.From(parent.Context).Inflate(Resource.Layout.custom_gridview_item, parent, false);
+            view.setPosition(position);
+            // 要素の作成
+            SetUp(view, viewModels[position]);
+
+            return view;
+        }
+
+        private void SetUp(Android.Views.View view, Item model)
+        {
+            var name = view.FindViewById&lt;TextView&gt;(Resource.Id.name);
+            var details = view.FindViewById&lt;LinearLayout&gt;(Resource.Id.details);
+
+            name.Text = model.Name;
+            details.RemoveAllViews();
+            foreach (var detail in model.Details)
+            {
+                var textView = new TextView(view.Context);
+                textView.Text = detail.Text;
+                details.AddView(textView);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 描画の前に各要素の高さを図ります
+        /// &lt;/summary&gt;
+        /// &lt;param name="columnWidth"&gt;列一つ分の幅&lt;/param&gt;
+        public void measureItems(int columnWidth)
+        {
+            LayoutInflater inflater = (LayoutInflater)context.GetSystemService(Context.LayoutInflaterService);
+            CustomGridViewLinearLayout itemView = (CustomGridViewLinearLayout)inflater.Inflate(Resource.Layout.custom_gridview_item, null);
+
+            int widthMeasureSpec = Android.Views.View.MeasureSpec.MakeMeasureSpec(columnWidth, MeasureSpecMode.Exactly);
+            int heightMeasureSpec = Android.Views.View.MeasureSpec.MakeMeasureSpec(0, MeasureSpecMode.Unspecified);
+
+            for (int index = 0; index &lt; viewModels.Count; index++)
+            {
+                Item item = viewModels[index];
+
+                // 測定用のViewを設定
+                itemView.setPosition(index);
+                SetUp(itemView, item);
+
+                // 強制的にViewのOnMeasureイベントを発火
+                itemView.RequestLayout();
+                itemView.Measure(widthMeasureSpec, heightMeasureSpec);
+            }
+        }
+    }
+

@@ -1,0 +1,79 @@
+
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+using System;
+using System.Windows.Forms;
+
+namespace SampleWebView2Form
+{
+    public partial class Form1 : Form
+    {
+        /// &lt;summary&gt;webviewのコントロール（今回はわかりやすい様に、デザイナーを使わずにコード側で実装します。）&lt;/summary&gt;
+        private WebView2 WebView = new WebView2
+        {
+            Source = new Uri("https://docs.microsoft.com/ja-jp/microsoft-edge/webview2/gettingstarted/winforms"),
+        };
+
+        public Form1()
+        {
+            this.Controls.Add(WebView);
+            InitializeComponent();
+
+            //WebView2のサイズをフォームのサイズに合わせる
+            WebView.Size = this.Size;
+            this.SizeChanged += Form1_SizeChanged;
+
+            //WebView2のロード完了時のイベント
+            WebView.NavigationCompleted += WebView_NavigationCompleted;
+        }
+
+        /// &lt;summary&gt;WebView2のロード完了時&lt;/summary&gt;
+        private void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            //WebView2のコントロールから CoreWebView2を取り出す
+            //WebView2のロードが完了する前に CoreWebView2を取り出そうとすると nullになる。
+            if (WebView.CoreWebView2 != null)
+            {
+                //ブラウザーのポップアップ発生時のイベント
+                WebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+            }
+            else MessageBox.Show("WebView.CoreWebView2 == null");
+        }
+
+        /// &lt;summary&gt;WebView2でのポップアップを抑止したい&lt;/summary&gt;
+        private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            //本来なら、これでポップアップを抑止できるはず
+            //だが、ロードの速度の都合で e.NewWindow(CoreWebView2)が nullになる場合があり、エラーが発生する
+            if (e.NewWindow != null)
+            {
+                e.NewWindow.Stop();
+                MessageBox.Show("ポップアップを抑止しました");
+            }
+            else
+            {
+                //ダミーのCoreWebView2を読み込ませてポップアップを抑止する
+                //e.NewWindow = new Microsoft.Web.WebView2.Core.CoreWebView2();
+                //↑ちなみに、これはできない
+                e.NewWindow = DummyWebView.CoreWebView2;
+                e.NewWindow.Stop();
+
+                //これでJavaScriptが実行できる
+                WebView.ExecuteScriptAsync("alert(\"ポップアップを抑止しました\");");
+            }
+        }
+
+        /// &lt;summary&gt;ポップアップ抑止に使用するダミーのWebView2（の中のCoreWebView2）&lt;/summary&gt;
+        private WebView2 DummyWebView = new WebView2
+        {
+            Source = new Uri("https://www.google.co.jp/"),
+        };
+
+        /// &lt;summary&gt;サイズ変更時のイベントでWebView2のサイズをフォームに合わせる&lt;/summary&gt;
+        private void Form1_SizeChanged(object sender, EventArgs e)
+        {
+            WebView.Size = this.Size;
+        }
+    }
+}
+

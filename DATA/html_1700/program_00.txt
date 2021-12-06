@@ -1,0 +1,93 @@
+using System;
+using System.Windows;
+using System.Windows.Input;
+//忘れずに書いて
+using utauPlugin;
+
+namespace OneUp
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        // ここに書いた変数とかはMainWindowクラスのどこからでも呼び出せるよゾーン
+        private UtauPlugin utauPlugin;
+        // ↓コマンドライン引数ってやつ
+        // この配列の0番目にこのソフトの場所が、
+        // 1番目にUTAUが出力したプラグイン用データの場所が書いてある
+        string[] args = Environment.GetCommandLineArgs();
+
+
+        public MainWindow() // 起動時に実行
+        {
+            // たぶんxamlを読んでる
+            InitializeComponent();
+            // utauPluginを起動してデータの場所を教える
+            utauPlugin = new UtauPlugin(args[1]);
+            // utauPluginがデータを分析する
+            utauPlugin.Input();
+
+            // Enter押す＝OKボタン押すのと同義 にする
+            KeyDown += (sender, e) =&gt;
+            {
+                if (e.Key != Key.Enter) { return; }
+                OK(sender, e);
+            };
+        }
+
+        // OKボタン押すと実行
+        private void OK(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // utauPlugin.noteは音符(Note)がずらーっと入ったList
+                // Listの中身をひとつずつ取り出して処理するforeach
+                // 今処理してるNoteをnoteと呼ぶ
+                foreach (Note note in utauPlugin.note)
+                {
+                    // 休符かどうか確認
+                    if (note.GetLyric() == "R" || note.GetLyric() == "r")
+                    {
+                        if(R.IsChecked == false) // 休符かつCheckBox「R」にチェックがないとき、
+                        {
+                            continue; // このNoteの処理をやめて次のNoteにいく
+                        }
+                    }
+
+                    // 新しい音程は今の音程+1
+                    note.SetNoteNum(note.GetNoteNum() + 1);
+                }
+
+                // UTAU本体に処理したデータを返す
+                utauPlugin.Output();
+            }
+            catch // try中にエラー吐いたとき、落ちない代わりに↓が実行される
+            {
+                ErrorOpen("処理に失敗しました"); // この内容は後述
+                return; // OKメソッドをやめる（次のCloseは起きない）
+            }
+
+            Close(); // ソフトを終了
+        }
+
+        // キャンセルボタン押すと実行
+        private void Cancel(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+
+        //エラードロワーを開く
+        public void ErrorOpen(string text)
+        {
+            // xamlに書いたTextBlockにエラーメッセージを設定
+            errorText.Text = text;
+            // 警告音を鳴らす
+            System.Media.SystemSounds.Exclamation.Play();
+            // ドロワーを出す
+            errorDrawer.IsBottomDrawerOpen = true;
+        }
+    }
+}
+

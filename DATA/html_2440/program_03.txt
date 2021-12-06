@@ -1,0 +1,50 @@
+
+public double[] GetTemperatureData()
+{
+    for (int i = 0; i &lt; 2; i++)
+    {
+        byte isReady = 0;
+        while (isReady == 0)
+        {
+            // ステータスレジスタ取得
+            isReady = (byte)(ReadRegisterData(0x8000, 1).FirstOrDefault() &amp; 0x0008);
+        }
+
+        //// ステータスレジスタ書き込み(MeasurementStartをON)
+        WriteRegisterData(0x8000, 0x0030);
+
+        // アIRデータ取得
+        // 0x0400～0x06FF：IRデータ
+        // 0x0700～0x070F：Ta_Vbe、CP.GAIN
+        // 0x0720～Ta_PATA,CP,VddPix
+        var frameDataS = ReadRegisterData(0x0400, FrameDataLength);
+
+        // ステータスレジスタ読み出し(SubPage番号)
+        //ReadRegisterData(0x8000, 1);
+        StatusRegister = (ushort)(ReadRegisterData(0x8000, 1).FirstOrDefault() &amp; 0x0001);
+
+        // コントロールレジスタ読み出し
+        ControlRegister = ReadRegisterData(0x800D, 1).FirstOrDefault();
+
+        /////////////////////////
+        // データ読み出し終了、データから温度への変換計算実施
+        /////////////////////////
+        var ta = this.MLX90640_GetTa(frameDataS, CamParameters);
+        double tr = ta - 8;
+        double[] ret = new double[FrameDataLength];
+
+        // 生データを温度データに変換
+        MLX90640_CalculateTo(frameDataS, CamParameters, 0.95, tr, ret);
+
+        for (int l = 0; l &lt; frameDataS.Length; l++)
+        {
+            if (ret[l] &gt; 0.0)
+            {
+                TotalFrameData[l] = ret[l];
+            }
+        }
+    }
+
+    return TotalFrameData;
+}
+

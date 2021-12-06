@@ -1,0 +1,265 @@
+class parser
+{
+    private string html_data;
+    private int data_index = 0;
+    private int reverse_index = 0;
+    private string html_tag;
+    private string attr_name;
+    private string tag_attr;
+    private string main_data;
+    private char delim;
+    private Dictionary&lt;string, string&gt; attribute_list = new Dictionary&lt;string, string&gt;();
+    private string[] empty_tag_list = new [] {"area","base","basefont","br","col","frame","hr","img","input","isindex","link","meta","param"};
+
+    //value reset
+    public void reset()
+    {
+        html_data = "";
+        data_index = 0;
+        reverse_index = 0;
+        html_tag = "";
+        attr_name = "";
+        tag_attr = "";
+        main_data = "";
+    }
+
+    //check empty tag
+    public bool empty_tag()
+    {
+        bool tag_flg = true;
+        foreach (string n in empty_tag_list) 
+        {
+            if (n.ToLower() == html_tag) 
+            {
+                tag_flg = false;
+            }
+        }
+        return tag_flg;
+    }
+
+    //check end tag
+    public void end_tag_check()
+    {
+        string e_tag = "";
+        int tmp_index = data_index;
+        data_index++;
+        if (html_data [data_index] == '/') 
+        {
+            data_index++;
+            blank_remove ();
+            while ((html_data [data_index] != '&gt;') &amp;&amp; (html_data [data_index] != ' ') &amp;&amp; (!check_eof ())) 
+            {
+                e_tag += html_data [data_index];
+                data_index++;
+            }
+        }
+
+        //reverse index
+        data_index = tmp_index;
+
+        if (e_tag != html_tag) 
+        {
+            main_data += html_data [data_index];
+            data_index++;
+        }
+    }
+
+
+    //check end of file
+    public bool check_eof()
+    {
+        if (data_index &gt;= (html_data.Length - 1))
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    //remove blank
+    public void blank_remove()
+    {
+        while ((html_data[data_index] == ' ') &amp;&amp; (!check_eof()))
+        {
+            data_index++;
+        }
+
+    }
+
+    //check tag 
+    public void check()
+    {
+
+        while ((html_data[data_index] != '&lt;') &amp;&amp; (!check_eof()))
+        {
+            data_index++;
+            if ((html_data.Length - data_index) &gt; 3)
+            {
+                if ((html_data[data_index] == '&lt;')
+                    &amp;&amp; (html_data[data_index + 1] == '!')
+                    &amp;&amp; (html_data[data_index + 2] == '-')
+                    &amp;&amp; (html_data[data_index + 3] == '-'))
+                {
+                    while ((html_data[data_index] != '-')
+                        &amp;&amp; (html_data[data_index + 1] != '-')
+                        &amp;&amp; (html_data[data_index + 2] != '&gt;'))
+                    {
+                        data_index++;
+                    }
+                    data_index += 3;
+                }
+            }
+
+        }
+
+        //end tag check
+        if ((html_data.Length - data_index) &gt; 1) {
+            if (html_data[data_index + 1] == '/' || (html_data[data_index + 1] == '!'))
+            {
+                while ((html_data[data_index] != '&gt;') &amp;&amp; (!check_eof()))
+                {
+                    data_index++;
+                }
+                data_index++;
+            }
+        }
+    }
+
+    //get tag
+    public void get_tag()
+    {
+        while ((html_data[data_index] != '&gt;') &amp;&amp; (html_data[data_index] != ' ') &amp;&amp; (!check_eof()))
+        {
+            html_tag += html_data[data_index];
+            data_index++;
+        }
+                //html_tag = html_tag.ToLower(); こっちの方がいいかもしれない
+        find_tag(html_tag);
+    }
+
+    //get attribute
+    public void get_attribute()
+    {
+        while( (html_data[data_index] != '&gt;') &amp;&amp; (html_data[data_index] != '/') &amp;&amp; (!check_eof() ) )
+        {
+        while ((html_data[data_index] != '=') &amp;&amp; (!check_eof()))
+        {
+            attr_name += html_data[data_index];
+            data_index++;
+        }
+
+        data_index++;
+        delim = html_data[data_index];
+        data_index++;
+
+        while ((html_data[data_index] != delim) &amp;&amp; (!check_eof()))
+        {
+            tag_attr += html_data[data_index];
+            data_index++;
+        }
+        attribute_list.Add(attr_name, tag_attr);
+        attr_name = "";
+        tag_attr = "";
+            data_index++;
+        blank_remove();
+        }
+        find_attribute(html_tag, attribute_list);
+    }
+
+    //get data
+    public void get_data()
+    {
+        while ((html_data[data_index] != '&lt;') &amp;&amp;(html_data[data_index+1] != '/') &amp;&amp; (!check_eof()))
+        {
+            main_data += html_data[data_index];
+            data_index++;
+
+            if ((html_data[data_index] == '&lt;'))
+            {
+                end_tag_check();
+            }
+
+        }
+        find_data(html_tag, attribute_list, main_data);
+    }
+
+    //find tag
+    public virtual void find_tag(string tag)
+    {
+    }
+
+    //find atrribute
+    public virtual void find_attribute(string tag, Dictionary&lt;string, string&gt; attr_list)
+    {
+    }
+
+    //find data
+    public virtual void find_data(string tag, Dictionary&lt;string, string&gt; attr_list, string data)
+    {
+    }
+
+    public void parse()
+    {
+        while (!check_eof())
+        {
+            check();
+            if (!check_eof())
+            {
+                if ((html_data[data_index] == '&lt;') &amp;&amp; (html_data[data_index+1] != '/'))
+                {
+                    data_index++;
+                    blank_remove();
+                    get_tag();
+                    blank_remove();
+                    if (html_data[data_index] != '&gt;' &amp;&amp; empty_tag())
+                    {
+                        get_attribute();
+                        blank_remove();
+                    }
+                    if (html_data[data_index] == '&gt;')
+                    {
+                        data_index++;
+                        blank_remove();
+                        if (html_data[data_index] != '&lt;')
+                        {
+                            reverse_index = data_index;
+                            get_data();
+                            data_index = reverse_index;
+                        }
+                    }
+                    if(html_data[data_index] == '/')
+                    {
+                        data_index++;
+                    }
+                }
+                else if (html_data[data_index] == '&gt;'  &amp;&amp; empty_tag())
+                {
+                    data_index++;
+                    reverse_index = data_index;
+                    get_data();
+                    data_index = reverse_index;
+                }
+            }
+            attribute_list.Clear();
+            html_tag = "";
+            main_data = "";
+        }
+    }
+
+
+    public string paga_data
+    {
+        get
+        {
+            return html_data;
+        }
+        set
+        {
+            reset();
+            html_data = value;
+        }
+    }
+}
+

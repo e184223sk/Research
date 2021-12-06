@@ -1,0 +1,63 @@
+
+private class WhereEnumerableIterator&lt;TSource&gt; : Iterator&lt;TSource&gt;
+{
+    private IEnumerable&lt;TSource&gt; source;
+    private Func&lt;TSource, bool&gt; predicate;
+    private IEnumerator&lt;TSource&gt; enumerator;
+
+    public WhereEnumerableIterator(IEnumerable&lt;TSource&gt; source, Func&lt;TSource, bool&gt; predicate)
+    {
+        this.source = source;
+        this.predicate = predicate;
+    }
+
+    public override Iterator&lt;TSource&gt; Clone()
+    {
+        return new WhereEnumerableIterator&lt;TSource&gt;(source, predicate);
+    }
+
+    public override void Dispose()
+    {
+        if (enumerator != null)
+        {
+            enumerator.Dispose();
+        }
+        enumerator = null;
+        base.Dispose();
+    }
+
+    public override bool MoveNext()
+    {
+        switch (state)
+        {
+        case 1:
+            enumerator = source.GetEnumerator();
+            state = 2;
+            goto case 2;
+        case 2:
+            while (enumerator.MoveNext())
+            {
+                TSource current = enumerator.Current;
+                if (predicate(current))
+                {
+                    base.current = current;
+                    return true;
+                }
+            }
+            Dispose();
+            break;
+        }
+        return false;
+    }
+
+    public override IEnumerable&lt;TResult&gt; Select&lt;TResult&gt;(Func&lt;TSource, TResult&gt; selector)
+    {
+        return new WhereSelectEnumerableIterator&lt;TSource, TResult&gt;(this.source, this.predicate, selector);
+    }
+
+    public override IEnumerable&lt;TSource&gt; Where(Func&lt;TSource, bool&gt; predicate)
+    {
+        return new WhereEnumerableIterator&lt;TSource&gt;(source, Enumerable.CombinePredicates&lt;TSource&gt;(this.predicate, predicate));
+    }
+}
+

@@ -1,0 +1,82 @@
+
+// EdgeConnectorクラス
+
+    GraphEditorElement m_Graph;
+    EdgeElement m_ConnectingEdge;
+
+    private void OnContextualMenuPopulate(ContextualMenuPopulateEvent evt)
+    {
+        if (evt.target is NodeElement node)
+        {
+            evt.menu.AppendAction(
+                "Add Edge",
+                (DropdownMenuAction menuItem) =&gt;
+                {
+                    m_Active = true;
+
+                    // 親をたどってGraphEditorElementを取得する
+                    m_Graph = target.GetFirstAncestorOfType&lt;GraphEditorElement&gt;();
+                    m_ConnectingEdge = m_Graph.CreateEdgeElement(node, menuItem.eventInfo.mousePosition);
+
+                    target.CaptureMouse();
+                },
+                DropdownMenuAction.AlwaysEnabled);
+        }
+    }
+
+    /* ... 省略 */
+
+    protected void OnMouseUp(MouseUpEvent evt)
+    {
+        if (!CanStopManipulation(evt))
+            return;
+
+        if (!m_Active)
+            return;
+
+        var node = m_Graph.GetDesignatedNode(evt.originalMousePosition);
+
+        if (node == null  // 背景をクリックしたとき
+            || node == target  // 自分自身をクリックしたとき
+            || m_Graph.ContainsEdge(m_ConnectingEdge.From, node))  // すでにつながっているノード同士をつなげようとしたとき
+        {
+            m_Graph.RemoveEdgeElement(m_ConnectingEdge);
+        }
+        else
+        {
+            m_ConnectingEdge.ConnectTo(node);
+        }
+        m_Active = false;
+        m_ConnectingEdge = null;  // 接続終了
+        target.ReleaseMouse();
+    }
+
+    protected void OnMouseMove(MouseMoveEvent evt)
+    {
+        if (!m_Active)
+        {
+            return;
+        }
+
+        // 2020/01/09 追記：Worldの座標系からGraphEditorElementの座標系に変換して渡すことにする
+        //                 この例でいうと、ウィンドウの上のタブ領域の分だけずれることになる
+
+        // m_ConnectingEdge.ToPosition = evt.originalMousePosition;  // 位置更新
+        //  ↓↓ 変更
+        m_ConnectingEdge.ToPosition = m_Graph.WorldToLocal(evt.mousePosition);  // 位置更新
+        // 2020/01/09 追記ここまで
+    }
+
+    private void OnCaptureOut(MouseCaptureOutEvent evt)
+    {
+        if (!m_Active)
+            return;
+
+        // 中断時の処理
+        m_Graph.RemoveEdgeElement(m_ConnectingEdge);
+        m_ConnectingEdge = null;
+
+        m_Active = false;
+        target.ReleaseMouse();
+    }
+

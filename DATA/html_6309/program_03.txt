@@ -1,0 +1,50 @@
+
+using System;
+
+using Autofac;
+using Autofac.Configuration;
+using Autofac.Extensions.DependencyInjection;
+
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+public class Startup
+{
+    public IConfigurationRoot Configuration { get; }
+
+    private readonly ConfigurationModule module;
+
+    public Startup(IHostingEnvironment env)
+    {
+        var builder = new ConfigurationBuilder()
+            .SetBasePath(env.ContentRootPath)
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            .AddJsonFile($"appsettings.{env.EnvironmentName}.json", optional: true)
+            .AddEnvironmentVariables();
+        Configuration = builder.Build();
+
+        // 環境に応じてAutofacの設定ファイルを切り替える
+        var config = new ConfigurationBuilder()
+            .SetBasePath(env.ContentRootPath)
+            .AddJsonFile("components.json", optional: true)
+            .AddJsonFile($"components.{env.EnvironmentName}.json", optional: true);
+        module = new ConfigurationModule(config.Build());
+    }
+
+    public IServiceProvider ConfigureServices(IServiceCollection services)
+    {
+        // Add framework services.
+        services.AddMvc();
+
+        // Autofac
+        var builder = new ContainerBuilder();
+        builder.Populate(services);     // IServiceCollectionからのコンポーネントの構築
+        builder.RegisterModule(module); // 設定ファイルによるコンポーネントの構築
+        var container = builder.Build();
+
+        return new AutofacServiceProvider(container);
+    }
+...
+}
+

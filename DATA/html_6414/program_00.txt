@@ -1,0 +1,187 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace WpfApplication1.Controls
+{
+    /// &lt;summary&gt;
+    /// DataGrid 列設定ボタンコントロール
+    /// &lt;/summary&gt;
+    public partial class GridColumnSetting : UserControl
+    {
+        #region Dependency Properties
+
+        /// &lt;summary&gt;依存プロパティ定義 - 対象のDataGrid&lt;/summary&gt;
+        /// &lt;summary&gt;&lt;/summary&gt;
+        public static readonly DependencyProperty TargetGridProperty =
+            DependencyProperty.Register("TargetGrid",
+                typeof(DataGrid),
+                typeof(GridColumnSetting),
+                new FrameworkPropertyMetadata(null));
+
+        /// &lt;summary&gt;対象のDataGrid&lt;/summary&gt;
+        public DataGrid TargetGrid
+        {
+            get { return (DataGrid)GetValue(TargetGridProperty); }
+            set { SetValue(TargetGridProperty, value); }
+        }
+
+        /// &lt;summary&gt;依存プロパティ定義 - 設定ファイルのキー&lt;/summary&gt;
+        public static readonly DependencyProperty SettingsKeyProperty =
+            DependencyProperty.Register("SettingsKey",
+                typeof(string),
+                typeof(GridColumnSetting),
+                new FrameworkPropertyMetadata(null));
+
+        /// &lt;summary&gt;設定ファイルのキー&lt;/summary&gt;
+        public string SettingsKey
+        {
+            get { return (string)GetValue(SettingsKeyProperty); }
+            set { SetValue(SettingsKeyProperty, value); }
+        }
+        #endregion
+
+        // 元（デザイン状態）の列設定
+        private List&lt;DataGridColumnInfo&gt; _defaultSettings;
+
+        /// &lt;summary&gt;
+        /// constractor
+        /// &lt;/summary&gt;
+        public GridColumnSetting()
+        {
+            InitializeComponent();
+        }
+
+        /// &lt;summary&gt;
+        /// Loaded event
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void GridColumnSetting_Loaded(object sender, RoutedEventArgs e)
+        {
+            // デフォルトの並び順・幅を確保する
+            _defaultSettings = this.TargetGrid.Columns
+                                    .Select((x, index) =&gt; new DataGridColumnInfo()
+                                    {
+                                        ColumnIndex = index,
+                                        DisplayIndex = x.DisplayIndex,
+                                        Width = x.Width.Value,
+                                    })
+                                    .ToList();
+
+            // ユーザ設定から保存値を取得し、DataGridに反映する
+            var saveValue = Properties.Settings.Default[SettingsKey].ToString();
+            if (!string.IsNullOrEmpty(saveValue))
+            {
+                var settings = xmlDeserialize&lt;List&lt;DataGridColumnInfo&gt;&gt;(saveValue);
+                setColumns(settings);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 保存ボタン押下
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void ButtonSave_Click(object sender, RoutedEventArgs e)
+        {
+            // 列情報コレクションに現在のDisplayIndexとWidthを確保
+            var newSettings = this.TargetGrid.Columns
+                                    .Select((x, index) =&gt; new DataGridColumnInfo()
+                                    {
+                                        ColumnIndex = index,
+                                        DisplayIndex = x.DisplayIndex,
+                                        Width = x.Width.Value,
+                                    })
+                                    .ToList();
+
+            // ユーザ設定へ保存
+            Properties.Settings.Default[SettingsKey] = xmlSerialize&lt;List&lt;DataGridColumnInfo&gt;&gt;(newSettings);
+            Properties.Settings.Default.Save();
+        }
+
+        /// &lt;summary&gt;
+        /// リセットボタン押下
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void ButtonReset_Click(object sender, RoutedEventArgs e)
+        {
+            // 最初にとっておいた_defaultSettingsで設定する
+            setColumns(_defaultSettings);
+
+            // ユーザ設定へはnullを保存する
+            Properties.Settings.Default[SettingsKey] = null;
+            Properties.Settings.Default.Save();
+        }
+
+        /// &lt;summary&gt;
+        /// DataGrid列設定
+        /// &lt;/summary&gt;
+        /// &lt;param name="settings"&gt;&lt;/param&gt;
+        private void setColumns(List&lt;DataGridColumnInfo&gt; settings)
+        {
+            if (settings != null &amp;&amp; settings.Count &gt; 0)
+            {
+                for (var i = 0; i &lt; this.TargetGrid.Columns.Count; i++)
+                {
+                    var setting = settings[i];
+                    this.TargetGrid.Columns[i].DisplayIndex = setting.DisplayIndex;
+                    this.TargetGrid.Columns[i].Width = new DataGridLength(setting.Width);
+                }
+            }
+        }
+
+        #region XAMLシリアライズ（テスト用）
+        /// &lt;summary&gt;
+        /// XMLシリアライズ
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="obj"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private string xmlSerialize&lt;T&gt;(object obj)
+        {
+            var sb = new StringBuilder();
+            using (var w = new System.IO.StringWriter(sb))
+            {
+                var serializer = new System.Xml.Serialization.XmlSerializer(typeof(T));
+                serializer.Serialize(w, obj);
+            }
+            return sb.ToString();
+        }
+
+        /// &lt;summary&gt;
+        /// XMLデシリアライズ
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="xml"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private T xmlDeserialize&lt;T&gt;(string xml)
+        {
+            T result;
+            using (var tr = new System.IO.StringReader(xml))
+            {
+                var serializer = new System.Xml.Serialization.XmlSerializer(typeof(T));
+                result = (T)serializer.Deserialize(tr);
+            }
+            return result;
+        }
+        #endregion
+
+        /// &lt;summary&gt;
+        /// 列情報クラス
+        /// &lt;/summary&gt;
+        public class DataGridColumnInfo
+        {
+            /// &lt;summary&gt;列index&lt;/summary&gt;
+            public int ColumnIndex { get; set; }
+            /// &lt;summary&gt;表示index&lt;/summary&gt;
+            public int DisplayIndex { get; set; }
+            /// &lt;summary&gt;横幅&lt;/summary&gt;
+            public double Width { get; set; }
+        }
+    }
+}
+

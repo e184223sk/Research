@@ -1,0 +1,97 @@
+
+using System.Linq;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace animJump
+{
+    class JumpDistance
+    {
+        private float _distance;
+
+        public float distance {
+            get { return _distance; }
+
+            set {
+                _distance = value;
+
+                float old_distance =  (0 &lt; _old_distance_list.Count) ?
+                    _old_distance_list.Last() :
+                    value;
+
+                _old_distance_diff_list.Enqueue(value - old_distance);
+
+                if (_distance_list_limit &lt; _old_distance_diff_list.Count) {
+                    _old_distance_diff_list.Dequeue();
+                }
+
+                _old_distance_list.Enqueue(value);
+
+                if (_distance_list_limit &lt; _old_distance_list.Count) {
+                    _old_distance_list.Dequeue();
+                }
+            }
+        }
+
+        private Queue&lt;float&gt; _old_distance_diff_list = new Queue&lt;float&gt;();
+        private Queue&lt;float&gt; _old_distance_list = new Queue&lt;float&gt;();
+
+        private int _distance_list_limit = 5;
+        private float _ground_distance_limit = 0.01f;
+
+        private Vector3 _raycastOffset  = new Vector3(0f, 0.005f, 0f);
+        private float _raycastSearchDistance = 100f;
+        private Transform _transform;
+
+        public JumpDistance(Transform transform,
+                int distance_list_limit,
+                float ground_distance_limit,
+                float raycastSearchDistance) {
+            _transform = transform;
+            _distance_list_limit = distance_list_limit;
+            _ground_distance_limit = ground_distance_limit;
+            _raycastSearchDistance = raycastSearchDistance;
+        }
+
+        public bool isFalling() {
+            check();
+            if (_old_distance_diff_list.Average() &lt; 0) return true;
+            return false;
+        }
+
+        public bool isLanding() {
+            check();
+            if (_old_distance_list.Average() &lt; _ground_distance_limit) {
+                return true;
+            }
+
+            return false;
+        }
+
+        public void check() {
+            RaycastHit hit;
+            var layerMask = LayerMask.GetMask("Ground");
+
+            // プレイヤーの位置から下向きにRaycast
+            // レイヤーマスクでGroundを設定しているので、
+            // 地面のGameObjectにGroundのレイヤーを設定しておけば、
+            // Groundのレイヤーを持つGameObjectで一番近いものが一つだけヒットする
+            var isGroundHit = Physics.Raycast(
+                    _transform.position + _raycastOffset,
+                    _transform.TransformDirection(Vector3.down),
+                    out hit,
+                    _raycastSearchDistance,
+                    layerMask
+                );
+
+            if (isGroundHit) {
+                distance = hit.distance;
+            } else {
+                // ヒットしなかった場合はキャラの下方に地面が存在しないものとして扱う
+                distance = float.MaxValue;
+            }
+        }
+
+    }
+}
+

@@ -1,0 +1,43 @@
+
+        //InputHostを起動し、接続する
+        private void StartInputHost()
+        {
+            string inputInfo = Exec("adb shell getevent -i");//Android端末の入力に関わるデータを取得
+            //中からタッチ座標の最大値を抜き取る
+            string[] tmp = GetRegexResult(inputInfo, @"ABS[\s\S]*?35.*?max (.*?),[\s\S]*?max (.*?),");
+            displayWidth = int.Parse(tmp[0]);
+            displayHeight = int.Parse(tmp[1]);
+
+            //ポートの設定
+            Exec("adb forward tcp:8081 tcp:8081");
+            //アプリのパスを取得
+            //余計な文字や改行コードは削除
+            string pathToPackage = Exec("adb shell pm path space.siy.screencastsample").Replace("package:", "").Replace("\r\n", "");
+
+            Process process = new Process
+            {
+                StartInfo =
+                 {
+                    FileName = "adb",
+                    Arguments = $"shell",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                 },
+                EnableRaisingEvents = true
+            };
+            process.Start();
+            process.OutputDataReceived += (s, e) =&gt;
+            {
+                Console.WriteLine(e.Data);//今後なにか処理をするかも
+            };
+            process.BeginOutputReadLine();
+            //Shell権限でInputHostを起動
+            process.StandardInput.WriteLine($"sh -c \"CLASSPATH={pathToPackage} /system/bin/app_process /system/bin space.siy.screencastsample.InputHost\"");
+            System.Threading.Thread.Sleep(1000);//起動するまで待機
+            TcpClient tcp = new TcpClient("127.0.0.1", 8081);//InputHostに接続
+            streamToInputHost = tcp.GetStream();
+        }
+

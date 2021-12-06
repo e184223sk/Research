@@ -1,0 +1,46 @@
+More than 1 year has passed since last update.Unityにおける非同期処理を理解するために、Simpleなコードから一歩づつ結果を見ていきます。シーン上にはUpdateMethodで上下に移動するだけのCubeと重い処理が実行されるボタン、そのただ2つだけがあります。ここからボタンの処理を書いていきます。
+最もシンプルなコードから始めます。
+ボタンを押すとHeavyMethodとFinalizeMethodが順番に実行されます。
+HeavyMethodは1秒Sleepするだけの単純な処理ですが、このコードを実行するとどうなるでしょうか？結果はこちらです。
+そしてHeavyMethodの実行中は、Cubeの動きは止まります。
+やっぱり重い処理の実行中は、シーンの処理（この場合はCubeの動き）を止めて欲しくないわけです。
+ということで、重い処理を非同期実行にしてみます。HeavyMethod();をTask.Run(HeavyMethod);に書き換えただけです。
+これで結果がこのようになりました。
+先ほどとは順番が変わっていますね。ButtonClickの中にはとなっているのに、順番が入れ替わって、の順番になっているわけです。さらに言えば、Heavy Methodが終わる前に、Click Methodを抜けているのがわかります。
+この実装であれば、画面のCubeの動きも止まりません。さてここでまた新たな需要です。
+「画面の動きは止めたくないけど、Finilize MethodはHeavy Methodが終わってから実行したい。」
+わがままですね。
+この需要を満たすように、処理を書き換えます。FinalizeMethodの場所を移動しただけです。
+実行結果はこちら。
+この方法もまた、Cubeの移動は止まりません。でもちょっと待ってください。FinalizeMethodでもし、GameObjectの操作などをしたらどうでしょう？
+試してみましょう。FinalizeMethodにCubeを破壊する処理と、おもむろにThreadのIdを出力する処理を追加しました。
+結果はこちら。
+
+あれ？
+FinalizeMethodが途中で終了していますね。
+Cubeも破壊されていないし、例外も宇宙の彼方に消えてしまいました。
+Task.Run()で実行したHeavyMethodから以降の処理のThreadのIdが切り替わってますね。非同期にした処理が、マルチスレッドで動いているのがわかります。
+Unityのシーン上のオブジェクトは、メインスレッド（番号1のThread）からしか、触れることができないので、このようになってしまいました。という問題が発生していますが、一旦「Cubeが消えない」にフォーカスして、考えましょう。
+DestroyCubeをメインスレッドから実行できればいいわけです。
+というわけで修正していきます。いきなりcontext = SynchronizationContext.Currentというものが出てきました。
+これは、異なるThread間で状態をやりとりするためのオブジェクトです。
+このcontextを経由して、FinalizeMethod内でcontext.Post()とすることで、メインスレッドに処理を戻すことができます。
+また、本筋とは関係ありませんが、Cubeの破壊とLogの出力をまとめたMethodDestroyCubeを作成しました。結果はこちら。
+
+ちゃんとDestoryCubeがメインスレッドで実行され、シーン内のCubeが破壊されました。
+ちなみにThreadIdが先程と異なっているのは、Unityが空いてるThreadを適当にPoolからPickUpして使うからです。自分で指定しているわけではありませんよ。さて、一応「やりたいこと」は実現できたように思いますね。
+ただ、「重い処理の結果を待ってみる」でやったような、FinalizeMethod()をHeavyMethod内に書くのはよくない気がします。
+HeavyMethodの本来の責務ではないし、構造がネストして複雑になります。
+というわけで、FinalizeMethod()を本来あるべきButtonClick内に戻します。ただ戻すだけでは、検証したようにTask.Run()の結果をまたずにFinalizeMethod()が動いてしまいます。
+今回はTask.Run()の前にawaitというものがありますね。これは、Task.Run()が完了するまで次の処理を待てよ、という意味です。
+これを付けると、VisualStudio2017様に「呼び出し元にasyncをつけろよ」と言われます。言われた通りにasyncをつけました。結果はこちら。
+いいですね。正しい順番で動いてます。先ほどと違うのは、End Click Methodの位置でしょうか。
+Task.Run()で実行した処理の中から、メインスレッドで処理をしたいという需要意外では、SynchronizationContextを使う必要はないってことなんですね。
+これならDestroyCubeで発生した例外もcatchできます。今までは使ってきたTaskという仕組みは、C#に備わっている仕組みです。Unityの仕組みではありません。
+これはusing System.Threading.Tasks;をimportしていることからもわかりますね。
+実は、UnityにはTaskをもっとUnityに特化させたUniTaskというものがあるようです。
+これを使うと、処理が速くなるだけではなく後々いろいろメリットがありそうです。
+合わせて、今回は自作メソッドごとTask.Run()で呼び出しましたが、今回言及しなかった、別スレッドでの処理の例外をメインスレッドで受けるためにも「UniTaskCompletionSource」などを使って直接awaitできるように修正したら、よりいいのではないでしょうか。使い方
+UniTaskをGitHubから拾ってきて、UnityPackageをimportしたら、using UniRx.Async;を書く。それでは。
+
+

@@ -1,0 +1,101 @@
+using System; //リワードで使用
+using UnityEngine;
+using UnityEngine.UI; //テキスト（テスト用）で使ってるだけ
+using GoogleMobileAds.Api; //必須
+
+public class AdMob : MonoBehaviour {
+
+    private enum Adtype {
+        banner,
+        reward,
+        inter,
+        native
+    }
+    [SerializeField]
+    private Adtype adtype; //タイプをインスペクタで選べるように
+
+    [SerializeField]
+    private string Android_appId = default; //AndroidのappID 「~」がある方
+    [SerializeField]
+    private string ios_appId = default; //iosのappID
+    [SerializeField]
+    private string Android_UnitId = default; //AndroidのUnitID 「/」がある方
+    [SerializeField]
+    private string ios_UnitId = default; //iosのUnitID
+
+    private RewardBasedVideoAd rewardBasedVideo;
+
+    private string appId;
+    private string adUnitId;
+
+    public Text text; //テスト用
+
+
+    void Awake ()
+    {
+        DontDestroyOnLoad (this); //このスクリプトがアタッチされてるobjは消えない
+
+#if UNITY_ANDROID
+        appId = Android_appId;
+#elif UNITY_IPHONE
+        appId = ios_appId;
+#else
+        appId = "unexpected_platform";
+#endif
+
+#if UNITY_ANDROID
+        adUnitId = Android_UnitId;
+#elif UNITY_IPHONE
+        adUnitId = ios_UnitId;
+#else
+        adUnitId = "unexpected_platform";
+#endif
+
+        MobileAds.Initialize (appId); // Initialize the Google Mobile Ads SDK.
+
+        switch (adtype) { //enumで選んだものが実行される
+        case Adtype.banner: RequestBanner (); break;
+        case Adtype.reward:
+            rewardBasedVideo = RewardBasedVideoAd.Instance; // Get singleton reward based video ad reference.
+            rewardBasedVideo.OnAdClosed += HandleRewardBasedVideoClosed; // Called when the ad is closed.
+            RequestRewardBasedVideo (); break;
+        case Adtype.inter: break; //未設定
+        case Adtype.native: break; //未設定
+        }
+    }
+
+    private void RequestBanner () //バナーの命令
+    {
+        BannerView bannerView = new BannerView (adUnitId, AdSize.Banner, AdPosition.Top); // Create a 320x50 banner at the top of the screen.
+
+        AdRequest bannerrequest = new AdRequest.Builder ().Build (); // Create an empty ad request.
+
+        bannerView.LoadAd (bannerrequest); // Load the banner with the request.
+    }
+
+    private void RequestRewardBasedVideo () //リワードの命令
+    {
+        AdRequest rewardrequest = new AdRequest.Builder ().Build (); // Create an empty ad request.
+
+        rewardBasedVideo.LoadAd (rewardrequest, adUnitId); // Load the rewarded video ad with the request.
+    }
+
+
+    public void HandleRewardBasedVideoClosed (object sender, EventArgs args)
+    {
+        RequestRewardBasedVideo (); //広告を再び再生できるようにリセット
+        text.text += "成功！！"; //広告を閉じた時に実行される命令（テスト用）
+        MonoBehaviour.print ("HandleRewardBasedVideoClosed event received");
+    }
+
+    public void testButton () //ボタン命令（テスト用）
+    {
+        if (rewardBasedVideo.IsLoaded ()) { //ロード完了してたら
+            rewardBasedVideo.Show (); //リワード動画を表示
+        }
+    }
+
+}
+
+
+

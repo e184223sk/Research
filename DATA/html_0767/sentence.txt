@@ -1,0 +1,125 @@
+AtCoderLibraryのC#移植版の開発において  Class&lt;任意の数値型&gt; のような型を実現したいという意図があり、検討した結果を記します。解説用の例として最大公約数を計算する下記のようなプログラムを考えます。これをGeneric化しようとすると一筋縄では行きません。b &gt; a, b == 0, a % bなどが未定義なためです。C++ではtemplateの条件式を使って表現可能です。数値計算用のinterfaceを用意すると良いです。ここでポイントなのは、IntOperator は struct とすることです。詳細は後述します。これで、intもulongを対象にしたGeneric化ができました。演算インターフェイスを struct で実装する理由は大きく2つあります。前者については、static readonly TOp op; を初期化せずに使えるというだけですので簡単です。後者が重要です。演算型が class だった場合は op.GreaterThan(b, a) のような呼び出しは仮想化されているので、絶対にJIT最適化されません。
+一方、 struct だと op.GreaterThan(b, a) がJIT最適化によって展開可能になります。そのため、高速に動作するようになります。BenchmarkDotNet=v0.12.1, OS=Windows 10.0.18363.1082 (1909/November2018Update/19H2)
+Intel Core i7-4790 CPU 3.60GHz (Haswell), 1 CPU, 8 logical and 4 physical cores
+.NET Core SDK=3.1.401
+  [Host]     : .NET Core 3.1.7 (CoreCLR 4.700.20.36602, CoreFX 4.700.20.37001), X64 RyuJIT
+  DefaultJob : .NET Core 3.1.7 (CoreCLR 4.700.20.36602, CoreFX 4.700.20.37001), X64 RyuJITCode
+
+class Program
+{
+    static void Main()
+    {
+        BenchmarkRunner.Run&lt;AclBench&gt;(DefaultConfig.Instance.AddDiagnoser(MemoryDiagnoser.Default));
+    }
+}
+class GcderInt
+{
+    static int Gcd(int a, int b) =&gt; b &gt; a ? Gcd(b, a) : b == default ? a : Gcd(b, a % b);
+    public int a;
+    public GcderInt(int a) { this.a = a; }
+    public int Calc(int b) =&gt; Gcd(a, b);
+}
+class Gcder&lt;T, TOp&gt; where T : struct where TOp : INumOperator&lt;T&gt;, new()
+{
+    static readonly TOp op = new TOp();
+    static T Gcd(T a, T b) =&gt; op.GreaterThan(b, a) ? Gcd(b, a) : (op.Equals(b, default) ? a : Gcd(b, op.Modulo(a, b)));
+    public T a;
+    public Gcder(T a) { this.a = a; }
+    public T Calc(T b) =&gt; Gcd(a, b);
+}
+public class ClassIntOperator : INumOperator&lt;int&gt;
+{
+    public int MinValue =&gt; int.MinValue;
+    public int MaxValue =&gt; int.MaxValue;
+    public int Add(int x, int y) =&gt; x + y;
+    public int Subtract(int x, int y) =&gt; x - y;
+    public int Multiply(int x, int y) =&gt; x * y;
+    public int Divide(int x, int y) =&gt; x / y;
+    public int Modulo(int x, int y) =&gt; x % y;
+    public bool GreaterThan(int x, int y) =&gt; x &gt; y;
+    public bool GreaterThanOrEqual(int x, int y) =&gt; x &gt;= y;
+    public bool LessThan(int x, int y) =&gt; x &lt; y;
+    public bool LessThanOrEqual(int x, int y) =&gt; x &lt;= y;
+    public int Compare(int x, int y) =&gt; x.CompareTo(y);
+    public bool Equals(int x, int y) =&gt; x == y;
+    public int GetHashCode(int obj) =&gt; obj.GetHashCode();
+}
+public class AclBench
+{
+    const int N = 10_000_000;
+
+    [Benchmark]
+    public long DirectInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new GcderInt(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+
+    [Benchmark]
+    public long GenericInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new Gcder&lt;int, IntOperator&gt;(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+
+    [Benchmark]
+    public long GenericClassInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new Gcder&lt;int, ClassIntOperator&gt;(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+}
+public interface INumOperator&lt;T&gt; : System.Collections.Generic.IEqualityComparer&lt;T&gt;, System.Collections.Generic.IComparer&lt;T&gt; where T : struct
+{
+    T MinValue { get; }
+    T MaxValue { get; }
+    T Add(T x, T y);
+    T Subtract(T x, T y);
+    T Multiply(T x, T y);
+    T Divide(T x, T y);
+    T Modulo(T x, T y);
+    bool GreaterThan(T x, T y);
+    bool GreaterThanOrEqual(T x, T y);
+    bool LessThan(T x, T y);
+    bool LessThanOrEqual(T x, T y);
+}
+public readonly struct IntOperator : INumOperator&lt;int&gt;
+{
+    public int MinValue =&gt; int.MinValue;
+    public int MaxValue =&gt; int.MaxValue;
+    public int Add(int x, int y) =&gt; x + y;
+    public int Subtract(int x, int y) =&gt; x - y;
+    public int Multiply(int x, int y) =&gt; x * y;
+    public int Divide(int x, int y) =&gt; x / y;
+    public int Modulo(int x, int y) =&gt; x % y;
+    public bool GreaterThan(int x, int y) =&gt; x &gt; y;
+    public bool GreaterThanOrEqual(int x, int y) =&gt; x &gt;= y;
+    public bool LessThan(int x, int y) =&gt; x &lt; y;
+    public bool LessThanOrEqual(int x, int y) =&gt; x &lt;= y;
+    public int Compare(int x, int y) =&gt; x.CompareTo(y);
+    public bool Equals(int x, int y) =&gt; x == y;
+    public int GetHashCode(int obj) =&gt; obj.GetHashCode();
+}
+
+
+C# 10.0がターゲットの Type Classes という機能がまさにこれに近い機能みたいです。
+
+

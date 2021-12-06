@@ -1,0 +1,36 @@
+
+static async Task Main(string[] args)
+{
+    var channel = Channel.CreateUnbounded&lt;string&gt;(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true
+        });
+
+    var consumer = Task.Run(async () =&gt;
+    {
+        while (await channel.Reader.WaitToReadAsync())
+        {
+            Console.WriteLine(await channel.Reader.ReadAsync());
+        }
+    });
+
+    var producers = Enumerable
+        .Range(1, 3)
+        .Select(producerNumber =&gt;Task.Run(async () =&gt;
+        {
+            var rnd = new Random();
+            for (var i = 0; i &lt; 5; i++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(rnd.Next(3)));
+                await channel.Writer.WriteAsync($"Producer:{producerNumber} Message {i}");
+            }
+        }));
+
+    await Task.WhenAll(producers);
+    channel.Writer.Complete();
+
+    await consumer;
+    Console.WriteLine("Completed.");
+}
+

@@ -1,0 +1,35 @@
+
+public static IEnumerable&lt;T&gt; Load&lt;T&gt;(Stream stream, Encoding encoding = null)
+    where T : class, new()
+{
+    if (encoding == null) encoding = Encoding.UTF8;
+    using (var reader = new StreamReader(stream, encoding))
+    {
+        var header = reader.ReadLine().Split(",");
+        var headerNameMap = typeof(T).GetProperties().Select(e =&gt;
+        {
+            var a = Attribute.GetCustomAttributes(e, typeof(HeaderNameAttribute));
+            if (a.Length == 0)
+            {
+                return new KeyValuePair&lt;string, string&gt;(e.Name, e.Name);
+            }
+            else
+            {
+                return new KeyValuePair&lt;string, string&gt;((a[0] as HeaderNameAttribute).Name, e.Name);
+            }
+        }).ToDictionary(e =&gt; e.Key, e =&gt; e.Value);
+        var headerMap = new Dictionary&lt;string, int&gt;();
+        for (var i = 0; i &lt; header.Length; i++)
+        {
+            headerMap[headerNameMap[header[i]]] = i;
+        }
+
+        while (true)
+        {
+            var line = reader.ReadLine();
+            if (line == null) break;
+            yield return Bind&lt;T&gt;(headerMap, line.Split(","));
+        }
+    }
+}
+

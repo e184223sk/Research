@@ -1,0 +1,63 @@
+
+        public  void DrawCanvas()
+        {
+
+            //Window上の物理Canvasにいろいろ描画する
+            //またNotifyIcon用にメモリ上にCanvasを作成しそちらにも描画する
+            //描画自体はDrawProc.CS側で実行
+            Canvas iconCanvas = new Canvas();
+            iconCanvas.Width = 16 * G.SR;
+            iconCanvas.Height = 16 * G.SR;
+
+            //毎秒処理
+            switch (G.Pref.Notifyicon)
+            {
+                case 1: //menu_static
+                    DrawProc.DrawStatic(titleCanvas, G.MODE);
+                    DrawProc.DrawStatic(iconCanvas, 0);
+                    SetIcon(iconCanvas);
+                    break;
+                case 2://menu_digtal
+                    DrawProc.DrawDigitalSec(titleCanvas, G.MODE);
+                    DrawProc.DrawDigitalSec(iconCanvas, 0);
+                    SetIcon(iconCanvas);
+                    break;
+                case 3://menu_gothic
+                    DrawProc.DrawGothic(titleCanvas, G.MODE);
+                    DrawProc.DrawGothic(iconCanvas, 0);
+                    SetIcon(iconCanvas);
+                    break;
+               //以下略
+            }
+        }
+        public void SetIcon(Canvas aCanvas)
+        {
+            //Canvasを受け取り、画像化してNotifyIconにセット
+            aCanvas.Arrange(new Rect(aCanvas.RenderSize));
+            aCanvas.Measure(aCanvas.RenderSize);
+            var bounds = VisualTreeHelper.GetDescendantBounds(aCanvas);
+            var RTbitmap = new RenderTargetBitmap((int)bounds.Width, (int)bounds.Height, 96.0d, 96.0d, PixelFormats.Pbgra32);
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                var vb = new VisualBrush(aCanvas);
+                dc.DrawRectangle(vb, null, bounds);
+            }
+            RTbitmap.Render(dv);
+            RTbitmap.Freeze();
+
+            //RenderTargetBitmap =&gt; bitmap
+            var bitmap = new System.Drawing.Bitmap((int)bounds.Width, (int)bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            var bitmapData = bitmap.LockBits(new System.Drawing.Rectangle(System.Drawing.Point.Empty, bitmap.Size), System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+            RTbitmap.CopyPixels(Int32Rect.Empty, bitmapData.Scan0, bitmapData.Stride * bitmapData.Height, bitmapData.Stride);
+
+            //bitmap =&gt;iconHandler =&gt; icon
+            bitmap.UnlockBits(bitmapData);
+            IntPtr Hicon = bitmap.GetHicon();
+            System.Drawing.Icon icon = System.Drawing.Icon.FromHandle(Hicon);
+            NotifyIcon.Icon = icon;
+            bitmap.Dispose();
+            NativeMethods.DestroyIcon(icon.Handle);
+        }
+
+

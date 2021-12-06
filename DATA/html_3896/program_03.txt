@@ -1,0 +1,49 @@
+
+private CancellationTokenSource _cancellationTokenSource;
+private CancellationToken _cancellationToken;
+private bool _isExecute = false;
+
+private async void Button_Click(object sender, RoutedEventArgs e)
+{
+    //実行中にもう一度押されたらタスクのキャンセルを行う
+    if (_isExecute)
+    {
+        _isExecute = false;
+        _cancellationTokenSource.Cancel();
+        return;
+    }
+
+    _isExecute = true;
+    _cancellationTokenSource = new CancellationTokenSource();
+    _cancellationToken = _cancellationTokenSource.Token;
+
+    try
+    {
+        //スレッドプールさん、処理をお願いします何でもしますから
+        await Task.Run(async () =&gt;
+        {
+            //ファイル取得
+            var filePaths = await GetAllFilesAsync(@"C:\");
+
+            //一回でList型で取得するのではなく
+            //1ファイル読み込み毎に何らかの処理をしたいからIEnumerable型で取得したい
+            foreach (var filePath in filePaths)
+            {
+                //タスクのキャンセルがされていたら例外を投げる
+                _cancellationToken.ThrowIfCancellationRequested();
+
+                //1ファイル読み込み毎に何らかの処理
+            }
+        }, _cancellationToken);
+    }
+    catch
+    {
+        //ignore
+    }
+    finally
+    {
+        _isExecute = false;
+        _cancellationTokenSource.Dispose();
+    }
+}
+

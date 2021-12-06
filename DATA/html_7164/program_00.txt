@@ -1,0 +1,101 @@
+void Main()
+{
+    //暗号化
+    var publicParameters = CreatePublicKeyParameters(PublicKey);
+    var cipherText = Encrypt(publicParameters, "topsecret");
+
+    //復号化
+    var privateParameters = CreatePrivateKeyParameters(PrivateKey);
+    var plainText = Decrypt(privateParameters, cipherText);
+}
+
+string Encrypt(RSAParameters parameters, string plainText)
+{
+    using (var rsa = new RSACryptoServiceProvider())
+    {
+        rsa.ImportParameters(parameters);
+        var plainBytes = Encoding.UTF8.GetBytes(plainText);
+        var cipherBytes = rsa.Encrypt(plainBytes, RSAEncryptionPadding.Pkcs1);
+
+        return Convert.ToBase64String(cipherBytes);
+    }
+}
+
+string Decrypt(RSAParameters parameters, string cipherText)
+{
+    using (var rsa = new RSACryptoServiceProvider())
+    {
+        rsa.ImportParameters(parameters);
+        var cipherBytes = Convert.FromBase64String(cipherText);
+        var plainBytes = rsa.Decrypt(cipherBytes, RSAEncryptionPadding.Pkcs1);
+
+        return Encoding.UTF8.GetString(plainBytes);
+    }
+}
+
+RSAParameters CreatePublicKeyParameters(string publicKey)
+{
+    using (var reader = new StringReader(publicKey))
+    {
+        var pem = new Org.BouncyCastle.Utilities.IO.Pem.PemReader(reader).ReadPemObject();
+
+        using (var stream = new MemoryStream(pem.Content, false))
+        {
+            var asn1 = new Asn1InputStream(stream, pem.Content.Length).ReadObject();
+            var info = SubjectPublicKeyInfo.GetInstance(asn1);
+            var parameters = PublicKeyFactory.CreateKey(pem.Content) as RsaKeyParameters;
+
+            return new RSAParameters
+            {
+                Exponent = parameters?.Exponent?.ToByteArray(),
+                Modulus = parameters?.Modulus?.ToByteArray(),
+            };
+        }
+    }
+}
+
+RSAParameters CreatePrivateKeyParameters(string privateKey)
+{
+    using (var reader = new StringReader(privateKey))
+    {
+        var pem = new Org.BouncyCastle.OpenSsl.PemReader(reader);
+        var keyPair = pem.ReadObject() as AsymmetricCipherKeyPair;
+        var parameters = keyPair?.Private as RsaPrivateCrtKeyParameters;
+
+        return new RSAParameters
+        {
+            D = parameters?.Exponent?.ToByteArray(),
+            DP = parameters?.DP?.ToByteArray(),
+            DQ = parameters?.DQ?.ToByteArray(),
+            Exponent = parameters?.PublicExponent?.ToByteArray(),
+            InverseQ = parameters?.QInv?.ToByteArray(),
+            Modulus = parameters?.Modulus?.ToByteArray(),
+            P = parameters?.P?.ToByteArray(),
+            Q = arameters?.Q?.ToByteArray(),
+        };
+    }
+}
+
+const string PrivateKey = @"-----BEGIN RSA PRIVATE KEY-----
+MIICXAIBAAKBgQC7Np2qTFhnZD0meg7OqzPMLzQjZLhCjLpmVoeTPAaeTpvQij0r
+EG9FmS+Gbj4oGBiV8BaOraWlRTmPh2DnJJv/WmsAmd+WRsbCowGfpmukG7X0bEp7
+XIRvbwzTHV34X3JyWdq9eGyr6FjidyiMPnA+sBRuvJhvsf4kmadrHIGXuQIDAQAB
+AoGACJHfdcQ458K26eP8eYlsvZQLlvMtXB6FCdo8Kok85FJE3670Tdxau5zfiA/T
+2JIBzhtHbRCV3JLmp6NS1EHgwiOVgohrzLj2QME+pN05Kxs+d8snfyl+izmuluV/
+4qfOEcq1q3BiKI5jjrF78vVJzkRJNN/xLDxfk+duXYxnHeECQQDoQCcVGRKThyDp
+cD/flayKf0ejtfKFZieTkOcKmU5zNdACDu7QgvcgwA2emu/cH/yFIExzPcg6vAXc
+cXAg6CLTAkEAzlt6zfaLfGGeWrp+2W+J9svrc060ckeFRzDHiwWA/T3c/F1fjCDs
+B2qouZuRWxSQJ5XTro4uKRvd+GjBZxALwwJAC5+qVRP8KgYJT6WejMIg8I2OOFNS
+3/pM4MXPymgB1SJMVs4IhccIN0tlYxq+BnZTXRZQvTPKYaYnZPEIe50ioQJBALe0
+mrvWu1BsexPcKOcbM+Ago6gQLfX6k7zPwSSTLsTDmQKVgWT3PghQPIqX4qwJv1du
+O3ePHar9IvttDpfYog8CQAMy9RiFqJ3K/St4iVZizsoeG/GAa+o/kKiTjK4+wnox
+UdkJEZh/7lkKbw9h2CVURIjUitmKDrfjkeJ7GsdKvAM=
+-----END RSA PRIVATE KEY-----";
+
+const string PublicKey = @"-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC7Np2qTFhnZD0meg7OqzPMLzQj
+ZLhCjLpmVoeTPAaeTpvQij0rEG9FmS+Gbj4oGBiV8BaOraWlRTmPh2DnJJv/WmsA
+md+WRsbCowGfpmukG7X0bEp7XIRvbwzTHV34X3JyWdq9eGyr6FjidyiMPnA+sBRu
+vJhvsf4kmadrHIGXuQIDAQAB
+-----END PUBLIC KEY-----";
+

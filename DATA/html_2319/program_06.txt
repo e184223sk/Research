@@ -1,0 +1,38 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using NUnit.Framework;
+using NUnit.Framework.Interfaces;
+using NUnit.Framework.Internal;
+using NUnit.Framework.Internal.Builders;
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+public class UnityTestCaseSourceAttribute : TestCaseSourceAttribute, ITestBuilder
+{
+    private readonly NUnitTestCaseBuilder _builder = new NUnitTestCaseBuilder();
+    // コンストラクタ
+    public UnityTestCaseSourceAttribute(string sourceName) : base(sourceName) { }
+    public UnityTestCaseSourceAttribute(Type sourceType, string sourceName) : base(sourceType, sourceName) { }
+    public UnityTestCaseSourceAttribute(Type sourceType) : base(sourceType) { }
+    public UnityTestCaseSourceAttribute(Type sourceType, string sourceName, object[] methodParams) : base(sourceType, sourceName, methodParams) { }
+
+    // ITestBuilder
+    public new IEnumerable&lt;TestMethod&gt; BuildFrom(IMethodInfo method, Test suite)
+    {
+        var cases = (IEnumerable&lt;ITestCaseData&gt;) typeof(TestCaseSourceAttribute).InvokeMember("GetTestCasesFor",
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod,
+            null, this, new object[] {method});
+        return cases.OfType&lt;TestCaseParameters&gt;().Select(p =&gt; BuildFromImpl(method, suite, p));
+    }
+    private TestMethod BuildFromImpl(IMethodInfo method, Test suite, TestCaseParameters caseParam)
+    {
+        caseParam.ExpectedResult = new object();
+        caseParam.HasExpectedResult = true;
+        var t = _builder.BuildTestMethod(method, suite, caseParam);
+        if (t.parms != null) t.parms.HasExpectedResult = false;
+        return t;
+    }
+}
+

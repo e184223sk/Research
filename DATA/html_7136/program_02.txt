@@ -1,0 +1,49 @@
+
+using Prism.Mvvm;
+using System;
+using System.Runtime.CompilerServices;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace CalculationApplication.Commons
+{
+    public class ViewModelBase : BindableBase, INotifyDataErrorInfo
+    {
+        private ErrorsContainer&lt;string&gt; errorsContainer;
+
+        public event EventHandler&lt;DataErrorsChangedEventArgs&gt; ErrorsChanged;
+
+        public ViewModelBase()
+        {
+            errorsContainer = new ErrorsContainer&lt;string&gt;(propertyName =&gt; ErrorsChanged?.Invoke(this, new DataErrorsChangedEventArgs(propertyName)));
+        }
+
+        public bool HasErrors =&gt; errorsContainer.HasErrors;
+
+        public IEnumerable GetErrors(string propertyName)
+        {
+            return errorsContainer.GetErrors(propertyName);
+        }
+
+        protected override bool SetProperty&lt;T&gt;(ref T storage, T value, [CallerMemberName] string propertyName = null)
+        {
+            if(!base.SetProperty&lt;T&gt;(ref storage, value, propertyName)) return false;
+
+            var context = new ValidationContext(this) { MemberName = propertyName };
+            var errors = new List&lt;ValidationResult&gt;();
+            if(!Validator.TryValidateProperty(value, context, errors))
+            {
+                errorsContainer.SetErrors(propertyName, errors.Select(error =&gt; error.ErrorMessage).ToArray());
+            }
+            else
+            {
+                errorsContainer.ClearErrors(propertyName);
+            }
+            return true;
+        }
+    }
+}
+

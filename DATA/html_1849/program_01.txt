@@ -1,0 +1,70 @@
+
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+
+            app.UseHttpsRedirection();
+
+            app.UseRouting();
+
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =&gt;
+            {
+                endpoints.MapControllers();
+            });
+
+            // 追加
+            app.UseSpaStaticFiles();
+            app.UseSpa(spa =&gt;
+            {
+                spa.Options.SourcePath = "client-app";
+                if (env.IsDevelopment())
+                {
+                    spa.UseProxyToSpaDevelopmentServer(async () =&gt;
+                    {
+                        var pi = new ProcessStartInfo
+                        {
+                            FileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "cmd" : "npm",
+                            Arguments = $"{(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "/c npm " : "")}run serve",
+                            WorkingDirectory = "client-app",
+                            RedirectStandardError = true,
+                            RedirectStandardInput = true,
+                            RedirectStandardOutput = true,
+                            UseShellExecute = false,
+                        };
+                        var p = Process.Start(pi);
+                        var lf = app.ApplicationServices.GetService&lt;ILoggerFactory&gt;();
+                        var logger = lf.CreateLogger("npm");
+                        var tcs = new TaskCompletionSource&lt;int&gt;();
+                        _ = Task.Run(() =&gt;
+                        {
+                            var line = "";
+                            while ((line = p.StandardOutput.ReadLine()) != null)
+                            {
+                                if (line.Contains("DONE  Compiled successfully in "))
+                                {
+                                    tcs.SetResult(0);
+                                }
+
+                                logger.LogInformation(line);
+                            }
+                        });
+                        _ = Task.Run(() =&gt;
+                        {
+                            var line = "";
+                            while ((line = p.StandardError.ReadLine()) != null)
+                            {
+                                logger.LogError(line);
+                            }
+                        });
+                        await Task.WhenAny(Task.Delay(20000), tcs.Task);
+                        return new Uri("http://localhost:8080");
+                    });
+                }
+            });
+        }
+

@@ -1,0 +1,181 @@
+        string path = @"D:\開発\AI\" + DateTime.Now.ToString("yyyyMMdd") + "積.csv";
+        double[][,] w = new double[2][,];
+
+        int In = 2;
+        //int layer = 1;
+        int cell = 2;
+        //int bias = 0;
+        int Out = 1;
+
+        Stopwatch sw = new Stopwatch();
+        delegate void dldl();
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            button1.Enabled = false;
+            sw.Start();
+            Thread th = new Thread(nnw);
+            th.Start();
+        }
+
+        private void nnw()
+        {
+            //列見出し
+            string row_title = ",a,b,ab,";
+            for (int n1 = 0; n1 &lt; In; n1++)
+            {
+                for (int n2 = 0; n2 &lt; cell; n2++)
+                {
+                    row_title += "w[0][" + n1 + "_" + n2 + "],";
+                }
+            }
+            for (int n = 0; n &lt; cell; n++)
+            {
+                row_title += "h_in[" + n + "],h_out[" + n + "],";
+            }
+            for (int n1 = 0; n1 &lt; cell; n1++)
+            {
+                for (int n2 = 0; n2 &lt; Out; n2++)
+                {
+                    row_title += "w[1][" + n1 + "_" + n2 + "],";
+                }
+            }
+            row_title += "Y,ΔE";
+            using (StreamWriter sw = new StreamWriter(path, true, Encoding.Unicode))
+            {
+                sw.Write(row_title + Environment.NewLine);
+            }
+
+            //重み初期設定
+            w[0] = new double[In, cell];            
+            w[1] = new double[cell, Out];
+
+            Random cRandom = new Random();// 0.0 以上 1.0 以下の乱数を取得
+            //RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider();
+            //byte[] bs = new byte[sizeof(int)];
+            for (int n0 = 0; n0 &lt; w.Length; n0++)
+            {
+                for (int n1 = 0; n1 &lt; w[n0].GetLength(0); n1++)
+                {
+                    for (int n2 = 0; n2 &lt; w[n0].GetLength(1); n2++)
+                    {
+                        w[n0][n1, n2] = cRandom.NextDouble();
+                        //rng.GetBytes(bs);
+                        //w[n0][n1, n2] = BitConverter.ToInt32(bs, 0);
+                    }
+                }
+            }
+
+            //学習
+            for (int p = 1; p &lt;= 1000; p++)
+            {
+                //入力値設定
+                double a = cRandom.NextDouble();
+                double b = cRandom.NextDouble();
+                //rng.GetBytes(bs);
+                //double a = BitConverter.ToInt32(bs, 0);
+                //rng.GetBytes(bs);
+                //double b = BitConverter.ToInt32(bs, 0);
+
+                //教師信号
+                double a_mul_b = a * b;
+
+                //順伝播
+                double[] h_in = new double[cell];
+                double[] h_out = new double[cell];
+
+                for (int n = 0; n &lt; cell; n++)
+                {//入力
+                    h_in[n] = a * w[0][0, n] + b * w[0][1, n];
+                    h_out[n] = h_in[n] * h_in[n];
+                }
+
+                double Y = 0;
+                for (int cl = 0; cl &lt; cell; cl++)
+                {//出力
+                    Y += h_out[cl] * w[1][cl, 0];
+                }
+
+                //二乗誤差
+                double dE = Y - a_mul_b;//計算省略のため二乗誤差微分後の値
+
+                //記録
+                string rec = p.ToString() + "," + a.ToString() + "," + b.ToString() + "," + a_mul_b.ToString() + ",";
+                for (int n1 = 0; n1 &lt; w[0].GetLength(0); n1++)
+                {
+                    for (int n2 = 0; n2 &lt; w[0].GetLength(1); n2++)
+                    {
+                        rec += w[0][n1, n2].ToString() + ",";
+                    }
+                }
+                for (int n = 0; n &lt; cell; n++)
+                {
+                    rec += h_in[n].ToString() + "," + h_out[n].ToString() + ",";
+                }
+                for (int n1 = 0; n1 &lt; w[1].GetLength(0); n1++)
+                {
+                    for (int n2 = 0; n2 &lt; w[1].GetLength(1); n2++)
+                    {
+                        rec += w[1][n1, n2].ToString() + ",";
+                    }
+                }
+                rec += Y.ToString() + "," + dE.ToString();
+                using (StreamWriter sw = new StreamWriter(path, true, Encoding.Unicode))
+                {
+                    sw.Write(rec + Environment.NewLine);
+                }
+
+                //逆伝播
+                //∂E/∂In                       
+                double[] dE_dI = new double[cell];
+                for (int cl = 0; cl &lt; cell; cl++)
+                {
+                    dE_dI[cl] = 2 * h_in[cl] * w[1][cl, 0] * dE;
+                }
+                //w-Δw
+                for (int cl = 0; cl &lt; cell; cl++)
+                {
+                    w[0][0, cl] = w[0][0, cl] - (a * dE_dI[cl]);
+                    w[0][1, cl] = w[0][1, cl] - (b * dE_dI[cl]);
+                }
+                for (int cl = 0; cl &lt; cell; cl++)
+                {
+                    w[1][cl, 0] = w[1][cl, 0] - (h_out[cl] * dE);
+                }
+            }
+
+            //最終記録
+            string last_rec = new string(',', In + Out + 1);
+            for (int n1 = 0; n1 &lt; w[0].GetLength(0); n1++)
+            {
+                for (int n2 = 0; n2 &lt; w[0].GetLength(1); n2++)
+                {
+                    last_rec += w[0][n1, n2].ToString() + ",";
+                }
+            }
+            last_rec += new string(',', cell * 2);
+            for (int n1 = 0; n1 &lt; w[1].GetLength(0); n1++)
+            {
+                for (int n2 = 0; n2 &lt; w[1].GetLength(1); n2++)
+                {
+                    last_rec += w[1][n1, n2].ToString() + ",";
+                }
+            }
+            last_rec += new string(',', Out * 2 - 1);
+            using (StreamWriter sw = new StreamWriter(path, true, Encoding.Unicode))
+            {
+                sw.Write(last_rec);
+            }
+
+            //読取専用
+            File.SetAttributes(path, FileAttributes.ReadOnly);
+
+            Invoke(new dldl(delegate
+            {
+                sw.Stop();
+                label1.Text = sw.Elapsed.ToString();
+                button1.Enabled = true;
+            }));
+
+        }
+

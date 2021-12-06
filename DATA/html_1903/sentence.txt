@@ -1,0 +1,114 @@
+More than 1 year has passed since last update.天体の位置を計算するための方法が、海上保安庁から提供されています。天文・暦情報計算してみましょう！！今回は面倒なので太陽だけですが、太陽、金星、火星、木星、土星、月、といった、代表的な天体が含まれています。天体の計算が、なぜ国立天文台ではなく、海上保安庁なのか?
+GPSなんてものがなかった時代、広い海の上で自分の居場所を知るには、天測航法に頼る必要がありました。そのため、各国の海軍やそれに相当する機関が天文観測に注力していました。
+測位は現在でこそGPS等の衛星ベースの技術にその座を奪われ、その運用も米では宇宙軍が、日本では内閣府が行っていますが、かつての航法システム、例えばオメガやロランといったシステムは、各国の海軍や沿岸警備隊、日本では海上保安庁といった、海に関わる機関が運用していました。定数をソースコードに埋め込んでいるため、そのあたりが複雑ですが、計算自体は結構簡単です。Chartでグラフ化のサンプル
+
+Font font = new Font("", 20, FontStyle.Bold, GraphicsUnit.Pixel);
+
+DateTimeOffset start = new DateTimeOffset(new DateTime(2020, 1, 1), new TimeSpan());
+DateTimeOffset end = new DateTimeOffset(new DateTime(2021, 1, 1), new TimeSpan());
+
+Chart chart = new Chart();
+chart.Size = new Size(1920, 1080);
+
+ChartArea area = new ChartArea();
+chart.ChartAreas.Add(area);
+
+Legend legend = new Legend();
+chart.Legends.Add(legend);
+legend.Docking = Docking.Top;
+
+Series marker = new Series();
+chart.Series.Add(marker);
+marker.IsVisibleInLegend = false;
+marker.ChartType = SeriesChartType.Point;
+marker.MarkerSize = 20;
+marker.MarkerStyle = MarkerStyle.Circle;
+marker.Font = font;
+marker.LabelBackColor = Color.LightGray;
+
+Series ra = new Series("R.A. [hour]");
+chart.Series.Add(ra);
+ra.ChartType = SeriesChartType.Line;
+ra.BorderWidth = 3;
+
+Series dec = new Series("Dec. [deg]");
+chart.Series.Add(dec);
+dec.ChartType = SeriesChartType.Line;
+dec.BorderWidth = 3;
+
+Series au = new Series("Dist. [AU]");
+chart.Series.Add(au);
+au.YAxisType = AxisType.Secondary;
+au.ChartType = SeriesChartType.Line;
+au.BorderWidth = 3;
+
+area.AxisX.Minimum = start.UtcDateTime.ToOADate();
+area.AxisX.Maximum = end.UtcDateTime.ToOADate();
+area.AxisX.Title = "UTC";
+area.AxisX.TitleFont = font;
+area.AxisX.LabelStyle.Format = "yyyy/MM";
+area.AxisX.IntervalType = DateTimeIntervalType.Months;
+area.AxisX.Interval = 1;
+area.AxisX.MinorGrid.Enabled = true;
+area.AxisX.MinorGrid.IntervalType = DateTimeIntervalType.Weeks;
+area.AxisX.MinorGrid.Interval = 1;
+area.AxisX.MinorGrid.LineColor = Color.LightGray;
+
+area.AxisY.Title = "[hour], [deg]";
+area.AxisY.TitleFont = font;
+area.AxisY.Minimum = -25;
+area.AxisY.Maximum = +25;
+area.AxisY.Interval = 5;
+area.AxisY.MinorGrid.Enabled = true;
+area.AxisY.MinorGrid.Interval = 1;
+area.AxisY.MinorGrid.LineColor = Color.LightGray;
+
+area.AxisY2.Title = "[AU]";
+area.AxisY2.TitleFont = font;
+area.AxisY2.Minimum = 0.98;
+area.AxisY2.Maximum = 1.03;
+area.AxisY2.Interval = 0.005;
+
+for (DateTimeOffset date = start; date &lt; end; date += new TimeSpan(1, 0, 0))
+{
+    double oad = date.UtcDateTime.ToOADate();
+
+    ra.Points.AddXY(oad, CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunRa) % 24);
+    dec.Points.AddXY(oad, CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunDec));
+    au.Points.AddXY(oad, CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunAu));
+}
+
+{
+    DateTimeOffset date;
+
+    date = new DateTimeOffset(new DateTime(2020, 3, 20, 12, 50, 0));
+    marker.Points.Add(new DataPoint(date.UtcDateTime.ToOADate(),
+        CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunDec))
+    { Label = "春分の日", });
+
+    date = new DateTimeOffset(new DateTime(2020, 6, 21, 6, 44, 0));
+    marker.Points.Add(new DataPoint(date.UtcDateTime.ToOADate(),
+        CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunDec))
+    { Label = "夏至", });
+
+    date = new DateTimeOffset(new DateTime(2020, 9, 22, 22, 31, 0));
+    marker.Points.Add(new DataPoint(date.UtcDateTime.ToOADate(),
+        CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunDec))
+    { Label = "秋分の日", });
+
+    date = new DateTimeOffset(new DateTime(2020, 12, 21, 19, 2, 0));
+    marker.Points.Add(new DataPoint(date.UtcDateTime.ToOADate(),
+        CelestialPositionCalculation.Calc(date, CelestialPositionCalculation.Type.SunDec))
+    { Label = "冬至", });
+}
+
+Bitmap bmp = new Bitmap(chart.Width, chart.Height);
+chart.DrawToBitmap(bmp, new Rectangle() { Size = bmp.Size });
+bmp.Save("log.png");
+
+
+太陽の赤緯がゼロを通過してプラスに変わったところが春分、そのときの太陽の方向が赤経ゼロで、その日が春分の日です。同様に、赤緯がマイナスに変わる日が秋分の日です。
+太陽の赤緯が最大になる日が夏至、最小になる日が冬至です。また、太陽と地球の距離は、1月上旬を最小とし、7月上旬を最大としています。
+太陽から離れれば離れるほど、エネルギーは小さくなりますから、エネルギー的に言えば、実は夏より冬のほうが、太陽から受け取るエネルギーは大きいのです(エネルギーの比でおよそ7%程度)。そのため、人工衛星の太陽電池の能力は、夏至(ほぼ太陽から一番遠い時期)の発電量で表されていたりします。　ちょうど1年前にも同じようなエントリ書いてるんだな…… 書いてから気がついた。。。
+
+

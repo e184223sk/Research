@@ -1,0 +1,33 @@
+
+public byte[] Convert16(byte[] input, int length, WaveFormat format) {
+    if (length == 0)
+        return new byte[0];
+    using (var memStream = new MemoryStream(input, 0, length)) {
+        using (var inputStream = new RawSourceWaveStream(memStream, format)) {
+            var sampleStream = new NAudio.Wave.SampleProviders.WaveToSampleProvider(inputStream);
+            var resamplingProvider = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(sampleStream, resampler, 16000);
+            var ieeeToPCM = new NAudio.Wave.SampleProviders.SampleToWaveProvider16(resamplingProvider);
+            var sampleStreams = new NAudio.Wave.StereoToMonoProvider16(ieeeToPCM);
+            sampleStreams.RightVolume = 0.5f;
+            sampleStreams.LeftVolume = 0.5f;
+            return readStream(sampleStreams, length);
+        }
+    }
+}
+private byte[] readStream(IWaveProvider waveStream, int length) {
+    byte[] buffer = new byte[length];
+    using (var stream = new MemoryStream()) {
+        int read;
+        while ((read = waveStream.Read(buffer, 0, length)) &gt; 0) {
+            stream.Write(buffer, 0, read);
+        }
+        return stream.ToArray();
+    }
+}
+// 匿名デリゲートだとエラーが出るので外だし
+void _ms_wi_DataAvailable(object sender, WaveInEventArgs e) {
+    try {
+        if (_ms_wloop != null) {
+            byte[] output = Convert16(e.Buffer, e.BytesRecorded, _ms_wloop.WaveFormat);
+            _ms_wloop_ss.WriteLoop(output, 0, output.Length);
+

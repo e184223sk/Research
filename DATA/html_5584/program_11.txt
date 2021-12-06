@@ -1,0 +1,63 @@
+
+        using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+        {
+            cn.Open();
+
+            using (var cmd = new SQLiteCommand(cn))
+            {
+                //テーブル作成
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS denco(" +
+                    "no INTEGER NOT NULL PRIMARY KEY," +
+                    "name TEXT NOT NULL," +
+                    "type TEXT NOT NULL," +
+                    "attribute TEXT NOT NULL," +
+                    "maxap INTEGER NOT NULL," +
+                    "maxhp INTEGER NOT NULL," +
+                    "skill TEXT)";
+                cmd.ExecuteNonQuery();
+
+                //データ追加
+                var array = new Denco[6];
+                array[0] = new Denco(2, "為栗メロ", "アタッカー", "eco", 310, 300, "きゃのんぱんち");
+                array[1] = new Denco(3, "新阪ルナ", "ディフェンダー", "cool", 220, 360, "ナイトライダー");
+                array[2] = new Denco(4, "恋浜みろく", "トリックスター", "heat", 300, 360, "ダブルアクセス");
+                array[3] = new Denco(8, "天下さや", "アタッカー", "cool", 400, 240);
+                array[4] = new Denco(13, "新居浜いずな", "ディフェンダー", "heat", 290, 336, "重連壁");
+                array[5] = new Denco(31, "新居浜ありす", "ディフェンダー", "heat", 270, 350, "ハッピーホリデイ");
+                cmd.InsertAll(array);
+
+                //UPDATE
+                cmd.Transaction = cn.BeginTransaction();
+                try
+                {
+                    //新居浜ありすのMaxAPを280にする→OK
+                    cmd.CommandText = "UPDATE denco SET maxap = 280 WHERE no = 31";
+                    cmd.ExecuteNonQuery();
+                    cmd.Transaction.Commit();
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    cmd.Transaction.Rollback();
+                }
+
+                cmd.Transaction = cn.BeginTransaction();
+                try
+                {
+                    //新居浜いずなの属性をnullにする→NOT NULL制約に引っかかるのでNG
+                    cmd.CommandText = "UPDATE denco SET attribute = null WHERE no = 13";
+                    cmd.ExecuteNonQuery();
+                    cmd.Transaction.Commit();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                    cmd.Transaction.Rollback();
+                }
+
+                //DumpALL
+                cmd.CommandText = "SELECT * FROM denco";
+                Console.WriteLine(cmd.ExecuteReader().DumpQuery());//最初のUPDATE完了時にロールバックされている
+            }
+        }
+

@@ -1,0 +1,163 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// &lt;summary&gt;
+/// テクスチャー ⇔ Png画像 の変換と保存と読み込み
+/// &lt;/summary&gt;
+public class TexturePngConverter : MonoBehaviour
+{
+    [SerializeField] private Button _saveButton;
+    [SerializeField] private Button _loadButton;
+    [SerializeField] private Image _paintImage;
+    [SerializeField] private Painter _painter;
+    [SerializeField] private Transform _loadImagesParentTransform;
+
+    private const string IMAGE_SAVE_FOLDER = "Image";
+    private const string PNG = ".png";
+
+    /// &lt;summary&gt;
+    /// 限界保存枚数
+    /// &lt;/summary&gt;
+    private const int UPPER_LIMIT_SAVE_PICTURE = 3;
+
+    private void Start()
+    {
+        //セーブボタン
+        _saveButton.OnPointerClickAsObservable()
+            .Subscribe(_ =&gt;
+            {
+                //保存
+                ConvertToPngAndSave(GetSaveDirectoryPath(IMAGE_SAVE_FOLDER), GetSaveFilePath(IMAGE_SAVE_FOLDER, PNG));
+                //リセット
+                _painter.ResetTexture();
+            }).AddTo(this);
+
+        //ロードボタン
+        _loadButton.OnPointerClickAsObservable()
+            .Subscribe(_ =&gt; ConvertToTextureAndLoad(GetSaveDirectoryPath(IMAGE_SAVE_FOLDER))).AddTo(this);
+    }
+
+    /// &lt;summary&gt;
+    /// 保存先のファイルのパス取得
+    /// &lt;/summary&gt;
+    /// &lt;param name="folderName"&gt;区切りのフォルダ名&lt;/param&gt;
+    /// &lt;param name="fileType"&gt;拡張子&lt;/param&gt;
+    /// &lt;returns&gt;保存先のパス&lt;/returns&gt;
+    private string GetSaveFilePath(string folderName, string fileType)
+    {
+        return GetSaveDirectoryPath(folderName) + DateTime.Now.ToString("yyyyMMddHHmmss") + fileType;
+    }
+
+    /// 保存先のディレクトリのパス取得
+    /// &lt;/summary&gt;
+    /// &lt;param name="folderName"&gt;区切りのフォルダ名&lt;/param&gt;
+    /// &lt;returns&gt;保存先のパス&lt;/returns&gt;
+    private string GetSaveDirectoryPath(string folderName)
+    {
+        string directoryPath = Application.persistentDataPath + "/" + folderName + "/";
+
+        if (!Directory.Exists(directoryPath))
+        {
+            //まだ存在してなかったら作成
+            Directory.CreateDirectory(directoryPath);
+            return directoryPath;
+        }
+
+        return directoryPath;
+    }
+
+    /// &lt;summary&gt;
+    /// "ディレクトリ配下のファイル"が全て入ったリストを返す
+    /// 最も古いファイルが[0]番目
+    /// &lt;/summary&gt;
+    /// &lt;param name="directoryName"&gt;取得したいファイル群の親ディレクトリ&lt;/param&gt;
+    /// &lt;returns&gt;指定したディレクトリ配下のファイルが全て入ったリスト&lt;/returns&gt;
+    private List&lt;string&gt; GetAllFileFromDirectory(string directoryName)
+    {
+        //古いものが先頭にくるようにファイルをソート
+        List&lt;string&gt; imageFilePathList = Directory
+            //Imageディレクトリ内の全ファイルを取得
+            .GetFiles(directoryName, "*", SearchOption.AllDirectories)
+            //.DS_Storeは除く
+            .Where(filePath =&gt; Path.GetFileName(filePath) != ".DS_Store")
+            //日付順に降順でソート
+            .OrderBy(filePath =&gt; File.GetLastWriteTime(filePath).Date)
+            //同じ日付内で時刻順に降順でソート
+            .ThenBy(filePath =&gt; File.GetLastWriteTime(filePath).TimeOfDay)
+            .ToList();
+
+        return imageFilePathList;
+    }
+
+    /// &lt;summary&gt;
+    /// 画像に変換＆保存
+    /// 上限保存数をチェック
+    /// &lt;/summary&gt;
+    /// &lt;param name="directoryPath"&gt;保存数をチェックするディレクトリ&lt;/param&gt;
+    /// &lt;param name="fileSavePath"&gt;保存先のパス&lt;/param&gt;
+    private void ConvertToPngAndSave(string directoryPath, string fileSavePath)
+    {
+        //指定したディレクトリー配下のファイルが全て入ったリストを取得
+        List&lt;string&gt; imageFilePaths = GetAllFileFromDirectory(directoryPath);
+
+        //ファイル数の上限をチェック
+        if (imageFilePaths.Count &gt;= UPPER_LIMIT_SAVE_PICTURE)
+        {
+            //上限に達していた場合、最も古いファイルを削除
+            File.Delete(imageFilePaths[0]);
+        }
+
+        //Pngに変換
+        byte[] bytes = _paintImage.sprite.texture.EncodeToPNG();
+        //保存
+        File.WriteAllBytes(fileSavePath, bytes);
+    }
+
+    /// &lt;summary&gt;
+    /// テクスチャに変換＆読み込み
+    /// &lt;/summary&gt;
+    /// &lt;param name="directoryPath"&gt;ロードしたいファイル群の親ディレクトリ&lt;/param&gt;
+    private void ConvertToTextureAndLoad(string directoryPath)
+    {
+        List&lt;Image&gt; imageList = new List&lt;Image&gt;();
+
+        //ロード後、複数枚表示するためのImageリスト作成
+        foreach (Transform child in _loadImagesParentTransform)
+        {
+            Image childImage = child.gameObject.GetComponent&lt;Image&gt;();
+
+            if (childImage != null)
+            {
+                imageList.Add(childImage);
+            }
+        }
+
+        //指定したディレクトリー配下のファイルが全て入ったリストを取得
+        List&lt;string&gt; imageFilePaths = GetAllFileFromDirectory(directoryPath);
+
+        //インデックス用カウンター
+        int count = 0;
+
+        //ファイルのリストから古い順にロードしてImageに適用
+        foreach (string imageFilePath in imageFilePaths)
+        {
+            Debug.Log(imageFilePath);
+            //読み込み
+            byte[] bytes = File.ReadAllBytes(imageFilePath);
+            //画像をテクスチャに変換
+            Texture2D loadTexture = new Texture2D(2, 2);
+            loadTexture.LoadImage(bytes);
+            //テクスチャをスプライトに変換
+            imageList[count].sprite = Sprite.Create(loadTexture, new Rect(0, 0, loadTexture.width, loadTexture.height), Vector2.zero);
+            //インデックス用カウンターを進める
+            count++;
+        }
+    }
+}
+

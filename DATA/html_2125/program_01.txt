@@ -1,0 +1,74 @@
+
+        static private bool replace_PDF_textCONTENTS_proc(string in_in_filepath, string in_out_filepath, string in_moto_text,string in_new_text)
+        {
+            if (File.Exists(in_in_filepath) == false)
+                return false;
+
+            byte[] new_bytes = System.Text.Encoding.UTF8.GetBytes(in_new_text);
+
+            byte[] tmp_sarch_bytes = System.Text.Encoding.UTF8.GetBytes(in_moto_text);
+            PdfReader reader = new PdfReader(in_in_filepath);
+            for (int page番号 = 1; page番号 &lt;= reader.NumberOfPages; page番号++)   // このpage番号は1オリジンです
+            {
+                PdfDictionary dict = reader.GetPageN(page番号);
+                PdfObject object2 = dict.GetDirectObject(PdfName.CONTENTS);
+                if (object2 is PRStream)
+                {
+                    PRStream stream = (PRStream)object2;
+                    byte[] data = PdfReader.GetStreamBytes(stream);
+                    List&lt;byte&gt; new_data = new List&lt;byte&gt;();
+                    //
+                    // 制御の文字列（オペレータ）は以下に詳しく書かれています。
+                    // http://www.kobu.com/docs/pdf/pdfxhand.htm
+                    string debug_text_UTF8 = System.Text.Encoding.UTF8.GetString(data);
+                    string debug_text_Unicode = System.Text.Encoding.Unicode.GetString(data);
+
+                    int match_count = 0;
+                    for (int i = 0; i &lt; data.Length - tmp_sarch_bytes.Length; i++)
+                    {
+                        byte type_by = data[i];
+                        char type_c = (char)type_by;
+
+
+                        Func&lt;bool&gt; get_match = () =&gt;
+                        {
+                            for (int p = 0; p &lt; tmp_sarch_bytes.Length; p++)
+                            {
+                                if (data[i + p] != tmp_sarch_bytes[p])
+                                    return false;
+                            }
+                            return true;
+                        };
+                        bool is_match = get_match();
+                        if (is_match == false)
+                        {
+                            new_data.Add(data[i]);
+                            continue;
+                        }
+
+                        //
+                        // 合致したケース
+                        match_count++;
+                        new_data.AddRange(new_bytes);
+                        i += tmp_sarch_bytes.Length;
+                    }
+                    //byte[] set_data = ;
+                    stream.SetData(new_data.ToArray());
+                }
+            }
+
+            try
+            {
+                PdfStamper stamper = new PdfStamper(reader, new FileStream(in_out_filepath, FileMode.Create));
+                stamper.Close();
+                reader.Close();
+            }
+            catch(Exception ex)
+            {
+            }
+
+            reader.Close();
+
+            return true;
+        }
+

@@ -1,0 +1,51 @@
+using System;
+using System.Diagnostics;
+using System.Linq;
+using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
+
+public static void Run(TimerInfo myTimer, TraceWriter log, ExecutionContext executionContext)
+{
+    var stopwatch = new Stopwatch();
+    stopwatch.Start();
+    var processStartTime = DateTimeOffset.UtcNow;
+    var functionSucceed = true;
+
+    var telemetryClient = new TelemetryClient { InstrumentationKey = Environment.GetEnvironmentVariable("APPINSIGHTS_INSTRUMENTATIONKEY") };
+    telemetryClient.Context.Operation.Id = executionContext.InvocationId.ToString();
+    telemetryClient.TrackTrace(
+                message: "The function has started",
+                severityLevel: SeverityLevel.Information,
+                properties: new Dictionary&lt;string, string&gt;() {
+                    { "somePropertyName", "somePropertyValue"},
+                });
+    try
+    {
+        //Functionsで行う処理などを書く
+        //適宜telemetryClient.TrackTrace()やtelemetryClient.TrackMetric()などを呼び出してもよい。
+    }
+    catch (Exception e)
+    {
+        functionSucceed = false;
+        telemetryClient.TrackException(
+            exception: e,
+            properties: new Dictionary&lt;string, string&gt;() {
+                    { "somePropertyName", "somePropertyValue"},
+                });
+    }
+    finally
+    {
+        stopwatch.Stop();
+
+        telemetryClient.TrackRequest(
+            new RequestTelemetry(
+                name: "何かわかりやすい名前。このAzureFunctionの名前など設定すること",
+                startTime: processStartTime,
+                duration: sw.Elapsed,
+                responseCode: "",
+                success: functionSucceed));
+    }
+    telemetryClient.Flush();
+
+}
+

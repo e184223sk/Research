@@ -1,0 +1,179 @@
+using Oracle.ManagedDataAccess.Client;
+using System;
+
+namespace common {
+    class DbControl {
+
+        // DB接続
+        private OracleConnection conn;
+
+        // SQL発行に必要
+        private OracleCommand cmd;
+
+        // SELECT時の結果読み取りに利用
+        private OracleDataReader reader;
+
+        // Transactionに利用
+        private OracleTransaction transaction;
+
+        // Bind変数に利用する型
+        public static int DATE = 0;
+        public static int VARCHAR2 = 1;
+        public static int DOUBLE = 2;
+        public static int INT16 = 3;
+        public static int INT32 = 4;
+
+        /// &lt;summary&gt;
+        /// コンストラクタ：iniファイルから取得した情報でDBと接続し、接続（OracleConnection）を保持する
+        /// &lt;/summary&gt;
+        public DbControl() {
+            string connectString = "user id = " + Main.OracleLogonName + "; password = " + Main.OraclePassWord + "; data source = " + Main.OracleDbName;
+
+            try {
+                conn = new OracleConnection(connectString);
+                conn.Open();
+            } catch (Exception ex) {
+                Console.WriteLine(ex.Message);
+                conn.Close();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// SQL文を使用し、OracleCommandを作成する
+        /// &lt;para&gt;string sql：assets/sqlから取得したSQL文の文字列&lt;/para&gt;
+        /// &lt;/summary&gt;
+        public void SetCommand(string sql) {
+            cmd = new OracleCommand(sql, conn);
+            // バインド変数の名前解決
+            cmd.BindByName = true;
+        }
+
+        /// &lt;summary&gt;
+        /// バインド変数の設定
+        /// &lt;para&gt;string parameterName：カラム名&lt;/para&gt;
+        /// &lt;para&gt;object parameterValue：カラムの値。string、DateTime等を渡す&lt;/para&gt;
+        /// &lt;para&gt;int oracleDbType：カラムのデータタイプ指定。DbManagementの定数を渡す&lt;/para&gt;
+        /// &lt;/summary&gt;
+        public void SetBindVariable(string parameterName, object parameterValue, int oracleDbType) {
+            OracleParameter dbParameter = cmd.CreateParameter();
+            switch (oracleDbType) {
+                case 0:
+                    dbParameter.OracleDbType = OracleDbType.Date;
+                    break;
+                case 1:
+                    dbParameter.OracleDbType = OracleDbType.Varchar2;
+                    break;
+                case 2:
+                    dbParameter.OracleDbType = OracleDbType.Double;
+                    break;
+                case 3:
+                    dbParameter.OracleDbType = OracleDbType.Int16;
+                    break;
+                case 4:
+                    dbParameter.OracleDbType = OracleDbType.Int32;
+                    break;
+            }
+            dbParameter.ParameterName = parameterName;
+            dbParameter.Value = parameterValue;
+            cmd.Parameters.Add(dbParameter);
+        }
+
+        /// &lt;summary&gt;
+        /// Transaction：開始（成功すればCommitを呼び、失敗したらRollBackを呼ぶ必要がある）
+        /// &lt;/summary&gt;
+        public void BeginTransaction() {
+            transaction = conn.BeginTransaction();
+        }
+
+        /// &lt;summary&gt;
+        /// Transaction：コミット
+        /// &lt;/summary&gt;
+        public void Commit() {
+            transaction.Commit();
+        }
+
+        /// &lt;summary&gt;
+        /// Transaction：ロールバック
+        /// &lt;/summary&gt;
+        public void RollBack() {
+            transaction.Rollback();
+        }
+
+        /// &lt;summary&gt;
+        /// SELECT系のSQLで使用
+        /// &lt;returns&gt;return OracleDataReader：&lt;/returns&gt;
+        /// &lt;/summary&gt;
+        public OracleDataReader ExecuteReader() {
+            try {
+                reader = cmd.ExecuteReader();
+            } catch (Exception ex) {
+                Console.WriteLine(ex.Message);
+            }
+            return reader;
+        }
+
+        /// &lt;summary&gt;
+        /// 実行系のSQLで使用
+        /// &lt;returns&gt;return Boolean：&lt;/returns&gt;
+        /// &lt;/summary&gt;
+        public Boolean ExecuteNonQuery() {
+            int res = 99;
+            try {
+                res = cmd.ExecuteNonQuery();
+            } catch (Exception ex) {
+                Console.WriteLine(ex.Message);
+            }
+            if (res &gt;= 1) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// DBのコネクションを閉じる（readerがあればreaderも）
+        /// &lt;/summary&gt;
+        public void Close() {
+            // 実行系だとnullになる為
+            if (reader != null) {
+                reader.Close();
+            }
+            conn.Close();
+        }
+
+        // 
+        public static String GetString(OracleDataReader read, string target) {
+            if (read.GetValue(read.GetOrdinal(target)).ToString() == "") {
+                return "";
+            } else {
+                return read.GetString(read.GetOrdinal(target));
+            }
+        }
+
+        // 
+        public static int GetInt16(OracleDataReader read, string target) {
+            return read.GetInt16(read.GetOrdinal(target));
+        }
+
+        // 
+        public static int GetInt32(OracleDataReader read, string target) {
+            return read.GetInt32(read.GetOrdinal(target));
+        }
+
+        // 
+        public static float GetFloat(OracleDataReader read, string target) {
+            return read.GetFloat(read.GetOrdinal(target));
+        }
+
+        // 
+        public static String GetDateString(OracleDataReader read, string target, string format) {
+            if (read.GetValue(read.GetOrdinal(target)).ToString() == "") {
+                return "";
+            } else {
+                return read.GetDateTime(read.GetOrdinal(target)).ToString(format);
+            }
+        }
+    }
+}
+
+

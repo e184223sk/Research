@@ -1,0 +1,203 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using myop.Models;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+
+namespace myop.Controllers
+{
+    public class AccessToken
+    {
+        public string access_token { get; set; }
+        public int? expires_in { get; set; }
+        public string refresh_token { get; set; }
+        public int? refresh_token_expires_in { get; set; }
+        public string token_type { get; set; }
+        public string id_token { get; set; }
+        public string scope { get; set; }
+        public string error { get; set; }
+        public string error_description { get; set; }
+    }
+
+    [Route("op/[controller]")]
+    [ApiController]
+    public class TokenController : ControllerBase
+    {
+        private readonly ApplicationDbContext _context;
+        string CLIENT_ID;
+        string CLIENT_SECRET;
+        string GRANT_TYPE;
+        string SCOPE;
+        string USERNAME;
+        string PASSWORD;
+        string CODE;
+        string REFRESH_TOKEN;
+        string NONCE;
+        public TokenController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+        // POST: op/token
+        [HttpPost]
+        public async Task&lt;ActionResult&lt;AccessToken&gt;&gt; doPost()
+        {
+            // POSTパラメータ取得
+            string body = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();
+            string[] p =  body.Split('&amp;');
+            for (int i=0; i&lt;p.Length; i++){
+                string[] values =  p[i].Split('=');
+                switch(values[0])
+                {
+                    case "client_id":CLIENT_ID=values[1];break;
+                    case "client_secret":CLIENT_SECRET=values[1];break;
+                    case "grant_type":GRANT_TYPE=values[1];break;
+                    case "scope":SCOPE=values[1];break;
+                    case "username":USERNAME=values[1];break;
+                    case "password":PASSWORD=values[1];break;
+                    case "code":CODE=values[1];break;
+                    case "refresh_token":REFRESH_TOKEN=values[1];break;
+                }
+            }
+            // POSTパラメータclient_idチェック
+            var client = await _context.Clients.FindAsync(CLIENT_ID);
+            if (client == null) {
+                return new AccessToken {error = "unauthorized_client", error_description="client authentication failed."};
+            }
+            // id_token生成(authorization_code)
+            string idtoken = null;
+            // access_token発番(authorization_code/client_credentials/password/refresh_token)
+            string random = Guid.NewGuid().ToString("N").ToUpper();
+            // refresh_token発番(authorization_code/password/refresh_token)
+            string refresh = Guid.NewGuid().ToString("N").ToUpper();
+            // 要求がrefresh_tokenの場合
+            if (GRANT_TYPE == "refresh_token") {
+                // 要求がimplicit/client_credentialsではないかチェック
+                if (client.GrantTypes == "implicit" || client.GrantTypes == "client_credentials") {
+                    return new AccessToken {error = "unsupported_response_type", error_description="the response_type value is not supported."};
+                }
+                // 要求のrefresh_tokenをチェック
+                var refresh_token = _context.Tokens.FirstOrDefault(r =&gt; r.RefreshToken == REFRESH_TOKEN);
+                if (refresh_token == null) {
+                    return new AccessToken {error = "unsupported_response_type", error_description="the response_type value is not supported."};
+                } else {
+                    // 要求のclient_idをチェック
+                    if (CLIENT_ID != refresh_token.ClientId) return new AccessToken {error = "invalid_request", error_description = "client_id is not valid."};
+                    // 要求のrefresh_tokenの有効期限3600秒固定をチェック
+                    int unixTimestamp = (int)(DateTime.Now.Subtract(new DateTime(1970, 1, 1))).TotalSeconds;
+                    int iat = (int)(refresh_token.Iat.Subtract(new DateTime(1970, 1, 1))).TotalSeconds;
+                    if (unixTimestamp - iat &gt; 3600) {
+                        return new AccessToken {error = "access_denied", error_description="the refresh_token is not valid."};
+                    }
+                    // 要求のclient_idからusername/scopeを取得
+                    USERNAME = refresh_token.UserId;
+                    SCOPE = refresh_token.Scope;
+                }
+            } else {
+                // 要求のgrant_typeをチェック
+                if (client.GrantTypes != GRANT_TYPE) {
+                    return new AccessToken {error = "unsupported_response_type", error_description="the response_type value is not supported."};
+                }
+                // 要求がclient_credentialsの場合
+                if (client.GrantTypes == "client_credentials") {
+                    // usernameはadmin固定
+                    USERNAME = "admin";
+                    // refresh_tokenは発行しない
+                    refresh = null;
+                }
+                // 要求がpasswordの場合
+                if (client.GrantTypes == "password") {
+                    // 要求のusernameをチェック
+                    var user = _context.Users.FirstOrDefault(u =&gt; u.UserName == USERNAME);
+                    if (user == null ) {
+                        return new AccessToken {error = "access_denied", error_description="user authentication failed."};
+                    }
+                    // 要求のpasswordを共通関数でチェック
+                    if (!Util.PasswordEqual(user.PasswordHash, PASSWORD)) {
+                        return new AccessToken {error = "access_denied", error_description="user authentication failed."};
+                    }
+                }
+                // 要求がauthorization_codeの場合
+                if (client.GrantTypes == "authorization_code") {
+                    // 要求のcodeをチェック
+                    var code = await _context.Codes.FindAsync(CODE);
+                    if (code == null) {
+                        return new AccessToken {error = "invalid_request", error_description="the code is not valid."};
+                    }
+                    // 要求のcodeからusername/nonceを取得
+                    USERNAME=code.UserId;
+                    NONCE=code.Nonce;
+                    // 要求のcodeを削除
+                    _context.Codes.Remove(code);
+                    await _context.SaveChangesAsync();
+                    // 要求のclient_idをチェック
+                    if (CLIENT_ID != code.ClientId) return new AccessToken {error = "invalid_request", error_description = "client_id is not valid."};
+                    // 要求のnonceをチェック
+                    if (NONCE == null) return new AccessToken {error = "invalid_request", error_description = "nonce is not valid."};
+                    // 共通関数にてIDトークン(id_token)を生成
+                    var claims = new[] {
+                    new Claim(JwtRegisteredClaimNames.Sub, USERNAME),
+                    new Claim(JwtRegisteredClaimNames.Nonce, NONCE)
+                    };
+                    idtoken=Util.GetIdToken(claims, CLIENT_ID);
+                }
+                // scopeはopenidを最小限とする
+                string t="openid";
+                if (SCOPE != null) {
+                    string[] s =  SCOPE.Split(' ');
+                    for (int j=0; j&lt;s.Length; j++){
+                        if (s[j]!="openid" &amp;&amp; client.AllowedScope.Contains(s[j])) t=t+" "+s[j];
+                    }
+                }
+                // 要求scopeと許可scopeのANDをとる
+                SCOPE=t;
+            }
+            // 機密クライアントの場合
+            if (client.AccessType == "confidential") {
+                    // 要求のclient_secretチェック
+                    if (client.ClientSecret != CLIENT_SECRET) {
+                        return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                    }
+            // 公開クライアントの場合
+            } else if (client.AccessType == "public") {
+                // 要求がclient_credentialsではないかチェック
+                if (client.GrantTypes == "client_credentials") {
+                    return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                }
+                // 要求にclient_secretは不要
+                if (CLIENT_SECRET != null) {
+                    return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                }
+            // 不明の場合
+            } else {
+                return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+            }
+            // 削除タイミングがないためaccess_tokenは１ユーザーにつき１つの制限
+            var token = await _context.Tokens.FindAsync(USERNAME);
+            if (token != null) {
+                _context.Tokens.Remove(token);
+                await _context.SaveChangesAsync();
+            }
+            // 有効期限60秒固定のaccess_tokenを発行
+            token = new Token {UserId = USERNAME, AccessToken = random, ClientId = CLIENT_ID, RefreshToken=refresh, Scope = SCOPE, Iat=DateTime.Now};
+            _context.Add(token);
+            await _context.SaveChangesAsync();
+            // 要求がclient_credentialsの場合、access_tokenを返す
+            if (client.GrantTypes == "client_credentials") {
+                return new AccessToken {access_token = random, expires_in=60, token_type="bearer", scope = SCOPE};
+            // 要求がathorization_code/password/refresh_tokenの場合、access_token/refresh_tokenを返す
+            } else {
+                return new AccessToken {access_token = random, expires_in=60, refresh_token = refresh, refresh_token_expires_in= 3600, id_token = idtoken, token_type="bearer", scope = SCOPE};
+            }
+        }
+    }
+}
+

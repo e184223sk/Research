@@ -1,0 +1,734 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+
+public class Hello
+{
+    // static void Save_Hex(string[] DataGridView1);
+
+    static public int Main()
+    {   
+        Save_Hex();
+        return(0);
+    }
+
+    static void Save_Hex()
+    {
+        string input_file_name = "src_srec.srec";
+        string output_file_name = "out_srec.srec";
+        StreamWriter dst_file;
+        string micom = "Renesas";//"Toshiba";
+        string ep_offset_address = "";
+        int start_address_MainEP = 0;
+        int end_address_MainEP = 0;
+        int start_address_InEP = 0;
+        int end_address_InEP = 0;
+        int start_address_POT = 0;
+        int end_address_POT = 0;
+        int start_address_FlashROM1 = 0;
+        int end_address_FlashROM1 = 0;
+        int start_address_FlashROM2 = 0;
+        int end_address_FlashROM2 = 0;
+
+        bool isMainEP = true;
+        bool isInEP = true;
+        bool isPOT = true;
+        bool keepMainEP = false;
+        bool keepInEP = false;
+
+        switch(micom){
+            case "Cypress":
+                //srecではアドレス飛び石で作れない？？
+                // ep_offset_address = "200C";
+                // start_address_MainEP = 0x0000;
+                // end_address_MainEP = 0x0000+0xFF;
+                // start_address_InEP = 0x2000;
+                // end_address_InEP = 0x2000+0xFF;
+                // start_address_POT = 0x4000;
+                // end_address_POT = 0x4000+0x1FFF;
+                start_address_FlashROM1 = 0x0;
+                end_address_FlashROM1 = 0x3FFF;
+                start_address_FlashROM2 = 0x8000;
+                end_address_FlashROM2 = 0x3FFFF;
+                break;
+            case "Renesas":
+                input_file_name = "src_hex.hex";
+                output_file_name = "out_hex.hex";
+
+                ep_offset_address = "0010";
+                start_address_MainEP = 0x0000;
+                end_address_MainEP = 0x0000+0xFF;
+                start_address_InEP = 0x0400;
+                end_address_InEP = 0x0400+0xFF;
+                start_address_POT = 0x0800;
+                end_address_POT = 0x0BFF;
+                start_address_FlashROM1 = 0x0;
+                end_address_FlashROM1 = 0xFFFFF;
+                start_address_FlashROM2 = 0x0;  //NOP: all copy about Renesas
+                end_address_FlashROM2 = 0xFFFFF;    //NOP: all copy about Renesas
+                break;
+            case "Toshiba": //goto default;
+            default:
+                ep_offset_address = "";
+                start_address_MainEP = 0x4000;
+                end_address_MainEP = 0x4000+0xFF;
+                start_address_InEP = 0x6000;
+                end_address_InEP = 0x6000+0xFF;
+                start_address_POT = 0x7000;
+                end_address_POT = 0x7000+0xFFF;
+                start_address_FlashROM1 = 0x0;
+                end_address_FlashROM1 = 0x3FFF;
+                start_address_FlashROM2 = 0x8000;
+                end_address_FlashROM2 = 0x3FFFF;
+                break;
+        }
+
+        switch(micom){
+            case "Cypress":
+                //srecではアドレス飛び石で作れない？？
+                dst_file = new StreamWriter(output_file_name, false, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+                dst_file.Close();
+                //  プログラム領域
+                copy_flash_area(start_address_FlashROM1, end_address_FlashROM2, micom, input_file_name, output_file_name);
+                break;
+            case "Renesas":
+                dst_file = new StreamWriter(output_file_name, false, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+                dst_file.Close();
+                // //   プログラム領域
+                // copy_flash_area(start_address_Flash, end_address_FlashROM2, micom, input_file_name, output_file_name);
+                //MainEP
+                if(!keepMainEP){
+                    write_Renesas_EP_area_header(ep_offset_address, output_file_name);
+                    if(isMainEP){
+                        write_EP_area(start_address_MainEP, ep_offset_address, micom, "src_eep.eep", output_file_name);
+                        fill_FF_area(end_address_MainEP+1, start_address_InEP-1, micom, output_file_name);
+                    }
+                    else{
+                        fill_FF_area(start_address_MainEP, start_address_InEP-1, micom, output_file_name);
+                    }
+                }
+                //InEP
+                if(!keepInEP){
+                    // if(keepMainEP){
+                        //よく考えたら別にオフセットあってもいいんじゃないかと思うから保持時以外はありにしてみる
+                        write_Renesas_EP_area_header(ep_offset_address, output_file_name);
+                    // }
+                    if(isInEP){
+                        write_EP_area(start_address_InEP, "", micom, "src_ineep.eep", output_file_name);
+                        fill_FF_area(end_address_InEP+1, start_address_POT-1, micom, output_file_name);
+                    }
+                    else{
+                        fill_FF_area(end_address_MainEP+1, start_address_POT-1, micom, output_file_name);
+                    }
+                }
+                //通電時間
+                // if(keepMainEP &amp;&amp; keepInEP){  //POTは保持とかなく基本的にクリアでいいか
+                    //MainEPとPOT変更でInEP保持のとき、POT前にオフセットいるかもだから、もうPOT前は常にオフセットありにする
+                    write_Renesas_EP_area_header(ep_offset_address, output_file_name);
+                // }
+                if(isPOT){//if(comboBoxPOT.Text!="")
+                    write_POT_area(start_address_POT, end_address_POT, micom, output_file_name);
+                }
+                else{
+                    fill_FF_area(start_address_POT, end_address_POT, micom, output_file_name);
+                }
+                //  プログラム領域
+                copy_flash_area(start_address_FlashROM1, end_address_FlashROM1-1, micom, input_file_name, output_file_name);
+                dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8")); //出力ファイル名
+                dst_file.WriteLine(":00000001FF");
+                dst_file.Close();
+                // copy_flash_area(start_address_Flash, end_address_FlashROM2, micom, input_file_name, output_file_name);
+                break;
+            case "Toshiba":
+                dst_file = new StreamWriter(output_file_name, false, System.Text.Encoding.GetEncoding("utf-8"));
+                dst_file.Close();
+                //  プログラム領域
+                copy_flash_area(start_address_FlashROM1, end_address_FlashROM1, micom, input_file_name, output_file_name);
+                //MainEP
+                write_EP_area(start_address_MainEP, ep_offset_address, micom, "src_eep.eep", output_file_name);
+                fill_FF_area(end_address_MainEP+1, start_address_InEP-1, micom, output_file_name);
+                //InEP
+                if(isInEP){
+                    write_EP_area(start_address_InEP, ep_offset_address, micom, "src_ineep.eep", output_file_name);
+                    fill_FF_area(end_address_InEP+1, start_address_POT-1, micom, output_file_name);
+                }
+                else{
+                    fill_FF_area(start_address_InEP, start_address_POT-1, micom, output_file_name);
+                }
+                //通電時間
+                if(isPOT){//if(comboBoxPOT.Text!="")
+                    write_POT_area(start_address_POT, start_address_FlashROM2-1, micom, output_file_name);
+                }
+                else{
+                    fill_FF_area(start_address_POT, start_address_FlashROM2-1, micom, output_file_name);
+                }
+                //  プログラム領域
+                copy_flash_area(start_address_FlashROM2, end_address_FlashROM2, micom, input_file_name, output_file_name);
+                break;
+            default:
+                break;
+        }
+    }
+
+
+
+
+
+    ////////////////////////////////////////////////
+    ///////////////////// 関数 /////////////////////
+    ////////////////////////////////////////////////
+
+    static public void fill_FF_area(int start_address, int end_address, string micom, string output_file_name){
+        string tmp;
+        string Save_Data = "";
+        StreamWriter dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+        int i, j;
+        int checksum = 0;
+        int checksum_complement = 0xFF;
+
+        for(j=(start_address/16);j&lt;=(end_address/16);j++){
+            switch(micom){
+                case "Renesas":
+                    checksum_complement = 0x100;
+                    Save_Data = ":10";
+                    checksum = 0x10;
+                    break;
+                case "Cypress":
+                    checksum_complement = 0xFF;
+                    Save_Data = "";
+                    checksum = 0;
+                    break;
+                case "Toshiba": //goto default;
+                default:
+                    checksum_complement = 0xFF;
+                    Save_Data = "S113";
+                    checksum = 0x13;
+                    break;
+            }
+
+            //eep address
+            tmp = (j*16).ToString("X4");
+            Save_Data = Save_Data + tmp;
+            checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+            if(micom=="Renesas"){
+                //record type
+                Save_Data = Save_Data + "00";
+                checksum = checksum + 0x00;
+            }
+
+            //eep data
+            for(i=0;i&lt;16;i++)
+            {
+                Save_Data = Save_Data + "FF";
+                checksum = checksum + Convert.ToInt32("FF", 16);
+            }
+            //checksum
+            tmp = checksum.ToString("X2");
+            tmp = tmp.Substring(tmp.Length-2);
+            checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+            tmp = "00" + checksum.ToString("X2");
+            Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+            dst_file.WriteLine(Save_Data);
+        }
+        dst_file.Close();
+    }
+
+    static public void write_Renesas_EP_area_header(string ep_offset_address, string output_file_name){
+        string tmp;
+        string Save_Data = "";
+        int checksum = 0;
+        StreamWriter dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+        int checksum_complement = 0x100;
+
+        Save_Data = ":";
+        //data size
+        Save_Data = Save_Data + "02";
+        checksum = 0x02;
+        //address
+        Save_Data = Save_Data + "0000";
+        checksum = checksum + 0x00 + 0x00;
+        //record type
+        Save_Data = Save_Data + "04";
+        checksum = checksum + 0x04;
+        //offset address
+        Save_Data = Save_Data + ep_offset_address;
+        checksum = checksum + Convert.ToInt32(ep_offset_address.Substring(ep_offset_address.Length-4,2), 16) + Convert.ToInt32(ep_offset_address.Substring(ep_offset_address.Length-2), 16);            
+        //checksum
+        tmp = checksum.ToString("X2");
+        tmp = tmp.Substring(tmp.Length-2);
+        checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+        tmp = "00" + checksum.ToString("X2");
+        Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+        dst_file.WriteLine(Save_Data);
+        dst_file.Close();
+    }
+
+    static public void write_EP_area(int start_address, string ep_offset_address, string micom, string input_file_name, string output_file_name){
+        string tmp;
+        string Save_Data = "";
+        StreamWriter dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+        int checksum = 0;
+        int i, j;
+        string[,] DataGridView1 = new string[16,16];
+        int checksum_complement = 0xFF;
+
+        DataGridView1 = read_EP(input_file_name);
+
+        switch(micom){
+            case "Renesas":
+                checksum_complement = 0x100;
+                break;
+            case "Cypress":
+                checksum_complement = 0xFF;
+                Save_Data = "";
+                break;
+            case "Toshiba": //goto default;
+            default:
+                checksum_complement = 0xFF;
+                break;
+        }
+
+        for(j=0;j&lt;16;j++){
+            switch(micom){
+                case "Renesas":
+                    //data size
+                    Save_Data = ":10";
+                    checksum = 0x10;
+                    break;
+                case "Cypress":
+                    Save_Data = "";
+                    break;
+                case "Toshiba": //goto default;
+                default:
+                    //record type and byte size
+                    Save_Data = "S113";
+                    checksum = 0x13;
+                    break;
+            }
+            //eep address
+            tmp = (start_address+(j*16)).ToString("X4");
+            Save_Data = Save_Data + tmp;
+            checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+            if(micom=="Renesas"){
+                //record type
+                Save_Data = Save_Data + "00";
+                checksum = checksum + 0x00;
+            }
+            //eep data
+            for(i=0;i&lt;16;i++)
+            {
+                tmp = DataGridView1[i,j];
+                Save_Data = Save_Data + DataGridView1[i,j];
+                checksum = checksum + Convert.ToInt32(DataGridView1[i,j], 16);
+            }
+            //checksum
+            tmp = checksum.ToString("X2");
+            tmp = tmp.Substring(tmp.Length-2);
+            checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+            tmp = "00" + checksum.ToString("X2");
+            Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+            dst_file.WriteLine(Save_Data);
+        }
+        dst_file.Close();
+    }
+
+    static public void copy_flash_area(int start_address, int end_address, string micom, string input_file_name, string output_file_name){
+        int itmp = 0;
+        string record_type = "";
+        string Save_Data = "";
+        StreamReader src_file = new StreamReader(input_file_name, System.Text.Encoding.GetEncoding("utf-8"));
+        StreamWriter dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8"));    //出力ファイル名
+
+        while(src_file.Peek()&gt;-1)   //空読み
+        {
+            Save_Data = src_file.ReadLine();
+
+            switch(micom){
+                case "Renesas":
+                    itmp = 0x0;
+                    break;
+                case "Cypress":
+                    record_type = Save_Data.Substring(1,1);
+                    switch(record_type){
+                        case "1":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,4),16);
+                            break;
+                        case "2":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,6),16);
+                            break;
+                        case "3":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,8),16);
+                            break;
+                        case "9":
+                        default:
+                            itmp = start_address - 1;   //pass
+                            break;
+                    }
+                    break;
+                case "Toshiba": //goto default;
+                default:
+                    record_type = Save_Data.Substring(1,1);
+                    switch(record_type){
+                        case "1":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,4),16);
+                            break;
+                        case "2":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,6),16);
+                            break;
+                        case "3":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,8),16);
+                            break;
+                        case "9":
+                        default:
+                            itmp = start_address - 1;   //pass
+                            break;
+                    }
+                    break;
+            }
+
+            if(itmp &gt;= start_address)   //先頭までスキップして、先頭を書き出して、2行目からは次のwhileで
+            {
+                dst_file.WriteLine(Save_Data);
+                break;
+            }
+        }
+        while(src_file.Peek()&gt;-1)
+        {
+            Save_Data = src_file.ReadLine();
+
+            switch(micom){
+                case "Renesas":
+                    itmp = 0;   //Renesasは全部コピーで
+                    break;
+                case "Cypress":
+                    record_type = Save_Data.Substring(1,1);
+                    switch(record_type){
+                        case "1":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,4),16);
+                            break;
+                        case "2":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,6),16);
+                            break;
+                        case "3":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,8),16);
+                            break;
+                        case "9":
+                        default:
+                            itmp = end_address - 1; //write&amp;pass
+                            break;
+                    }
+                    break;
+                case "Toshiba": //goto default;
+                default:
+                    record_type = Save_Data.Substring(1,1);
+                    switch(record_type){
+                        case "1":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,4),16);
+                            break;
+                        case "2":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,6),16);
+                            break;
+                        case "3":
+                            itmp = Convert.ToInt32(Save_Data.Substring(4,8),16);
+                            break;
+                        case "9":
+                        default:
+                            itmp = end_address - 1; //write&amp;pass
+                            break;
+                    }
+                    break;
+            }
+
+            if((itmp &gt; end_address)||((micom=="Renesas")&amp;&amp;(Save_Data==":00000001FF"))){
+                break;
+            }
+            dst_file.WriteLine(Save_Data);
+        }
+        src_file.Close();
+        dst_file.Close();
+    }
+
+    // EEPROM読み出し
+    static public string[,] read_EP(string input_file_name){
+        int i, j;
+        string line_buff;
+        int data;
+        string[,] DataGridView1 = new string[16,16];
+        StreamReader file;
+        file = new StreamReader(input_file_name, System.Text.Encoding.GetEncoding("utf-8"));    //ファイル名
+        for (j = 0; j &lt; 16; j++){
+            for (i = 0; i &lt; 16; i++){
+                line_buff = file.ReadLine();
+                //flag set
+                data = Convert.ToInt32(line_buff.Substring(0, 2), 16);
+
+                DataGridView1[i, j] = data.ToString("X2"); //hex(data);
+            }
+            //textBox2.Text = Path.GetFileName(file_name);
+        }
+        file.Close();
+        return(DataGridView1);
+    }
+
+    static public void write_POT_area(int start_address_POT, int end_address_POT, string micom, string output_file_name){
+        string Save_Data = "";
+        int i, k;
+        int checksum = 0;
+        int pot_k;
+        int powerOnTime;
+        string pot_str = "28";
+        string tmp = "";
+        int checksum_complement = 0xFF;
+        StreamWriter dst_file;
+
+        powerOnTime = Convert.ToInt32(pot_str, 10);
+
+        switch(micom){
+            case "Renesas":
+            case "Cypress":
+                dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8")); //出力ファイル名
+
+                //1行目
+                if(micom=="Renesas"){
+                    checksum_complement = 0x100;
+                    //data size
+                    Save_Data = ":10";
+                    checksum = 0x10;
+                }
+                else if(micom=="Cypress"){
+                    checksum_complement = 0xFF;
+                    //byte size
+                    Save_Data = "S113";
+                    checksum = 0x13;
+                }
+                //POT address
+                tmp = start_address_POT.ToString("X4");
+                Save_Data = Save_Data + tmp;
+                checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+                if(micom=="Renesas"){
+                    //record type
+                    Save_Data = Save_Data + "00";
+                    checksum = checksum + 0x00;
+                }
+
+                Save_Data = Save_Data + "FF";
+                checksum = checksum + Convert.ToInt32("FF", 16);
+
+                for(i=1;i&lt;16;i++){  //16byteを埋める    1行目
+                    if(i&lt;=powerOnTime){
+                        if((i&lt;=4)||((powerOnTime&gt;=16)&amp;&amp;(i==15))){   //16時間以上のとき、1行目の最後の1byteの01を埋める
+                            Save_Data = Save_Data + "01";
+                            checksum = checksum + 0x1;
+                        }
+                        else if((powerOnTime&lt;=28)&amp;&amp;(i%2==0)){
+                            Save_Data = Save_Data + "01" + "01";
+                            checksum = checksum + 0x1 + 0x1;
+                        }
+                    }
+                    else{
+                        Save_Data = Save_Data + "FF";
+                        checksum = checksum + Convert.ToInt32("FF", 16);
+                    }
+                }
+                //checksum
+                tmp = checksum.ToString("X2");
+                tmp = tmp.Substring(tmp.Length-2);
+                checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+                tmp = "00" + checksum.ToString("X2");
+                Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+                dst_file.WriteLine(Save_Data);
+
+                //2行目
+                if(micom=="Renesas"){
+                    //data size
+                    Save_Data = ":10";
+                    checksum = 0x10;
+                }
+                else if(micom=="Cypress"){
+                    //byte size
+                    Save_Data = "S113";
+                    checksum = 0x13;
+                }
+                //POT address
+                tmp = (start_address_POT+0x10).ToString("X4");
+                Save_Data = Save_Data + tmp;
+                checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+                if(micom=="Renesas"){
+                    //record type
+                    Save_Data = Save_Data + "00";
+                    checksum = checksum + 0x00;
+                }
+
+                if(powerOnTime&gt;=16) {
+                    Save_Data = Save_Data + "01";
+                    checksum = checksum + 0x1;
+                }
+                else{
+                    Save_Data = Save_Data + "FF";
+                    checksum = checksum + Convert.ToInt32("FF", 16);
+                }
+
+                for(i=1;i&lt;16;i++){  //16byteを埋める    2行目
+                    if(i&lt;=(powerOnTime-16)){    //28時間以下って条件は必要ないかな。comboBoxが28時間までだから
+                        if(i%2==0){
+                            Save_Data = Save_Data + "01" + "01";
+                            checksum = checksum + 0x1 + 0x1;
+                        }
+                    }
+                    else
+                    {
+                        Save_Data = Save_Data + "FF";
+                        checksum = checksum + Convert.ToInt32("FF", 16);
+                    }
+                }
+                //checksum
+                tmp = checksum.ToString("X2");
+                tmp = tmp.Substring(tmp.Length-2);
+                checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+                tmp = "00" + checksum.ToString("X2");
+                Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+                dst_file.WriteLine(Save_Data);
+                dst_file.Close();
+                //残りの領域を埋める
+                fill_FF_area(start_address_POT+0x20, end_address_POT, micom, output_file_name);
+                break;
+            case "Toshiba": //goto default;
+            default:
+                for(k=0;k&lt;16;k++)   //0x100ごとに、0x7000~0x7F00。kが1で256byte
+                {
+                    dst_file = new StreamWriter(output_file_name, true, System.Text.Encoding.GetEncoding("utf-8")); //出力ファイル名
+
+                    pot_k = k + 1;  //pot_kは1時間からだから？ 合ってるかな
+                    if(pot_k&gt;=4)
+                    {
+                        pot_k = pot_k + (pot_k-4);
+                        //4  5  6  7  8  9 10 11 12 13 14 15 16 k+1
+                        //4  6  8 10 12 14 16 18 20 22 24 26 28 pot
+                        //0  1  2  3  4  5  6  7  8  9 10 11 12 minus
+                        //(k+1) + (k+1 -4)
+                    }
+                    if(pot_k &gt; powerOnTime)
+                    {
+                        pot_k = 0;
+                    }
+
+                    //1行目
+                    if(micom=="Renesas"){
+                        checksum_complement = 0x100;
+                        // Save_Data = ":020000040100F9";   //eep area start address
+                        Save_Data = ":10";
+                        checksum = 0x10;
+                    }
+                    else if(micom=="Cypress"){
+                        checksum_complement = 0xFF;
+                        Save_Data = "S113";
+                        checksum = 0x13;
+                    }
+                    else{// if(micom=="Toshiba"){
+                        checksum_complement = 0xFF;
+                        Save_Data = "S113";
+                        checksum = 0x13;
+                    }
+
+                    tmp = (start_address_POT+(k*16*16)).ToString("X2");
+                    Save_Data = Save_Data + tmp;
+                    checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+                    Save_Data = Save_Data + "FF";
+                    checksum = checksum + Convert.ToInt32("FF", 16);
+
+                    for(i=1;i&lt;16;i++)   //16byteを埋める    1行目
+                    {
+                        if(i&lt;=pot_k) //if(i&lt;=pot)
+                        {
+                            if((i&lt;=4)||((pot_k&gt;=16)&amp;&amp;(i==15)))  //16時間以上のとき、1行目の最後の1byteの01を埋める
+                            {
+                                Save_Data = Save_Data + "01";
+                                checksum = checksum + 0x1;
+                            }
+                            else if((pot_k&lt;=28)&amp;&amp;(i%2==0))
+                            {
+                                Save_Data = Save_Data + "01" + "01";
+                                checksum = checksum + 0x1 + 0x1;
+                            }
+                        }
+                        else
+                        {
+                            Save_Data = Save_Data + "FF";
+                            checksum = checksum + Convert.ToInt32("FF", 16);
+                        }
+                    }
+                    tmp = checksum.ToString("X2");
+                    tmp = tmp.Substring(tmp.Length-2);
+                    checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+                    tmp = "00" + checksum.ToString("X2");
+                    Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+                    dst_file.WriteLine(Save_Data);
+
+                    //2行目
+                    if(micom=="Renesas"){
+                        Save_Data = ":10";
+                        checksum = 0x10;
+                    }
+                    else if(micom=="Cypress"){
+                        Save_Data = "S113";
+                        checksum = 0x13;
+                    }
+                    else{// if(micom=="Toshiba"){
+                        Save_Data = "S113";
+                        checksum = 0x13;
+                    }
+
+                    tmp = (start_address_POT+(k*16*16)+16).ToString("X2");
+                    Save_Data = Save_Data + tmp;
+                    checksum = checksum + Convert.ToInt32(tmp.Substring(tmp.Length-4,2), 16) + Convert.ToInt32(tmp.Substring(tmp.Length-2), 16);
+
+                    if(pot_k&gt;=16)
+                    {
+                        Save_Data = Save_Data + "01";
+                        checksum = checksum + 0x1;
+                    }
+                    else
+                    {
+                        Save_Data = Save_Data + "FF";
+                        checksum = checksum + Convert.ToInt32("FF", 16);
+                    }
+
+                    for(i=1;i&lt;16;i++)   //16byteを埋める    2行目
+                    {
+                        if(i&lt;=(pot_k-16))   //28時間以下って条件は必要ないかな。comboBoxが28時間までだから
+                        {
+                            if(i%2==0)
+                            {
+                                Save_Data = Save_Data + "01" + "01";
+                                checksum = checksum + 0x1 + 0x1;
+                            }
+                        }
+                        else
+                        {
+                            Save_Data = Save_Data + "FF";
+                            checksum = checksum + Convert.ToInt32("FF", 16);
+                        }
+                    }
+                    tmp = checksum.ToString("X2");
+                    tmp = tmp.Substring(tmp.Length-2);
+                    checksum = checksum_complement - Convert.ToInt32(tmp, 16);
+                    tmp = "00" + checksum.ToString("X2");
+                    Save_Data = Save_Data + tmp.Substring(tmp.Length-2);
+                    dst_file.WriteLine(Save_Data);
+                    dst_file.Close();
+                    //0x100の256byteを埋める。jが1で16byte
+                    fill_FF_area(start_address_POT+(k*16*16)+0x20, start_address_POT+(k*16*16)+0xFF, micom, output_file_name);
+                }
+                break;
+        }
+    }
+}
+
+

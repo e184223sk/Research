@@ -1,0 +1,87 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using Discord.Commands;
+using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using System.Reflection;
+using Discord;
+
+namespace Splatoo2ConsoleApp
+{
+    class Program
+    {
+        public static DiscordSocketClient client;
+        public static CommandService commands;
+        public static IServiceProvider services;
+
+        static void Main(string[] args) =&gt; new Program().MainAsync().GetAwaiter().GetResult();
+
+        /// &lt;summary&gt;
+        /// 起動時処理
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task MainAsync()
+        {
+            client = new DiscordSocketClient();
+            commands = new CommandService();
+            services = new ServiceCollection().BuildServiceProvider();
+            client.MessageReceived += CommandRecieved;
+
+            client.Log += Log;
+            string token = "メモしたTokeを指定";
+            await commands.AddModulesAsync(Assembly.GetEntryAssembly());
+            await client.LoginAsync(TokenType.Bot, token);
+            await client.StartAsync();
+
+            await Task.Delay(-1);
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージの受信処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="msgParam"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task CommandRecieved(SocketMessage messageParam)
+        {
+            var message = messageParam as SocketUserMessage;
+            Console.WriteLine("{0} {1}:{2}", message.Channel.Name, message.Author.Username, message);
+
+            if (message == null) { return; }
+            // コメントがユーザーかBotかの判定
+            if (message.Author.IsBot) { return; }
+
+            int argPos = 0;
+
+            // コマンドかどうか判定（今回は、「.」で判定）
+            if (!(message.HasCharPrefix('.', ref argPos) || message.HasMentionPrefix(client.CurrentUser, ref argPos))) { return; }
+
+            var context = new CommandContext(client, message);
+
+            // 実行
+            var result = await commands.ExecuteAsync(context, argPos, services);
+
+            //実行できなかった場合
+            if (!result.IsSuccess) { await context.Channel.SendMessageAsync(result.ErrorReason); }
+
+        }
+
+        /// &lt;summary&gt;
+        /// コンソール表示処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="msg"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private Task Log(LogMessage msg)
+        {
+            Console.WriteLine(msg.ToString());
+            return Task.CompletedTask;
+        }
+    }
+}
+
+

@@ -1,0 +1,20 @@
+このライブラリの応用？的な使い方の話をしています。
+現時点の最新版、2.2.85で動作確認済み。
+https://github.com/neuecc/MessagePack-CSharpUnityエディタでは動いてたのに、IL2CPP対応(iOSとかWebGLビルドだと強制）で
+FormatterNotRegisteredException 出てキッツい人向けお役立ち情報。変数部分をGenericにして、要処で使いわけたいパターンがあるとする。
+テストコードとしてはこういう感じ。Unityで通常実行すると普通に通るんだけども、何も考えずIL2CPP設定でビルドすると通らない。
+IL2CPP環境では動的コード生成が行えないので、事前にGeneratedResolverを生成しておく必要がある。
+事前生成のやり方は、公式ReadMeのAOT Code Generation (support for Unity/Xamarin)の項目で説明されている。
+https://github.com/neuecc/MessagePack-CSharp#aot-code-generation-support-for-unityxamarin問題は、AOTコード生成をやっても上のコードはまだ通らない。
+なので、もうひと手間を加える必要があるぞ、というのが今回の記事。Union機能を使うことで解決ができます。
+https://github.com/neuecc/MessagePack-CSharp#union
+Unionを追加した後に、先述のAOT Code Generationの作業を(再)実行する必要があるので注意してください。
+AOT Code Generationで生成したコード内を見ると、対応できてそうかは目視確認できます。こういう感じで、TargetClass&lt;T&gt; 項目の反映がなされていれば多分OKです。一応ですが、これはバッドノウハウに相当する可能性があります。Unionを追加した状態でAOT Code Generation手順を忘れると
+UnityエディタでDynamicUnionResolver（非IL2CPP環境で、対応コードを自動生成してくれるやつ）が
+Union can only be interface or abstract class.というエラーを吐きます。
+エラー表示通り、本来Unionはinterfaceとabstractクラスだけを対応するつもりのものっぽいですね。
+後々の仕様変更で死ぬ可能性はあるので、その際はまた別途解決策を模索したほうがよさそうです。Unityエディタで暫定回避をするための対応としては、下記みたいな方法があるんじゃないでしょうか。
+- Union部分を#if ENABLE_IL2CPPとか#if !UNITY_EDITORで括って、発生を回避する
+- 逆に何もせず、エラーを都度出して見落とさないようにし、AOTコード生成を都度行う運用でカバー今思ったんだけどこれ、GenericじゃなくてAbstractクラスで良いのでは？？？
+
+

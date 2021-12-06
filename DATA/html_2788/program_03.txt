@@ -1,0 +1,113 @@
+
+
+using Npgsql;
+using System;
+
+namespace DbSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var connString = "Host=192.168.80.131;Username=postgres;Password=postgres;Database=test";
+
+            using (var conn = new NpgsqlConnection(connString))
+            {
+                conn.Open();
+
+                //
+                using (var cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "truncate table test_tbl";
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Insert some data
+                using (var cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                    cmd.Parameters.AddWithValue("user", "明日のジョー");
+                    cmd.Parameters.AddWithValue("age", 17);
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Retrieve all rows
+                using (var cmd = new NpgsqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（ロールバック）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new NpgsqlCommand())
+                    {
+                        cmd.Connection = conn;
+                        cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                        cmd.Parameters.AddWithValue("user", "丹下サクラ");
+                        cmd.Parameters.AddWithValue("age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Rollback();
+                }
+                using (var cmd = new NpgsqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                // 
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（コミット）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new NpgsqlCommand())
+                    {
+                        cmd.Connection = conn;
+                        cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                        cmd.Parameters.AddWithValue("user", "丹下サクラ");
+                        cmd.Parameters.AddWithValue("age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Commit();
+                }
+                using (var cmd = new NpgsqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                // ストアドの試験
+                Console.WriteLine("=================================================");
+                Console.WriteLine("ストアドファンクション");
+                using (var cmd = new NpgsqlCommand("SELECT user_name, age FROM test_sp(@fromage,@toage)", conn))
+                {
+                    cmd.Parameters.AddWithValue("fromage", 10);
+                    cmd.Parameters.AddWithValue("toage", 19);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+

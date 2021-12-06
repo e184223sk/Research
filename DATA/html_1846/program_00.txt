@@ -1,0 +1,85 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+
+namespace ANCEntry_EFMvcApp.Common
+{
+
+    /// &lt;summary&gt;
+    /// 一覧表示用UIに任意のモデルデータを表示する際にPaging機能を与えるList
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;UIに一覧表示するデータのモデルクラス&lt;/typeparam&gt;
+    public class PaginatedList&lt;T&gt;: List&lt;T&gt;
+    {
+        /// &lt;summary&gt;
+        /// 現在のページのインデックス
+        /// &lt;/summary&gt;
+        public int PageIndex { get; private set; }
+
+        /// &lt;summary&gt;
+        /// トータルページ数
+        /// &lt;/summary&gt;
+        public int TotalPages { get; private set; }
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="items"&gt;当該ページに表示するレコードリスト&lt;/param&gt;
+        /// &lt;param name="count"&gt;元々リストに含まれていた総レコード数&lt;/param&gt;
+        /// &lt;param name="pageIndex"&gt;現在表示するページのインデックス&lt;/param&gt;
+        /// &lt;param name="pageSize"&gt;1ページに表示するサイズ&lt;/param&gt;
+        public PaginatedList(List&lt;T&gt; items, int count, int pageIndex, int pageSize)
+        {
+            this.PageIndex = pageIndex;
+            this.TotalPages = (int)Math.Ceiling(count / (double)pageSize);
+            this.AddRange(items);
+        }
+
+        /// &lt;summary&gt;
+        /// 現在表示されているページの前にまだ表示するページが存在するか？
+        /// &lt;/summary&gt;
+        public bool HasPreviousPage
+        {
+            get
+            {
+                return (PageIndex &gt; 1);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 現在表示されているページの後方にまだ表示するページが存在するか？
+        /// &lt;/summary&gt;
+        public bool HasNextPage
+        {
+            get
+            {
+                return (PageIndex &lt; this.TotalPages);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// PagenatedListのコアメソッド。
+        /// ソースリストをページサイズによりページ分けして、指定された
+        /// インデックスのページを表示するリストを返す。
+        /// &lt;/summary&gt;
+        /// &lt;param name="source"&gt;指定されたページ用のリストを取り出す元となるリスト&lt;/param&gt;
+        /// &lt;param name="pageIndex"&gt;取得するページ番号&lt;/param&gt;
+        /// &lt;param name="pageSize"&gt;1ページに表示するレコード数&lt;/param&gt;
+        /// &lt;returns&gt;ページに表示するデータリスト&lt;/returns&gt;
+        public static async Task&lt;PaginatedList&lt;T&gt;&gt; CreateAsync (
+            IQueryable&lt;T&gt; source, int pageIndex, int pageSize
+            )
+        {
+            var count = await source.CountAsync().ConfigureAwait(false);
+            var items = await source.Skip((pageIndex - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync()
+                .ConfigureAwait(false);
+            return new PaginatedList&lt;T&gt;(items, count, pageIndex, pageSize);
+        }
+    }
+}
+
+

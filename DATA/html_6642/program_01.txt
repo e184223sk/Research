@@ -1,0 +1,37 @@
+
+    public static partial class Observable
+    {
+        class ConnectableObservable&lt;T&gt; : IConnectableObservable&lt;T&gt;
+        {
+            readonly IObservable&lt;T&gt; source;
+            readonly ISubject&lt;T&gt; subject;
+            readonly object gate = new object();
+            Connection connection;
+
+            public ConnectableObservable(IObservable&lt;T&gt; source, ISubject&lt;T&gt; subject)
+            {
+                this.source = source.AsObservable();
+                this.subject = subject;
+            }
+
+            public IDisposable Connect()
+            {
+                lock (gate)
+                {
+                    // don't subscribe twice
+                    if (connection == null)
+                    {
+                        var subscription = source.Subscribe(subject);
+                        connection = new Connection(this, subscription);
+                    }
+
+                    return connection;
+                }
+            }
+
+            public IDisposable Subscribe(IObserver&lt;T&gt; observer)
+            {
+                return subject.Subscribe(observer);
+            }
+
+

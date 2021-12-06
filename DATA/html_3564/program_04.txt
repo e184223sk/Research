@@ -1,0 +1,73 @@
+
+/// &lt;summary&gt;
+/// 単体テストの基底クラス。
+/// &lt;/summary&gt;
+public abstract class AutofacTestBase
+{
+    delegate void BuilderAction(ContainerBuilder builder);
+
+    private BuilderAction registerMocks;
+
+    private List&lt;Mock&gt; mocks;
+
+    /// &lt;summary&gt;
+    /// テストの初期処理。
+    /// &lt;/summary&gt;
+    [TestInitialize]
+    public void BaseTestInitialize()
+    {
+        this.mocks = new List&lt;Mock&gt;();
+    }
+
+    /// &lt;summary&gt;
+    /// テストの終了処理。
+    /// &lt;/summary&gt;
+    [TestCleanup]
+    public void BaseTestCleanup()
+    {
+        // モックが期待どおりに呼び出されたことを検証する。
+        foreach (var mock in this.mocks)
+        {
+            mock.VerifyAll();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Mock インスタンスを生成する。
+    /// &lt;/summary&gt;
+    protected Mock&lt;T&gt; CreateMock&lt;T&gt;()
+        where T : class
+    {
+        return CreateMock&lt;T&gt;(false);
+    }
+
+    /// &lt;summary&gt;
+    /// Mock インスタンスを生成する。
+    /// &lt;/summary&gt;
+    protected Mock&lt;T&gt; CreateMock&lt;T&gt;(bool callBase)
+        where T : class
+    {
+        var mock = new Mock&lt;T&gt; { CallBase = callBase };
+        this.mocks.Add(mock);
+
+        // RegisterMock はジェネリック引数（ここでは暗黙指定）から型を判定するので、登録処理自体をデリゲートに収める。
+        // （List&lt;Mock&gt; では型を渡せない）
+        this.registerMocks += builder =&gt; builder.RegisterMock(mock);
+
+        return mock;
+    }
+
+    /// &lt;summary&gt;
+    /// AutoMock オブジェクトを取得する。
+    /// &lt;/summary&gt;
+    protected AutoMock GetLoose()
+    {
+        return AutoMock.GetLoose(builder =&gt;
+        {
+            builder.RegisterModule(new ProtectedPropertyInjectionModule());
+            this.registerMocks.Invoke(builder);
+        });
+    }
+}
+
+

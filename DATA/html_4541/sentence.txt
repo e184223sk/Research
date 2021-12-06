@@ -1,0 +1,252 @@
+More than 1 year has passed since last update.System.Windows.Forms.RichTextBox でシンタックスハイライトを実現しようとすると遅すぎて使い物にならない。。
+が、少し工夫することで使えるようになる。ソースコード (C#)
+
+
+SyntaxHighlighter.cs
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+abstract class SyntaxHighlighter : IDisposable
+{
+    /// &lt;summary&gt;RTF 生成用コントロール&lt;/summary&gt;
+    private readonly RichTextBox control = new RichTextBox();
+
+    /// &lt;summary&gt;
+    /// リソース解放済みフラグを取得します。
+    /// &lt;/summary&gt;
+    public bool IsDisposed { get; private set; }
+
+    /// &lt;summary&gt;
+    /// リソースを解放します。
+    /// &lt;/summary&gt;
+    public void Dispose()
+    {
+        this.Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// &lt;summary&gt;
+    /// リソースを解放します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="disposing"&gt;&lt;/param&gt;
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!this.IsDisposed)
+        {
+            if (disposing)
+            {
+                this.control.Dispose();
+            }
+            this.IsDisposed = true;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// リッチテキスト形式のテキストを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="text"&gt;&lt;/param&gt;
+    /// &lt;param name="font"&gt;&lt;/param&gt;
+    /// &lt;param name="wideFont"&gt;全角文字のフォント&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public string GetRtf(string text, Font font, Font wideFont = null)
+    {
+        this.control.Clear();
+        this.control.Text = text;
+        if (!string.IsNullOrEmpty(text))
+        {
+            // 各パターンに一致する文字色を設定
+            foreach (var syntax in this.EnumerateSyntaxes())
+            {
+                foreach (Match m in Regex.Matches(text, syntax.Pattern, RegexOptions.IgnoreCase))
+                {
+                    this.control.Select(m.Index, m.Length);
+                    this.control.SelectionColor = syntax.Color;
+                }
+            }
+
+            // フォントを設定
+            this.control.SelectAll();
+            this.control.SelectionFont = font;
+            if (wideFont != null)
+            {
+                // 全角 (半角以外) のフォントを設定
+                foreach (Match m in Regex.Matches(text, @"[^\x01-\x7E]", RegexOptions.IgnoreCase))
+                {
+                    this.control.Select(m.Index, m.Length);
+                    this.control.SelectionFont = wideFont ?? font;
+                }
+            }
+        }
+        return this.control.Rtf;
+    }
+
+    /// &lt;summary&gt;
+    /// &lt;see cref="Syntax"/&gt; を列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    protected abstract IEnumerable&lt;Syntax&gt; EnumerateSyntaxes();
+
+    /// &lt;summary&gt;
+    /// ハイライトのパターンと色を表します。
+    /// &lt;/summary&gt;
+    protected struct Syntax
+    {
+        public Syntax(string pattern, Color color)
+        {
+            this.Pattern = pattern;
+            this.Color = color;
+        }
+        public string Pattern { get; }
+        public Color Color { get; }
+    }
+}
+
+
+
+ソースコード (C#)
+
+
+SqlHighlighter.cs
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+class SqlHighlighter : SyntaxHighlighter
+{
+    /// &lt;summary&gt;予約語の色&lt;/summary&gt;
+    public Color WordColor { get; set; } = Color.Blue;
+
+    /// &lt;summary&gt;記号の色&lt;/summary&gt;
+    public Color SignColor { get; set; } = Color.Gray;
+
+    /// &lt;summary&gt;文字列の色&lt;/summary&gt;
+    public Color StringColor { get; set; } = Color.DarkRed;
+
+    /// &lt;summary&gt;コメントの色&lt;/summary&gt;
+    public Color CommentColor { get; set; } = Color.Green;
+
+    /// &lt;summary&gt;予約語&lt;/summary&gt;
+    public string[] Words { get; set; }
+
+    /// &lt;summary&gt;
+    /// 予約語を列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private IEnumerable&lt;string&gt; EnumerateWords() =&gt; this.Words ?? this.EnumerateDefaultWords();
+
+    private IEnumerable&lt;string&gt; EnumerateDefaultWords()
+    {
+        yield return "SELECT";
+        yield return "FROM";
+        yield return "WHERE";
+        yield return "AND";
+        yield return "OR";
+        yield return "DISTINCT";
+        yield return "IS NULL";
+        yield return "IS NOT NULL";
+        yield return "BETWEEN";
+        yield return "IN";
+        yield return "LIKE";
+        yield return "AS";
+        yield return "ORDER BY";
+        yield return "ASC";
+        yield return "DESC";
+
+        yield return "JOIN";
+        yield return "INNER";
+        yield return "LEFT";
+        yield return "RIGHT";
+        yield return "FULL";
+        yield return "CROSS";
+    }
+
+    //
+    protected override IEnumerable&lt;Syntax&gt; EnumerateSyntaxes()
+    {
+        // 予約語
+        var words = this.EnumerateWords();
+        foreach (var pattern in words.Select(item =&gt; this.ToPattern(item, true)))
+        {
+            yield return new Syntax(pattern, this.WordColor);
+        }
+
+        // 記号
+        var signs = new[] { ",", ";", ":", "=", "+", "-", "*", "/", "%", "&amp;", "|", "^", "~", "(", ")", "!" };
+        foreach (var pattern in signs.Select(item =&gt; this.ToPattern(item, false)))
+        {
+            yield return new Syntax(pattern, this.SignColor);
+        }
+
+        // 文字列
+        yield return new Syntax(@"'(\.|[^'])*'", this.StringColor);
+
+        // コメント
+        yield return new Syntax(@"--.*[$\r\n]*", this.CommentColor);
+        yield return new Syntax(@"/\*[\s\S]*?\*/|//.*", this.CommentColor);
+    }
+
+    /// &lt;summary&gt;
+    /// 単語を正規表現パターンに変換します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="word"&gt;&lt;/param&gt;
+    /// &lt;param name="whole"&gt;完全一致フラグ&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private string ToPattern(string word, bool whole)
+    {
+        var pattern = Regex.Escape(word).Replace(" ", @"\s+");
+        if (whole) pattern = @"\b" + pattern + @"\b";
+        return pattern;
+    }
+}
+
+
+
+ソースコード (C#)
+
+// テキスト変更フラグ (テキスト変更時に ON、ハイライト後に OFF)
+var textChanged = true;
+this.richTextBox.TextChanged += (sender, e) =&gt; textChanged = true;
+
+timer1.Tick += (sender, e) =&gt;
+{
+    if (textChanged)
+    {
+        // キャレット位置を保持
+        var start = this.richTextBox.SelectionStart;
+        var length = this.richTextBox.SelectionLength;
+        try
+        {
+            // ハイライト
+            using (var highlighter = new SqlHighlighter())
+            using (var font = new Font("Consolas", 11))
+            {
+                richTextBox1.Rtf = highlighter.GetRtf(richTextBox1.Text, font);
+            }
+        }
+        finally
+        {
+            // キャレット位置を復元
+            this.richTextBox.Select(start, length);
+        }
+        textChanged = false;
+    }
+}
+
+
+各 DBMS の予約語は、DbConnection クラスの GetSchema メソッドで取得可能ソースコード (C#)
+
+using (var connection = new SqlConnection("接続文字列"))
+{
+    var data = connection.GetSchema("ReservedWords");
+    var words = data.Rows.Cast&lt;DataRow&gt;().Select(row =&gt; (string)row[0]);
+}
+
+
+
+
+

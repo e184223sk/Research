@@ -1,0 +1,104 @@
+
+using MagicOnion;
+using MagicOnion.Server;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace Qiita2020TestServer
+{
+    class AccountService : ServiceBase&lt;IAccountService&gt;, IAccountService
+    {
+        // セッション情報管理（本来はRedis等用いる事！）
+        private static Dictionary&lt;string, (string userId, DateTime expireAt)&gt; sessions = new Dictionary&lt;string, (string userId, DateTime expireAt)&gt;();
+
+        private static object lockObject = new object();
+
+        // アカウント作成
+        public async UnaryResult&lt;(string userId, string password)&gt; CreateAccount()
+        {
+            Logger.Info("CreateAccount Request");
+
+            var userId = GenerateHash(20);
+            var password = GenerateHash(12);
+
+            // アカウント情報を仮でファイルに保存(本来はDBに入れる事！)
+            try
+            {
+                if (!Directory.Exists("accounts")) Directory.CreateDirectory("accounts");
+                File.WriteAllText("accounts/" + userId, password);
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "CreateAccount Error");
+                return (null, null);
+            }
+
+            Logger.Info($"CreateAccount UserId:{userId}, Password:{password}");
+
+            return (userId, password);
+        }
+
+        // ログイン
+        public async UnaryResult&lt;string&gt; Login(string userId, string password)
+        {
+            Logger.Info("Login Request");
+            try
+            {
+                // アカウントがない
+                if (!File.Exists("accounts/" + userId)) return null;
+
+                // パスワードが一致しない
+                if (File.ReadAllText("accounts/" + userId) != password)
+                {
+                    Logger.Warning("Login failed: " + (userId, password));
+                    return null;
+                };
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Login Error");
+                return null;
+            }
+
+            // セッション情報作成
+            var session = GenerateHash(20);
+
+            lock (lockObject)
+            {
+                // 一先ず1日有効なセッションを保存
+                sessions[session] = (userId, DateTime.UtcNow.AddDays(1));
+            }
+
+            Logger.Info("【" + userId + "】Login succeeded!");
+            // セッションを返す
+            return session;
+        }
+
+        // 指定の長さのランダムハッシュ値を取得
+        private static string GenerateHash(int length)
+        {
+            return Sha256(Guid.NewGuid().ToString("N")).Substring(0, length).ToLower();
+        }
+
+        // Sha256ハッシュ
+        private static string Sha256(string str)
+        {
+            var input = Encoding.ASCII.GetBytes(str);
+            var sha = new SHA256CryptoServiceProvider();
+            var sha256 = sha.ComputeHash(input);
+
+            var sb = new StringBuilder();
+            for (int i = 0; i &lt; sha256.Length; i++)
+            {
+                sb.Append(string.Format("{0:X2}", sha256[i]));
+            }
+
+            return sb.ToString();
+        }
+    }
+}
+
+

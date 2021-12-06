@@ -1,0 +1,46 @@
+
+public class I18nAttribute : ActionFilterAttribute
+{
+    public override void OnActionExecuting(ActionExecutingContext filterContext)
+    {
+        // NOTE:
+        // アクションパラメータを取得: filterContext.ActionParameters["culture"]
+        // GET クエリを取得: filterContext.HttpContext.Request.QueryString["key"]
+
+        // /{controller}/{action} のアクセスを /{culture}/{controller}/{action} へリダイレクト。
+        if (!(filterContext.ActionParameters["culture"] is string culture))  // culture が null だったら、という書き方
+        {
+            // リクエストされた URI。
+            Uri requestUri = filterContext.HttpContext.Request.Url;
+            var uriBuilder = new UriBuilder(requestUri);
+
+            // URI を変更。
+            // デフォルトは ja だけれど、クッキーに値が入っていればそれをデフォルトとする。
+            string initialDefaultCulture = "ja";
+            HttpCookie cookieCulture = filterContext.RequestContext.HttpContext.Request.Cookies["culture"];
+            if (cookieCulture != null &amp;&amp; !string.IsNullOrEmpty(cookieCulture.Value))
+            {
+                initialDefaultCulture = cookieCulture.Value;
+            }
+            uriBuilder.Path = initialDefaultCulture + uriBuilder.Path;
+
+            // リダイレクト。
+            filterContext.Result = new RedirectResult(uriBuilder.ToString());
+            return;
+        }
+
+        // RouteConfig で culture を ja か en に絞っているので culure の値チェックは不要。
+        // NOTE: CurrentCulture is used to switch formats.
+        Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+        // NOTE: CurrentUICulture is used to switch resources.
+        Thread.CurrentThread.CurrentUICulture = CultureInfo.GetCultureInfo(culture);
+
+        // /ja や /en でアクセスされたらその値をクッキーに保存。
+        var cookie = new HttpCookie("culture")
+        {
+            Value = culture
+        };
+        filterContext.HttpContext.Response.Cookies.Add(cookie);
+    }
+}
+

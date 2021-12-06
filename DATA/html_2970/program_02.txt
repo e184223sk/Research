@@ -1,0 +1,41 @@
+
+
+    private TFGraph model;
+    public void LoadModel(string model_name)
+    {
+        string model_path = Application.dataPath + @"/MLModel/" + model_name + ".pb";
+
+        var model_input = File.ReadAllBytes(model_path);
+        model = new TFGraph();
+        model.Import(model_input);
+
+        loaded = true;
+    }
+    private bool loaded = false;
+    public bool GetLoaded() { return loaded; }
+
+    public int Inference(Texture2D input)
+    {
+        var session = new TFSession(model);
+
+        // Texture2Dをモデルの入力に合った形に整形、正規化する。        
+        var float_values = GetFloatFromTex2DWithFlip(input);
+
+        // TensorFlowSharpでの入力形式であるTFTensorを作成する
+        var shape = new TFShape(1, input.width, input.height, 3);
+        var input_tensor = TFTensor.FromBuffer(shape, float_values, 0, float_values.Length);
+
+        //  データの入力・推論
+        //  input_2:0およびoutput_node0:0はpbファイル作成時につけた入力ノードと出力ノードの名前。
+        var runner = session.GetRunner();
+        runner.AddInput(model["input"][0], input_tensor);
+        runner.Fetch(model["content_vgg/prob"][0]);
+
+        // 推論を実行
+        var output = runner.Run();
+        var scores = ((float[][])output[0].GetValue(true))[0];
+
+        return GetBestScorePos(scores);
+    }
+
+

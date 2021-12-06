@@ -1,0 +1,82 @@
+
+using System;
+using System.Drawing;
+using System.IO;
+using System.Windows.Forms;
+
+class SampleForm : Form
+{
+    PictureBox pct;
+
+    SampleForm()
+    {
+        pct = new PictureBox(){ Dock = DockStyle.Fill, };
+
+        Controls.Add(pct);
+        CopyImageFromClipboardToControl();
+    }
+
+    void CopyImageFromClipboardToControl()
+    {
+        IDataObject data = Clipboard.GetDataObject();
+        object tmp = data.GetData("HTML Format");
+
+        if ( tmp != null &amp;&amp; tmp is string ) {
+            string[] lines = ((string)tmp).Split('\n'); // 行単位に分解
+
+            foreach ( string line in lines ) {
+                string imgBase64str = GetBase64ImgStr(line);
+                if ( imgBase64str != null ) {
+                    Bitmap bmp = GetBitmapFromBase64(imgBase64str);
+                    pct.Image = bmp;
+                    ResizeForm(bmp.Size);
+                }
+            }
+        }
+        else {
+            Console.WriteLine("No data.");
+        }
+    }
+
+    string GetBase64ImgStr(string line)
+    {
+        string targetStr = "&lt;img src=\"data:image/jpeg;base64,";
+
+        int index = line.IndexOf(targetStr);
+        if ( index &gt;= 0 ) {
+            index += targetStr.Length;
+            int indexOfEndQuote = line.IndexOf("\"", index);
+            if ( indexOfEndQuote &gt;= 0 ) {
+                return line.Substring(index, indexOfEndQuote - index);
+            }
+        }
+        return null;
+    }
+
+    Bitmap GetBitmapFromBase64(string base64str)
+    {
+        byte[] t = Convert.FromBase64String(base64str);
+        var ms = new MemoryStream(t);
+        return new Bitmap(ms);
+    }
+
+    void ResizeForm(Size preferedSize)
+    {
+        Screen ownerScreen = Screen.FromControl(this); // 所属している画面を取得
+        Rectangle rect = ownerScreen.Bounds;
+
+        // 画面に収まるときだけリサイズする
+        //（※厳密には、タイトルバーと枠線を考慮に入れていないので収まらない）
+        if ( preferedSize.Width &lt;= rect.Width &amp;&amp; preferedSize.Width &lt;= rect.Height ) {
+            ClientSize = preferedSize;
+        }
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new SampleForm());
+    }
+}
+

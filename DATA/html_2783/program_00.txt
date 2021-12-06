@@ -1,0 +1,209 @@
+
+using System;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+class Test:Form
+{
+    TextBox txtPtrn;
+    TextBox txtPtrnCsharp;
+    RichTextBox rtxt;
+    SplitContainer spl;
+
+    private const int EM_SETTABSTOPS = 0x00CB;
+    private const long IMF_DUALFONT = 0x80;
+    private const int WM_USER = 0x0400;
+    private const int EM_SETLANGOPTIONS = WM_USER + 120;
+    private const int EM_GETLANGOPTIONS = WM_USER + 121;
+
+    [DllImport("user32")]
+    public extern static IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+    Color defaultBackColor;
+    NumericUpDown nudM;
+    NumericUpDown nudG;
+    Font baseFont;
+    Font boldFont;
+    Font boldUnderFont;
+
+    MatchCollection matches;
+
+    Test()
+    {
+        spl = new SplitContainer();
+        spl.Dock = DockStyle.Fill;
+        spl.Orientation = Orientation.Horizontal;
+        spl.IsSplitterFixed = true;
+        Controls.Add(spl);
+
+        txtPtrn = new TextBox();
+        txtPtrn.TextChanged += TxtPtrn_TextChanged;
+        txtPtrn.Multiline = false;
+        txtPtrn.Size = new Size(200, 30);
+        spl.Panel1.Controls.Add(txtPtrn);
+        defaultBackColor = txtPtrn.BackColor;
+
+        txtPtrnCsharp = new TextBox();
+        txtPtrnCsharp.Location = new Point(0,30);
+        txtPtrnCsharp.ReadOnly = true;
+//      txtPtrnCsharp.TextChanged += TxtPtrnCsharp_TextChanged;
+        txtPtrnCsharp.Multiline = false;
+        txtPtrnCsharp.Size = new Size(200, 30);
+        spl.Panel1.Controls.Add(txtPtrnCsharp);
+
+
+        Label lblM = new Label();
+        lblM.Top = txtPtrnCsharp.Bottom + 10;
+        lblM.Text = "Match:";
+        lblM.TextAlign = ContentAlignment.MiddleRight;
+        lblM.Width = 50;
+        spl.Panel1.Controls.Add(lblM);
+
+        nudM = new NumericUpDown();
+        nudM.Minimum =    1;
+        nudM.Maximum =   99;
+        nudM.Width = 50;
+        nudM.Left = lblM.Right;
+        nudM.Top = lblM.Top;
+        nudM.ValueChanged += (sender,e)=&gt;{UpdateColor();};
+        spl.Panel1.Controls.Add(nudM);
+
+
+        Label lblG = new Label();
+        lblG.Left = nudM.Right;
+        lblG.Top = lblM.Top;
+        lblG.Text = "Groups:";
+        lblG.TextAlign = ContentAlignment.MiddleRight;
+        lblG.Width = 50;
+        spl.Panel1.Controls.Add(lblG);
+
+        nudG = new NumericUpDown();
+        nudG.Minimum =    0;
+        nudG.Maximum =   99;
+        nudG.Width = 50;
+        nudG.Top = lblM.Top;
+        nudG.Left = lblG.Right;
+        nudG.ValueChanged += (sender,e)=&gt;{UpdateColor();};
+        spl.Panel1.Controls.Add(nudG);
+
+
+        rtxt = new RichTextBox();
+        rtxt.Top = lblG.Bottom;
+        rtxt.Multiline = true;
+        rtxt.WordWrap = false;
+        rtxt.AcceptsTab = true;
+        rtxt.ScrollBars = RichTextBoxScrollBars.Both;
+        rtxt.Dock = DockStyle.Fill;
+        spl.Panel2.Controls.Add(rtxt);
+
+        // 実行順序を変えるとtab幅がおかしくなるので注意
+        baseFont = new Font("ＭＳ ゴシック",     12); // rtxt.Font.Size);
+        boldFont = new Font(baseFont.FontFamily, baseFont.Size, baseFont.Style | FontStyle.Bold);
+        boldUnderFont = new Font(baseFont.FontFamily, baseFont.Size, baseFont.Style | FontStyle.Bold | FontStyle.Underline);
+        rtxt.Font = boldFont;
+        SetFixFont(rtxt);
+        SetTabStop(rtxt, 4);
+
+        rtxt.TextChanged += (sender,e)=&gt;{DoRegexTest();};
+
+        // spl.IsSplitterFixed = true; はユーザがつかめないようにするだけで、固定してくれないっぽい。まぎらわしい。。
+        Load      += (sender,e)=&gt;{spl.SplitterDistance = nudG.Bottom;};
+        Resize    += (sender,e)=&gt;{spl.SplitterDistance = nudG.Bottom;};
+        ResizeEnd += (sender,e)=&gt;{spl.SplitterDistance = nudG.Bottom;};
+    }
+
+
+    void TxtPtrn_TextChanged(object sender, EventArgs e)
+    {
+        string s = txtPtrn.Text;
+        txtPtrnCsharp.Text = "\"" + Regex.Replace(s, "[\\\\\"]","\\$&amp;")+"\"";
+
+        DoRegexTest();
+    }
+
+    void DoRegexTest()
+    {
+        Regex r;
+        try {
+            r = new Regex(txtPtrn.Text);
+        }
+        catch ( ArgumentException ) {
+            txtPtrn.BackColor = Color.Red;
+            matches = null;
+            UpdateColor();
+            return;
+        }
+
+        txtPtrn.BackColor = defaultBackColor;
+        matches = r.Matches(rtxt.Text);
+        UpdateColor();
+    }
+
+    void UpdateColor()
+    {
+        if (matches==null){
+            return;
+        }
+
+        int pos = rtxt.SelectionStart;
+        int len = rtxt.SelectionLength;
+
+        rtxt.SelectAll();
+        rtxt.SelectionBackColor = Color.White;
+//      rtxt.SelectionColor = Color.Black;
+        rtxt.SelectionFont  = boldFont;
+
+        int targetG = (int)nudG.Value;
+        int i=0;
+
+        foreach (Match m in matches) {
+            i++;
+            if ( i == (int)nudM.Value ) {
+                if ( m.Groups.Count &gt; targetG ) {
+                    Group g = m.Groups[targetG];
+                    CaptureCollection cc = g.Captures;
+
+                    bool firstFlag = true;
+                    foreach (Capture c in cc) {
+                        rtxt.Select(c.Index, c.Length);
+                        rtxt.SelectionFont = boldUnderFont;
+                        rtxt.SelectionBackColor = (firstFlag)?Color.LightGreen:Color.Blue;
+//                      rtxt.SelectionColor = (firstFlag)?Color.Red:Color.Blue;
+                        firstFlag = false;
+                    }
+                }
+            }
+        }
+        rtxt.Select(pos, len);
+    }
+
+    static IntPtr SetFixFont(TextBoxBase t)
+    {
+        IntPtr lParam = SendMessage(t.Handle, EM_GETLANGOPTIONS, new IntPtr(0), new IntPtr(0));
+        lParam = new IntPtr( ((long)lParam) &amp; (~IMF_DUALFONT));
+        return SendMessage(t.Handle, EM_SETLANGOPTIONS, new IntPtr(0), lParam);
+    }
+
+    static IntPtr SetTabStop(TextBoxBase t, int tabSize)
+    {
+        int[] tabarray = new int[] { tabSize*4 };
+        int wparam = tabarray.Length;
+
+        IntPtr parray = Marshal.AllocCoTaskMem(Marshal.SizeOf(typeof(int)) * tabarray.Length);
+        Marshal.Copy(tabarray, 0, parray, tabarray.Length);
+        IntPtr ret = SendMessage(t.Handle, EM_SETTABSTOPS, new IntPtr(wparam), parray);
+        // 2019.12.27追記: AllocCoTaskMemに対する解放処理が漏れている
+        return ret;
+    }
+
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        Application.Run(new Test());
+    }
+}
+
+

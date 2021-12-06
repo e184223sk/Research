@@ -1,0 +1,60 @@
+
+public class RealtimeVertexBaker16bitUnsignedInt : MonoBehaviour
+{
+    public ComputeShader infoTexGen;
+    public Material material;
+
+    // テクスチャのどの位置に書き込むかというオフセット
+    public int columnOffset=0;
+
+    private SkinnedMeshRenderer _skin;
+    private int vertexCount;
+
+    private const int TEX_WIDTH = 1920, TEX_HEIGHT = 1080;
+    [SerializeField]
+    private RenderTexture pRt;
+    private Mesh mesh;
+    private List&lt;Vector3&gt; posList;
+    private ComputeBuffer posBuffer;
+
+    private void Start()
+    {
+        // アバターのSkinned Mesh Rendererを取得する
+        _skin = GetComponent&lt;SkinnedMeshRenderer&gt;();
+        vertexCount = _skin.sharedMesh.vertexCount;
+
+        mesh = new Mesh();
+
+        // レンダーテクスチャを書き込み可能にする
+        pRt.enableRandomWrite = true;
+    }
+
+    void Update()
+    {
+        // SkinnedMeshRenderから現在のフレームのmeshを作る
+         _skin.BakeMesh(mesh);
+        // コンピュートシェーダーに値を渡す入れ物をつくる
+        // C言語の動的メモリ確保みたいな感じで、頂点数 * Vector3のサイズのバッファをつくる
+        posBuffer = new ComputeBuffer(vertexCount, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Vector3)));
+
+        // meshの頂点位置情報をセットする
+        posBuffer.SetData(mesh.vertices);
+
+        var kernel = infoTexGen.FindKernel("CSMainFHD");
+
+        // 必要なデータや参照を渡す
+        infoTexGen.SetInt("VertCount", vertexCount);
+        infoTexGen.SetInt("ColumnOffset", columnOffset);
+        infoTexGen.SetBuffer(kernel, "Pos", posBuffer);
+        infoTexGen.SetTexture(kernel, "OutPosition", pRt);
+
+        // コンピュートシェーダを実行する
+        // 引数はスレッド数
+        // スレッド数は 頂点数 * 1 * 1
+        infoTexGen.Dispatch(kernel, vertexCount, 1, 1);
+
+        posBuffer.Release();
+    }
+
+}
+

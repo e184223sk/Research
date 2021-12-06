@@ -1,0 +1,97 @@
+
+using AppSyncDemo.Models;
+using GraphQL;
+using GraphQL.Client.Http;
+using GraphQL.Client.Serializer.Newtonsoft;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace AppSyncDemo.Services
+{
+    public class AppSyncService
+    {
+        public static AppSyncService Instance { get; private set; } = new AppSyncService();
+        private GraphQLHttpClient GraphQLHttpClient { get; set; }
+
+        public AppSyncService()
+        {
+            var options = new GraphQLHttpClientOptions
+            {
+                EndPoint = new Uri(ApiKey.AppSyncApiUrl),
+            };
+            this.GraphQLHttpClient = new GraphQLHttpClient(options, new NewtonsoftJsonSerializer());
+            this.GraphQLHttpClient.HttpClient.DefaultRequestHeaders.Add("x-api-key", ApiKey.AppSyncApiKey);
+        }
+
+        public async Task&lt;SampleModel&gt; GetSampleAsync(string name)
+        {
+            var apiName = "GetSample";
+            var variables = new 
+            {
+                name = name,
+            };
+            var response = await ExecQueryAsync&lt;SampleModel&gt;(apiName, variables);
+            return response;
+        }
+
+        /// &lt;summary&gt;
+        /// Queryを実行する
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="apiName"&gt;&lt;/param&gt;
+        /// &lt;param name="variables"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;T&gt; ExecQueryAsync&lt;T&gt;(string apiName, object variables)
+        {
+            try
+            {
+                // GraphQL取得
+                var resourceId = $"AppSyncDemo.GraphQLs.{apiName}.gql";
+                var query = await GetQueryAsync(resourceId);
+
+                // リクエスト作成
+                var request = new GraphQLRequest
+                {
+                    Query = query,
+                    OperationName = "MyQuery",
+                    Variables = variables,
+                };
+
+                // Query実行
+                // Mutation実行の場合はSendMutationAsync()を使用
+                var response = await this.GraphQLHttpClient.SendQueryAsync&lt;JObject&gt;(request);
+                // [apiName]から先が必要かどうかはレスポンスの構造に応じて変更する必要あり
+                var json = response.Data[apiName]["data"].ToString();
+                var ret = JsonConvert.DeserializeObject&lt;T&gt;(json);
+
+                return ret;
+            }
+            catch (Exception)
+            {
+                return default(T);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// GraphQLを取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="resourceId"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task&lt;string&gt; GetQueryAsync(string resourceId)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            using (var stream = assembly.GetManifestResourceStream(resourceId))
+            using (var reader = new StreamReader(stream))
+            {
+                return await reader.ReadToEndAsync();
+            }
+        }
+    }
+}
+

@@ -1,0 +1,382 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Player : Character {
+
+    //姿を消すときに消すオブジェクト
+    public GameObject[] objBodys; 
+
+    //パーティクルの親
+    private GameObject parParticle;
+    //Animator
+    private Animator thisAnim;
+    //Dieエフェクト
+    public GameObject preDieEffect;
+
+    //enable fire flag
+    public bool canFire = true;
+
+    //前回銃を打ってからの経過時間
+    private float TimeFromFire;
+    //前回エモートしてからの経過時間
+    private float TimeFromEmote;
+
+    //先行入力中か
+    bool duringTypeAhead;
+    Vector3 TypeAheadTapPos;
+    int TypeAheadCount;
+
+    //無敵フラグ（すりぬける）
+    public bool isInvulnerable = false;
+
+
+    protected override void Init(){
+        base.Init ();
+
+        HP = 1;
+        parParticle = GameObject.Find ("Particle");
+        thisAnim = GetComponent&lt;Animator&gt; ();
+    }
+
+    void Update () {
+
+        if (isInvulnerable)
+        {
+            GetComponent&lt;Rigidbody2D&gt;().simulated = false;
+        }
+
+        //タイマーを進める
+        TimeFromFire += Time.deltaTime;
+        TimeFromEmote += Time.deltaTime;
+
+        //待機アニメーション
+        IdlingAnimation();
+
+        //シフト中はシフト処理
+        if (isShifting)
+            Move ();
+    }
+
+    void IdlingAnimation(){
+        float TriggerTime = 10;
+        float EmoteTime = 2;
+
+        if ((TimeFromFire &gt; TriggerTime &amp;&amp; TimeFromFire &lt; TriggerTime + EmoteTime) 
+            || (TimeFromEmote &gt; TriggerTime &amp;&amp; TimeFromEmote &lt; TriggerTime + EmoteTime)) {
+            if (thisAnim.GetInteger ("Emote") == 0) {
+                int r = Random.Range (1, 3);
+                thisAnim.SetInteger ("Emote", r);
+            }
+        } else {
+            thisAnim.SetInteger ("Emote", 0);
+        }
+        if (TimeFromFire &lt; TriggerTime || TimeFromEmote &gt; TriggerTime + EmoteTime) {
+            TimeFromEmote = 0;
+        }
+    }
+
+
+    //指定された場所に敵がいるかを判定(posはscreenpoint)
+    //いればtransformを、いなければnullを返す
+    Transform EnemyExists(Vector3 pos){
+        pos.z = 10;
+        Vector2 wpos = Camera.main.ScreenToWorldPoint (pos);
+        Ray ray = Camera.main.ScreenPointToRay(pos);
+
+        RaycastHit2D hit;
+
+        if (hit = Physics2D.Raycast(wpos, -Vector2.up)) {
+            Transform objectHit = hit.transform;
+            return objectHit;
+        }
+        return null;
+    }
+
+    //シフトする相手
+    private GameObject objShiftTarget;
+    //シフト中かどうか
+    public bool isShifting = false;
+    //シフト前のプレイヤーの位置
+    private Vector2 FirstPlayerPos;
+    //シフト前の相手の位置
+    private Vector2 FirstTargetPos;
+
+    public GameObject preShiftingPlayer;
+    public GameObject preShiftingTarget;
+
+    private GameObject objShiftingPlayerParticle;
+    private GameObject objShiftingTargetParticle;
+
+    public GameObject GetTarget()
+    {
+        return objShiftTarget;
+    }
+
+    //シフトする
+    public void Shift(GameObject obj){
+        //シフト中はシフトしない
+        if(isShifting) return;
+
+        objShiftTarget = obj;
+        FirstPlayerPos = transform.position;
+        FirstTargetPos = obj.transform.position;
+
+        //対象オブジェクトのOnShiftを呼ぶ
+        StageObject objSO = obj.GetComponent&lt;StageObject&gt;();
+        objSO.OnShiftStart();
+
+        //particle生成
+        objShiftingPlayerParticle = Instantiate(preShiftingPlayer, Vector3.zero, Quaternion.identity, parParticle.transform);
+        objShiftingTargetParticle = Instantiate(preShiftingTarget, Vector3.zero, Quaternion.identity, parParticle.transform);
+
+        //rigidbodyのsimulatedをoffに（ぶつかったりしなくなる)
+        gameObject.GetComponent&lt;Rigidbody2D&gt; ().simulated = false;
+        objShiftTarget.GetComponent&lt;Rigidbody2D&gt; ().simulated = false;
+
+        //SetActiveでやってみる(Updateが呼ばれないのでだめ）
+        //gameObject.SetActive(false);
+        //objShiftTarget.SetActive (false);
+
+        //先行入力開始
+        StartCoroutine(TypeAheadCoroutine());
+
+        //時を止める
+        Time.timeScale = 0;
+
+        //SE
+        SEPlayer.PlaySE("shift");
+
+        //フラグ建築
+        isShifting = true;
+    }
+
+    //Shiftするスピード
+    private float SHIFTSPEED = 4;
+
+    //対象のGameObjectと入れ替わる演出(FixedUpdatで呼び続ける)
+    public void Move(){
+
+        Vector2 PlayerPos = gameObject.transform.position;
+        Vector2 TargetPos = objShiftTarget.transform.position;
+
+        //徐々に移動していくパターン
+        gameObject.transform.position += ((Vector3)FirstTargetPos - (Vector3)PlayerPos)*SHIFTSPEED*Time.unscaledDeltaTime;
+        objShiftTarget.transform.position += -((Vector3)FirstTargetPos - (Vector3)PlayerPos)*SHIFTSPEED*Time.unscaledDeltaTime;
+
+        Vector2 lError = new Vector2 (3f, 3f);
+        Vector2 Error = new Vector2(0.05f, 0.05f);
+
+        //入れ替わる時のパーティクル
+        objShiftingPlayerParticle.transform.position = PlayerPos;
+        objShiftingTargetParticle.transform.position = TargetPos;
+
+        //近づいた時
+        if (Mathf.Abs (PlayerPos.x - FirstTargetPos.x) &lt; lError.x &amp;&amp; Mathf.Abs (TargetPos.y - FirstPlayerPos.y) &lt; lError.y) {
+            //カメラ操作
+            MoveCamera mc = Camera.main.gameObject.GetComponent&lt;MoveCamera&gt; ();
+            if(mc != null){
+                mc.SetState (MoveCamera.CameraState.GoToTarget);
+            }
+        }
+
+        //シフト完了時
+        if (Mathf.Abs (PlayerPos.x - FirstTargetPos.x) &lt; Error.x &amp;&amp; Mathf.Abs (TargetPos.y - FirstPlayerPos.y) &lt; Error.y) {
+            //position最後の微調整
+            gameObject.transform.position = FirstTargetPos;
+            objShiftTarget.transform.position = FirstPlayerPos;
+
+            //simulatedをtrueに
+            gameObject.GetComponent&lt;Rigidbody2D&gt; ().simulated = true;
+            objShiftTarget.GetComponent&lt;Rigidbody2D&gt; ().simulated = true;
+
+            //SetActiveでやってみる(Updateが呼ばれなくなるのでだめ)
+            //gameObject.SetActive(false);
+            //objShiftTarget.SetActive (false);
+
+            //時を進める
+            Time.timeScale = 1;
+
+            //先行入力によるFire
+            if (TypeAheadCount &gt; 0) {
+                TypeAheadFire ();
+            }
+
+            //先行入力終了
+            duringTypeAhead = false;
+
+            //フラグ回収
+            isShifting = false;
+
+            //移動対象のオブジェクトのOnShiftEndを呼ぶ
+            objShiftTarget.GetComponent&lt;StageObject&gt;().OnShiftEnd();
+        }
+    }
+
+    void SetRendererEnabled(GameObject obj, bool enabled){
+        if (obj == gameObject) {
+            foreach (GameObject objBody in objBodys) {
+                objBody.GetComponent&lt;Renderer&gt; ().enabled = enabled;
+            }
+        }else{
+            Renderer[] objRenderers = obj.GetComponentsInChildren&lt;Renderer&gt; ();
+            foreach (Renderer objRenderer in objRenderers) {
+                objRenderer.enabled = enabled;
+            }
+        }
+    }
+
+    public override void Die(){
+        //SceneManager.LoadScene (SceneManager.GetActiveScene().name);
+        //SE
+        SEPlayer.PlaySE("gameover");
+        PlayerPrefs.SetInt ("DieCount", PlayerPrefs.GetInt ("DieCount", 0) + 1);
+        Debug.Log(PlayerPrefs.GetInt("DieCount"));
+        gameObject.SetActive(false);
+        Instantiate(preDieEffect, gameObject.transform.position, Quaternion.identity, transform.parent);
+    }
+
+    public GameObject preShiftBullet;
+
+    /// &lt;summary&gt;
+    /// Exists the UI.
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;c&gt;true&lt;/c&gt;, if UI was existed, &lt;c&gt;false&lt;/c&gt; otherwise.&lt;/returns&gt;
+    /// &lt;param name="pos"&gt;スクリーン座標を渡してください。また、UIのアンカーは左下にしてください&lt;/param&gt;
+    bool existUI(Vector3 pos){
+        bool exist = false;
+        GameObject[] objUIs = GameObject.FindGameObjectsWithTag ("UI");
+        GameObject objUICanvas = GameObject.FindGameObjectWithTag ("UICanvas");
+        if (objUICanvas == null)
+            return exist;
+        Vector2 UIscale = objUICanvas.GetComponent&lt;RectTransform&gt; ().localScale;
+        foreach (GameObject objUI in objUIs) {
+            RectTransform rectUI = objUI.GetComponent&lt;RectTransform&gt; ();
+            Vector3 UIpos = objUI.transform.position;
+            Vector3 dsize = rectUI.sizeDelta;
+            Vector3 lbUIpos = UIpos - dsize;
+            Vector3 ruUIpos = UIpos + dsize;
+            //UI座標からスクリーン座標に変換
+            Vector3 screenUIpos = RectTransformUtility.WorldToScreenPoint(Camera.main, UIpos);
+            Vector3 screenlbUIpos = screenUIpos - dsize*UIscale.x*40;
+            Vector3 screenruUIpos = screenUIpos + dsize*UIscale.y*40;
+            if (screenlbUIpos.x &lt; pos.x &amp;&amp; pos.x &lt; screenruUIpos.x &amp;&amp; screenlbUIpos.y &lt; pos.y &amp;&amp; pos.y &lt; screenruUIpos.y) {
+                exist = true;
+            }
+
+            Debug.Log ("lb " + screenlbUIpos);
+            Debug.Log ("ru " + screenruUIpos);
+            Debug.Log ("m " + pos);
+        }
+        return exist;
+    }
+
+    public void Fire(){
+        if (!canFire)
+            return;
+
+        if(ExistBullet())
+            return;
+
+        Vector3 pos = Input.mousePosition;
+        pos.z = 10;
+        Vector3 wpos = Camera.main.ScreenToWorldPoint (pos);
+        Vector3 velocity = (wpos - transform.position).normalized;
+
+        //先行入力
+        if (duringTypeAhead) {
+            TypeAheadTapPos = wpos;
+            if (TypeAheadCount &lt; 1) {
+                TypeAheadCount++;
+            }
+        }
+
+        //シフト中は打たない
+        if(isShifting) return;
+
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objBullet;
+        objBullet = Instantiate (preShiftBullet, transform.TransformPoint (0, 0, 0), Quaternion.identity, objItems.transform);
+
+        //弾に力を与える
+        objBullet.GetComponent&lt;ShiftBullet&gt; ().Fire(velocity);
+
+        //タイマーリセット
+        TimeFromFire = 0;
+
+        //SE
+        SEPlayer.PlaySE("bullet");
+    }
+
+    private Coroutine reloadCoroutine;
+    void TypeAheadFire(){
+        Vector3 pos = TypeAheadTapPos;
+        Vector3 velocity = (pos - transform.position).normalized;
+
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objBullet;
+        objBullet = Instantiate (preShiftBullet, transform.TransformPoint (0, 0, 0), Quaternion.identity, objItems.transform);
+
+        //弾に力を与える
+        objBullet.GetComponent&lt;ShiftBullet&gt; ().Fire(velocity);
+
+        //タイマーリセット
+        TimeFromFire = 0;
+
+        //SE
+        SEPlayer.PlaySE("bullet");
+
+
+        //先行入力数を減らす
+        TypeAheadCount--;
+    }
+
+    public override void TakeDamage (int damage)
+    {
+        if (isShifting) {
+        } else {
+            HP -= damage;
+            if (isDead ()) {
+                Die ();
+                GC.GetComponent&lt;Main&gt; ().Reset (0.5f);
+            }
+        }
+    }
+
+    //何もしなくなる
+    public void Sleep(){
+        isShifting = true;
+    }
+
+    float startTime = 0f; //シフト開始から先行入力開始までの時間
+    float endTime = 0.3f;   //シフト開始から先行入力終了までの時間
+    IEnumerator TypeAheadCoroutine(){
+        yield return new WaitForSeconds (startTime);
+        duringTypeAhead = true;
+        yield return new WaitForSeconds (endTime - startTime);
+        duringTypeAhead = false;
+    }
+
+
+    //弾がステージ内に存在するか
+    private bool ExistBullet()
+    {
+        bool existbullet = false;
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objShiftBullet = SOManager.FindStageObject(objItems, SOType.ShiftBullet);
+        if (objShiftBullet == null)
+        {
+            existbullet = false;
+        }
+        else
+        {
+            existbullet = true;
+        }
+
+        return existbullet;
+    }
+}
+
+

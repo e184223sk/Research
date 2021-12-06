@@ -1,0 +1,36 @@
+
+static void Step4(Vector2[] ps, BezierControls cs, float[] lambdas, double[] ts, double[] A, bool isLoop)
+{
+    var n = ps.Length;
+
+    //係数行列Aを構成（端の部分はStep0で初期化済）
+    {
+        for (int i = isLoop ? 0 : 1; i &lt; (isLoop ? n : (n-1)); i++)
+        {
+            var ofs = (i+1) * 3;
+            var next = (i + 1) % n;
+            var prev = (i - 1 + n) % n;
+
+            //ランクが下がってしまう場合微調整
+            if (ts[i] == 1 &amp;&amp; ts[next] == 0 || !isLoop &amp;&amp; i == n - 2 &amp;&amp; ts[i] == 1)
+                ts[i] = 0.99999f;
+            if (!isLoop &amp;&amp; i == 1 &amp;&amp; ts[i] == 0)
+                ts[i] = 0.00001f;
+
+
+            var tmp = (1 - ts[i]) * (1 - ts[i]);
+            A[ofs] = (1 - lambdas[prev]) * tmp;
+            A[ofs + 1] = lambdas[prev] * tmp + (2 - (1 + lambdas[i]) * ts[i]) * ts[i];
+            A[ofs + 2] = lambdas[i] * ts[i] * ts[i];
+        }
+    }
+
+    //入出力ベクトルを拡張
+    var extendedPs = new ExtendedPlayerControls(ps,cs);
+    var extendedCs = new ExtendedBezierControls(cs);
+
+    //連立方程式を解く
+    SolveTridiagonalEquation(A, extendedCs, extendedPs);
+}
+
+

@@ -1,0 +1,67 @@
+
+using System;
+using System.Threading.Tasks;
+using Tweetinvi;
+
+namespace TwitterStreamApiConsole
+{
+    class Program
+    {
+        private static readonly int maxCount = 5;
+        private static int counter;
+
+        static void Main(string[] args)
+        {
+            counter = 0;
+
+            // Start Twitter Stream reading with Filtered Stream API
+            StartFilteredStream().Wait();
+
+            Console.ReadLine();
+        }
+
+        /// &lt;summary&gt;
+        /// Twitter Filtered Stream API
+        /// Nuget Package : Tweetinvi
+        /// https://linvi.github.io/tweetinvi/dist/intro/basic-concepts.html#twitterclient
+        /// &lt;/summary&gt;
+        private static async Task StartFilteredStream()
+        {
+            Console.WriteLine($"***** Stream started. {DateTime.UtcNow}");
+
+            // User client &amp; stream
+            var client = new TwitterClient("&lt;your API Key&gt;", "&lt;your API Secret&gt;", 
+                                             "&lt;your Access Token&gt;", "&lt;your Access Token Secret&gt;");
+            var stream = client.Streams.CreateFilteredStream();
+
+            // Add filters
+            stream.AddTrack("コロナ");
+            stream.AddTrack("大変");
+
+            // Read stream
+            stream.MatchingTweetReceived += (sender, args) =&gt;
+            {
+                var lang = args.Tweet.Language;
+                // Specify Japanese &amp; Remove bot tweets
+                if (lang == Tweetinvi.Models.Language.Japanese &amp;&amp; args.Tweet.Source.Contains("&gt;Twitter "))
+                {
+                    Console.WriteLine("----------------------------------------------------------------------");
+                    Console.WriteLine($"** CreatedAt : {args.Tweet.CreatedAt}");
+                    Console.WriteLine($"** CreatedBy : {args.Tweet.CreatedBy}");
+                    Console.WriteLine($"** Source    : {args.Tweet.Source}");
+                    Console.WriteLine($"** Text      : {args.Tweet.Text}");
+                }
+                ++counter;
+                if (counter &gt;= maxCount)
+                {
+                    stream.Stop();
+                }
+            };
+            await stream.StartMatchingAllConditionsAsync();
+
+            Console.WriteLine();
+            Console.WriteLine($"***** Stream stopped. {DateTime.UtcNow} (counter : {counter})");
+        }
+    }
+}
+

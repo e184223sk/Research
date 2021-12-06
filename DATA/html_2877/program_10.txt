@@ -1,0 +1,56 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using ExtractExcelDataInterface;
+
+namespace ExtractExcelData
+{
+    public class ExtractDelayBinding : IExtractExcelData
+    {
+        public Dictionary&lt;string, string&gt; ExtractExcelData(string ExcelFileName)
+        {
+            Dictionary&lt;string, string&gt; dic = new Dictionary&lt;string, string&gt;();
+
+            object xlApp = Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application"));
+            object xlBooks = xlApp.GetType().InvokeMember("Workbooks", System.Reflection.BindingFlags.GetProperty, null, xlApp, null);
+            object xlBook = xlBooks.GetType().InvokeMember("Open", System.Reflection.BindingFlags.InvokeMethod, null, xlBooks, object[] { ExcelFileName, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing,Type.Missing, Type.Missing, Type.Missing,Type.Missing, Type.Missing, Type.Missing });
+
+            // シートを選択
+            object sheet = xlBook.GetType().InvokeMember("Sheets", System.Reflection.BindingFlags.GetProperty, null, xlBook, new object[] { "メンバー一覧" });
+
+            // セルの領域を選択
+            object TableRange = sheet.GetType().InvokeMember("Range", System.Reflection.BindingFlags.GetProperty, null, sheet, new object[] { "A1", "B15" });
+
+            // 選択した領域の値をメモリー上に格納
+            // （１セルずつ見ていくよりも早い）
+            object[,] values = TableRange.GetType().InvokeMember("Value", System.Reflection.BindingFlags.GetProperty, null, TableRange, null) as object[,];
+
+            // 配列アクセスができるので、それぞれをDictionaryに追加
+            // [WARNING] 配列の開始インデックスは１から
+            for (int i = 1; i &lt;= values.GetLength(0); i++)
+            {
+                dic.Add((string)values[i, 1], (string)values[i, 2]);
+            }
+
+            // 使用したCOMオブジェクトを解放
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(TableRange);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(sheet);
+
+            // Excelのクローズ
+            xlBook.GetType().InvokeMember("Close", System.Reflection.BindingFlags.InvokeMethod, null, xlBook, null);
+            xlApp.GetType().InvokeMember("Quit", System.Reflection.BindingFlags.InvokeMethod, null, xlApp, null);
+
+            // 使用したCOMオブジェクトを解放その２
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlBook);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlBooks);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlApp);
+
+            return dic;
+        }
+    }
+}
+

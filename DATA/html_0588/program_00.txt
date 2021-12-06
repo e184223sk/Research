@@ -1,0 +1,222 @@
+/*
+MIT License
+
+Copyright (c) 2018 ANURAG DEVANAPALLY
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+#if UNITY_EDITOR
+using System.Collections.Generic;
+using System.Reflection;
+using UnityEditor;
+using UnityEditorInternal;
+using UnityEngine;
+
+// SEE: https://github.com/andeart/UnityLabs.ReorderableListEditor
+namespace Andeart.ReorderableListEditor
+{
+    /// &lt;summary&gt;
+    /// Custom editor to allow re-orderable lists/arrays in Unity Inspector automatically.
+    /// This custom editor overrides Unity's default SerializedProperty drawing for arrays and lists.
+    /// This is inspired by Valentin Simonov's blog article here:
+    /// http://va.lent.in/unity-make-your-lists-functional-with-reorderablelist/ , along with additional tweaks/functionality.
+    /// &lt;/summary&gt;
+    /// &lt;inheritdoc /&gt;
+    [CustomEditor(typeof(Object), true)]
+    [CanEditMultipleObjects]
+    public class ReorderableListEditor : Editor
+    {
+        private Dictionary&lt;string, ReorderableListProperty&gt; _reorderableListDict;
+
+        protected virtual void OnEnable()
+        {
+            _reorderableListDict = new Dictionary&lt;string, ReorderableListProperty&gt;();
+        }
+
+        protected virtual void OnDestroy()
+        {
+            _reorderableListDict.Clear();
+            _reorderableListDict = null;
+        }
+
+        public override void OnInspectorGUI()
+        {
+            var propertyValueColor = GUI.color;
+            serializedObject.Update();
+            var property = serializedObject.GetIterator();
+
+            if (property.NextVisible(true))
+            {
+                do
+                {
+                    GUI.color = propertyValueColor;
+                    DrawProperty(property);
+                } while (property.NextVisible(false));
+            }
+
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        private void DrawProperty(SerializedProperty property)
+        {
+            var isPropertyMonoBehaviourId = property.name.Equals("m_Script")
+                                            &amp;&amp; property.type.Equals("PPtr&lt;MonoScript&gt;")
+                                            &amp;&amp; (property.propertyType == SerializedPropertyType.ObjectReference)
+                                            &amp;&amp; property.propertyPath.Equals("m_Script");
+
+            if (isPropertyMonoBehaviourId)
+            {
+                EditorGUI.BeginDisabledGroup(true);
+                EditorGUILayout.PropertyField(property);
+                EditorGUI.EndDisabledGroup();
+
+                return;
+            }
+
+            if (property.isArray &amp;&amp; property.propertyType != SerializedPropertyType.String)
+            {
+                this.DrawListProperty(property);
+            }
+            else
+            {
+                EditorGUILayout.PropertyField(property, property.isExpanded);
+            }
+        }
+
+        private void DrawListProperty(SerializedProperty property)
+        {
+            var reorderableListProperty = this.GetReorderableList(property);
+
+            if (reorderableListProperty.property.isExpanded == false)
+            {
+                reorderableListProperty.DoListHeader();
+            }
+            else
+            {
+                reorderableListProperty.DoLayoutList();
+            }
+
+            EditorGUILayout.GetControlRect(true, -2f);
+        }
+
+        private ReorderableListProperty GetReorderableList(SerializedProperty property)
+        {
+            if (_reorderableListDict.TryGetValue(property.name, out var reorderableListProperty))
+            {
+                reorderableListProperty.property = property;
+                return reorderableListProperty;
+            }
+
+            reorderableListProperty = new ReorderableListProperty(property);
+            _reorderableListDict[property.name] = reorderableListProperty;
+
+            return reorderableListProperty;
+        }
+
+        private class ReorderableListProperty
+        {
+            private const float HeaderLeftMargin = 10f;
+            private const float ElementTopMargin = 2f;
+            private const float ElementLeftMargin = 9f;
+            private const float ElementVerticalMargin = 4f;
+            private static readonly FieldInfo ReorderableListDefaultsField = typeof(ReorderableList).GetField("s_Defaults", BindingFlags.Static | BindingFlags.NonPublic);
+            private static readonly MethodInfo DoListHeaderMethod = typeof(ReorderableList).GetMethod("DoListHeader", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod);
+
+            private ReorderableList _list;
+            private SerializedProperty _property;
+
+            public SerializedProperty property
+            {
+                get =&gt; _property;
+                set
+                {
+                    _property = value;
+                    _list.serializedProperty = _property;
+                }
+            }
+
+            public ReorderableListProperty(SerializedProperty property)
+            {
+                _property = property;
+
+                _list = new ReorderableList(_property.serializedObject, _property, true, true, true, true);
+                _list.drawHeaderCallback += this.OnDrawHeader;
+                _list.drawElementCallback += this.OnDrawElement;
+                _list.elementHeightCallback += this.OnElementHeight;
+                _list.onCanRemoveCallback += this.OnCanRemove;
+            }
+
+            ~ReorderableListProperty()
+            {
+                _property = null;
+                _list = null;
+            }
+
+            private void OnDrawHeader(Rect rect)
+            {
+                _property.isExpanded = EditorGUI.Foldout(
+                    new Rect(rect.x + HeaderLeftMargin, rect.y, rect.width, rect.height),
+                    _property.isExpanded,
+                    _property.displayName,
+                    true,
+                    EditorStyles.foldout
+                );
+            }
+
+            private void OnDrawElement(Rect rect, int index, bool active, bool focused)
+            {
+                rect.y += ElementTopMargin;
+                rect.height = EditorGUIUtility.singleLineHeight;
+
+                var propertyChild = _property.GetArrayElementAtIndex(index);
+
+                if (propertyChild.propertyType == SerializedPropertyType.Generic)
+                {
+                    rect.x += ElementLeftMargin;
+                    rect.width -= ElementLeftMargin;
+
+                    EditorGUI.LabelField(rect, propertyChild.displayName);
+                }
+
+                EditorGUI.PropertyField(rect, propertyChild, GUIContent.none, true);
+                _list.elementHeight = rect.height + ElementVerticalMargin;
+            }
+
+            private float OnElementHeight(int index)
+            {
+                return Mathf.Max(
+                    EditorGUIUtility.singleLineHeight,
+                    EditorGUI.GetPropertyHeight(_property.GetArrayElementAtIndex(index), GUIContent.none, true)
+                ) + ElementVerticalMargin;
+            }
+
+            private bool OnCanRemove(ReorderableList list)
+            {
+                return 0 &lt; _list.count;
+            }
+
+            public void DoListHeader()
+            {
+                if (ReorderableListDefaultsField.GetValue(null) == null)
+                {
+                    ReorderableListDefaultsField.SetValue(null, new ReorderableList.Defaults());
+                }
+
+                var rect = GUILayoutUtility.GetRect(0.0f, _list.headerHeight, GUILayout.ExpandWidth(true));
+                DoListHeaderMethod.Invoke(_list, new object[] {rect});
+            }
+
+            public void DoLayoutList()
+            {
+                _list.DoLayoutList();
+            }
+        }
+    }
+}
+#endif
+

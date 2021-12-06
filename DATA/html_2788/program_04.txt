@@ -1,0 +1,93 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Oracle.ManagedDataAccess.Client;
+
+namespace OracleSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            string cnnStr = "user id=system;password=oracle;data source=" +
+                             "(DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)" +
+                             "(HOST=192.168.99.102)(PORT=1521))(CONNECT_DATA=" +
+                             "(SERVICE_NAME=orcl)))";
+            using (var conn = new OracleConnection(cnnStr))
+            {
+                conn.Open();
+                using (var cmd = new OracleCommand("truncate table test_tbl", conn))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+                using (var cmd = new OracleCommand("INSERT INTO test_tbl (user_name, age) VALUES (:userName, :age)", conn))
+                {
+                    cmd.Parameters.Add( new OracleParameter("userName", "明日のジョー"));
+                    cmd.Parameters.Add( new OracleParameter("age", 17));
+                    cmd.ExecuteNonQuery();
+
+                }
+                using (var cmd = new OracleCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（ロールバック）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    // Perform database operations
+                    using (var cmd = new OracleCommand("INSERT INTO test_tbl (user_name, age) VALUES (:userName, :age)", conn))
+                    {
+                        cmd.Parameters.Add(new OracleParameter("userName", "丹下さくら"));
+                        cmd.Parameters.Add(new OracleParameter("age", 43));
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Rollback();
+                }
+                using (var cmd = new OracleCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（コミット）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    // Perform database operations
+                    using (var cmd = new OracleCommand("INSERT INTO test_tbl (user_name, age) VALUES (:userName, :age)", conn))
+                    {
+                        cmd.Parameters.Add(new OracleParameter("userName", "丹下さくら"));
+                        cmd.Parameters.Add(new OracleParameter("age", 43));
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Commit();
+                }
+                using (var cmd = new OracleCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                conn.Close();
+            }
+            Console.ReadLine();
+        }
+    }
+}
+
+

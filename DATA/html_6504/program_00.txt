@@ -1,0 +1,918 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+
+
+/// &lt;summary&gt;
+/// 
+/// &lt;/summary&gt;
+namespace VPNClient
+{
+    /// &lt;summary&gt;
+    /// 
+    /// &lt;/summary&gt;
+    class VPNAPI
+    {
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        public static int CURRENT_VPN_CONN  = 0;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        public enum RASCredMask
+        {
+            RASCM_UserName = 0x1,
+            RASCM_password = 0x2,
+            RASCM_Domain = 0x4,
+            RASCM_DefaultCreds = 0x8,
+            RASCM_PreSharedKey = 0x10,
+            RASCM_ServerPreSharedKey = 0x20,
+            RASCM_DDMPreSharedKey = 0x40
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        public enum RasEntryOptions
+        {
+            RASEO_UseCountrAndAreaCodes = 0x00000001,
+            RASEO_SpecificIpAddr = 0x00000002,
+            RASEO_SpecificNameServers = 0x00000004,
+            RASEO_IpHeaderCompression = 0x00000008,
+            RASEO_RemoteDefaultGateway = 0x00000010,
+            RASEO_DisableLcpExtensions = 0x00000020,
+            RASEO_TerminalBeforeDial = 0x00000040,
+            RASEO_TerminalAfterDial = 0x00000080,
+            RASEO_ModemLights = 0x00000100,
+            RASEO_SwCompression = 0x00000200,
+            RASEO_RequireEncrptedPw = 0x00000400,
+            RASEO_RequireMsEncrptedPw = 0x00000800,
+            RASEO_RequireDataEncrption = 0x00001000,
+            RASEO_NetworkLogon = 0x00002000,
+            RASEO_UseLogonCredentials = 0x00004000,
+            RASEO_PromoteAlternates = 0x00008000,
+            RASEO_SecureLocalFiles = 0x00010000,
+            RASEO_RequireEAP = 0x00020000,
+            RASEO_RequirePAP = 0x00040000,
+            RASEO_RequireSPAP = 0x00080000,
+            RASEO_Custom = 0x00100000,
+            RASEO_PreviewPhoneNumber = 0x00200000,
+            RASEO_SharedPhoneNumbers = 0x00800000,
+            RASEO_PreviewUserPw = 0x01000000,
+            RASEO_PreviewDomain = 0x02000000,
+            RASEO_ShowDialingProgress = 0x04000000,
+            RASEO_RequireCHAP = 0x08000000,
+            RASEO_RequireMsCHAP = 0x10000000,
+            RASEO_RequireMsCHAP2 = 0x20000000,
+            RASEO_RequireW95MSCHAP = 0x40000000
+
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        public enum RasEntryOptions2
+        {
+            RASEO2_SecureFileAndPrint = 0x1,
+            RASEO2_SecureClientForMSNet = 0x2,
+            RASEO2_DontNegotiateMultilink = 0x4,
+            RASEO2_DontUseRasCredentials = 0x8,
+            RASEO2_UsePreSharedKey = 0x10,
+            RASEO2_Internet = 0x20,
+            RASEO2_DisableNbtOverIP = 0x40,
+            RASEO2_UseGlobalDeviceSettings = 0x80,
+            RASEO2_ReconnectIfDropped = 0x100,
+            RASEO2_SharePhoneNumbers = 0x200,
+            //winver &gt; 0x600
+            RASEO2_SecureRoutingCompartment = 0x400,
+            RASEO2_UseTypicalSettings = 0x800,
+            RASEO2_IPv6SpecificNameServer = 0x1000,
+            RASEO2_IPv6RemoteDefaultGateway = 0x2000,
+            RASEO2_RegisterIpWithDNS = 0x4000,
+            RASEO2_UseDNSSuffixForRegistration = 0x8000,
+            RASEO2_IPv4ExplicitMetric = 0x10000,
+            RASEO2_IPv6ExplicitMetric = 0x20000,
+            RASEO2_DisableIKENameEkuCheck = 0x40000,
+            //winver &gt; 0x601
+            RASEO2_DisableClassBasedStaticRoute = 0x00080000,
+            RASEO2_SpecificIPv6Addr = 0x00100000,
+            RASEO2_DisableMobility = 0x00200000,
+            RASEO2_RequireMachineCertificates = 0x00400000,
+            //winver &gt; 0x602
+            RASEO2_UsePreSharedKeyForIkev2Initiator = 0x00800000,
+            RASEO2_UsePreSharedKeyForIkev2Responder = 0x01000000,
+            RASEO2_CacheCredentials = 0x02000000,
+            //winver &gt; 0x603
+            RASEO2_AutoTriggerCapable = 0x04000000,
+            RASEO2_IsThirdPartyProfile = 0x08000000,
+            RASEO2_AuthTypeIsOtp = 0x10000000,
+            //winver &gt; 0x604
+            RASEO2_IsAlwaysOn = 0x20000000,
+            RASEO2_IsPrivateNetwork = 0x40000000
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        public enum RASNP
+        {
+            RASNP_NetBEUI = 0x1,
+            RASNP_Ipx = 0x2,
+            RASNP_Ip = 0x4,
+            RASNP_Ipv6 = 0x8
+        }
+
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long ET_None = 0;               //   No   encryption
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long ET_Require = 1;            //   Require   Encryption
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long ET_RequireMax = 2;         //   Require   max   encryption
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long ET_Optional = 3;           //   Do   encryption   if   possible.   None   Ok.
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long VS_Default = 0;            //   default   (PPTP   for   now)
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long VS_PptpOnly = 1;           //   Only   PPTP   is   attempted.
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long VS_PptpFirst = 2;          //   PPTP   is   tried   first.
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long VS_L2tpOnly = 3;           //  Only   L2TP   is   attempted.
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long VS_L2tpFirst = 4;          //   L2TP   is   tried   first.
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long RASET_Phone = 1;           //   Phone   lines:   modem,   ISDN,   X.25,   etc
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long RASET_Vpn = 2;             //   Virtual   private   network
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long RASET_Direct = 3;          //   Direct   connect:   serial,   parallel
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long RASET_Internet = 4;        //   BaseCamp   internet
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const long RASET_Broadband = 5;       //   Broadband
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int MAX_PATH = 260;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxAreaCode = 10;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxPhoneNumber = 128;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxDeviceType = 16;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxDeviceName = 128;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxPadType = 32;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxX25Address = 200;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxFacilities = 200;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxUserData = 200;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxDnsSuffix = 256;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxEntryName = 256;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int RAS_MaxCallbackNumber = RAS_MaxPhoneNumber;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int UNLEN = 256;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int PWLEN = 256;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private const int DNLEN = 16;
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct GUID
+        {
+            uint data1;
+            UInt16 data2;
+            UInt16 data3;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
+            byte[] data4;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct RASIPADDR
+        {
+            byte a;
+            byte b;
+            byte c;
+            byte d;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct RASIPV6ADDR
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            byte[] a;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct RASENTRY
+        {
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwSize;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwfOptions;
+
+            //
+            // Location/phone number.
+            //
+            public uint dwCountryID;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwCountryCode;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxAreaCode + 1))]
+            public string szAreaCode;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxPhoneNumber + 1))]
+            public string szLocalPhoneNumber;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwAlternateOffset;
+
+            //
+            // PPP/Ip
+            //
+            public RASIPADDR ipaddr;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPADDR ipaddrDns;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPADDR ipaddrDnsAlt;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPADDR ipaddrWins;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPADDR ipaddrWinsAlt;
+
+            //
+            // Framing
+            //
+            public uint dwFrameSize;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwfNetProtocols;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwFramingProtocol;
+
+            //
+            // Scripting
+            //
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)MAX_PATH)]
+            public string szScript;
+
+            //
+            // AutoDial
+            //
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)MAX_PATH)]
+            public string szAutodialDll;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)MAX_PATH)]
+            public string szAutodialFunc;
+
+            //
+            // Device
+            //
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxDeviceType + 1))]
+            public string szDeviceType;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxDeviceName + 1))]
+            public string szDeviceName;
+
+            //
+            // X.25
+            //
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxPadType + 1))]
+            public string szX25PadType;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxX25Address + 1))]
+            public string szX25Address;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxFacilities + 1))]
+            public string szX25Facilities;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxUserData + 1))]
+            public string szX25UserData;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwChannels;
+
+            //
+            // Reserved
+            //
+            public uint dwReserved1;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwReserved2;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwSubEntries;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwDialMode;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwDialExtraPercent;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwDialExtraSampleSeconds;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwHangUpExtraPercent;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwHangUpExtraSampleSeconds;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwIdleDisconnectSeconds;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwType;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwEncryptionType;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwCustomAuthKey;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public GUID guid;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)MAX_PATH)] //259
+            public string szCustomDialDll;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwVpnStrategy;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwfOptions2;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwfOptions3;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)RAS_MaxDnsSuffix)] //255
+            public string szDnsSuffix;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwTcpWindowSize;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)MAX_PATH)]   //259
+            public string szPrerequisitePbk;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)(RAS_MaxEntryName + 1))] //RAS_MaxEntryName=256
+            public string szPrerequisiteEntry;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwRedialCount;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwRedialPause;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPV6ADDR ipv6addrDns;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPV6ADDR ipv6addrDnsAlt;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwIPv4InterfaceMetric;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwIPv6InterfaceMetric;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public RASIPV6ADDR ipv6addr;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwIPv6PrefixLength;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public uint dwNetworkOutageTime;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, Pack = 4, CharSet = CharSet.Auto)]
+        public struct RASDIALPARAMS
+        {
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public int dwSize;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = RAS_MaxEntryName + 1)]
+            public string szEntryName;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = RAS_MaxPhoneNumber + 1)]
+            public string szPhoneNumber;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = RAS_MaxCallbackNumber + 1)]
+            public string szCallbackNumber;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = UNLEN + 1)]
+            public string szUserName;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = PWLEN + 1)]
+            public string szPassword;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = DNLEN + 1)]
+            public string szDomain;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public int dwSubEntry;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public int dwCallbackId;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct RASCREDENTIALS
+        {
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public int dwSize;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            public int dwMask;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)UNLEN + 1)]
+            public string szUserName;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)PWLEN + 1)]
+            public string szPassword;
+
+            /// &lt;summary&gt;
+            /// 
+            /// &lt;/summary&gt;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = (int)DNLEN + 1)]
+            public string szDomain;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="unMsg"&gt;&lt;/param&gt;
+        /// &lt;param name="rasconnstate"&gt;&lt;/param&gt;
+        /// &lt;param name="dwError"&gt;&lt;/param&gt;
+        public delegate void Callback(uint unMsg, int rasconnstate, int dwError);
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="lpRasDialExtensions"&gt;&lt;/param&gt;
+        /// &lt;param name="lpszPhonebook"&gt;&lt;/param&gt;
+        /// &lt;param name="lprasdialparams"&gt;&lt;/param&gt;
+        /// &lt;param name="dwNotifierType"&gt;&lt;/param&gt;
+        /// &lt;param name="lpvNotifier"&gt;&lt;/param&gt;
+        /// &lt;param name="lphRasConn"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        [DllImport("rasapi32.dll ", CharSet = CharSet.Auto)]
+        public static extern int RasDial(IntPtr lpRasDialExtensions, string lpszPhonebook, ref RASDIALPARAMS lprasdialparams, int dwNotifierType, Callback lpvNotifier, ref int lphRasConn);
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="hrasconn"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        [DllImport("rasapi32.dll", CharSet = CharSet.Auto)]
+        public extern static int RasHangUp(int hrasconn); // handle to the RAS connection to hang up );
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="lpszPhonebook"&gt;&lt;/param&gt;
+        /// &lt;param name="lpszEntry"&gt;&lt;/param&gt;
+        /// &lt;param name="lpRasEntry"&gt;&lt;/param&gt;
+        /// &lt;param name="dwEntryInfoSize"&gt;&lt;/param&gt;
+        /// &lt;param name="lpbDeviceInfo"&gt;&lt;/param&gt;
+        /// &lt;param name="dwDeviceInfoSize"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        [DllImport("rasapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern int RasSetEntryProperties(string lpszPhonebook, string lpszEntry, ref RASENTRY lpRasEntry, uint dwEntryInfoSize, IntPtr lpbDeviceInfo, int dwDeviceInfoSize);
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="lpszPhonebook"&gt;&lt;/param&gt;
+        /// &lt;param name="lpszEntry"&gt;&lt;/param&gt;
+        /// &lt;param name="lpCredentials"&gt;&lt;/param&gt;
+        /// &lt;param name="fClearCredentials"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        [DllImport("rasapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern int RasSetCredentials(string lpszPhonebook, string lpszEntry, ref RASCREDENTIALS lpCredentials, int fClearCredentials);
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="serverIP"&gt;&lt;/param&gt;
+        /// &lt;param name="entryName"&gt;&lt;/param&gt;
+        /// &lt;param name="user"&gt;&lt;/param&gt;
+        /// &lt;param name="pw"&gt;&lt;/param&gt;
+        /// &lt;param name="PreSharedKey"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static bool rasConnectVPN(string serverIP, string entryName, string user, string pw, string PreSharedKey)
+        {
+            bool result = false;
+            try
+            {
+                RASENTRY rasEntry = new RASENTRY();
+                RASDIALPARAMS RasDialParams = new RASDIALPARAMS();
+                RASCREDENTIALS Rascredentials = new RASCREDENTIALS();
+                //  uint dwSize = (uint)Marshal.SizeOf(rasEntry);
+                uint dwSize = (uint)Marshal.SizeOf(typeof(RASENTRY));
+
+                // System.Runtime.InteropServices.Marshal.SizeOf(typeof(RasDialParams));
+                //byte[] lpb = new byte[436];
+                //int lpbSize = lpb.Length;
+                int ret = -1;
+                rasEntry.dwSize = dwSize;
+                rasEntry.dwCountryCode = 0;
+                rasEntry.dwCountryID = 0;
+                rasEntry.dwDialExtraPercent = 75;
+                rasEntry.dwDialExtraSampleSeconds = 120;
+                rasEntry.dwDialMode = 0;
+                rasEntry.dwEncryptionType = (uint)ET_Optional;
+                rasEntry.dwfNetProtocols = (uint)(RASNP.RASNP_Ip | RASNP.RASNP_Ipv6);
+                rasEntry.dwfOptions = (uint)(RasEntryOptions.RASEO_RemoteDefaultGateway
+                | RasEntryOptions.RASEO_SecureLocalFiles
+                | RasEntryOptions.RASEO_RequireSPAP
+                | RasEntryOptions.RASEO_PreviewUserPw
+                | RasEntryOptions.RASEO_PreviewDomain
+                //| RasEntryOptions.RASEO_RequireCHAP 
+                //| RasEntryOptions.RASEO_RequireMsCHAP 
+                | RasEntryOptions.RASEO_RequireMsCHAP2
+                | RasEntryOptions.RASEO_ShowDialingProgress
+                );
+                //rasEntry.dwfOptions2 = 367;
+                rasEntry.dwFramingProtocol = 1;
+                rasEntry.dwHangUpExtraPercent = 10;
+                rasEntry.dwHangUpExtraSampleSeconds = 120;
+                rasEntry.dwRedialCount = 3;
+                rasEntry.dwRedialPause = 60;
+                rasEntry.dwType = (uint)RASET_Vpn;
+                rasEntry.dwVpnStrategy = (uint)VS_L2tpOnly;
+                rasEntry.szDeviceName = "WAN Miniport (L2TP)";
+                rasEntry.szDeviceType = "Vpn";
+                rasEntry.szLocalPhoneNumber = serverIP;
+
+                rasEntry.dwfOptions2 = (uint)(RasEntryOptions2.RASEO2_SecureFileAndPrint
+                        | RasEntryOptions2.RASEO2_SecureClientForMSNet
+                        | RasEntryOptions2.RASEO2_DontNegotiateMultilink
+                        //| RasEntryOptions2.RASEO2_DontUseRasCredentials
+                        | RasEntryOptions2.RASEO2_Internet
+                        | RasEntryOptions2.RASEO2_ReconnectIfDropped
+                        | RasEntryOptions2.RASEO2_CacheCredentials
+                        );
+
+                if (PreSharedKey != string.Empty)
+                {
+                    rasEntry.dwfOptions2 += (uint)RasEntryOptions2.RASEO2_UsePreSharedKey;
+                }
+
+                ret = RasSetEntryProperties(null, entryName, ref rasEntry, rasEntry.dwSize, IntPtr.Zero, 0);
+                if (ret != 0)
+                {
+                    throw new Exception("FailedToRasSetEntryProperties");
+                }
+
+                if (!string.IsNullOrEmpty(PreSharedKey))
+                {
+                    Rascredentials.dwSize = Marshal.SizeOf(Rascredentials);
+                    Rascredentials.dwMask = (int)RASCredMask.RASCM_PreSharedKey;
+                    Rascredentials.szPassword = PreSharedKey;
+                    ret = RasSetCredentials(null, entryName, ref Rascredentials, 0);
+                    if (ret &gt;= 1)
+                    {
+                        throw new Exception("FailedToRasSetCredentials");
+                    }
+                }
+
+                RasDialParams.dwSize = Marshal.SizeOf(RasDialParams);
+                RasDialParams.szEntryName = entryName;
+                RasDialParams.szUserName = user;
+                RasDialParams.szPassword = pw;
+                int nn = 0;
+                ret = RasDial(IntPtr.Zero, null, ref RasDialParams, -1, null, ref nn);
+
+                if (ret &gt;= 1)
+                {
+                    if (nn &gt; 0)
+                        RasHangUp(nn);
+
+                    throw new Exception("FailedToRasDial");
+                }
+
+                CURRENT_VPN_CONN = nn;
+
+                result = true;
+            }
+            catch (Exception ex)
+            {
+                result = false;
+            }
+            finally
+            {
+
+            }
+
+            return result;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="entryName"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static bool rasDisConnectVPN(string entryName)
+        {
+            bool result = false;
+            if (string.IsNullOrEmpty(entryName))
+            {
+                return result;
+            }
+
+            try
+            {
+                if (CURRENT_VPN_CONN &gt; 0)
+                {
+                    RasHangUp(CURRENT_VPN_CONN );
+                }
+                else
+                {
+                    //System.Diagnostics.Process.Start("rasdial.exe", entryName + " /d");
+                    Process process = new Process();
+                    process.StartInfo.FileName = "rasdial.exe ";
+                    process.StartInfo.Verb = entryName + " /d runas";
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.CreateNoWindow = true;//not show cmd window
+                    process.Start();
+                }
+
+                result = true;
+            }
+            catch (Exception ex)
+            {
+                result = false;
+            }
+            finally
+            {
+
+            }
+
+            return result;
+        }
+    }
+}
+
+

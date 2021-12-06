@@ -1,0 +1,110 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using MicroBatchFramework;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Mono.Cecil;
+using post.ConstDynamicMethod;
+
+namespace post
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            await new HostBuilder().RunBatchEngineAsync&lt;ConstantExpressionInterpreter&gt;(args);
+        }
+    }
+
+    class ConstantExpressionInterpreter : BatchBase
+    {
+        private readonly ILogger&lt;BatchEngine&gt; logger;
+        public ConstantExpressionInterpreter(ILogger&lt;BatchEngine&gt; logger) =&gt; this.logger = logger;
+
+        [Command("call", "Call specific method")]
+        public int ExecuteMethod
+        (
+            [Option(0, "Type Name")]string typeName,
+            [Option(1, "Method Name")]string methodName,
+            [Option(2, "Directory that includes dll")]string directory
+        )
+        {
+            var directories = InterpretDirectory(directory);
+
+            var builder = Build(directories);
+            var type = builder.Type2dArray.SelectMany(x =&gt; x).FirstOrDefault(x =&gt; x.Item2.FullName == typeName).Item1;
+
+            if (type is null)
+            {
+                Console.WriteLine(typeName + " not found.");
+                return 1;
+            }
+            Console.WriteLine(type.GetMethod(methodName)?.Invoke(null, null)?.ToString());
+            return 0;
+        }
+
+        private static string[] InterpretDirectory(string directory) =&gt; directory.StartsWith('@') ? File.ReadAllLines(directory.Substring(1)) : new[] { directory };
+
+        [Command("replace", "Edit the DLLs")]
+        public int ReplaceConstantExpression
+        (
+            [Option(0)] string directory,
+            [Option("include")] string? referenceOnlyDirectory = default,
+            [Option("o", "output directory")] string? output = default
+        )
+        {
+            var directories = InterpretDirectory(directory);
+
+            string[]? referenceOnlyDirectories = default;
+            if (!(referenceOnlyDirectory is null))
+            {
+                referenceOnlyDirectories = InterpretDirectory(referenceOnlyDirectory);
+            }
+
+            var builder = Build(referenceOnlyDirectories is null ? directories : directories.Concat(referenceOnlyDirectories).ToArray(), !(string.IsNullOrEmpty(output)));
+
+            var replacer = new ConstExprReplacer(builder.ModuleArray, builder.Type2dArray);
+
+            for (var moduleIndex = 0; moduleIndex &lt; directories.Length; moduleIndex++)
+            {
+                replacer.ProcessModule(moduleIndex);
+                var module = builder.ModuleArray[moduleIndex].Item2;
+                if (output is null)
+                {
+                    module.Write();
+                }
+                else
+                {
+                    module.Write(Path.Combine(output, Path.GetFileName(module.FileName)));
+                }
+            }
+
+            return 0;
+        }
+
+        private static ConstExprBuilder Build(string[] directories, bool isReadWrite = false)
+        {
+            var moduleList = new List&lt;ModuleDefinition&gt;(directories.Length * 2);
+            var readerParameters = new ReaderParameters()
+            {
+                AssemblyResolver = new DefaultAssemblyResolver(),
+                ReadWrite = isReadWrite,
+            };
+            foreach (var directory in directories)
+            {
+                foreach (var file in Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories))
+                {
+                    var assemblyDefinition = AssemblyDefinition.ReadAssembly(file, readerParameters);
+                    moduleList.AddRange(assemblyDefinition.Modules);
+                }
+            }
+            var builder = new ConstExprBuilder(moduleList.ToArray());
+            return builder;
+        }
+    }
+}
+

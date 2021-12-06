@@ -1,0 +1,301 @@
+
+using System.Windows;
+using System.Windows.Controls;
+
+namespace osero_wpf
+{
+    /// &lt;summary&gt;
+    /// Interaction logic for MainWindow.xaml
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        private bool IsBlackTurn = true;
+        private int[,] BoardInfo = new int[8, 8];
+        public MainWindow()
+        {
+            InitializeComponent();
+            Init();
+        }
+        /// &lt;summary&gt;
+        /// 初期化
+        /// &lt;/summary&gt;
+        private void Init()
+        {
+            for (var i = 0; i &lt; 8; i++)
+            {
+                for (var j = 0; j &lt; 8; j++)
+                {
+                    BoardInfo[i, j] = 0;
+                }
+            }
+
+            SetBoardInfo(4, 4, 1);
+            SetBoardInfo(4, 5, -1);
+            SetBoardInfo(5, 4, -1);
+            SetBoardInfo(5, 5, 1);
+            ReflectBoardInfoToXaml();
+        }
+
+        /// &lt;summary&gt;
+        /// オセロの諸々の処理実行
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void Button_Click(object sender, RoutedEventArgs e)
+        {
+            var button = sender as Button;
+            var stackPanel = button.Parent as StackPanel;
+
+            int Col = int.Parse(button.Tag.ToString());
+            int Row = int.Parse(stackPanel.Tag.ToString());
+
+            if(BoardInfo[Row - 1, Col - 1] != 0)
+            {
+                MessageBox.Show("そこにはすでに置かれています。");
+                return;
+            }
+
+            var IsTurnChange = CheckValidBoardInfo(Row, Col);
+            if (!IsTurnChange)
+            {
+                MessageBox.Show("そこには置けません。");
+                return;
+            }
+
+            SetBoardInfo(Row, Col, ConvertTurnToIntInfo(IsBlackTurn));
+            ReflectBoardInfoToXaml();
+            IsBlackTurn = !IsBlackTurn;
+        }
+
+        private bool CheckValidBoardInfo(int Row, int Col)
+        {
+            int Info = ConvertTurnToIntInfo(IsBlackTurn);
+            int RowDirection;
+            int ColDirection;
+            var IsTurnChange = false;
+            //方向
+            for(var i = 1; i &lt;= 8; i++)
+            {
+                //石の数
+                for(var j = 7; j &gt;= 2; j--)
+                {
+                    (RowDirection, ColDirection) = GetDirection(i);
+                    //ひとつでも変更があればturnChangeFlgをtrueにする。
+                    if (!CheckRangeValid(Row + j * RowDirection, Col + j * ColDirection) ||
+                        !CheckReverse(Row, Col, Info, i, j)) continue;
+                    else IsTurnChange = true;
+                    //チェックが通ったものの場合j - 1個ひっくり返す。
+                    for(var k = 1; k &lt; j; k++)
+                    {
+                        SetBoardInfo(Row + k * RowDirection, Col + k * ColDirection, Info);
+                    }
+                }
+            }
+
+            return IsTurnChange;
+        }
+        /// &lt;summary&gt;
+        /// 配列の範囲をチェック
+        /// &lt;/summary&gt;
+        /// &lt;param name="RowLimit"&gt;Row&lt;/param&gt;
+        /// &lt;param name="ColLimit"&gt;Col&lt;/param&gt;
+        /// &lt;returns&gt;配列の範囲を越えなければtrue超えればfalse&lt;/returns&gt;
+        private bool CheckRangeValid(int RowLimit = 0, int ColLimit = 0)
+        {
+            RowLimit--;
+            ColLimit--;
+            return RowLimit &lt; 8 &amp;&amp; ColLimit &lt; 8 &amp;&amp; 0 &lt;= RowLimit &amp;&amp; 0 &lt;= ColLimit;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="Row"&gt;&lt;/param&gt;
+        /// &lt;param name="Col"&gt;&lt;/param&gt;
+        /// &lt;param name="Info"&gt;現在のtrunをintで表したもの&lt;/param&gt;
+        /// &lt;param name="Direction"&gt;チェックする方向&lt;/param&gt;
+        /// &lt;param name="Length"&gt;チェックの範囲&lt;/param&gt;
+        /// &lt;returns&gt;ひっくり返すことができればtrueそうでなければfalse&lt;/returns&gt;
+        private bool CheckReverse(int Row, int Col, int Info, int Direction, int Length)
+        {
+            int RowDirection;
+            int ColDirection;
+            (RowDirection, ColDirection) = GetDirection(Direction);
+
+            var IsOneReverse = false;
+            for(var i = 1; i &lt; Length; i++)
+            {
+                IsOneReverse = BoardInfo[Row + RowDirection * i - 1, Col + ColDirection * i - 1] == -Info;
+                if (!IsOneReverse) return false;
+            }
+
+            return BoardInfo[Row + RowDirection * Length - 1, Col + ColDirection * Length - 1] == Info;
+        }
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="Direction"&gt;方向&lt;/param&gt;
+        /// &lt;returns&gt;方向をRow,Colの二つに分ける&lt;/returns&gt;
+        private (int, int) GetDirection(int Direction)
+        {
+            int RowDirection;
+            int ColDirection;
+            if (Direction == 1)
+            {
+                RowDirection = 0;
+                ColDirection = 1;
+            }
+            else if (Direction == 2)
+            {
+                RowDirection = 1;
+                ColDirection = 1;
+            }
+            else if (Direction == 3)
+            {
+                RowDirection = 1;
+                ColDirection = 0;
+            }
+            else if (Direction == 4)
+            {
+                RowDirection = 1;
+                ColDirection = -1;
+            }
+            else if (Direction == 5)
+            {
+                RowDirection = 0;
+                ColDirection = -1;
+            }
+            else if (Direction == 6)
+            {
+                RowDirection = -1;
+                ColDirection = -1;
+            }
+            else if (Direction == 7)
+            {
+                RowDirection = -1;
+                ColDirection = 0;
+            }
+            else
+            {
+                RowDirection = -1;
+                ColDirection = 1;
+            }
+
+            return (RowDirection, ColDirection);
+        }
+        /// &lt;summary&gt;
+        /// boolのターン情報をintに変換(intにしといたほうがいいかも？)
+        /// &lt;/summary&gt;
+        /// &lt;param name="Turn"&gt;現在のターン黒か白か&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private int ConvertTurnToIntInfo(bool Turn)
+        {
+            if (Turn)
+            {
+                return 1;
+            }
+            else
+            {
+                return -1;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 黒か白かをintの情報からstringに変換
+        /// &lt;/summary&gt;
+        /// &lt;param name="info"&gt;1ならば黒,-1ならば白,0ならばなし&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private string ConvertIntInfoToStringInfo(int info)
+        {
+            if(info == 1)
+            {
+                return "●";
+            }
+            else if(info == -1)
+            {
+                return "〇";
+            }
+            else
+            {
+                return "";
+            }
+        }
+        /// &lt;summary&gt;
+        /// BoardInfoにsetするとき-1のずれが発生するのでメソッド化する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="row"&gt;縦&lt;/param&gt;
+        /// &lt;param name="col"&gt;横&lt;/param&gt;
+        /// &lt;param name="info"&gt;黒か白かを1か-1かで表したもの&lt;/param&gt;
+        private void SetBoardInfo(int row, int col, int info)
+        {
+            BoardInfo[row - 1, col - 1] = info;
+        }
+        /// &lt;summary&gt;
+        /// ボードの情報をxamlに反映
+        /// &lt;/summary&gt;
+        private void ReflectBoardInfoToXaml()
+        {
+            int row = 0;
+            int col = 0;
+            int BlackCount = 0;
+            int WhiteCount = 0;
+            int NoCount = 0;
+            foreach (var Children in Board.Children)
+            {
+                var Panel = Children as StackPanel;
+                foreach (var But in Panel.Children)
+                {
+                    var Butt = But as Button;
+                    Butt.Content = ConvertIntInfoToStringInfo(BoardInfo[row, col]);
+                    if (BoardInfo[row, col] == 1) BlackCount++;
+                    else if (BoardInfo[row, col] == -1) WhiteCount++;
+                    else NoCount++;
+                    col++;
+                }
+                col = 0;
+                row++;
+            }
+            if (BlackCount == 0)
+            {
+                MessageBox.Show("白の勝ち");
+                Init();
+            }
+            else if(WhiteCount == 0)
+            {
+                MessageBox.Show("黒の勝ち");
+                Init();
+            }
+            else if(NoCount == 0)
+            {
+                if(WhiteCount &lt; BlackCount)
+                {
+                    MessageBox.Show("黒の勝ち");
+                    Init();
+                }
+                else if(WhiteCount &gt; BlackCount)
+                {
+                    MessageBox.Show("白の勝ち");
+                    Init();
+                }
+                else
+                {
+                    MessageBox.Show("引き分け");
+                    Init();
+                }
+            }
+            ViewBlackCount.Text = BlackCount.ToString();
+            ViewWhiteCount.Text = WhiteCount.ToString();
+            TurnText.Text = IsBlackTurn ? "黒" : "白";
+        }
+        /// &lt;summary&gt;
+        /// 置けない時にパスするためのボタン。
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void Button_Click_1(object sender, RoutedEventArgs e)
+        {
+            IsBlackTurn = !IsBlackTurn;
+        }
+    }
+}
+

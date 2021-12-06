@@ -1,0 +1,89 @@
+
+// WindowProcessHandleのメソッド
+// this.Handleはウィンドウハンドル
+
+public BitmapSource GetClientBitmap(CaptureMethod method, bool onlyTargetWindow)
+{
+    if (GetClientRect(this.Handle, out var rect) == 0) return null;
+
+    var width = rect.right - rect.left;
+    var height = rect.bottom - rect.top;
+
+    if (width &lt;= 0 || height &lt;= 0) return null;
+
+    var pt = new POINT { x = rect.left, y = rect.top };
+
+    switch (method)
+    {
+        case CaptureMethod.Drawing:
+            return CaptureDrawing(pt, width, height);
+        case CaptureMethod.Win32:
+            return CaptureWin32(pt, width, height, onlyTargetWindow);
+        default:
+            throw new ArgumentException();
+    }
+}
+
+private BitmapSource CaptureDrawing(POINT pt, int width, int height)
+{
+    ClientToScreen(Handle, out pt);
+
+    using (var img = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppRgb))
+    using (var g = Graphics.FromImage(img))
+    {
+        g.CopyFromScreen(pt.x, pt.y, 0, 0, img.Size);
+
+        var image = Imaging.CreateBitmapSourceFromHBitmap(img.GetHbitmap(), IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+        image.Freeze();
+        return image;
+    }
+}
+
+private BitmapSource CaptureWin32(POINT pt, int width, int height, bool onlyTargetWindow)
+{
+    IntPtr screenDC;
+    IntPtr compatibleDC;
+    IntPtr bmp;
+    IntPtr oldBmp;
+
+    var hdc = this.Handle;
+
+    if (!onlyTargetWindow)
+    {
+        ClientToScreen(Handle, out pt);
+        hdc = IntPtr.Zero;
+    }
+
+    screenDC = GetDC(hdc);
+    try
+    {
+        compatibleDC = CreateCompatibleDC(screenDC);
+        try
+        {
+            bmp = CreateCompatibleBitmap(screenDC, width, height);
+            try
+            {
+                oldBmp = SelectObject(compatibleDC, bmp);
+                BitBlt(compatibleDC, 0, 0, width, height, screenDC, pt.x, pt.y, SRCPAINT);
+                SelectObject(compatibleDC, oldBmp);
+
+                var image = Imaging.CreateBitmapSourceFromHBitmap(bmp, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                image.Freeze();
+                return image;
+            }
+            finally
+            {
+                DeleteObject(bmp);
+            }
+        }
+        finally
+        {
+            DeleteDC(compatibleDC);
+        }
+    }
+    finally
+    {
+        ReleaseDC(hdc, screenDC);
+    }
+}
+

@@ -1,0 +1,81 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using YamlDotNet.Serialization;
+
+namespace precure_initial
+{
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// rubicure/config のパス
+        /// &lt;/summary&gt;
+        static readonly string rubicureConfigPath = "../../rubicure/config/";
+
+        /// &lt;summary&gt;
+        /// シリーズデータ.
+        /// &lt;/summary&gt;
+        class Series
+        {
+            /// &lt;summary&gt;
+            /// シリーズ名.
+            /// &lt;/summary&gt;
+            public string Name { get; set; }
+
+            /// &lt;summary&gt;
+            /// シリーズに出演するプリキュアのキー.
+            /// &lt;/summary&gt;
+            public List&lt;string&gt; PrecureKeys { get; set; }
+        }
+
+        static void Main(string[] args)
+        {
+            Dictionary&lt;string, Series&gt; seriesList = LoadSeries();
+            foreach (var series in seriesList)
+            {
+                Console.WriteLine($"シリーズキー：{series.Key}");
+                Console.WriteLine($"シリーズ名：{series.Value.Name}");
+                Console.WriteLine($"プリキュアキー：[{string.Join(", ", series.Value.PrecureKeys)}]");
+                Console.WriteLine();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// rubicure/config/series.yml からシリーズキーとシリーズデータを取得する.
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;シリーズキーをキーとする&lt;code&gt;Dictionary&lt;/code&gt;.&lt;/returns&gt;
+        static Dictionary&lt;string, Series&gt; LoadSeries()
+        {
+            var filePath = rubicureConfigPath + "series.yml";
+            var input = new StreamReader(filePath, Encoding.UTF8);
+            var deserializer = new Deserializer();
+
+            Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt; series_tmp = deserializer.Deserialize&lt;Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt;&gt;(input);
+            var series_directory = new Dictionary&lt;string, Series&gt;();
+            foreach (var series in series_tmp)
+            {
+                if (series.Value.Count == 1)
+                {
+                    // エイリアスは飛ばす
+                    continue;
+                }
+                series.Value.TryGetValue("title", out object seriesName);
+                series.Value.TryGetValue("girls", out object precureList);
+                List&lt;string&gt; precures = new List&lt;string&gt;();
+                foreach (var precure in (List&lt;object&gt;)precureList)
+                {
+                    precures.Add((string)precure);
+                }
+                series_directory.Add(series.Key, new Series {
+                    Name = (string)seriesName,
+                    PrecureKeys = precures
+                });
+            }
+            return series_directory;
+        }
+    }
+}
+
+

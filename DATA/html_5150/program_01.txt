@@ -1,0 +1,65 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace TowerOfHanoi
+{
+    public class HanoiState {
+        public int Number { get; set; }
+        public Stack&lt;int&gt; StickA { get; set; }
+        public Stack&lt;int&gt; StickB { get; set; }
+        public Stack&lt;int&gt; StickC { get; set; }
+    }
+
+    public class HanoiSolver : IObservable&lt;HanoiState&gt;  {
+
+        private HanoiState _state = new HanoiState {
+            StickA = new Stack&lt;int&gt;(),
+            StickB = new Stack&lt;int&gt;(),
+            StickC = new Stack&lt;int&gt;()
+        };
+
+        public HanoiSolver(int n) {
+            _state.Number = n;
+            while (n &gt; 0)
+                _state.StickA.Push(n--);
+        }
+
+        public void Solve() {
+            OnChanged();
+            Move(_state.StickA, _state.StickB, _state.StickC, _state.Number);
+
+            foreach (var observer in _observers) {
+                observer.OnCompleted();
+            }
+        }
+
+        // 当プログラムの核となるメソッド        
+        private void Move(Stack&lt;int&gt; s1, Stack&lt;int&gt; s2, Stack&lt;int&gt; s3, int n) {
+            if (n &gt; 0) {
+                Move(s1, s3, s2, n - 1);
+                int x = s1.Pop();
+                s3.Push(x);
+                OnChanged();
+                Move(s2, s1, s3, n - 1);
+            }
+        }
+
+        // 状況変化を知らせるために購読者に通知する
+        private void OnChanged() {
+            foreach (var observer in _observers) {
+                observer.OnNext(_state);
+            }
+        }
+
+        private List&lt;IObserver&lt;HanoiState&gt;&gt; _observers = new List&lt;IObserver&lt;HanoiState&gt;&gt;();
+
+        // 購読する場合に呼び出すメソッド
+        public IDisposable Subscribe(IObserver&lt;HanoiState&gt; observer) {
+            _observers.Add(observer);
+            return observer as IDisposable;
+        }
+    }
+}
+

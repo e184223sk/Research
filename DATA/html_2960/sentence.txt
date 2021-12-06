@@ -1,0 +1,20 @@
+More than 1 year has passed since last update.Inventorは、動的にAddInをLoadできますが、Unloadはできません。
+アドインマネージャーにロード/ロード解除のチェックボックスがありますが、これはあくまで無効にするだけ(Deactive()を呼ぶだけ)で、本当の意味でDLLをunloadしてはいません。ですので、ロード/ロード解除を繰り返しても、staticな変数は再初期化されないわけです。この記事では、動的にLoad/Unloadする(完全にunloadする)方法について書きますが、そもそも何故そんなことをしたいかと言うと、debugの効率を上げたいからです。
+普通にVisualStudioからdebugすると、codeの修正の度にInventorを再起動させなくてはならず、実行場面の再現(Inventorの起動 → 特定のdocumentを開く → 特定の条件を再現)に手間がかかり、これが馬鹿にならないコストなのです。標準の手段で読み込まれたAddInはunloadできないので、「AddInを読み込むAddIn」を作ります。名付けて、「AddIn Hot Loader」です。AddIn Hot LoaderはLoadしっぱなしで、それが別のAddInを動的にLoad/Unloadするわけです。DLLを動的に読み込むことは、さほど技術を必要としません。しかし、解放しようとすると、一気に難易度が上がります。
+その細かい内容については、本記事の執筆範囲から外れますので、下記記事を参考にしてください。アセンブリを動的にロードし、そして完全にアンロードするざっくり説明すると、AddIn Hot Loader自体が実行されているのとは別の環境(AppDomain)を作って、そこにdebug対象のDLLをloadします。unloadするときは、作成したAppDomainごと破棄します。しかし、残念ながら1つ問題が発生しました。
+AddIn Hot Loaderが実行されているCurrentDomainのBaseDirectoryが、Inventorのbin(具体的には、C:\Program Files\Autodesk\Inventor ####\Bin)を指しているのです。
+別のAppDomainを作って、そこにProxyの実体を作るわけですが、そのためにAppDomainはProxyの定義が含まれるAssembly、つまりAddInHotLoader.dllをLoadしないといけません。
+(念のために言いますが、ここでいうProxyやAssemblyは、Inventorのそれとは関係ありません。C#の話しです。)
+Proxyを作成するためにAddInHotLoader.dllを探すわけですが、Inventorのbinには存在しないので、失敗します。結論として、私はAddInHotLoader.dllをInventorのbinにcopyしました。余りスマートな解決方法でなく、別の方法を取りたい気持ちは強いです。しかし、かなりの時間を費やしても、元々の場所のAddInHotLoader.dllを使うには、私の技術力は及びませんでした。
+失敗に終わりましたが、試した内容としては・・・もう少し突っ込んでやれば解決できたのかも知れませんが、またもや力尽きたのです・・・なお、AddInとしてのAddInHotLoaderも、普段のAddInが配置されているpathからではなく、Inventorのbinにある方が読み込ます。
+ですので、通常のAddIn配置場所にはファイルAutodesk.AddInHotLoader.Inventor.addinさえ在ればよく、DLLは不要です。
+こんな感じで、Loadを押すと、以下を実行します。Unloadを押すと、以下を実行します。では、VisualStudioでdebugするのは、どうすれば良いでしょうか。これで、debugが出来ます。途中でcodeを修正する場合は、です。これだけでは足りませんが、核となる部分のcodeを以下に記します。「アセンブリを動的にロードし、そして完全にアンロードする」には、以下の記述があります。また、"プロキシークラス" とやり取りするパラメータは、
+MarshalByRefObject で継承
+[Serializable] 属性の付与
+のどちらかを満たさなくてはなりません。今回のProxy.Activate()では、Inventor.ApplicationAddInSite型のobjectを渡しており、この制限の対象に入ると思うのですが、そのままで実害は無いようです。
+Inventor.ApplicationAddInSiteがclassやstructではなく、interfaceなので実体がないので、動作しているのかなと想像しています。AddInの異常終了などで、必ずしもDeactivate()が実行されるとは限りません。Activate()時のInventorに対する操作(RibbonTabの追加など)をDeactivate()で修復するのはAddInの振る舞いとして当然として、debug時にはActivate()が連続して呼ばれた場合でも破綻しないような対策をしておいた方が良いかもしれません。(あくまで、debug用として)
+当然ですが、その確認flagをstaticな変数に持たせても意味がありません。
+RibbonTabの例で言えば、既にTabが追加されていればActivate()実行済みと判断して、Inventorに対するresource操作をskipすれば良いと思います。AddIn Hot Loaderに自分でcodeを記載しない限りは、ファイルAutodesk.[アドイン名].Inventor.addinの内容は参照されません。
+ですので、例えば現在のInventorがSupportedSoftwareVersionGreaterThanの範囲に入ってなくても、AddInを読み込もうとします。Inventor起動時に、debug対象のAddInが読み込まれてしまうと、意味がありません。以下のような対策をします。もちろん、debug終了時は通常の設定に戻すことをお忘れなく。Inventorのbinにcopyするのを、お忘れなく!!Autodesk Inventor API Hacking (概略)
+
+

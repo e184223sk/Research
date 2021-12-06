@@ -1,0 +1,125 @@
+using System;
+using System.IO;
+using UnityEngine;
+using UnityEngine.UI;
+using VCI;
+using VCIGLTF;
+
+public class ExportVCI : MonoBehaviour
+{
+    [SerializeField]
+    GameObject Template;
+
+    [SerializeField]
+    InputField Title;
+
+    [SerializeField]
+    InputField Version;
+
+    [SerializeField]
+    InputField Author;
+
+    [SerializeField]
+    InputField Contact;
+
+    [SerializeField]
+    InputField Reference;
+
+    [SerializeField]
+    Text ExportVCI_Text;
+
+    [SerializeField]
+    Material Mat;
+
+    public void Export()
+    {
+        var title = Title.text;
+        var version = Version.text;
+        var author = Author.text;
+        var contact = Contact.text;
+        var reference = Reference.text;
+
+        if (title == "" || author == "")
+        {
+            ExportVCI_Text.text = "必須の項目を入力してください";
+            return;
+        }
+        else
+        {
+            ExportVCI_Text.text = "Export VCI";
+        }
+
+        var temp = Instantiate(Template);
+        temp.name = title;
+
+        var vci = temp.GetComponent&lt;VCIObject&gt;();
+        vci.Meta.title = title;
+        vci.Meta.version = version;
+        vci.Meta.author = author;
+        vci.Meta.contactInformation = contact;
+        vci.Meta.reference = reference;
+
+        var jpg = Directory.GetFiles(Application.dataPath + "/../IMAGE", "*.jpg");
+        var png = Directory.GetFiles(Application.dataPath + "/../IMAGE", "*.png");
+        var img = new string[jpg.Length + png.Length];
+        jpg.CopyTo(img, 0);
+        png.CopyTo(img, jpg.Length);
+        Array.Sort(img);
+
+        for (int i = 0; i &lt; img.Length; i++)
+        {
+            var tex = ReadTexture2D(img[i]);
+            float x = tex.width &gt;= tex.height ? 1 : (float)tex.width / tex.height;
+            float y = tex.width &lt;= tex.height ? 1 : (float)tex.height / tex.width;
+
+            var go = new GameObject();
+            go.name = i.ToString();
+            go.transform.parent = temp.transform;
+            go.transform.position = new Vector3(0, 1, 0);
+
+            var sub = go.AddComponent&lt;VCISubItem&gt;();
+            sub.GroupId = 1;
+
+            var rigid = go.AddComponent&lt;Rigidbody&gt;();
+            rigid.useGravity = false;
+
+            var plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            plane.transform.parent = go.transform;
+            plane.transform.position = new Vector3(0, 1, 0);
+            plane.transform.eulerAngles = new Vector3(90, 0, 0);
+            plane.transform.localScale = new Vector3(x / 10, 0.1f, y / 10);
+            plane.GetComponent&lt;Renderer&gt;().material = Mat;
+            plane.GetComponent&lt;Renderer&gt;().material.SetTexture("_MainTex", tex);
+            Destroy(plane.GetComponent&lt;MeshCollider&gt;());
+        }
+
+        var gltf = new glTF();
+        var exporter = new VCIExporter(gltf);
+        exporter.Prepare(temp);
+        exporter.Export();
+        var bytes = gltf.ToGlbBytes();
+        var path = Application.dataPath + "/../" + title + ".vci";
+        File.WriteAllBytes(path, bytes);
+
+        Destroy(exporter.Copy);
+        Destroy(temp);
+    }
+
+    Texture2D ReadTexture2D(string path)
+    {
+        byte[] read = ReadFile(path);
+        Texture2D texture = new Texture2D(1, 1);
+        texture.LoadImage(read);
+        return texture;
+    }
+
+    byte[] ReadFile(string path)
+    {
+        FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+        BinaryReader br = new BinaryReader(fs);
+        byte[] read = br.ReadBytes((int)br.BaseStream.Length);
+        br.Close();
+        return read;
+    }
+}
+

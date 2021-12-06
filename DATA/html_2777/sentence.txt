@@ -1,0 +1,22 @@
+More than 1 year has passed since last update.Gridに配置したButtonなどのコントロールを含む全てのGrid内の領域で同一のイベントハンドラーが実行されるようにしたい時どうすればいいのか分からず、結構調べたのでまとめておきます。
+間違いなどあればご指摘お願いします。Grid内どこでもクリックすると、「Grid_MouseDown」と書かれたメッセージボックスを表示させたいといったサンプル。上記のサンプルでは、Buttonがないところでクリックした場合は、「Grid_MouseDown」のメッセージボックスが表示されます。
+しかし、Buttonをクリックした時は、「Button1_Click」または「Button2_Click」のメッセージボックスしか表示されず、「Grid_MouseDown」のメッセージボックスが表示されません。
+GridにButtonBase.ClickイベントにGrid_MouseDownイベントハンドラーの登録を追加すると、Buttonをクリック時でもGridに登録したイベントハンドラーが実行されるようになります。GridのMouseDownとButtonBase.Clickのイベントハンドラーは同じGrid_MouseDownを使いますのでxaml.csのコードは変更不要です。Buttonをクリックした時は、「Button1_Click」または「Button2_Click」のメッセージボックスしか表示された後、「Grid_MouseDown」のメッセージボックスが表示されるようになりました。
+イベントはTunnelとBubbleがあります。
+PreViewMouseDownなどPreViewがTunnel、ClickやMouseDownなどはBubbleになっています。PreViewMouseDownとMouseDownイベントが実行される順番は
+1. Grid.PreViewMouseDown
+2. Button.PreViewMouseDown
+3. Button.MouseDown
+4. Grid.MouseDown
+となります。
+つまり、修正前のコードでは先に3. Button.MouseDownが実行されます。これは意図通りの挙動だといえます。
+何故、4. Grid.MouseDownが実行されないかというと、処理済のRoutedEventは実行されなくなるためです。
+そこで、修正後のコードのようにGridにButtonBase.Clickにイベントハンドラーを登録することで、添付イベントとしてButtonのクリック時にもGridで定義したイベントハンドラーが実行されるようになります。ButtonBase.Clickは本来Gridには定義されていないRotedEventなので、添付イベントとして処理する方法で実現します。
+UIElement.AddHandlerを使ってイベントハンドラーを登録することができます。
+今回はコードビハインドにイベントハンドラーを置きたくないので、イベントハンドラーをBehaiviorに移動してButtonBase.ClickのRoutedEventHandlerとして登録しましょう。UIElement.MouseUpのイベントハンドラーとして登録します。
+MouseDownのイベントハンドラーとして登録すると、Button.Clickより先にButton.MouseDownが実行されるため処理済のRoutedEvent (Button.Click) は実行されなくなるためです。マウスイベントは以下の順で実行されます。MouseDown→MouseHover→Click→MouseClick→MouseUp→MouseCaptureChanged(車輪の再発明C# マウスイベントより)そのためButton.Clickより後に来るMouseUpのイベントハンドラーとして登録し、UIElement.AddHandler メソッドの  handledEventsToo をtrueにすることで処理済のRoutedEventが実行されるようにイベントハンドラーを登録してあげます。AddHandler(RoutedEvent, Delegate, Boolean)
+指定したルーティング イベントのルーティング イベント ハンドラーを追加します。このハンドラーは、現在の要素のハンドラー コレクションに追加されます。 イベント ルート上の別の要素により既にハンドル済みとしてマークされているルーティング イベントに対し、指定したハンドラーが呼び出されるようにするには、handledEventsToo を true に指定します。http://csharphelper.com/blog/2015/03/understand-event-bubbling-and-tunneling-in-wpf-and-c/
+https://blog.okazuki.jp/entry/2014/08/22/211021
+http://codingseason.blogspot.com/2012/09/events-in-wpf.html  
+
+

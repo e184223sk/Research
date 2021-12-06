@@ -1,0 +1,140 @@
+using System;
+using System.Windows.Forms;
+using System.Net.Sockets;
+using System.Net;
+
+namespace UDP_Server
+{
+    public partial class Form1 : Form
+    {
+        int i;
+        int[] d;
+        string[] D;
+        private UdpClient udpClient = null; //受信用クライアント
+        public string rcvMsg = null;//受信メッセージ格納用
+
+        public Form1()
+        {
+            InitializeComponent();
+
+        }
+
+        //ボタンをクリックしたときの処理
+        private void button1_Click(object sender, EventArgs e)
+        {
+            //UDPの接続があるときにボタンを押した場合
+            //その処理をなかったことにする（少し違う）
+            if (udpClient != null)
+            {
+                return;
+            }
+            ((Button)sender).Enabled = false;
+
+            string IPString = "127.0.0.1";
+            IPAddress IPAdd = IPAddress.Parse(IPString); //IPアドレスを指定
+            int Port = 8080;    //ポート番号を指定
+
+            //UdpClientを作成し、指定したポート番号にバインドする
+            IPEndPoint EP = new IPEndPoint(IPAdd, Port);
+            UdpClient udp = new UdpClient(EP);
+
+            richTextBox1.BeginInvoke(
+                    new Action&lt;string&gt;(ShowReceivedString1), "受信を開始します");
+
+            //非同期的な受信を開始する
+            udp.BeginReceive(UdpServer, udp);
+            ((Button)button1).Enabled = true;
+        }
+
+        //データを受信した時の処理
+        private void UdpServer(IAsyncResult ar)
+        {
+            UdpClient udp = (UdpClient)ar.AsyncState;
+            for (;;)
+            {
+                //一度非同期受信を終了する
+                IPEndPoint remoteEP = null;
+                byte[] rcvBytes = udp.Receive(ref remoteEP);
+
+
+                //受信したデータを文字列に変換
+                string rcvMsg = System.Text.Encoding.UTF8.GetString(rcvBytes);
+
+                //"exit"を受信したら終了
+                if (rcvMsg == "exit")
+                {
+                    break;
+                }
+
+                D = rcvMsg.Split(' ');
+                for(i=0;D[i]== null; i++)
+                {
+                    d[i] = int.Parse(D[i]);
+                }
+
+
+                //受信したデータをTextBoxに表示する
+                string displayMsg = string.Format("{0}", rcvMsg);
+                richTextBox1.BeginInvoke(
+                    new Action&lt;string&gt;(ShowReceivedString1), displayMsg);
+                X_Data.BeginInvoke(
+                    new Action&lt;string&gt;(ShowReceivedString_x), D[0]);
+                Y_Data.BeginInvoke(
+                    new Action&lt;string&gt;(ShowReceivedString_y), D[1]);
+                Z_Data.BeginInvoke(
+                    new Action&lt;string&gt;(ShowReceivedString_z), D[2]);
+            }
+
+            rcvMsg = "終了しました";
+            //UdpClientを閉じる
+            udp.Close();
+
+            richTextBox1.BeginInvoke(
+                   new Action&lt;string&gt;(ShowReceivedString1), rcvMsg);
+        }
+
+        private void ShowReceivedString1(string str)
+        {
+            if (richTextBox1.Text == "")
+            {
+                richTextBox1.Text = str;
+                richTextBox1.SelectionStart = richTextBox1.Text.Length;
+                richTextBox1.Focus();
+                richTextBox1.ScrollToCaret();
+            }
+            else {
+                richTextBox1.Text = richTextBox1.Text + "\r\n" + str;
+                richTextBox1.SelectionStart = richTextBox1.Text.Length;
+                richTextBox1.Focus();
+                richTextBox1.ScrollToCaret();
+            }
+
+        }
+
+        private void ShowReceivedString_x(string str)
+        {
+            X_Data.Text = str;
+
+        }
+        private void ShowReceivedString_y(string str)
+        {
+            Y_Data.Text = str;
+
+        }
+        private void ShowReceivedString_z(string str)
+        {
+            Z_Data.Text = str;
+        }
+
+        private void Form1_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            //UdpClientを閉じる
+            if (udpClient != null)
+            {
+                udpClient.Close();
+            }
+        }
+    }
+}
+
+

@@ -1,0 +1,143 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+using UnityEditor;
+using Zenject;
+using BMIApp.CleanArchitecture;
+using BMIApp.BMI;
+
+namespace BMIApp.Tests.PlayMode {
+    public class BMISceneTest : SceneTestFixture {
+        const string sceneName = "BMI";
+
+        BMITestPresenter bmiPresenter = new BMITestPresenter();
+        HistoryListTestPresenter historyPresenter = new HistoryListTestPresenter();
+        AccountTestPresenter accountPresenter = new AccountTestPresenter();
+        UserAccountTestRepository accountRepository = new UserAccountTestRepository();
+        BMIHistoryTestRepository historyRepository = new BMIHistoryTestRepository();
+
+        SharedScriptableObject sharedData = default;
+        TemporaryHistoryDataStore historyData = default;
+
+        BMIView bmiView = default;
+        HistoryView historyView = default;
+        HistoryElmView historyElmView = default;
+        AccountView accountView = default;
+
+        void CommonInstallBindings() {
+            StaticContext.Container
+                .Bind&lt;ITest&gt;().To&lt;Test&gt;()
+                .AsTransient();
+            StaticContext.Container
+                .Bind&lt;IBMIPresenter&gt;().FromInstance(bmiPresenter)
+                .AsTransient();
+            StaticContext.Container
+                .Bind&lt;IHistoryListPresenter&gt;().FromInstance(historyPresenter)
+                .AsTransient();
+            StaticContext.Container
+                .Bind&lt;IAccountPresenter&gt;().FromInstance(accountPresenter)
+                .AsTransient();
+            StaticContext.Container
+                .Bind&lt;IUserAccountRepository&gt;().FromInstance(accountRepository)
+                .AsTransient();
+            StaticContext.Container
+                .Bind&lt;IBMIHistoryRepository&gt;().FromInstance(historyRepository)
+                .AsTransient();
+        }
+
+        void FindGameObjects() {
+            // find
+            var canvas = GameObject.Find("Canvas").transform;
+            bmiView = canvas.Find("BMIView").GetComponent&lt;BMIView&gt;();
+            historyView = canvas.Find("HistoryView").GetComponent&lt;HistoryView&gt;();
+            accountView = canvas.Find("AccountView").GetComponent&lt;AccountView&gt;();
+            // prefab
+            var prefab = AssetDatabase.
+                LoadAssetAtPath&lt;GameObject&gt;("Assets/BMIApp/Prefabs/HistoryElm.prefab");
+            var historyElm = prefab.GetComponent&lt;HistoryElmView&gt;();
+            // data
+            sharedData = ScriptableObject.CreateInstance&lt;SharedScriptableObject&gt;();
+            historyData = new TemporaryHistoryDataStore();
+            // set
+            bmiPresenter.InnerPresenter = new BMIPresenter(bmiView);
+            historyPresenter.InnerPresenter = 
+                new HistoryListPresenter(historyView, historyElm);
+            accountPresenter.InnerPresenter = new AccountPresenter(accountView);
+            accountRepository.InnerRepository = new UserAccountRepository(sharedData);
+            historyRepository.InnerRepository = new BMIHistoryRepository(historyData);
+        }
+
+        void BeginMain() {
+            GameObject.Find("SceneContext")
+                .GetComponent&lt;IMainInstaller&gt;().SceneMainObject.SetActive(true);
+        }
+
+        [UnityTest]
+        public IEnumerator BMI計算_保存_削除までの一連の操作() {
+
+            CommonInstallBindings();
+            yield return LoadScene(sceneName);
+            FindGameObjects();
+            BeginMain();
+
+            // 最初は未入力
+            Assert.IsEmpty(bmiView.NameInput.text);
+            Assert.IsEmpty(bmiView.HeightInput.text);
+            Assert.IsEmpty(bmiView.WeightInput.text);
+            Assert.IsEmpty(bmiView.AgeInput.text);
+            Assert.IsFalse(bmiView.GenderMaleToggle.isOn);
+            Assert.IsFalse(bmiView.GenderFemaleToggle.isOn);
+            Assert.That(bmiView.BMIText.text, Is.EqualTo("99(やせすぎ)"));
+            Assert.IsFalse(bmiView.SaveButton.interactable);
+            Assert.That(historyView.Content.childCount, Is.Zero);
+
+            // 名前/身長/体重を入力すると[保存]が押せるようになる
+            bmiView.NameInput.onEndEdit.Invoke("test_name");
+            Assert.IsFalse(bmiView.SaveButton.interactable);
+            bmiView.HeightInput.onEndEdit.Invoke("123");
+            Assert.IsFalse(bmiView.SaveButton.interactable);
+            bmiView.WeightInput.onEndEdit.Invoke("56");
+            Assert.IsTrue(bmiView.SaveButton.interactable);
+
+            // 計算されたBMIと評価が表示される
+            Assert.That(bmiView.BMIText.text, Is.EqualTo("37.0(肥満)"));
+
+            // [保存]を押すとリストに追加される
+            bmiView.SaveButton.onClick.Invoke();
+            yield return null;
+            Assert.That(historyView.Content.childCount, Is.EqualTo(1));
+
+            // 内容が 日時-名前-BMI
+            var elm = historyView.Content.GetChild(0)?.GetComponent&lt;HistoryElmView&gt;();
+            Assert.IsFalse(elm == null);
+            Assert.That(elm.DateText.text, 
+                Is.EqualTo(System.DateTime.Now.ToString("M/d")));
+            Assert.That(elm.NameText.text, Is.EqualTo("test_name"));
+            Assert.That(elm.BMIText.text, Is.EqualTo("37.0"));
+
+            // 後から追加された方が上にくる
+            bmiView.HeightInput.onEndEdit.Invoke("100");
+            bmiView.WeightInput.onEndEdit.Invoke("1");
+            bmiView.SaveButton.onClick.Invoke();
+            yield return null;
+            elm = historyView.Content.GetChild(0)?.GetComponent&lt;HistoryElmView&gt;();
+            Assert.IsFalse(elm == null);
+            Assert.That(elm.BMIText.text, Is.EqualTo("1.0"));
+
+            // リポジトリにも追加されている
+            Assert.That(historyData.Datas.Count, Is.EqualTo(2));
+
+            // [クリア]でデータが消える
+            historyView.ClearButton.onClick.Invoke();
+            yield return null;
+            Assert.That(historyView.Content.childCount, Is.Zero);
+            Assert.That(historyData.Datas.Count, Is.Zero);
+
+            yield return null;
+        }
+    }
+}
+

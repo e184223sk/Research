@@ -1,0 +1,716 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Data;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using IconUtility;
+
+
+[Serializable]
+public class SettingsClass
+{
+    public byte fg1Red;
+    public byte fg1Green;
+    public byte fg1Blue;
+    public byte fg2Red;
+    public byte fg2Green;
+    public byte fg2Blue;
+    public byte bg1Red;
+    public byte bg1Green;
+    public byte bg1Blue;
+    public byte bg2Red;
+    public byte bg2Green;
+    public byte bg2Blue;
+    public bool gradiation;
+    public string fontName;
+    public string textLine1;
+    public string textLine2;
+    public Decimal fontSizeLine1;
+    public Decimal fontSizeLine2;
+    public int yOffsetLine1;
+    public int yOffsetLine2;
+    public string bgFigureTypeName;
+    public int iconSize;
+}
+
+
+class IconMaker:Form
+{
+    PictureBox pct;
+    //int iconSize = 64;
+    static readonly int DEFAULT_FONT_SIZE = 14;
+    static readonly int CANVAS_SIZE = 256;
+    static readonly string ICON_CACHE_CLEAR_EXE_NAME = "ie4uinit.exe";
+    static readonly string ICON_CACHE_CLEAR_EXE_OPTION = "-show"; // windows10
+    //Windows 10では「ie4uinit.exe -show」、
+    //それ以外のバージョンでは「ie4uinit.exe -ClearIconCache」
+//    const int ZOOM = 2;
+
+    NumericUpDown nudSizeOfIcon;
+    ComboBox cmbBgFigureType;
+
+    TextBox txtLine1;
+    TextBox txtLine2;
+    NumericUpDown nudFontSizeOfLine1;
+    NumericUpDown nudFontSizeOfLine2;
+    NumericUpDown nudOffsetYLine1;
+    NumericUpDown nudOffsetYLine2;
+
+    TextBox txtFontName;
+
+    Button btnColorForeground1;
+    Button btnColorForeground2;
+    Button btnColorBackground1;
+    Button btnColorBackground2;
+    CheckBox chkUseGradation;
+
+    Bitmap bmpToBeSaved;
+    Font curFontSizeIndependent;
+    int curFontStyle;
+
+    Color colorForeground1;
+    Color colorForeground2;
+    Color colorBackground1;
+    Color colorBackground2;
+
+    Pen curPen;
+    Font curFont;
+    Brush curBrush; // RedrawPreview呼びたびに更新
+    PointF curPoint;
+    GraphicsPath curPath;
+    Graphics curG;
+
+    bool resumeRedraw;
+
+
+    IconMaker()
+    {
+        Text = "Icon Maker";
+        resumeRedraw = false;
+
+        colorForeground1 = Color.Blue;
+        colorForeground2 = Color.Black;
+        colorBackground1 = Color.Red;
+        colorBackground2 = Color.Yellow;
+        curFontSizeIndependent = new Font("メイリオ", (float)DEFAULT_FONT_SIZE);
+        curFontStyle = (int)FontStyle.Regular; // Bold , Italic , Strikeout , Underline の bitOR を設定可能
+
+
+        var menuStrip1 = new MenuStrip(); // https://dobon.net/vb/dotnet/control/menustrip.html
+
+        SuspendLayout();
+        menuStrip1.SuspendLayout();
+
+        var templateMenuItem = new ToolStripMenuItem(){ Text = "テンプレート(&amp;T)"};
+        var iconMenuItem = new ToolStripMenuItem(){ Text = "エクスポート(&amp;X)"};
+        menuStrip1.Items.Add(templateMenuItem);
+        menuStrip1.Items.Add(iconMenuItem);
+
+        templateMenuItem.DropDownItems.Add( new ToolStripMenuItem("開く(&amp;O)...", null, (s,e)=&gt;{OpenTemplateWithDialog();}, Keys.Control | Keys.O) );
+        templateMenuItem.DropDownItems.Add( new ToolStripMenuItem("保存(&amp;S)...", null, (s,e)=&gt;{SaveTemplateWithDialog();}, Keys.Control | Keys.S) );
+
+        iconMenuItem.DropDownItems.Add( new ToolStripMenuItem("アイコン(.ico)として保存(&amp;I)...", null, (s,e)=&gt;{SaveImageWithDialog("ico");}, Keys.Control | Keys.I) );
+        iconMenuItem.DropDownItems.Add( new ToolStripMenuItem("画像(.png)として保存(&amp;P)...",     null, (s,e)=&gt;{SaveImageWithDialog("png");}, Keys.Control | Keys.P) );
+
+        Controls.AddRange(new Control[]{
+            new Label(){                         Location = new Point( 10, 35),  Size = new Size( 80, 20), Text="アイコンサイズ"},
+            nudSizeOfIcon = new NumericUpDown(){ Location = new Point(100, 35),  Size = new Size( 60, 20), Maximum = 256, Value = 64, Minimum = 16, Increment = 4}
+        });
+        nudSizeOfIcon.ValueChanged += (s,e)=&gt;{
+            int iconSize = (int)nudSizeOfIcon.Value;
+            pct.Size = new Size(iconSize,iconSize);
+            RedrawPreview();
+        };
+
+
+        GroupBox grpText = new GroupBox(){
+            Location = new Point( 10, 60), Size = new Size(280,95), Text = "テキスト" 
+        };
+        Controls.Add(grpText);
+
+        grpText.Controls.AddRange(new Control[]{
+            new Label(){                              Location = new Point(140, 20), Size = new Size(60, 20), Text = "サイズ"},
+            new Label(){                              Location = new Point(210, 20), Size = new Size(65, 20), Text = "位置調整"},
+            new Label(){                              Location = new Point( 10, 40), Size = new Size(50, 20), Text = "１行目"},
+            txtLine1           = new TextBox(){       Location = new Point( 60, 40), Size = new Size(70, 20), Text = "icon"  },
+            nudFontSizeOfLine1 = new NumericUpDown(){ Location = new Point(140, 40), Size = new Size(60, 20), Maximum = 100, Value = 30, Minimum = 1, DecimalPlaces=1 },
+            nudOffsetYLine1    = new NumericUpDown(){ Location = new Point(210, 40), Size = new Size(60, 20), Maximum = 256, Value = 0,  Minimum = -256 },
+            new Label(){                              Location = new Point( 10, 65), Size = new Size(50, 20), Text = "２行目"},
+            txtLine2           = new TextBox(){       Location = new Point( 60, 65), Size = new Size(70, 20), Text = "maker" },
+            nudFontSizeOfLine2 = new NumericUpDown(){ Location = new Point(140, 65), Size = new Size(60, 20), Maximum = 100, Value = 15, Minimum = 1, DecimalPlaces=1 },
+            nudOffsetYLine2    = new NumericUpDown(){ Location = new Point(210, 65), Size = new Size(60, 20), Maximum = 256, Value = 18, Minimum = -256 }
+        });
+        txtLine1.TextChanged += (s,e)=&gt;{RedrawPreview();};
+        txtLine2.TextChanged += (s,e)=&gt;{RedrawPreview();};
+        nudFontSizeOfLine1.ValueChanged += (s,e)=&gt;{RedrawPreview();};
+        nudFontSizeOfLine2.ValueChanged += (s,e)=&gt;{RedrawPreview();};
+        nudOffsetYLine1.ValueChanged += (s,e)=&gt;{RedrawPreview();};
+        nudOffsetYLine2.ValueChanged += (s,e)=&gt;{RedrawPreview();};
+
+
+
+        GroupBox grpFont = new GroupBox(){
+            Location = new Point( 10,165), Size = new Size(280,50), Text = "フォント" 
+        };
+        Controls.Add(grpFont);
+
+        Button btnSelectFont;
+        grpFont.Controls.AddRange(new Control[]{
+            txtFontName   = new TextBox(){ Location = new Point( 10, 20), Size = new Size(170,25), Text = curFontSizeIndependent.Name, ReadOnly = true },
+            btnSelectFont = new Button(){  Location = new Point(185, 15), Size = new Size( 70,25),  Text = "変更..." }
+        });
+        btnSelectFont.Click += (s,e)=&gt;{SelectAndUpdateFontWithDialog();};
+
+
+        GroupBox grpColor = new GroupBox(){
+            Location = new Point( 10,225), Size = new Size(280,100), Text = "色" 
+        };
+        Controls.Add(grpColor);
+
+        grpColor.Controls.AddRange(new Control[]{
+            new Label(){                         Location = new Point( 10, 30), Size = new Size(40,20), Text = "文字"},
+            btnColorForeground1 = new Button(){  Location = new Point( 50, 20), Size = new Size(30,20), FlatStyle = FlatStyle.Flat},
+            btnColorForeground2 = new Button(){  Location = new Point( 70, 30), Size = new Size(30,20), FlatStyle = FlatStyle.Flat},
+            new Label(){                         Location = new Point( 10, 70), Size = new Size(40,20), Text = "背景"},
+            btnColorBackground1 = new Button(){  Location = new Point( 50, 60), Size = new Size(30,20), FlatStyle = FlatStyle.Flat},
+            btnColorBackground2 = new Button(){  Location = new Point( 70, 70), Size = new Size(30,20), FlatStyle = FlatStyle.Flat},
+            chkUseGradation     = new CheckBox(){Location = new Point(140, 40), Size = new Size(100,25), Text = "グラデーション", Checked = true}
+        });
+
+        SetFlatButtonColor(btnColorForeground1, colorForeground1);
+        SetFlatButtonColor(btnColorForeground2, colorForeground2);
+        SetFlatButtonColor(btnColorBackground1, colorBackground1);
+        SetFlatButtonColor(btnColorBackground2, colorBackground2);
+        btnColorForeground1.Click += (s,e)=&gt;{SelectAndUpdateColorWithDialog((Button)s, ref colorForeground1);};
+        btnColorForeground2.Click += (s,e)=&gt;{SelectAndUpdateColorWithDialog((Button)s, ref colorForeground2);};
+        btnColorBackground1.Click += (s,e)=&gt;{SelectAndUpdateColorWithDialog((Button)s, ref colorBackground1);};
+        btnColorBackground2.Click += (s,e)=&gt;{SelectAndUpdateColorWithDialog((Button)s, ref colorBackground2);};
+        chkUseGradation.Click += (s,e)=&gt;{
+            ReflectGradationCheckToControls();
+            RedrawPreview();
+        };
+        ReflectGradationCheckToControls();
+
+        Controls.Add(
+            pct = new PictureBox(){
+                Location = new Point(350, 20),
+                Size = new Size(CANVAS_SIZE, CANVAS_SIZE),
+                Image = new Bitmap(CANVAS_SIZE, CANVAS_SIZE),
+            }
+        );
+
+
+        Controls.Add(
+            cmbBgFigureType = new ComboBox(){ Location = new Point( 20, 350),  Size = new Size( 80, 20),   DropDownStyle = ComboBoxStyle.DropDownList }
+        );
+        cmbBgFigureType.Items.AddRange(new string[]{"なし", "六角形", "角丸", "丸", "四角"});
+        cmbBgFigureType.SelectedIndex = 1;
+        cmbBgFigureType.SelectedIndexChanged += (s,e)=&gt;{RedrawPreview();};
+
+
+        ClientSize = new Size(350+CANVAS_SIZE, 400);
+
+        Load+=(sender,e)=&gt;{RedrawPreview();};
+
+        curPen = Pens.Black;
+        curBrush = Brushes.White; // とりあえず初期化しておく
+
+        Controls.Add(menuStrip1);
+        MainMenuStrip = menuStrip1;
+        menuStrip1.ResumeLayout(false);
+        menuStrip1.PerformLayout();
+        ResumeLayout(false);
+        PerformLayout();
+    }
+
+    void SetFlatButtonColor(Button btn, Color c)
+    {
+        btn.BackColor = c;
+        btn.FlatAppearance.MouseOverBackColor = c;
+        btn.FlatAppearance.MouseDownBackColor = c;
+    }
+
+    void SelectAndUpdateFontWithDialog()
+    {
+        FontDialog fd = new FontDialog();
+
+        fd.Font = curFontSizeIndependent;
+        fd.MaxSize = DEFAULT_FONT_SIZE;
+        fd.MinSize = DEFAULT_FONT_SIZE;
+        fd.FontMustExist = true;
+        fd.AllowVerticalFonts = true;
+        //fd.ShowColor = true;
+        fd.ShowEffects = true;
+        fd.FixedPitchOnly = false;
+        fd.AllowVectorFonts = true;
+
+        //ダイアログを表示する
+        if (fd.ShowDialog() != DialogResult.Cancel) {
+            curFontSizeIndependent = fd.Font;
+            txtFontName.Text = curFontSizeIndependent.Name;
+            RedrawPreview();
+        }
+    }
+
+
+    void SelectAndUpdateColorWithDialog(Button sender, ref Color c)
+    {
+        ColorDialog cd = new ColorDialog();
+
+        cd.Color = c;
+        cd.FullOpen = true;
+        if (cd.ShowDialog() == DialogResult.OK) {
+            c = cd.Color;
+            SetFlatButtonColor(sender, c);
+            RedrawPreview();
+        }
+    }
+
+    void ReflectGradationCheckToControls()
+    {
+        bool tmp = chkUseGradation.Checked;
+        btnColorForeground2.Visible = tmp;
+        btnColorBackground2.Visible = tmp;
+    }
+
+    void moveto(float x, float y)
+    {
+        curPoint.X = x;
+        curPoint.Y = y;
+    }
+
+    void rmoveto(float rx, float ry)
+    {
+        curPoint.X += rx;
+        curPoint.Y += ry;
+    }
+
+    void lineto(float x, float y)
+    {
+        curPath.AddLine(curPoint.X, curPoint.Y, x, y);
+        curPoint.X = x;
+        curPoint.Y = y;
+    }
+
+    void rlineto(float rx, float ry)
+    {
+        curPath.AddLine(curPoint.X, curPoint.Y, curPoint.X+rx, curPoint.Y+ry);
+        curPoint.X += rx;
+        curPoint.Y += ry;
+    }
+
+    void charpath(string s)
+    {
+        var sf = new StringFormat();
+        sf.Alignment     = StringAlignment.Center;    // 横方向の中央
+        sf.LineAlignment = StringAlignment.Center;    // 縦方向の中央
+        FontFamily ff = curFont.FontFamily;
+        curPath.AddString(s, ff, curFontStyle, curFont.Size, curPoint, sf);
+    }
+
+    void newpath()
+    {
+        curPath.Reset();
+        curPath.StartFigure();
+    }
+
+    void closepath()
+    {
+        curPath.CloseFigure();
+    }
+
+    void stroke()
+    {
+        if ( curG != null ) {
+            curG.DrawPath(curPen, curPath);
+        }
+    }
+    void fill()
+    {
+        if ( curG != null ) {
+            curPath.FillMode = FillMode.Winding;
+            curG.FillPath(curBrush, curPath);
+        }
+    }
+    /*
+    void eofill()
+    {
+        if ( curG != null ) {
+            curPath.FillMode = FillMode.Alternate;
+            curG.FillPath(curBrush, curPath);
+        }
+    }
+    */
+
+    float cos(float degree)
+    {
+        return (float)Math.Cos((degree/180.0)*Math.PI);
+    }
+    float sin(float degree)
+    {
+        return (float)Math.Sin((degree/180.0)*Math.PI);
+    }
+
+
+    void RedrawPreview()
+    {
+        if(resumeRedraw){return;}
+
+        int iconSize = (int)nudSizeOfIcon.Value;
+        bmpToBeSaved = CreateTransparentBitmap(iconSize, iconSize);
+        curPath = new GraphicsPath();
+        curG = Graphics.FromImage(bmpToBeSaved);
+        curG.SmoothingMode = SmoothingMode.AntiAlias;
+
+        try {
+            if (chkUseGradation.Checked) {
+                curBrush = new LinearGradientBrush(new Point(0, 0), new Point(iconSize, iconSize), colorBackground1, colorBackground2);
+            }
+            else {
+                curBrush = new SolidBrush(colorBackground1);
+            }
+
+            DrawFigure();
+
+            if (chkUseGradation.Checked) {
+                curBrush = new LinearGradientBrush(new Point(0, 0), new Point(iconSize, iconSize), colorForeground1, colorForeground2);
+            }
+            else {
+                curBrush = new SolidBrush(colorForeground1);
+            }
+
+            curFont = new Font(curFontSizeIndependent.Name, (float)nudFontSizeOfLine1.Value);
+            newpath();
+            moveto(iconSize/2, iconSize/2 + (int)nudOffsetYLine1.Value);
+            charpath(txtLine1.Text);
+            closepath();
+            fill();
+
+            if ( txtLine2.Text != "" ) {
+                curFont = new Font(curFontSizeIndependent.Name, (float)nudFontSizeOfLine2.Value);
+                newpath();
+                moveto(iconSize/2, iconSize/2 + (int)nudOffsetYLine2.Value);
+                charpath(txtLine2.Text);
+                closepath();
+                fill();
+            }
+        }
+        finally {
+            curG.Dispose();
+            curG = null;
+        }
+
+        int zoom = 1;// 2;
+        Graphics g = Graphics.FromImage(pct.Image);
+        g.FillRectangle(Brushes.White, 0, 0, bmpToBeSaved.Width*zoom, bmpToBeSaved.Height*zoom); // pct.Image.Width, pct.Image.Height);
+        g.DrawImage(bmpToBeSaved, 0, 0, bmpToBeSaved.Width*zoom, bmpToBeSaved.Height*zoom);
+        g.Dispose();
+
+        pct.Refresh();
+    }
+
+
+    void DrawFigure()
+    {
+        int iconSize = (int)nudSizeOfIcon.Value;
+
+        string figureType = cmbBgFigureType.Text;
+
+        if ( figureType == "六角形" ) {
+            newpath();
+            for ( int deg=0 ; deg&lt;360 ; deg+=60 ) {
+                float x = iconSize/2 + (iconSize/2 - 1)*cos(deg);
+                float y = iconSize/2 + (iconSize/2 - 1)*sin(deg);
+                if ( deg == 0 ) { moveto(x,y); } else { lineto(x,y); }
+            }
+            closepath();
+            fill();
+        }
+        else if ( figureType == "丸" ) {
+            newpath();
+            curPath.AddArc(0, 0, iconSize, iconSize, 0, 360);
+            closepath();
+            fill();
+        }
+        else if ( figureType == "四角" ) {
+            newpath();
+            curPath.AddRectangle(new Rectangle(0, 0, iconSize, iconSize));
+            closepath();
+            fill();
+        }
+        else if ( figureType == "角丸" ) {
+            int cornerSize = iconSize/2;
+            newpath();
+            curPath.AddArc(0,                   0,                   cornerSize, cornerSize, 180, 90);
+            curPath.AddArc(iconSize-cornerSize, 0,                   cornerSize, cornerSize, 270, 90);
+            curPath.AddArc(iconSize-cornerSize, iconSize-cornerSize, cornerSize, cornerSize,   0, 90);
+            curPath.AddArc(0,                   iconSize-cornerSize, cornerSize, cornerSize,  90, 90);
+            closepath();
+            fill();
+        }
+    }
+
+
+    bool OpenTemplateWithDialog()
+    {
+        OpenFileDialog ofd = new OpenFileDialog();
+        ofd.FileName = "テンプレート.xml";
+        ofd.Filter = "XMLファイル(*.xml)|*.xml";
+        // ofd.Filter = "XMLファイル(*.xml)|*.xml|すべてのファイル(*.*)|*.*";
+        // ofd.FilterIndex = 1;
+        // ofd.Title = "開くファイルを選択してください";
+        ofd.RestoreDirectory = true;
+        // ofd.CheckFileExists = true;
+        // ofd.CheckPathExists = true;
+
+        if (ofd.ShowDialog() == DialogResult.OK) {
+            return LoadSettingsFromXml(ofd.FileName);
+        }
+        else {
+            return false;
+        }
+    }
+
+    bool SaveTemplateWithDialog()
+    {
+        SaveFileDialog sfd = new SaveFileDialog();
+        sfd.FileName = "新しいIconMakerテンプレート.xml";
+        // sfd.InitialDirectory = @"C:\";
+        sfd.Filter = "XMLファイル(*.xml)|*.xml";
+        sfd.Title = "保存先のファイルを選択してください";
+        sfd.RestoreDirectory = true;
+        // sfd.OverwritePrompt = true;
+        // sfd.CheckPathExists = true;
+
+        //ダイアログを表示する
+        if (sfd.ShowDialog() == DialogResult.OK) {
+            return SaveSettingsToXml(sfd.FileName);
+        }
+        else {
+            return false;
+        }
+    }
+
+    bool SaveImageWithDialog(string fmt)
+    {
+        SaveFileDialog sfd = new SaveFileDialog();
+        // sfd.InitialDirectory = @"C:\";
+        if ( fmt == "ico" ) {
+            sfd.FileName = "新しいアイコン.ico";
+            sfd.Filter = "アイコンファイル(*.ico)|*.ico";
+        }
+        else if ( fmt == "png" ) {
+            sfd.FileName = "新しい画像.png";
+            sfd.Filter = "画像ファイル(*.png)|*.png";
+        }
+        else {
+            return false;
+        }
+        sfd.Title = "保存先のファイルを選択してください";
+        sfd.RestoreDirectory = true;
+        // sfd.OverwritePrompt = true;
+        // sfd.CheckPathExists = true;
+
+        //ダイアログを表示する
+        if (sfd.ShowDialog() == DialogResult.OK) {
+            bool saveResult = false;
+            if ( fmt == "ico" ) {
+                saveResult = SaveAsIcon(sfd.FileName);
+                if ( saveResult ) {
+                    RunClearCache();
+                }
+            }
+            else if ( fmt == "png" ) {
+                saveResult = SaveAsPng(sfd.FileName);
+            }
+            return saveResult;
+        }
+        else {
+            return false;
+        }
+    }
+
+    bool SaveAsIcon(string destPath)
+    {
+        Icons icons;
+        icons = new Icons();
+        icons.AddIcon(bmpToBeSaved);
+        try {
+            icons.SaveToFile(destPath);
+            return true;
+        }
+        catch (IOException e) {
+            MessageBox.Show(e.ToString());
+        }
+        return false;
+    }
+
+    bool SaveAsPng(string destPath)
+    {
+        try {
+            bmpToBeSaved.Save(destPath, System.Drawing.Imaging.ImageFormat.Png);
+            return true;
+        }
+        catch (IOException e) {
+            MessageBox.Show(e.ToString());
+        }
+        return false;
+    }
+
+    void RunClearCache()
+    {
+        try {
+            System.Diagnostics.Process.Start(ICON_CACHE_CLEAR_EXE_NAME, ICON_CACHE_CLEAR_EXE_OPTION);
+        }
+        catch (System.ComponentModel.Win32Exception e) {
+            Console.WriteLine(e);
+        }
+    }
+
+    bool SaveSettingsToXml(string destPath)
+    {
+        var t = new SettingsClass()
+        {
+            fg1Red   = colorForeground1.R,
+            fg1Green = colorForeground1.G,
+            fg1Blue  = colorForeground1.B,
+            fg2Red   = colorForeground2.R,
+            fg2Green = colorForeground2.G,
+            fg2Blue  = colorForeground2.B,
+            bg1Red   = colorBackground1.R,
+            bg1Green = colorBackground1.G,
+            bg1Blue  = colorBackground1.B,
+            bg2Red   = colorBackground2.R,
+            bg2Green = colorBackground2.G,
+            bg2Blue  = colorBackground2.B,
+            gradiation = chkUseGradation.Checked,
+            fontName   = curFontSizeIndependent.Name,
+            fontSizeLine1 = nudFontSizeOfLine1.Value,
+            fontSizeLine2 = nudFontSizeOfLine2.Value,
+            yOffsetLine1 = (int)nudOffsetYLine1.Value,
+            yOffsetLine2 = (int)nudOffsetYLine2.Value,
+            textLine1  = txtLine1.Text,
+            textLine2  = txtLine2.Text,
+            iconSize =  (int)nudSizeOfIcon.Value,
+            bgFigureTypeName = cmbBgFigureType.Text,
+        };
+
+        var serializer = new System.Xml.Serialization.XmlSerializer(typeof(SettingsClass));
+        try {
+            var sw = new System.IO.StreamWriter(destPath, false, new System.Text.UTF8Encoding(false));
+            try {
+                serializer.Serialize(sw, t);
+            }
+            finally {
+                sw.Close();
+            }
+            return true;
+        }
+        catch( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+    }
+
+
+    bool LoadSettingsFromXml(string srcPath)
+    {
+        // https://www.atmarkit.co.jp/ait/articles/1704/19/news021.html
+
+        var xmlSerializer = new System.Xml.Serialization.XmlSerializer(typeof(SettingsClass));
+        SettingsClass t;
+        //var xmlSettings = new System.Xml.XmlReaderSettings();
+
+        try {
+            using (var streamReader = new StreamReader(srcPath, System.Text.Encoding.UTF8))
+            using (var xmlReader = System.Xml.XmlReader.Create(streamReader)) //, xmlSettings))
+            {
+                t = (SettingsClass)xmlSerializer.Deserialize(xmlReader);
+            }
+        }
+        catch (IOException e) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+        catch (InvalidOperationException e) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+
+        resumeRedraw = true;
+        try {
+            colorForeground1 = Color.FromArgb(t.fg1Red, t.fg1Green, t.fg1Blue);
+            colorForeground2 = Color.FromArgb(t.fg2Red, t.fg2Green, t.fg2Blue);
+            colorBackground1 = Color.FromArgb(t.bg1Red, t.bg1Green, t.bg1Blue);
+            colorBackground2 = Color.FromArgb(t.bg2Red, t.bg2Green, t.bg2Blue);
+            SetFlatButtonColor(btnColorForeground1, colorForeground1);
+            SetFlatButtonColor(btnColorForeground2, colorForeground2);
+            SetFlatButtonColor(btnColorBackground1, colorBackground1);
+            SetFlatButtonColor(btnColorBackground2, colorBackground2);
+
+            chkUseGradation.Checked = t.gradiation;
+            ReflectGradationCheckToControls();
+
+            txtLine1.Text = t.textLine1;
+            txtLine2.Text = t.textLine2;
+            nudFontSizeOfLine1.Value = t.fontSizeLine1;
+            nudFontSizeOfLine2.Value = t.fontSizeLine2;
+            nudOffsetYLine1.Value = t.yOffsetLine1;
+            nudOffsetYLine2.Value = t.yOffsetLine2;
+            cmbBgFigureType.Text = t.bgFigureTypeName;
+            nudSizeOfIcon.Value = t.iconSize;
+
+            curFontSizeIndependent = new Font(t.fontName, (float)DEFAULT_FONT_SIZE);
+            txtFontName.Text = curFontSizeIndependent.Name;
+        }
+        finally {
+            resumeRedraw = false;
+        }
+        RedrawPreview();
+        return true;
+    }
+
+
+    // 透過色で初期化
+    Bitmap CreateTransparentBitmap(int width, int height)
+    {
+        Bitmap bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        BitmapData bd = bmp.LockBits(new Rectangle(0,0,width,height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+        try {
+            unsafe {
+                // 書き込み
+                byte* ptr = (byte*)bd.Scan0;
+                for ( int y=0 ; y&lt;height ; y++ ) {
+                    for ( int x=0 ; x&lt;width ; x++ ) {
+                        ptr[y*bd.Stride + 4*x    ] = 0;// B
+                        ptr[y*bd.Stride + 4*x + 1] = 0;// G
+                        ptr[y*bd.Stride + 4*x + 2] = 0;// R
+                        ptr[y*bd.Stride + 4*x + 3] = 0;// alpha = 0 (透過)
+                    }
+                }
+            }
+        }
+        finally {
+            bmp.UnlockBits(bd);
+        }
+
+        return bmp;
+    }
+
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new IconMaker());
+    }
+}
+
+

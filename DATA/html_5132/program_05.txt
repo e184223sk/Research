@@ -1,0 +1,80 @@
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.Azure.EventHubs;
+using Microsoft.Azure.OperationalInsights;
+using Microsoft.Rest.Azure.Authentication;
+using Newtonsoft.Json;
+
+namespace Sample
+{
+    class Program
+    {
+        // パラメータは設定ファイルから読み込む形式にするのが望ましい。
+        // Log Analytics Query Parameter
+        static readonly string QueryString = "&lt;Log Analytics Query&gt;";
+        // Log Analytics Client Parameter
+        static readonly string WorkspaceId = "&lt;Log Analytics Workspace ID&gt;";
+        static readonly string ClientId = "&lt;Azure AD Application ID&gt;";
+        static readonly string ClientSecret = "&lt;Azure AD Application Token&gt;";
+        static readonly string TenantId = "&lt;Azure Tenant ID&gt;";
+        static readonly ActiveDirectoryServiceSettings AdSettings = new ActiveDirectoryServiceSettings
+        {
+            AuthenticationEndpoint = new Uri("https://login.microsoftonline.com"),
+            TokenAudience = new Uri("https://api.loganalytics.io/"),
+            ValidateAuthority = true
+        };
+        // Event Hubs Client Parameter
+        static readonly string EventHubConnectionString = "&lt;Event Hubs Connection String&gt;";
+        static readonly string EventHubEntityName = "&lt;Event Hubs Entity Name&gt;";
+
+        static void Main(string[] args)
+        {
+            Execute().GetAwaiter().GetResult();
+        }
+
+        static async Task Execute()
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(GetQueryResult(QueryString));
+                await Client.SendAsync(new EventData(Encoding.UTF8.GetBytes(json)));
+                await Client.CloseAsync();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+        }
+
+        static IEnumerable&lt;IDictionary&lt;string, string&gt;&gt; GetQueryResult(string query)
+        {
+            return LogAnalyticsClient.Query(query).Results;
+        }
+
+        static readonly OperationalInsightsDataClient LogAnalyticsClient = LoginLogAnalytics();
+
+        static OperationalInsightsDataClient LoginLogAnalytics()
+        {
+            var cred = ApplicationTokenProvider.LoginSilentAsync(TenantId, ClientId, ClientSecret, AdSettings).GetAwaiter().GetResult();
+            return new OperationalInsightsDataClient(cred)
+            {
+                WorkspaceId = WorkspaceId
+            };
+        }
+
+        static readonly EventHubClient Client = GetEventHubEntity();
+
+        static EventHubClient GetEventHubEntity()
+        {
+            var csb = new EventHubsConnectionStringBuilder(EventHubConnectionString)
+            {
+                EntityPath = EventHubEntityName
+            };
+            return EventHubClient.CreateFromConnectionString(csb.ToString());
+        }
+    }
+}
+

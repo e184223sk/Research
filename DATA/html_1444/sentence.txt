@@ -1,0 +1,31 @@
+More than 1 year has passed since last update.AndroidスマホにPUSH通知を送るというだけのことに、てこずりました。
+参考にできそうな記事はたくさんあり、それを真似ているのに、なぜかPUSH通知されないのです。
+とりあえず(自分は)こうやってできた、というメモ書きとして残します。C# .NETCore3.1
+AndroidにPUSH通知を受信するサンプルアプリを作成・インストール済み
+FCM(Firebase)にPUSH通知のためのプロジェクトを作成済みFCMにPUSH通知のリクエストをするC#ソースコードを得る。Azure内で動くC# .NETCore3のソースがほしいが、まずはコンソールアプリでよい。(追記)
+Azureで実行する際に、key.p12というファイルの取得を行うコードを変更しました。紹介記事のほとんどは旧のエンドポイントが使われています。FCMに移行された2019/5以降の記事さえ、旧のエンドポイントが使われています。
+紛らわしいのは、いまだに旧のエンドポイントにFCM HTTP APIで送ることができ、そのリクエストのレスポンスは"success": 1を返すことです。でも、AndroidにはPUSH通知がきません。もしかすると、FCMに移行された2019/5/29以降に作られたFirebaseプロジェクトでは、このようにリクエストは成功するけどPUSH通知は発生しない、という挙動になるのかもしれません。 (編集) 誤解の可能性がありました。PUSHデータ内の通知ペイロード(notification)の有無でAndroid側の挙動が変わること、Androidアプリ側が正しくない可能性もあったこと、等々・・。以下、旧プロトコルが使えないという記載を削除しました。旧新v1では新のほうのエンドポイントとなります。旧のエンドポイントを使っている記事(例えばQiitaにもある)によれば、PostmanでPOSTコマンド一発でPUSH通知ができるようです。それに倣ってやってみると、確かにPOSTは成功し、レスポンスも"success": 1 が返ってきます。一方、新のエンドポイントでは、APIがv1に変わっているので、上記のような記事の内容そのままとはいきません。さらに、v1ではOAuth2.0が使われておりアクセストークンを使うためやりとりが増えるはずなので、PostmanでPOSTコマンド一発、というわけにはいかなそうです。なのでPostmanで試してみることはやめ、いきなりC#コードを書いてみることにしました。Googleドキュメントを読むと、一応、v1 APIでOAuthを使うにはどうしたらいいのかが書かれています。・・・が、いろんなことが沢山書かれているので、迷子になってしまいました。結局こうした、というのを書き出してみると、
+作成済みのFirebaseプロジェクトで、サービスアカウントに対し、Private keyを作成。
+
+
+
+Jsonファイルを作る手順もあるようですが、今回のコードではP12を選択します。
+
+作成された(ダウンロードされた) P12ファイルを、key.p12にリネームします。.NETCore3.1で、コンソールアプリを作成します。この手順の説明は割愛します。NuGetでGoogle.Api.AuthおよびGoogle.Apis.FirebaseCloudMessaging.v1をインストールします。また、key.p12をプロジェクトに追加し、出力ディレクトリにコピーで「新しい場合はコピーする」とします。
+(追記) Androidへの通知のときにchannelを追加できるよう修正。結局、Google公式ドキュメントを拾い読みしました。エンドポイントが変わっていますよ、というドキュメント
+以前の HTTP から HTTP v1 に移行する
+HTTP v1のPUSH通知に載せるデータが比較的簡単に説明されているドキュメント。
+FCM メッセージについて
+C#(.NET)コード実装例は、Google API クライアントライブラリのドキュメントにあります。残念ながらずばり自分の欲しいものがある可能性は低そう。
+API Client Libraries .NET ガイド Get Started
+そこからさらにOAuth周りの実装は下記のページ。ここから、"サービスアカウント"を使えばよさそうだとわかり、"Service Account"のところのサンプルコードにより、ServiceAccountCredentialやxxxService(⇒FirebaseCloudMessagingService)というクラスを使えばよいことが分かります。
+API Client Libraries .NET ガイド OAuth 2.0
+ここら辺までわかったら、GitHubのソースを見ながら、FirebaseCloudMessagingServiceを使ったサンプルコードを作ってみます。
+GitHub googleapis/google-api-dotnet-client
+そこからAPIごとのクラス
+そこからFCM上記のGitHubのソースから、さらにProjectsResourceおよびProjectsResource.MessagesResourceへ進めばよいと見当がつきます。ここで下記のAPIドキュメントが参考になることがわかりました。
+APIリファレンス REST Resource: projects.messages
+このAPIリファレンスではメソッドを試す機能があるようです。ここでの例なら、Methodsのsendをクリックすると下記ページに移り、そこにTry　this APIとあります。私は残念ながらOAuthをどうすればよいか分からず使えませんでした。
+
+
+

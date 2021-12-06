@@ -1,0 +1,35 @@
+Linux standalone、Android、Oculus Quest 2用のUnityアプリで、c++ライブラリを使う方法を説明します。
+standaloneとAndroidについては、unity公式に解説がありますが、わかりづらかったので使い方をまとめました。
+アプリの内容は「c++ライブラリを使って計算した結果を表示する」という簡単なものです。初めにC++ライブラリを開発します。今回はテスト目的なので、引数で渡された２つの整数を加算する、という簡単なライブラリを開発しました。
+クラス内のでのインスタンス生成と、その関数呼び出しを試したかったので、２つのクラスを用意し、１つのクラスからもう１つのクラスを使うようにしました。ネームマングリングの問題を回避するため、c言語でwrapperを実装します。
+c#からc++の関数を直接呼び出すことができないためc言語でwrapperを用意し、このwrapperからc++の関数を呼び出すようにします。
+c#からはこのwrapperを呼び出します。ネームマングリングについては、分かりやすく解説している記事やサイトが多くあるのでここでは説明しません。standaloneアプリ、androidアプリのぞれぞれで異なる方法でビルドする必要があるため後ほど詳しくは後ほど説明しますが、
+事前にコンパイルチェックと動作確認はしておいたほうが、後ほど手戻りが少なくてすみます。
+動作確認は以下のファイルを用意して行いました。standaloneアプリとandroidアプリでは、unityアプリの実装方法は同じです。
+異なるのはアプリのビルド設定と、ライブラリのビルド方法になります。unity(C#)側から整数をライブラリの関数に渡しその結果をテキストとして表示する、というアプリを実装します。unityアプリ実装では、特に特別な手順はありません。c++ライブラリを呼び出し、その計算結果をテキストオブジェクトに表示するC#スクリプトを実装します。
+まず、Assetsフォルダ下にScriptsというフォルダを作成し、Scriptsフォルダの下にCalc.csというファイルを作成します。
+このファイルの内容は以下の通りです。c++ライブラリを使うために必要な実装は以下になります。
+以下を行うことで、C#スクリプト内でc++ライブラリ（厳密にはwrapperの関数）を呼び出せるようになります。このCalc.csをCalcObjectに追加します。
+すると、textというパラメータが表示されるので、Canvas下のTextをドラッグ&amp;ドロップします。開発環境（自分の場合はubuntu 16.04）上で動作するライブラリをビルドします。開発環境上でそのままライブラリをビルドすればよいです。
+自分は以下のCMakeファイルを作成し、ビルドしました。
+なお、C#から使うためには動的ライブラリである必要があります（macを除く）。そのためadd_libraryのオプションでSHAREDとしています。ビルドが成功すれば、libcalc.soというファイルが生成されます。
+Assetsフォルダ化にAssets-&gt; Plugins -&gt; x86_64 -&gt; ubuntuという階層でフォルダを作成し、このフォルダに生成されたlibcalc.soを置きます。この後、Android用のライブラリもビルドしてPluginsフォルダ下に置くことになります。そうすると、同名のファイルがあるよ、というエラー
+  「unity That means one or more plugins are set to be compatible with Editor. Only one plugin at the time can be used by Editor.」
+がでます。
+これを防ぐため、プラグインごとに使用する環境を設定します。Projectウィンドウでプラグイン（今回はAssets/Plugins/x86_64/ubuntu/libcalc.so）を選択します。
+右のインスペクタウィンドウで以下のように選択し、Applyボタンを押下します。
+- Include Platforms : Editor, Standalone
+- Platform Settings : Linux x86_64standaloneアプリを実装する場合は、プロジェクト生成時のデフォルトの設定のままでよいです。通常のunityアプリの開発と同じように、build and runからビルドします。
+アプリ実行後、画面上に数値が表示され、それが増加していけば正しく動作しています。Androidアプリ用のc++ライブラリをビルドするにはAndroidStudioを使う必要があります。
+そのため最初にAndroid Studioのインストール方法と、次にAndroidプロジェクトを作成してビルドする方法を説明します。初めてインストールする場合はセットアップウィザードが表示されるので画面に従って進めます。設定はデフォルトのままで問題ありません。
+自分は、特定のバージョンのAndroid SDKをインストールしたかったので、Android 11.0とAndroid 7.1.1をインストールしました。上で作成した、c++のソースコードを、app/src/main/cppフォルダ下に置きます。自分はwrapperと他のソースコードを分けたかったため、libというフォルダも作りました。
+app/src/main/cppフォルダ化にCMakeLists.txtというファイルを作成し以下の内容にします。（コメントは省略）1つ注意点としてはnative-lib.cppを使わないことです。これはJavaからcのライブラリを呼び出すためのコードが含まれていますが、今回はJavaを使用しないのでライブラリには含めません。上記で出力されたライブラリをunityのAssets/Pluginsフォルダ下にコピーします。そして先ほどと同様に、プラグインごとに環境を設定します。
+- arm64-v8a
+    - Include Platforms : Android
+    - Platform Settings : CPU ARM64
+- armeabi-v7a
+    - Include Platforms : Android
+    - Platform Settings : CPU ARMv7通常のAndroidアプリのビルド方法と同じです。なお、自分はstandaloneアプリと別sceanとして保存したかったので、最初にメニューのSave asから別名のsceanとして保存しました。AndroidスマホをPCに接続し、Build &amp; Runを押下します。
+なお、事前にAndroidスマホ側でUSBデバッグを有効にしておいてください。unityのビルド設定と、Canvasの位置調整以外は上記のスマホ用Androidアプリと同じです。Oculus Quest 2のビルド設定は、多くの記事で説明されているのでここでは詳しく説明しません。今回はTextが画面に表示されればよかっただけなので、Canvas, Textの位置、大きさは適当に設定しました。Oculus Quest 2をPCに接続し、Build &amp; Runを押下します。
+
+

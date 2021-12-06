@@ -1,0 +1,116 @@
+using System;
+using System.Linq;
+using System.Threading;
+using Cysharp.Threading.Tasks;
+using UniRx;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+/// &lt;summary&gt;
+/// GoogleTranslationの最小構成サンプル
+/// &lt;/summary&gt;
+public class GoogleTranslationTest : MonoBehaviour
+{
+    [SerializeField] private Dropdown fromLanguageDd;
+    [SerializeField] private Dropdown toLanguageDd;
+    [SerializeField] private Button translateButton;
+    [SerializeField] private InputField inputField;
+    [SerializeField] private Text translationText;
+
+    private const string API_KEY = "APIキー";
+    private const string ENDPOINT = "https://translation.googleapis.com/language/translate/v2?";
+
+    /// &lt;summary&gt;
+    /// レスポンスを格納する構造体
+    /// &lt;/summary&gt;
+    [Serializable]
+    public struct TranslateData
+    {
+        public Data data;
+
+        [Serializable]
+        public struct Data
+        {
+            public Translations[] translations;
+
+            [Serializable]
+            public struct Translations
+            {
+                public string translatedText;
+                public string detectedSourceLanguage;
+            }
+        }
+    }
+
+    private void Start()
+    {
+        var token = this.GetCancellationTokenOnDestroy();
+
+        //ドロップダウンメニュー作成
+        var languages = Enum.GetNames(typeof(Language));
+        fromLanguageDd.ClearOptions();
+        fromLanguageDd.AddOptions(languages.ToList());
+        toLanguageDd.ClearOptions();
+        toLanguageDd.AddOptions(languages.ToList());
+        fromLanguageDd.value = (int) fromLanguage;
+        toLanguageDd.value = (int) toLanguage;
+
+        //翻訳元言語
+        fromLanguageDd.OnValueChangedAsObservable()
+            .Subscribe(value =&gt; { fromLanguage = (Language) value; })
+            .AddTo(this);
+
+        //翻訳後言語
+        toLanguageDd.OnValueChangedAsObservable()
+            .Subscribe(value =&gt; { toLanguage = (Language) value; })
+            .AddTo(this);
+
+        //翻訳ボタン押下
+        translateButton.OnClickAsObservable()
+            .Subscribe(async _ =&gt;
+            {
+                //結果が送られてくるまで待ってから表示
+                var result = GetTranslation(fromLanguage, toLanguage, inputField.text, token);
+                translationText.text = await result;
+            })
+            .AddTo(this);
+    }
+
+    /// &lt;summary&gt;
+    /// 設定言語
+    /// &lt;/summary&gt;
+    private enum Language
+    {
+        ja,
+        en
+    }
+
+    private Language fromLanguage = Language.en;
+    private Language toLanguage = Language.ja;
+
+    /// &lt;summary&gt;
+    /// 翻訳結果を返す
+    /// &lt;/summary&gt;
+    /// &lt;param name="from"&gt;翻訳前の言語設定&lt;/param&gt;
+    /// &lt;param name="to"&gt;翻訳語の言語設定&lt;/param&gt;
+    /// &lt;param name="speechText"&gt;翻訳したい文字列&lt;/param&gt;
+    /// &lt;param name="ct"&gt;CancellationToken&lt;/param&gt;
+    /// &lt;returns&gt;翻訳結果&lt;/returns&gt;
+    private async UniTask&lt;string&gt; GetTranslation(Language from, Language to, string speechText, CancellationToken ct)
+    {
+        //POSTメソッドのリクエストを作成
+        var requestInfo = ENDPOINT;
+        requestInfo += $"key={API_KEY}&amp;q={speechText}&amp;detectedSourceLanguage={from}&amp;target={to}";
+        var request = UnityWebRequest.Post(requestInfo, "Post");
+
+        //結果受け取り
+        var second = TimeSpan.FromSeconds(3);
+        var result = await request.SendWebRequest().ToUniTask(cancellationToken: ct).Timeout(second);
+        var json = result.downloadHandler.text;
+        Debug.Log(json);
+        var jsonData = JsonUtility.FromJson&lt;TranslateData&gt;(json);
+        return jsonData.data.translations[0].translatedText;
+    }
+}
+

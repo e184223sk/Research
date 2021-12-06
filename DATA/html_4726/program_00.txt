@@ -1,0 +1,101 @@
+ private Bitmap GetQRTrim(string filename)
+        {
+
+            //イメージの読み込み
+            var loadImage = Cv2.ImRead(filename, ImreadModes.Color);
+
+            //HSVカラーに変換
+            var hsvImage = loadImage.CvtColor(ColorConversionCodes.BGR2HSV, 3);
+
+            //処理対象だけを抜き出す為のマスク
+            //HSVcolor [0] 色相
+            //HSVcolor [1] 彩度
+            //HSVcolor [2] 輝度
+            //手動で画像加工した時に真っ白BGR(255,255,255)、真っ黒(0,0,0) がいると閾値がずれてしまったので除去する。
+            var mask = hsvImage.InRange(new Scalar(5, 5, 5), new Scalar(250, 250, 250));
+
+            //マスクを通した結果画像を取得
+            var res = new Mat();
+            Cv2.BitwiseAnd(hsvImage, hsvImage, res, mask);
+            res = res.CvtColor(ColorConversionCodes.HSV2BGR, 3);
+
+            //グレースケール変換
+            var gray = res.CvtColor(ColorConversionCodes.BGR2GRAY);
+            //2値化
+            var binImg = gray.Threshold(0, 255, ThresholdTypes.Otsu);
+
+            //画像内の輪郭を抽出
+            var contours = new Mat[] { };
+            var hierarchy = new Mat();
+            binImg.FindContours(out contours, hierarchy, RetrievalModes.List, ContourApproximationModes.ApproxNone);
+
+
+            //正方形っぽいものを抽出する
+            var squares = contours.Where(a =&gt;
+            {
+                //BoundingRectだと傾いたQRコードが検出できない？
+                //var rect = a.BoundingRect();
+                //var area = Math.Abs(Cv2.ContourArea(a));
+                //var area_ratio = area / (rect.Width * rect.Height);
+                //var rect_ratio = ((rect.Size.Width &lt; rect.Size.Height) ?
+                //            (double)rect.Size.Width / (double)rect.Size.Height :
+                //            (double)rect.Size.Height / (double)rect.Size.Width);
+                //return area &gt; 10 &amp;&amp; area_ratio &gt; 0.7 &amp;&amp; rect_ratio &gt; 0.9; // 正方形っぽいものを探して
+
+                var rect = a.MinAreaRect();
+                var area = Math.Abs(Cv2.ContourArea(a));
+                var rect_ratio = ((rect.Size.Width &lt; rect.Size.Height) ?
+                            rect.Size.Width / rect.Size.Height :
+                            rect.Size.Height / rect.Size.Width);
+                //この辺の数字は適宜調整してください
+                return area &gt; 10 &amp;&amp; !double.IsNaN(rect_ratio) &amp;&amp; !double.IsInfinity(rect_ratio) &amp;&amp; rect_ratio &gt; 0.7;
+
+            });
+
+            if (squares.Count() &lt; 1)
+            {
+                //正方形らしき輪郭は見つからなかったので
+                return null;
+            }
+
+            //自らを含め3つの矩形を内包した矩形を探す = ファインダパターンの検出
+            //黒、白、黒の3つの輪郭の最外郭が検出できる
+            var finderPattarn = squares.Where(a =&gt; squares.Count(b =&gt; a.BoundingRect().Contains(b.BoundingRect())) == 3).ToArray();
+
+            if (finderPattarn.Count() != 3)
+            {
+                //ファインダパターンは3つのコーナーに存在するはず
+                //3つ無い時はQRコードが画像中に無いと考える。
+                return null;
+            }
+
+            //ファインダパターンの頂点を含む矩形 = QRコードの輪郭
+            var qrCodeContour = Cv2.MinAreaRect(finderPattarn.Select(a =&gt; a.MinAreaRect().Points()).SelectMany(b =&gt; b));
+
+            //検出した輪郭を描画する為のイメージ(確認用のため不要です)
+            var imgDetect = Cv2.ImRead(filename, ImreadModes.Color);
+            //検出した輪郭を描画する。
+            Cv2.DrawContours(imgDetect, contours, -1, Scalar.Gold);
+
+            //正方形らしきものの輪郭を描画する。
+            Cv2.DrawContours(imgDetect, squares, -1, Scalar.Blue);
+
+            //ファインダパターンの輪郭を描画する。
+            Cv2.DrawContours(imgDetect, finderPattarn, -1, Scalar.Red);
+
+            //QRコードの輪郭を描画する
+            for (int i = 0; i &lt; 4; i++)
+                Cv2.Line(imgDetect, qrCodeContour.Points()[i], qrCodeContour.Points()[(i + 1) % 4], Scalar.LimeGreen);
+
+
+
+            //結果の表示
+            Cv2.ImShow("contuours", imgDetect[qrCodeContour.BoundingRect()]);
+
+            //トリミングしたビットマップを取得
+            return OpenCvSharp.Extensions.BitmapConverter.ToBitmap(loadImage[qrCodeContour.BoundingRect()]);
+
+
+
+        }
+

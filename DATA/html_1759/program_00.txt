@@ -1,0 +1,72 @@
+public class WniClient : IDisposable {
+    private Socket _socket;
+    private const int BufferSize = 1024;
+    private readonly byte[] _buffer = new byte[BufferSize];
+
+    public async Task ConnectAsync(string mailAddress, string passWord)
+    {
+        // パスワードを MD5 に変換
+        var passWordByte = MD5.Create().ComputeHash(Encoding.UTF8.GetBytes(passWord));
+
+        // MD5 に変換すると byte[] になるため string に変換
+        var passWordStr = BitConverter.ToString(passWordByte).ToLower().Replace("-", "");
+
+        _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        _socket.Connect(new IPEndPoint(IPAddress.Parse(await GetServerIpAsync()), 80));
+        // 認証情報を送信
+        _socket.Send(new UTF8Encoding().GetBytes($"GET /login HTTP/1.1\r\nX-WNI-Account: {mailAddress}\r\nX-WNI-Password: {passWordStr}\r\n\r\n"));
+        // データ受信時にイベント発火
+        _socket.BeginReceive(_buffer, 0, BufferSize, SocketFlags.None, ReceiveCallback, _socket);
+    }
+
+    private static async Task&lt;string&gt; GetServerIpAsync()
+    {
+        using var c = new HttpClient();
+        var servers = (await c.GetStringAsync("http://lst10s-sp.wni.co.jp/server_list.txt").ConfigureAwait(false)).Split('\n');
+        var rdm = new Random();
+        var server = servers[rdm.Next(0, servers.Length - 1)];
+        return server.Split(':')[0];
+    }
+
+    public void Disconnect() =&gt; _socket.Disconnect(false);
+
+    public void Dispose() =&gt; _socket.Close();
+
+    private void ReceiveCallback(IAsyncResult asyncResult)
+    {
+        var socket = (Socket)asyncResult.AsyncState;
+        if (socket == null) return;
+
+        int byteSize;
+        try
+        {
+            byteSize = socket.EndReceive(asyncResult);
+        }
+        catch (Exception ex)
+        {
+            OnException?.Invoke(ex);
+            return;
+        }
+
+        if (byteSize &lt; 1) return;
+        var res = Encoding.UTF8.GetString(_buffer, 0, byteSize);
+
+        if (res.Contains("X-WNI-ID: Data"))
+        {
+            res = new string(res.Replace("\n", " ").Replace("\r", " ").Replace("  ", " ").Where(x =&gt; !char.IsControl(x)).ToArray());
+            var mc = new Regex("3([0-9/]{1}) ([0-9/]{2}) ([0-9/]{2}) ([0-9/]{12}) C([0-9/]{2}) ([0-9/]{12}) ND([0-9/]{14}) NCN([0-9A-Z/]{3}) JD([0-9/]{14}) JN([0-9/]{3}) ([0-9/]{3}) ([N0-9/]{4}) ([E0-9/]{5}) ([0-9/]{3}) ([0-9/]{2}) ([0-9/+-]{2}) RK([0-9/]{5}) RT([0-9/]{5}) RC([0-9/]{5}) (.*?)9999=", RegexOptions.None).Matches(res);
+            foreach (Match m in mc) OnReceiveData?.Invoke(m.Value.Trim());
+        }
+
+        socket.BeginReceive(_buffer, 0, _buffer.Length, SocketFlags.None, ReceiveCallback, socket);
+    }
+
+    public delegate void ReceiveEventHandler(string receiveData);
+
+    public event ReceiveEventHandler OnReceiveData;
+
+    public delegate void OnExceptionEventHandler(Exception exception);
+
+    public event OnExceptionEventHandler OnException;
+}
+

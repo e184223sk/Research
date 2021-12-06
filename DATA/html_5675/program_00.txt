@@ -1,0 +1,142 @@
+using UnityEngine;
+using System.Collections;
+using System.Linq;
+using UnityEngine.UI;
+
+public class Avatar : Photon.MonoBehaviour {
+
+    [SerializeField] int m_healthPoint = 100;
+    [SerializeField] GameObject m_BulletPrefab;
+    [SerializeField] GameObject m_DamageEffectPrefab;
+
+    PhotonView m_photonView;
+
+    void Start() {
+        m_photonView = GetComponent&lt;PhotonView&gt; ();
+        if(m_photonView.isMine) {
+            // 初期設定
+            SetPlayerName ("Player-Id: " + PhotonNetwork.player.ID);
+            SetPlayerDeathState (false);
+            SetHealthPoint (m_healthPoint);
+        }
+    }
+
+    void SetPlayerName(string name) {
+        this.gameObject.name = name;
+        transform.Find ("NameUI").gameObject.GetComponent&lt;TextMesh&gt; ().text = name;
+    }
+
+    void SetHealthPoint(int num) {
+        m_healthPoint = num;
+        transform.Find ("HealthPointUI").gameObject.GetComponent&lt;TextMesh&gt; ().text = num.ToString();
+    }
+
+    // ストリーム同期
+    void OnPhotonSerializeView(PhotonStream stream, PhotonMessageInfo info) {
+        if (stream.isWriting) {
+            // 自分の情報を送る
+            string myName = this.gameObject.name;
+            int myHealthPoint = m_healthPoint;
+            stream.SendNext (myName);
+            stream.SendNext (myHealthPoint);
+        } else {
+            // 他人の情報を受け取る
+            string otherName = (string)stream.ReceiveNext();
+            int otherHealthPoint = (int)stream.ReceiveNext();
+            SetPlayerName (otherName);
+            SetHealthPoint (otherHealthPoint);
+        }
+    }
+
+    // イベント同期
+    [PunRPC]
+    void Shoot(Vector3 i_pos, Vector3 i_angle) {
+        Quaternion rot = Quaternion.Euler (i_angle);
+        GameObject bullet = GameObject.Instantiate (m_BulletPrefab ,i_pos ,rot);
+        bullet.GetComponent&lt;Rigidbody&gt; ().AddForce (transform.forward * 20, ForceMode.VelocityChange);
+        Destroy(bullet, 3);
+    }
+
+    void OnTriggerEnter(Collider i_other) {
+        if(i_other.tag == "bullet"){
+            // ダメージを受ける
+            SetHealthPoint (m_healthPoint - 10);
+            Instantiate (m_DamageEffectPrefab, transform.position, Quaternion.identity);
+            Destroy (i_other.gameObject);
+
+            if(m_healthPoint &lt;= 0){
+                if (m_photonView.isMine) {
+                    SetPlayerDeathState (true);
+                    string text = "You Lose...";
+                    DrawResult(text, new Color(0f,0f,1f));
+                }
+            }
+        }
+    }
+
+    void Update () {
+
+        if(m_photonView.isMine == false){
+            return;
+        }
+
+        if (Input.GetKeyDown (KeyCode.Space)) {
+            // 自分自身の弾丸でトリガーを引かないようにやや手前から発射
+            Vector3 pos = transform.position + transform.forward * 2f;
+            Vector3 angle = transform.eulerAngles;
+            // 処理が重いのでPhotonViewを付けずに位置と角度を渡す
+            m_photonView.RPC ("Shoot", PhotonTargets.AllViaServer, pos, angle);
+        }
+
+        // キーボード入力による移動処理
+        var v = Input.GetAxis ("Vertical");
+        Vector3 velocity = new Vector3 (0, 0, v);
+        velocity = transform.TransformDirection (velocity);
+        velocity *= 5f;
+        transform.localPosition += velocity * Time.fixedDeltaTime;
+
+        // キーボード入力による回転処理
+        var h = Input.GetAxis ("Horizontal");
+        transform.Rotate (0, h * 3f, 0);
+    }
+
+    // ===============================
+    // ここから重要
+    // ===============================
+    public void SetPlayerDeathState( bool isDeath ) {
+        var properties  = new ExitGames.Client.Photon.Hashtable();
+        properties.Add ("player-id", PhotonNetwork.player.ID);
+        properties.Add ("isDeath", isDeath);
+        PhotonNetwork.player.SetCustomProperties( properties );
+    }
+
+    public void OnPhotonPlayerPropertiesChanged( object[] i_playerAndUpdatedProps ){
+        // 全員分回す
+        var aliveList = new ArrayList();
+        var deathList = new ArrayList();
+        foreach(var p in PhotonNetwork.playerList) {
+            Debug.Log ("player-id : " + p.CustomProperties["player-id"].ToString() + " - " + "isDeath : " + p.CustomProperties["isDeath"].ToString());
+            if ((bool)p.CustomProperties ["isDeath"]) {
+                deathList.Add (p);
+            } else {
+                aliveList.Add (p);
+            }
+        }
+        if(aliveList.Count == 1 &amp;&amp; deathList.Count &gt; 0) {
+            var winner = (PhotonPlayer)aliveList[0];
+            var winnerId = winner.CustomProperties["player-id"];
+            if((int)PhotonNetwork.player.ID == (int)winnerId) {
+                string text = "プレイヤー" + winnerId.ToString() + " の勝利";
+                DrawResult(text, new Color(1f,0f,0f));
+            }
+        }
+    }
+
+    void DrawResult(string text, Color color) {
+        Text ResultText = GameObject.Find("ResultText").GetComponent&lt;Text&gt;();
+        ResultText.text = text;
+        ResultText.color = color;
+    }
+
+}
+

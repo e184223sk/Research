@@ -1,0 +1,64 @@
+
+using System.Runtime.InteropServices ;  // for DllImport, Marshal
+
+[DllImport("user32.dll")]
+extern static uint SendInput(
+    uint       nInputs,   // INPUT 構造体の数(イベント数)
+    INPUT[]    pInputs,   // INPUT 構造体
+    int        cbSize     // INPUT 構造体のサイズ
+    ) ;
+
+[StructLayout(LayoutKind.Sequential)]  // アンマネージ DLL 対応用 struct 記述宣言
+struct INPUT
+{ 
+    public int        type ;  // 0 = INPUT_MOUSE(デフォルト), 1 = INPUT_KEYBOARD
+    public MOUSEINPUT mi   ;
+    // Note: struct の場合、デフォルト(パラメータなしの)コンストラクタは、
+    //       言語側で定義済みで、フィールドを 0 に初期化する。
+}
+
+[StructLayout(LayoutKind.Sequential)]  // アンマネージ DLL 対応用 struct 記述宣言
+struct MOUSEINPUT
+{
+    public int    dx ;
+    public int    dy ;
+    public int    mouseData ;  // amount of wheel movement
+    public int    dwFlags   ;
+    public int    time      ;  // time stamp for the event
+    public IntPtr dwExtraInfo ;
+    // Note: struct の場合、デフォルト(パラメータなしの)コンストラクタは、
+    //       言語側で定義済みで、フィールドを 0 に初期化する。
+}
+
+// アクティブなプロセス名を取得する
+public static string GetActiveProcessName()
+{
+    // 現在アクティブなプロセスIDとプロセス名を取得
+    int processId;
+    GetWindowThreadProcessId(GetForegroundWindow(), out processId);
+
+    return Process.GetProcessById(processId).ProcessName;
+}
+
+// ウィンドウをアクティブにする
+public static void ForceActive(int x, int y)
+{
+    const int MOUSEEVENTF_LEFTDOWN = 0x2;
+    const int MOUSEEVENTF_LEFTUP = 0x4;
+
+    // 現在のマウス位置を取得
+    Point pt = new Point(0,0);
+    GetCursorPos(out pt);
+
+    // 指定座標にマウス移動
+    SetCursorPos(x, y);
+    // クリック
+    INPUT[] input = new INPUT[2];
+    input[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;     //左ボタン Down
+    input[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;       //左ボタン Up
+    SendInput(2, input, Marshal.SizeOf(input[0]));
+
+    // マウス位置を元に戻す
+    SetCursorPos(pt.X, pt.Y);
+}
+

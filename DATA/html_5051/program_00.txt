@@ -1,0 +1,248 @@
+
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+
+using System.IO;
+using System.Net.Http;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
+
+using System.Net;
+
+namespace JsonPractice
+{
+    // 参考: http://www.baku-dreameater.net/archives/8741
+    // 参考: https://gist.github.com/guitarrapc/2975aa101efa13da0caa#file-weatherhacksclass-cs-L17
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // DeserializeObjectをもらう
+            Console.WriteLine("\n-- モデルのメンバから値をとってくる ---------------\n");
+
+            var cityCode = "130010"; //東京都のID
+            var res = WeatherHacksClass.GetWeather(cityCode).Result;
+            Console.WriteLine(res.pinpointLocations[0].name);
+
+
+
+            // DesirializeObjectから、ParseしたJSONに戻す。単純に値を全部見るならこの方法のほうが楽
+            Console.WriteLine("\n-- 全部列挙(生JSON→デシリアライズ→シリアライズ -----------------\n");
+
+            var jsonDes = WeatherHacksClass.GetWeather(cityCode).Result;
+            string formattedJson = JsonConvert.SerializeObject(jsonDes, Formatting.Indented);
+            Console.WriteLine(formattedJson);
+
+
+
+            // JContainerをもらう  参考(コメ欄):https://teratail.com/questions/50952  
+            // けどこれもらった後の扱いが微妙。クラス作ってDeserializeObjectでもらうほうが扱いやすい気がする
+            Console.WriteLine("\n-- 全部列挙(生JSON→JContainer) -----------------\n");
+
+            var retContainer = WeatherHacksClass3.GetWeather(cityCode).Result;
+            var values = retContainer.DescendantsAndSelf()
+                .OfType&lt;JProperty&gt;()
+                .Select(p =&gt; p.Name + ": " + p.Value) // 「task_id: 10」という風になる
+                .ToArray();
+
+            foreach (var value in values)
+            {
+                Console.WriteLine(value.ToString());
+            }
+
+
+
+
+            // 参考: https://netweblog.wordpress.com/2016/10/24/json-net-newtonsoft-json-usage/
+            // 例えば、いっこだけパラメータ取り出したい場合はこんな感じ。
+            Console.WriteLine("\n-- 値取り出し(JContainer) ---------------------\n");
+            var tmpArray = (JArray)retContainer["forecasts"];   // メンバ変数で指定できないのはうーん..って感じか
+            foreach (JObject jobj in tmpArray)
+            {
+                JValue telopValue = (JValue)jobj["telop"];
+                string telop = (string)telopValue.Value;
+                JValue dateLabelValue = (JValue)jobj["dateLabel"];
+                string dateLabel = (string)dateLabelValue.Value;
+                Console.WriteLine($"name is {dateLabel}, price is {telop}.");
+            }
+
+
+
+            // LINQを使ってみる  参考: http://komaken.me/blog/2013/10/17/c%E3%81%AElinq%E3%81%A7json%E3%82%92%E7%B7%A8%E9%9B%86%E3%81%97%E3%81%A6%E3%81%BF%E3%82%8B/
+            Console.WriteLine("\n-- 値取り出し(生JSON→jObject(モデルを作らない) ----------------\n");
+
+            String url = "http://express.heartrails.com/api/json?method=getStations&amp;line=JR%E5%B1%B1%E6%89%8B%E7%B7%9A";
+            WebRequest request = WebRequest.Create(url);
+            Stream response_stream = request.GetResponse().GetResponseStream();
+            StreamReader reader = new StreamReader(response_stream);
+
+            //Console.WriteLine(reader.ReadToEnd());
+            var obj_from_json = JObject.Parse(reader.ReadToEnd());
+
+            var search_result = from foo in obj_from_json["response"]["station"]
+                                where ((String)foo["name"]).Contains("町")
+                                select foo;     // 町を含む駅名を表示
+
+            foreach (var r in search_result)
+            {
+                Console.WriteLine(r["name"]);
+            }
+
+
+            Console.WriteLine("\n-- 値取り出し(生JSON→jObject(モデルを作らない) ----------------\n");
+
+            search_result = from foo in obj_from_json["response"]["station"] select foo;  //全部表示
+
+            foreach (var r in search_result)
+            {
+                Console.WriteLine(r["name"]);
+            }
+
+            Console.WriteLine("Press any key to finish.");
+            Console.Read();
+        }
+    }
+
+
+
+    //JContainerを返す
+    public class WeatherHacksClass3
+    {
+        private const string baseUrl = "http://weather.livedoor.com/forecast/webservice/json/v1";
+
+        public static async Task&lt;JContainer&gt; GetWeather(string cityCode)
+        {
+            var url = $"{baseUrl}?city={cityCode}";
+            var result = await new HttpClient().GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            var jsonString = await result.Content.ReadAsStringAsync();
+            var root = (JContainer)JToken.Parse(jsonString);
+            return root;
+        }
+    }
+
+
+    //文字列をそのまま返す
+    public class WeatherHacksClass2
+    {
+        private const string baseUrl = "http://weather.livedoor.com/forecast/webservice/json/v1";
+
+        public static async Task&lt;string&gt; GetWeather(string cityCode)
+        {
+            var url = $"{baseUrl}?city={cityCode}";
+            var result = await new HttpClient().GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            var jsonString = await result.Content.ReadAsStringAsync();
+            return jsonString;
+        }
+    }
+
+
+    // シリアライズしたオブジェクトを返す
+    public class WeatherHacksClass
+    {
+        private const string baseUrl = "http://weather.livedoor.com/forecast/webservice/json/v1";
+
+        public static async Task&lt;WeatherResponse&gt; GetWeather(string cityCode)
+        {
+            var url = $"{baseUrl}?city={cityCode}";
+            var result = await new HttpClient().GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            var jsonString = await result.Content.ReadAsStringAsync();
+            var response = JsonConvert.DeserializeObject&lt;WeatherResponse&gt;(jsonString);
+            return response;
+        }
+    }
+
+    // ここから下は受け取るJsonのデータ型を定義しているよ -----------------------
+    public class WeatherResponse
+    {
+        public Pinpointlocation[] pinpointLocations { get; set; }
+        public string link { get; set; }
+        public Forecast[] forecasts { get; set; }
+        public Location location { get; set; }
+        public DateTime publicTime { get; set; }
+        public Copyright copyright { get; set; }
+        public string title { get; set; }
+        public Description description { get; set; }
+
+    }
+
+    public class Location
+    {
+        public string city { get; set; }
+        public string area { get; set; }
+        public string prefecture { get; set; }
+    }
+
+    public class Copyright
+    {
+        public Provider[] provider { get; set; }
+        public string link { get; set; }
+        public string title { get; set; }
+        public Image image { get; set; }
+    }
+
+    public class Image
+    {
+        public int width { get; set; }
+        public string link { get; set; }
+        public string url { get; set; }
+        public string title { get; set; }
+        public int height { get; set; }
+    }
+
+    public class Provider
+    {
+        public string link { get; set; }
+        public string name { get; set; }
+    }
+
+    public class Description
+    {
+        public string text { get; set; }
+        public DateTime publicTime { get; set; }
+    }
+
+    public class Pinpointlocation
+    {
+        public string link { get; set; }
+        public string name { get; set; }
+    }
+
+    public class Forecast
+    {
+        public string dateLabel { get; set; }
+        public string telop { get; set; }
+        public string date { get; set; }
+        public Temperature temperature { get; set; }
+        public Image1 image { get; set; }
+    }
+
+    public class Temperature
+    {
+        public Min min { get; set; }
+        public Max max { get; set; }
+    }
+
+    public class Min
+    {
+        public string celsius { get; set; }
+        public string fahrenheit { get; set; }
+    }
+
+    public class Max
+    {
+        public string celsius { get; set; }
+        public string fahrenheit { get; set; }
+    }
+
+    public class Image1
+    {
+        public int width { get; set; }
+        public string url { get; set; }
+        public string title { get; set; }
+        public int height { get; set; }
+    }
+
+}
+
+

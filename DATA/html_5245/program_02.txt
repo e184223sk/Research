@@ -1,0 +1,50 @@
+
+namespace SeiyuSale
+{
+    public class Function
+    {
+        // ★ハマったポイント: 戻り値はstringではなくクラス
+        public ApiGatewayResponse FunctionHandler(ILambdaContext context)
+        {
+            // セール日を取得
+            var webScraper = new WebScraper();
+            var saleDays = webScraper.GetSaleDaysAsync();
+            saleDays.Wait();
+
+            // iCal形式に変換
+            var converter = new CalendarConverter();
+            var calendar = converter.Convert(saleDays.Result);
+
+            // API Gateway用のレスポンス形式に変換
+            // ★ハマったポイント: Json文字列ではなく、オブジェクトを返すこと！
+            var response = ToApiGatewayResponseAsync(calendar);
+            response.Wait();
+            return response.Result;
+        }
+
+        private async Task&lt;ApiGatewayResponse&gt; ToApiGatewayResponseAsync(HttpResponseMessage response)
+        {
+            return new ApiGatewayResponse
+            {
+                StatusCode = (int)response.StatusCode,
+                Headers = response.Content.Headers.ToDictionary(_ =&gt; _.Key, _ =&gt; string.Join(",", _.Value)),
+                Body = await response.Content.ReadAsStringAsync(),
+            };
+        }
+
+        // https://docs.aws.amazon.com/ja_jp/apigateway/latest/developerguide/api-gateway-integration-settings-integration-response.html
+        [JsonObject()]
+        public class ApiGatewayResponse
+        {
+            [JsonProperty("statusCode")]
+            public int StatusCode { get; set; }
+
+            [JsonProperty("headers")]
+            public IDictionary&lt;string, string&gt; Headers { get; set; }
+
+            [JsonProperty("body")]
+            public string Body { get; set; }
+        }
+    }
+}
+

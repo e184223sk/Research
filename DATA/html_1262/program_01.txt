@@ -1,0 +1,73 @@
+
+
+    public class Sandbox01Main
+    {
+        //PostgreSQL用接続文字列
+        private const string connectionString = "Host=localhost;Database=test_db;Username=test_user;Password=test_user";
+
+        public void Start()
+        {
+            //DbConnectionの準備
+            using NpgsqlConnection con = new NpgsqlConnection(connectionString);
+            con.Open();
+            //NPocoの操作の中心となるクラスを作成
+            using Database database = new Database(con);
+
+            database.BeginTransaction();
+            try
+            {
+                //インサート
+                var emp = new Emp
+                {
+                    EmpId = "00001",
+                    FirstName = "Taro",
+                    FamilyName = "Tanaka",
+                    CreatedAt = DateTime.Now,
+                };
+                database.Insert(emp);
+
+                //セレクト
+                Emp selectedEmp1 = database.Query&lt;Emp&gt;()
+                                    .Where(x =&gt; x.EmpId == "00001")
+                                    .SingleOrDefault();
+                Console.WriteLine("取得した値");
+                Console.WriteLine(selectedEmp1);
+
+
+                //アップデート
+                var ss = database.StartSnapshot(selectedEmp1);
+                selectedEmp1.FirstName = "Jiro";
+                //変更した列だけ更新
+                database.Update(selectedEmp1, ss.UpdatedColumns());
+
+
+                Emp selectedEmp2 = database.Query&lt;Emp&gt;()
+                                    .Where(x =&gt; x.EmpId == "00001")
+                                    .SingleOrDefault();
+                Console.WriteLine("更新後,再取得した値");
+                Console.WriteLine(selectedEmp2);
+
+
+                //デリート
+                database.Delete(selectedEmp2);
+
+
+                bool exists = database.Query&lt;Emp&gt;()
+                                  .Where(x =&gt; x.EmpId == "00001")
+                                  .Any();
+
+                Console.WriteLine("削除後存在するか？");
+                Console.WriteLine(exists);
+
+                //トランザクションをコミット
+                database.CompleteTransaction();
+            }
+            catch
+            {
+                //例外時はロールバック
+                database.AbortTransaction();
+                throw;
+            }
+        }
+    }
+

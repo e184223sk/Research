@@ -1,0 +1,144 @@
+More than 1 year has passed since last update.　前提として、ある程度Unityの操作に慣れていて、用語がそれなりに分かっている事を前提条件としているため、全くの初心者が読む記事ではありません。　この記事は、tsubaki様製作のInfinite Scrollを使用、改変しています。
+【Ifinite Scrollの使い方が記載されたブログ記事】　このスクリプトがなければ出来なかったです、この場をお借りしてtsubaki様にお礼申し上げます。まず初めにInfinit ScrollをDLする。
+DLが完了したら、ファイルを解凍し、UnityのOpen Projectから解凍したフォルダを選択して開く。
+Projectが開いたら、Infinite Scrollフォルダ内にあるLimitedを開き、ダブルクリックしてシーンを開く。
+（左下の警告はバージョンの互換による警告なので無視してよい）
+これでひとまず、シーンを再生すると99個までスクロールできるスクロールが生成されるようになった。Inifite Scrollはプレハブ化されたベースとなるオブジェクトを量産し、Itemスクリプトによりベースの中身をそれぞれ書き換えることでコンテンツを量産しています。
+まずは読み取り先のテキストファイルを作成していきます。ProjectのAseetsフォルダ内にCreateからFolderを選択し、名前をResourcesとします。
+このフォルダの中に、テキストファイルを入れます。テキストファイルはUnityでは作成できないので、メモ帳などの機能を使って作ったものをドラッグ＆ドロップで入れてください。
+テキストファイルの中身は後に改行ごとに切り分けて一行分のデータとして保存されるので、表示する際に二行にしたい場合はHTMLタグの&lt;br&gt;をテキストファイル内で記述するとできます。
+次にItemスクリプトに代わるスクリプトを作成します、このスクリプトでテキストファイルのデータを読み取り、コンテンツに代入して表示します。
+MyItem.cs　（click here) 
+
+
+
+MyItem.cs
+
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+public class MyItem : UIBehaviour 
+{
+    [SerializeField]
+    Text uiText = null;
+
+    [SerializeField]
+    Text MaineText = null;
+    static Text mein;
+
+    public string[] textMessage; //テキストの加工前の一行を入れる変数
+    public string[,] textWords; //テキストの複数列を入れる2次元配列 
+
+    public static int rowLength; //テキスト内の行数を取得する変数 @staticに変更
+    private int columnLength; //テキスト内の列数を取得する変数
+
+    int i; //@外側で宣言
+    int n; //@外側で宣言
+
+    new private void Start()
+    {
+        TextAsset textasset = new TextAsset(); //テキストファイルのデータを取得するインスタンスを作成
+        textasset = Resources.Load("Test", typeof(TextAsset) )as TextAsset; //Resourcesフォルダから対象テキストを取得
+        string TextLines = textasset.text; //テキスト全体をstring型で入れる変数を用意して入れる
+
+        //Splitで一行づつを代入した1次配列を作成
+        textMessage = TextLines.Split('\n'); 
+
+        //行数と列数を取得
+        columnLength = textMessage[0].Split('\t').Length;
+        rowLength = textMessage.Length;
+
+        //2次配列を定義
+        textWords = new string[rowLength, columnLength];
+
+        for( i = 0; i &lt; rowLength; i++)
+        {
+            string[] tempWords = textMessage[i].Split('\t'); //textMessageをカンマごとに分けたものを一時的にtempWordsに代入
+
+            for ( n = 0; n &lt; columnLength; n++)
+            {
+                textWords[i, n] = tempWords[n]; //2次配列textWordsにカンマごとに分けたtempWordsを代入していく
+            }
+        }
+    }
+
+    //プレハブ化された表示形式に以下の処理で文字と画像を順番に割り当てていく
+    public void UpdateItem(int count) 
+    {
+        Start();
+        n = 0;
+
+        //アイテムナンバー、0から始まるので+1をして1から表記
+        uiText.text = (count + 1).ToString("00");
+
+        //テキストの行数を超えないように制限、テキストをカウントに併せて変更。
+        if(count &lt; rowLength)
+        {
+            MaineText.text = (textWords[count, 0]);
+        }       
+    }
+}
+
+
+
+
+処理内容の解説をすると非常に長くなるので、重要な部分のみ説明します。
+textasset = Resources.Load("Test", typeof(TextAsset) )as TextAsset;
+　この一文がリソースフォルダからテキストファイルを読み取る処理となっています。""で区切られた部分を対応するテキストファイルの名前にすることで、読み取るテキストファイルを変えることができます。
+　画像を読み取り＆変更したい場合は元のItemスクリプトを参照してください、Commonフォルダの中にスクリプトがあります。
+次に文字を表示するためのベースとなるオブジェクトをHierarchy上で作成し、プレハブ化します。
+（hierarchyのオブジェクトをProjectにドラッグ＆ドロップ）ベースを作成する際の重要な部分ですが、オブジェクトをまとめている親オブジェトのRectTransformが以下の画像のようになっている必要があります。これができていないと、後にシーンを再生してもコンテンツが下の方に生成され、ゲームビュー内に移ら映らないない場合があります。
+Heightの部分は子オブジェクトの大きさによって左右されるため、適宜調整してください。
+この時、先ほど作ったスクリプトをGameObject（親）にアタッチし、それぞれのインスペクターに対応したオブジェクトをアタッチします。
+プレハブ化が済んだらHierarchyに残っているベースは消します。このプレハブをInifite Scroll.csのItem Prototypeにドラッグ＆ドロップします。
+この状態でシーンを再生しても、まだ量産体制が整っていないので、ただベースのオブジェクトが表示されるだけです。
+ScrollContentにアタッチされているItem Controller LimitedスクリプトをRemoveComponentし、代わりに以下のスクリプトをアタッチします。
+MyItemControllerLimited.cs　（click here) 
+
+
+MyItemControllerLimited.cs
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+[RequireComponent(typeof(InfiniteScroll))]
+public class MyItemControllerLimited :  UIBehaviour, IInfiniteScrollSetup
+{
+
+    [SerializeField, Range(1, 999)]
+    private int max = 30;
+
+    public void OnPostSetupItems()
+    {
+        max = MyItem.rowLength;
+        var infiniteScroll = GetComponent&lt;InfiniteScroll&gt;();
+        infiniteScroll.onUpdateItem.AddListener(OnUpdateItem);
+        GetComponentInParent&lt;ScrollRect&gt;().movementType = ScrollRect.MovementType.Elastic;
+
+        var rectTransform = GetComponent&lt;RectTransform&gt;();
+        var delta = rectTransform.sizeDelta;
+        delta.y = infiniteScroll.itemScale * max;
+        rectTransform.sizeDelta = delta;
+    }
+
+    public void OnUpdateItem(int itemCount, GameObject obj)
+    {
+        if(itemCount &lt; 0 || itemCount &gt;= max) {
+            obj.SetActive (false);
+        }
+        else {
+            obj.SetActive (true);
+
+            var item = obj.GetComponentInChildren&lt;MyItem&gt;();
+            item.UpdateItem(itemCount);
+        }
+    }
+}
+
+
+
+これでシーンを再生すると、文字を読み取ってコンテンツに表記し、自動生成してくれるようになりました。
+あとはテキストファイルの中身を変更したり、ベースオブジェクトを変更することで自在に使用できます。ここまで読んでいただき、ありがとうございました。おそらくこの記事通りにこなせば、最後のGIF通りの結果となるはずですが、万が一記述漏れなどがあるかもしれないので、うまくいかなかった場合はコメントしてもらえると対応出来るかもしれません。お疲れ様でした。
+
+

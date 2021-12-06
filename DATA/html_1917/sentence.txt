@@ -1,0 +1,167 @@
+More than 1 year has passed since last update.自作のデータ保持用クラスが複数あり、これらの間に継承関係があるとする。これらのクラスインスタンスをJSON形式にシリアライズ/デシリアライズするため、Json.NETを使用する。Json.NETは、シンプルなPOCOクラスであれば特別な設定なしにJSON文字列とのシリアライズ/デシリアライズ処理を行ってくれる。また複雑な構造のクラスに対しては、カスタムコンバータに独自のシリアライズ/デシリアライズ処理を定義して利用することもできる。今回問題となったのは、下記の例のように場合である。※あくまで例のため簡素なクラスとしていますが、実際にはもう少し複雑なものを想定して書いています。ここまでは問題ない。上記の例ではChild1とChild2は共通の親クラスParentを持つ。そこでこれらのインスタンスを、例えばParent[]型の配列でまとめて扱いたくなる場合がある。しかし、このような配列型オブジェクトのデシリアライズはそのままでは行えない。Parentという抽象クラス型の配列の要素を、どの子クラスへデシリアライズすればよいのか判らないからである。Json.NETでオブジェクトをシリアライズ/デシリアライズする際、オプションにTypeNameHandlingを設定することで、インスタンスの型の情報をJSON文字列に付加することができる(公式ドキュメント)。"$type"、"$values"というキーが追加され、.NETにおける型の情報が記録される。適用前適用後最初はこの方法を採ったが、例えば上の例だと配列のメンバ1つ1つに$typeキーと型の名前が記述されるため、JSON文字列の情報の密度が薄まるのが気になった。配列の要素数が多いと、全体を確認するのも一苦労である。とは言えビルトインで使える方法なので、システム外部からJSONを読み込んだりせず1、JSON文字列の可読性や互換性などを気にしないなら、こちらでも何ら問題ない……はず。こちらが当記事の本題。まず子クラスへデシリアライズする際の都合上、シリアライズ時に型を判別できる情報はどうしてもJSON文字列に含める必要がある。そこで親クラス専用のカスタムコンバータを定義し、これを使ってコンパクト、かつ型を識別できる書式へシリアライズ/デシリアライズを行ってもらう。型の情報を、以下のようにChildTypeキーに保存することにする。これで、Child1およびChild2を適切に使い分けてシリアライズ/デシリアライズされるようになった。この方法では親クラスのカスタムコンバータに全ての子クラスのシリアライズ/デシリアライズ処理が集約される。子クラスやプロパティが少ないうちは問題にならないが、増えるにつれて1つのカスタムコンバータクラスが肥大化し、可読性・メンテナンス性が低下する。端的に言えば、SRPの原則上良くないように思われる。これを解決するために、まず子クラス毎に専用のカスタムコンバータを定義する。上記で親クラス用のコンバータに記述したシリアライズ/デシリアライズ処理を取り出し、子クラス用の方で定義する。そして親クラス用のカスタムコンバータには、型を判別して子クラスに分岐する処理だけを残す。ここで重要なのはReadJsonメソッド、上記の最後から3行目のvar newReader = jobject.CreateReader();。ReadJsonメソッドの引数をそのまま子クラスのReadJsonに渡したくなるが、引数のうちJsonReader readerだけはそのまま渡すことができない。
+ドキュメントによればJsonReaderは"forward-only access"なものであり、おそらく一度しか使えない仕様なのだろう。ReadJsonメソッドの冒頭でJObject jobject = JObject.Load(reader);とした時点で"使われて"いるため、子クラスのReadJsonメソッドに渡して再び使おうとするとJsonReaderExceptionが発生する。
+そこで、jobjectから未使用のJsonReaderを作り直して渡している。またついでに、以下のように子クラスのJsonConverter属性を明示的に指定しておくと、子クラスを直接シリアライズ/デシリアライズする時、親クラスの方を経由せずに直接呼び出してくれる……はず。(ただ指定しなくても、Json.NETは親クラスのJsonConverter属性まで遡って調べるらしく、最終的には正しいカスタムコンバータを呼んできてくれる。)更に試行錯誤を重ねたところ、今回のユースケースではどうやらParentConverterのWriteJsonメソッドは不要らしいことが判った。Json.Netの方でParent[]の各要素の型を自動的に判別して、適切な子クラス用のコンバータを呼び出してくれている……らしい。というわけで、こうなった。元々はこういう感じに、子クラスのJsonConverter属性を読みに行き、対応するカスタムコンバータを探してWriteJsonを呼び出す方法を試していた。一応、動作することは確認できている。継承関係のある親・子クラスに対してJson.NETのカスタムコンバータを定義し、1つの子クラスのシリアライズ/デシリアライズ処理を対応する1つのクラス内で完結させ、かつ親クラスをデシリアライズできるようにした。実装に当たっては出力されるJSON、および入出力を行うカスタムコンバータクラスの可読性に配慮した形とした。これに限らず、もっと良さげな方法があればぜひご教示下さい。表示する
+
+
+JsonNetTest2_2.cs
+using System;
+using System.Diagnostics;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace JsonNetTest2_2
+{
+    // 親の抽象クラス
+    [JsonConverter(typeof(ParentConverter))]
+    public abstract class Parent
+    {
+        public string Prop0;
+    }
+
+    // 子クラス(具象クラス) 対応するカスタムコンバータを指定している
+    [JsonConverter(typeof(Child1Converter))]
+    public class Child1 : Parent
+    {
+        public int Prop1;
+    }
+
+    [JsonConverter(typeof(Child2Converter))]
+    public class Child2 : Parent
+    {
+        public double Prop2;
+    }
+
+
+    class Child1Converter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Child1);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            return new Child1() { Prop0 = (string)jobject["Prop0"], Prop1 = (int)jobject["Prop1"] };
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            var child1Value = (Child1)value;
+
+            writer.WriteStartObject();
+            writer.WritePropertyName("ChildType");
+            writer.WriteValue(1);
+            writer.WritePropertyName("Prop0");
+            writer.WriteValue(child1Value.Prop0);
+            writer.WritePropertyName("Prop1");
+            writer.WriteValue(child1Value.Prop1);
+            writer.WriteEndObject();
+        }
+    }
+
+    class Child2Converter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Child2);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            return new Child2() { Prop0 = (string)jobject["Prop0"], Prop2 = (double)jobject["Prop2"] };
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            var child1Value = (Child2)value;
+
+            writer.WriteStartObject();
+            writer.WritePropertyName("ChildType");
+            writer.WriteValue(2);
+            writer.WritePropertyName("Prop0");
+            writer.WriteValue(child1Value.Prop0);
+            writer.WritePropertyName("Prop2");
+            writer.WriteValue(child1Value.Prop2);
+            writer.WriteEndObject();
+        }
+    }
+
+    class ParentConverter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Parent);
+        }
+        public override bool CanWrite =&gt; false;
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            JsonConverter converter;
+            switch ((int)jobject["ChildType"])
+            {
+                case 1:
+                    converter = new Child1Converter();
+                    break;
+                case 2:
+                    converter = new Child2Converter();
+                    break;
+                default:
+                    throw new JsonReaderException();
+            }
+            var newReader = jobject.CreateReader(); //As JsonReader cannot be used twice, create new one and pass it.
+            return converter.ReadJson(newReader, objectType, existingValue, serializer);
+        }
+    }
+}
+
+
+
+
+Program.cs
+using Newtonsoft.Json;
+using System.Diagnostics;
+
+using JsonNetTest2_1;
+
+namespace JsonNetTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var child1 = new Child1() { Prop0 = "Child1", Prop1 = 1234 };
+            var child2 = new Child2() { Prop0 = "Child2", Prop2 = 1.234 };
+            string child1Json = JsonConvert.SerializeObject(child1);
+            var child1FromJson = JsonConvert.DeserializeObject&lt;Child1&gt;(child1Json);
+            Debug.WriteLine($"Child1.Prop0: {child1.Prop0 == child1FromJson.Prop0}");
+            Debug.WriteLine($"Child1.Prop1: {child1.Prop1 == child1FromJson.Prop1}");
+
+            string child2Json = JsonConvert.SerializeObject((Parent)child2);
+            var child2FromJson = JsonConvert.DeserializeObject&lt;Child2&gt;(child2Json);
+            Debug.WriteLine($"Child2.Prop0: {child2.Prop0 == child2FromJson.Prop0}");
+            Debug.WriteLine($"Child2.Prop2: {child2.Prop2 == child2FromJson.Prop2}");
+
+            Parent[] parents = new Parent[] { child1, child2 } ;
+            var jss = new JsonSerializerSettings() { Formatting = Formatting.Indented};
+            string parentsJson = JsonConvert.SerializeObject(parents, jss);
+            Parent[] parentsFromJson = JsonConvert.DeserializeObject&lt;Parent[]&gt;(parentsJson, jss);
+            foreach (var child in parentsFromJson)
+            {
+                Debug.WriteLine(JsonConvert.SerializeObject(child));
+            }
+        }
+    }
+}
+
+
+
+セキュリティ上の懸念が生じるらしい。 ↩
+
+

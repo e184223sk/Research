@@ -1,0 +1,63 @@
+using System.IO;
+using UnityEngine;
+using UnityEditor;
+using System.Collections.Generic;
+using System.Linq;
+
+/// &lt;summary&gt;
+/// .aseファイルから情報を抽出するクラス
+/// &lt;/summary&gt;
+public static class AseExtractor
+{
+    /// &lt;summary&gt;
+    /// .aseファイルの色を取り出す
+    /// &lt;/summary&gt;
+    public static IEnumerable&lt;Color&gt; GetColors(Object ase)
+    {
+        // .aseのバイナリを取得
+        byte[] bin = ToBinary(ase);
+
+        // RGBの個数の取得
+        int colorCount = bin[11];
+
+        // RGB値を取り出していく
+        int pos = 40;
+        for (int i = 0; i &lt; colorCount; i++)
+        {
+            float r = ReadFloatBE(bin, pos, 4);
+            float g = ReadFloatBE(bin, pos + 4, 4);
+            float b = ReadFloatBE(bin, pos + 8, 4);
+            yield return new Color(r, g, b, 1f);
+            pos += 42; 
+        }
+    }
+
+    static float ReadFloatBE(byte[] bytes, int pos, int length)
+    {
+        byte[] b = new byte[length];
+        int src = pos + length - 1;
+        for (int i = 0; i &lt; length; i++)
+        {
+            b[i] = bytes[src--];
+        }
+        return System.BitConverter.ToSingle(b, 0);
+    }
+
+    /// &lt;summary&gt;
+    /// Assetをバイト列にする 
+    /// &lt;/summary&gt;
+    static byte[] ToBinary(Object asset)
+    {
+        var split = AssetDatabase.GetAssetPath(asset).Split('/');
+        var path = Application.dataPath + "/";
+        for (int i = 1; i &lt; split.Length - 1; i++)
+        {
+            path += split[i] + "/";
+        }
+        path += split[split.Length - 1];
+        FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read);
+        BinaryReader bin = new BinaryReader(fileStream);
+        return bin.ReadBytes((int)bin.BaseStream.Length);
+    }
+}
+

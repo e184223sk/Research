@@ -1,0 +1,88 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Data;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading.Tasks;
+using System.IO.Ports;
+using System.IO;
+using System.Threading;
+
+namespace ComReceive
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            SerialPort sp = new SerialPort();
+            sp.BaudRate = 9600;
+            //sp.BaudRate = 115200;
+            sp.PortName = "COM4"; //自分たちのCOMポート番号にすること
+            // extra
+            sp.Parity = Parity.None;
+            sp.StopBits = StopBits.One;
+            sp.DataBits = 8;
+            //sp.DataReceived += new SerialDataReceivedEventHandler(sp_DataReceived);
+            // フロー制御はしません。
+            // port.DtrEnable = false;
+            //port.RtsEnable = false;
+
+            //Start Send Charctor
+            Console.Write("Press EnterKey to start!");
+            Console.ReadLine();
+            string req = "s";
+
+            try
+            {
+                sp.Open();//シリアルポートのオープン
+                sp.WriteLine(req);
+                Console.WriteLine("send 　 :" + req);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Unexpected exception: ", e.ToString());
+            }
+
+
+            //while(true)
+            for (int i = 0; i &lt; 50; i++)
+            {
+                //シリアルポートからの受信
+                string s = sp.ReadLine();
+                if (!string.IsNullOrEmpty(s))
+                {
+                    WebClient wc = new WebClient();
+                    Stream st;
+                    StreamReader sr;
+                    //受信データに関する処理
+                    if (s.StartsWith("a"))
+                    {
+                        Console.WriteLine("Receive command: a");
+                        st = wc.OpenRead("http://192.168.137.8:8181/a1");
+                        sr = new StreamReader(st, Encoding.GetEncoding("UTF-8"));
+                        Console.WriteLine(sr.ReadToEnd());
+                        //引数の値をミリ秒単位でみて時間待ちをする。
+                        Thread.Sleep(1000);
+                        st = wc.OpenRead("http://192.168.137.8:8181/a0");
+                        sr = new StreamReader(st, Encoding.GetEncoding("UTF-8"));
+                        Console.WriteLine(sr.ReadToEnd());
+                    }
+                    else
+                    {
+                        Console.WriteLine("Receive undefined command !");
+                        st = wc.OpenRead("http://192.168.137.8:8181/");
+                        sr = new StreamReader(st, Encoding.GetEncoding("UTF-8"));
+                        Console.WriteLine(sr.ReadToEnd());
+                    }
+                    wc.Dispose();
+                }
+            }
+            Console.WriteLine("loop was over");
+            sp.Close();//シリアルポートのクローズ
+        }
+    }
+}
+

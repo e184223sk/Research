@@ -1,0 +1,106 @@
+
+class Program {
+        ：（既出のMain()）
+    //    globalな変数（う～ん）
+    static List&lt;Slider&gt; SliderList = new List&lt;Slider&gt;();
+    static Stack&lt;Slider&gt; stack = new Stack&lt;Slider&gt;();
+
+    /// &lt;summary&gt;
+    /// 文字列の差分情報を１セットずつ返す
+    /// &lt;/summary&gt;
+    /// &lt;param name="strX"&gt;比較対象文字列１&lt;/param&gt;
+    /// &lt;param name="strY"&gt;比較対象文字列２&lt;/param&gt;
+    /// &lt;returns&gt;文字列差分情報&lt;/returns&gt;
+    static IEnumerable&lt;StringDiff&gt; GetDifference(string strX, string strY) {
+        int delta = Math.Abs(strX.Length - strY.Length);
+        int minlen = Math.Min(strX.Length, strY.Length);
+
+        //************************
+        //  Sliderを洗い出す
+        //************************
+
+        SliderList = new List&lt;Slider&gt;();
+
+        SliderList.Add(new Slider(Location.Origin, Location.Origin));
+        for(int y = 0; y &lt; strY.Length; y++) {
+            for(int x = 0; x &lt; strX.Length; x++) {
+                if(strX[x] != strY[y]) continue;
+                if(x != 0 &amp;&amp; y != 0 &amp;&amp; strX[x - 1] == strY[y - 1]) continue;
+
+                int dx = x;
+                int dy = y;
+                Location sLoc = new Location(dx, dy);
+                while(dx &lt; strX.Length &amp;&amp; dy &lt; strY.Length &amp;&amp; strX[dx] == strY[dy]) { dx++; dy++; }
+                Location eLoc = new Location(dx, dy);
+
+                SliderList.Add(new Slider(sLoc, eLoc));
+            }
+        }
+
+        SliderList.Reverse();
+
+        //************************
+        //  総当たりを仕掛ける
+        //************************
+
+        Location Goal = new Location(strX.Length, strY.Length);
+        for(int p = 0; p &lt;= minlen; p++) {
+            foreach(Slider slider in GetSlider(new Slider(Goal, Goal), delta + p * 2)) {
+                StringDiff Diff = new StringDiff();
+                Location last = new Location();
+                foreach(Slider curr in stack) {
+                    int del = curr.StartLoc.x - last.x;
+                    int add = curr.StartLoc.y - last.y;
+                    int sty = curr.EndLoc.x - curr.StartLoc.x;
+
+                    if(last.x &gt; curr.StartLoc.x || last.y &gt; curr.StartLoc.y) {
+                        if((last.x - last.y) &lt; (curr.StartLoc.x - curr.StartLoc.y)) {
+                            del = (curr.StartLoc.x - curr.StartLoc.y) - (last.x - last.y);
+                            add = 0;
+                            sty = curr.EndLoc.x - last.x - del;
+                        } else {
+                            del = 0;
+                            add = (last.x - last.y) - (curr.StartLoc.x - curr.StartLoc.y);
+                            sty = curr.EndLoc.y - last.y - add;
+                        }
+                    }
+
+                    if(del != 0) Diff.DeleteString(strX.Substring(last.x, del));
+                    if(add != 0) Diff.InsertString(strY.Substring(last.y, add));
+                    if(sty != 0) Diff.AsItIsString(strX.Substring(curr.EndLoc.x - sty, sty));
+
+                    last = curr.EndLoc;
+                }
+                p = minlen;
+                yield return Diff;
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 次に進めるスライダを洗い出す
+    /// 候補スライダを返す度にルートスタックを更新する
+    /// &lt;/summary&gt;
+    /// &lt;param name="slider"&gt;カレントスライダ&lt;/param&gt;
+    /// &lt;param name="distance"&gt;ゴールまでに残された距離&lt;/param&gt;
+    /// &lt;returns&gt;次に進んでも良いスライダ&lt;/returns&gt;
+    static IEnumerable&lt;Slider&gt; GetSlider(Slider slider, int distance) {
+        if(distance &lt; 0)
+            yield break;
+
+        stack.Push(slider);
+
+        if(slider.EndLoc.IsOrigin)
+            yield return slider;
+
+        int delta = Math.Abs(strX.Length - strY.Length);
+        foreach(Slider locs in SliderList)
+            if(!slider.Equals(locs) &amp;&amp; slider.EndLoc.x &gt;= locs.EndLoc.x &amp;&amp; slider.EndLoc.y &gt;= locs.EndLoc.y)
+                if(slider.StartLoc.Equals(slider.EndLoc) || (slider.EndLoc.x != locs.EndLoc.x &amp;&amp; slider.EndLoc.y != locs.EndLoc.y))
+                    if((locs.StartLoc.x + (distance - Math.Ceiling(delta / 2F)) &gt;= locs.StartLoc.y) &amp;&amp; (locs.StartLoc.x - (distance + Math.Ceiling(delta / 2F)) &lt;= locs.StartLoc.y))
+                        foreach(Slider slope in GetSlider(locs, distance - slider.StartLoc.Distance(locs.EndLoc)))
+                            yield return slope;
+        stack.Pop();
+    }
+}
+

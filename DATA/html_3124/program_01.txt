@@ -1,0 +1,97 @@
+
+public partial class SampleChart : Form
+{
+    private int MAX_POINTS = 60;
+    private Random rand = new Random();
+    private ScrollSeries series1;   //スクロール系列：Line
+    private Series series2; //標準系列：LINE（スクロールするがオーバヘッド大）
+    private ScrollSeries series3;   //スクロール系列：Point
+    private int counter = 0;
+
+    private void SampleChart_Load(object sender, EventArgs e)
+    {
+        chart1.FormatNumber += new System.EventHandler&lt;FormatNumberEventArgs&gt;(chart1_FormatNumber);
+        var area = chart1.ChartAreas[0];
+        area.AxisX.Enabled = AxisEnabled.True;
+        area.AxisY.Enabled = AxisEnabled.True;
+        area.AxisX.Minimum = 0;
+        area.AxisX.Maximum = MAX_POINTS;
+        area.AxisX.Interval = MAX_POINTS / 6;
+        area.AxisY.Minimum = -40;
+        area.AxisY.Maximum = 40;
+        area.AxisY.Interval = 40;
+        chart1.Series.Clear();
+        series1 = new ScrollSeries() { ChartType = SeriesChartType.Line, Color = Color.Yellow, BorderWidth = 2
+                              , MaxPoints = MAX_POINTS, SlicePoints = 10 };
+        series2 = new Series() { ChartType = SeriesChartType.Line, Color = Color.Green, BorderWidth = 2 };
+        series3 = new ScrollSeries() { ChartType = SeriesChartType.Point,Color = Color.Red, BorderWidth = 5
+                              , MaxPoints = MAX_POINTS, SlicePoints = 10 };
+        chart1.AddSeries(series1);  //メインでchart1.Invalidate()とする場合、chart1.Series.Add(series1)でもよい
+        chart1.AddSeries(series2);  //標準系列なのでchart1.Series.Add(series2)でもよい
+        chart1.AddSeries(series3);
+
+        //X値を使用する例
+        series1 = new ScrollSeries() { ChartType = SeriesChartType.Line, Color = Color.Yellow, BorderWidth = 2
+                              , UseXValue = true, MaxPoints = MAX_POINTS, SlicePoints = 10 };
+        var range = TimeAxisHelper.MsecRange(MAX_PLOTS * 100, DateTime.Now);
+        area.AxisX.Minimum = range.min;
+        area.AxisX.Maximum = range.max;
+        area.AxisX.Interval = 1000;
+        chart1.AddSeries(series1);
+    }
+
+    //100msごとに動作
+    private void Timer1_Tick(object sender, EventArgs e)
+    {
+        var yValue = Math.Sin(Math.PI * (counter-6) / 6d) * 30;
+        series1.AddScrollPoint(new DataPoint(0, yValue));
+        series2.Points.Insert(0,new DataPoint(0, yValue));
+        if(series2.Points.Count &gt; MAX_POINTS)
+        {
+            series2.Points.RemoveAt(MAX_POINTS);
+        }
+        counter = (++counter) % 12;
+        bool empty = rand.Next(0,10) == 0 ? false : true;
+        series3.AddScrollPoint(new DataPoint(0, 5){ IsEmpty = empty});
+        //chart1.Invalidate();  // chart1.AddSeriesの代わりにchart1.Series.Addを使用する場合
+    }
+
+    private void chart1_FormatNumber(object sender, FormatNumberEventArgs e)
+    {
+        var axis = sender as Axis;
+        if (axis == null || chart1.ChartAreas.Count == 0 || chart1.ChartAreas[0].AxisX != axis)
+        {
+            return;
+        }
+        var n = ((axis.CustomLabels.Count - (MAX_POINTS / axis.Interval)) * axis.Interval) / 10;
+        e.LocalizedValue = n.ToString();
+        //var dt = DateTime.Now;
+        //// UTC時間に変換
+        //dt = dt.ToUniversalTime();
+        //var te = (dt - UNIX_TIME).TotalMilliseconds;
+        //var span = e.Value;
+        //var past = (int)(te - span)/1000;
+        //e.LocalizedValue = past.ToString();
+    }
+
+    private class TimeAxisHelper
+    {
+        private static DateTime UNIX_TIME = new DateTime(1970, 1, 1, 0, 0, 0, 0);
+        public static (double min,double max) MsecRange(double maxMsec, DateTime lastTime)
+        {
+            var xMax = PointMsec(lastTime);
+            var span = TimeSpan.FromMilliseconds(maxMsec);
+            var xMin = PointMsec(lastTime - span);
+            return (xMin, xMax);
+        }
+
+        public static double PointMsec(DateTime dt)
+        {
+            dt = dt.ToUniversalTime();
+            var te = dt - UNIX_TIME;
+            return te.TotalMilliseconds;
+        }
+    }
+}
+
+

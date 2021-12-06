@@ -1,0 +1,6 @@
+More than 1 year has passed since last update.System.IO.Pipelinesが世に出てから今までいじってきた結果として、気を付けるべき点を書くPipeReaderの使い方は基本的には以下のようになる。この時、読出し処理のブロックの最後でpr.AdvanceTo(readResult.Buffer.End)しないと、ReadAsyncまたはTryReadの時にSystem.InvalidOperationException: Reading is already in progress.という例外が発生する。
+データを次回に持ち越したい場合、、pr.AdvanceTo(readResult.Buffer.Slice([次回の開始点]).Start)を使用すればOK。非同期でPipeReaderを受けてる時、いつまでたってもデータが来ない時がある。(await pr.ReadAsync()で待たされる)。
+このような場合、PipeWriterの方でデータをフラッシュしていない場合がある。pw.WriteAsync(data)を使用している場合は、内部的にFlushしているためこの問題は起こりえないが、pw.GetSpan()を駆使して同期的に処理している場合、ここに引っかかる可能性がある。なお、対処としては、ある程度データが溜まったらpw.FlushAsync()すれば、実行時点で蓄積されたバッファがPipeReaderの方に流れる。なお、Flushしない場合でも、Complete()した時点でバッファも一緒にFlushされるので、
+データ長が有限であることがわかっている場合はあえて途中のFlushをしないという選択肢もあり得る。
+
+

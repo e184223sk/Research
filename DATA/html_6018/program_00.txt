@@ -1,0 +1,58 @@
+using System;
+using Google.OrTools.LinearSolver;
+
+namespace ConsoleApp3 {
+    class Program {
+        static void Main(string[] args) {
+            // 解く問題を初期化(IDisposable対応)
+            // ・線形計画法/整数計画法なので"IntegerProgramming"
+            // ・ソルバーとしてCoin-or branch and cut(CBC)を使うので"CBC_MIXED_INTEGER_PROGRAMMING"
+            // ※ソルバーにGlop(”GLOP_LINEAR_PROGRAMMING”)を指定すると、整数制約が守られないので注意
+            using (var solver = Solver.CreateSolver("IntegerProgramming", "CBC_MIXED_INTEGER_PROGRAMMING")) {
+                // 初期化できてない場合はnullが返る
+                if (solver == null) {
+                    Console.WriteLine("ソルバーを初期化できませんでした。");
+                    return;
+                }
+                // 最適化の方向を設定する
+                // 最大化→SetMaximization、最小化→SetMinimization
+                var objective = solver.Objective();
+                objective.SetMaximization();
+                // 制約式の数・範囲
+                var e1 = solver.MakeConstraint(double.NegativeInfinity, 13.5);
+                var e2 = solver.MakeConstraint(double.NegativeInfinity, 10.0);
+                var e3 = solver.MakeConstraint(7.0, double.PositiveInfinity);
+                // 変数の数・名前・範囲
+                // 実数→MakeNumVar、整数→MakeIntVar、0-1変数→MakeBoolVar
+                // (0-1変数以外だと、下限および上限を指定できる)
+                // なお、MakeVarだと引数で整数制約があるか否かをbool指定できる
+                var x = solver.MakeIntVar(0.0, double.PositiveInfinity, "X");
+                var y = solver.MakeIntVar(0.0, double.PositiveInfinity, "Y");
+                // 目的関数の係数
+                objective.SetCoefficient(x, 5);
+                objective.SetCoefficient(y, 4);
+                // 制約式の係数
+                e1.SetCoefficient(x, 1.5);
+                e1.SetCoefficient(y, 3);
+                e2.SetCoefficient(x, 3);
+                e2.SetCoefficient(y, 1);
+                e3.SetCoefficient(x, 1);
+                e3.SetCoefficient(y, 2);
+                // 最適化
+                int resultStatus = solver.Solve();
+                // 結果表示
+                // 結果の返り値はdoubleなので注意
+                if (resultStatus != Solver.OPTIMAL) {
+                    Console.WriteLine("ソルバーで解けませんでした。");
+                    return;
+                }
+                Console.WriteLine($"計算時間：{solver.WallTime()}[ms]");
+                Console.WriteLine($"Z = {solver.Objective().Value()}");
+                Console.WriteLine($"{x.Name()} = {x.SolutionValue()}");
+                Console.WriteLine($"{y.Name()} = {y.SolutionValue()}");
+            }
+            return;
+        }
+    }
+}
+

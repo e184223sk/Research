@@ -1,0 +1,46 @@
+
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Windows.Media.Core;
+using Windows.Media.SpeechSynthesis;
+using Windows.Media.Playback;
+
+class Program
+{
+    static Task Speak(string lang, string text)
+    {
+        var tcs = new TaskCompletionSource&lt;int&gt;();
+        try
+        {
+            var voice = SpeechSynthesizer.AllVoices.First(v =&gt; v.Language.StartsWith(lang));
+            var synthesizer = new SpeechSynthesizer();
+            var player = new MediaPlayer();
+            synthesizer.Voice = voice;
+            var stream = synthesizer.SynthesizeTextToStreamAsync(text).AsTask().Result;
+            player.Source = MediaSource.CreateFromStream(stream, stream.ContentType);
+            player.MediaEnded += (sender, o) =&gt; tcs.SetResult(0);
+            player.Play();
+        }
+        catch (Exception e)
+        {
+            tcs.SetException(e);
+        }
+        return tcs.Task;
+    }
+
+    static async Task Main()
+    {
+        try
+        {
+            await Speak("en", "Hello, world!");
+            await Speak("fr", "Bonjour, monde !");
+            await Speak("ja", "こんにちは、世界！");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+    }
+}
+

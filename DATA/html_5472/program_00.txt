@@ -1,0 +1,307 @@
+using Microsoft.Xaml.Behaviors;
+using System;
+using System.ComponentModel;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+
+namespace Sample.WPF.Behaviors
+{
+     public class MaskedTextBoxBehavior : Behavior&lt;TextBox&gt; 
+    {
+        #region DependencyProperties
+        public string InputMask
+        {
+            get { return (string)GetValue(InputMaskProperty); }
+            set { SetValue(InputMaskProperty, value); }
+        }
+
+        public static readonly DependencyProperty InputMaskProperty =
+          DependencyProperty.Register("InputMask", typeof(string), 
+                                        typeof(MaskedTextBoxBehavior),  
+                                        null);
+
+
+        public char PromptChar
+        {
+            get { return (char)GetValue(PromptCharProperty); }
+            set { SetValue(PromptCharProperty, value); }
+        }
+
+        public static readonly DependencyProperty PromptCharProperty =
+           DependencyProperty.Register("PromptChar", typeof(char), 
+                                        typeof(MaskedTextBoxBehavior),
+                                        new PropertyMetadata('_'));
+
+
+        public bool IsTime
+        {
+            get { return (bool)GetValue(IsTimeProperty); }
+            set { SetValue(IsTimeProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsTimeProperty =
+            DependencyProperty.Register("MyProperty", typeof(bool), 
+                                        typeof(MaskedTextBoxBehavior), 
+                                        new PropertyMetadata(false));
+
+        #endregion
+
+        public MaskedTextProvider Provider { get; private set; }
+
+        protected override void OnAttached()
+        {
+            base.OnAttached();
+            AssociatedObject.Loaded += AssociatedObjectLoaded;
+            AssociatedObject.PreviewTextInput += AssociatedObjectPreviewTextInput;
+            AssociatedObject.PreviewKeyDown += AssociatedObjectPreviewKeyDown;
+            AssociatedObject.LostFocus += AccociateObjectLostFocus;
+            AssociatedObject.GotFocus += AssociatedObjectGotFocus;
+
+            DataObject.AddPastingHandler(AssociatedObject, Pasting);
+        }
+
+
+        protected override void OnDetaching()
+        {
+            base.OnDetaching();
+            AssociatedObject.Loaded -= AssociatedObjectLoaded;
+            AssociatedObject.PreviewTextInput -= AssociatedObjectPreviewTextInput;
+            AssociatedObject.PreviewKeyDown -= AssociatedObjectPreviewKeyDown;
+            AssociatedObject.LostFocus -= AccociateObjectLostFocus;
+            AssociatedObject.GotFocus -= AssociatedObjectGotFocus;
+
+            DataObject.RemovePastingHandler(AssociatedObject, Pasting);
+        }
+
+
+        /// &lt;summary&gt;
+        /// カーソルを最初の位置にする
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void AssociatedObjectGotFocus(object sender, RoutedEventArgs e)
+        {
+            AssociatedObject.Select(0, 0);
+
+            //選択時にSelectAllにする場合はこちら
+            //AssociatedObject.Select(0, AssociatedObject.Text.Length);
+        }
+
+
+        void AssociatedObjectLoaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            Provider = new MaskedTextProvider(InputMask, CultureInfo.CurrentCulture);
+            Provider.PromptChar = PromptChar;
+
+            Provider.Set(AssociatedObject.Text);
+
+            //ToDisplayString:表示できる形式で書式設定された文字列
+            AssociatedObject.Text = Provider.ToDisplayString();
+
+            var textProp = DependencyPropertyDescriptor.FromProperty(TextBox.TextProperty, typeof(TextBox));
+            if (textProp != null)
+            {
+                textProp.AddValueChanged(AssociatedObject, (s, args) =&gt; UpdateText());
+            }
+        }
+
+        void AssociatedObjectPreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            TreatSelectedText();
+
+            var position = GetNextCharacterPosition(AssociatedObject.SelectionStart);
+
+            if (Keyboard.IsKeyToggled(Key.Insert))
+            {
+                //上書きモード
+                if (Provider.Replace(e.Text, position))
+                    position++;
+            }
+            else
+            {
+                //挿入モード
+                if (Provider.InsertAt(e.Text, position))
+                    position++;
+            }
+
+            position = GetNextCharacterPosition(position);
+
+            RefreshText(position);
+
+            e.Handled = true;
+        }
+
+        void AssociatedObjectPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+
+            if (e.Key == Key.Space)
+            {
+                TreatSelectedText();
+
+                var position = GetNextCharacterPosition(AssociatedObject.SelectionStart);
+
+                if (Provider.InsertAt(" ", position))
+                    RefreshText(position);
+
+                e.Handled = true;
+            }
+
+            if (e.Key == Key.Back)
+            {
+                if (TreatSelectedText())
+                {
+                    RefreshText(AssociatedObject.SelectionStart);
+                }
+                else
+                {
+                    if (AssociatedObject.SelectionStart != 0)
+                    {
+                        if (Provider.RemoveAt(AssociatedObject.SelectionStart - 1))
+                            RefreshText(AssociatedObject.SelectionStart - 1);
+                    }
+                }
+
+                e.Handled = true;
+            }
+
+            if (e.Key == Key.Delete)
+            {
+                if (TreatSelectedText())
+                {
+                    RefreshText(AssociatedObject.SelectionStart);
+                }
+                else
+                {
+
+                    if (Provider.RemoveAt(AssociatedObject.SelectionStart))
+                        RefreshText(AssociatedObject.SelectionStart);
+
+                }
+
+                e.Handled = true;
+            }
+
+        }
+
+        private void AccociateObjectLostFocus(object sender, RoutedEventArgs e)
+        {
+            if (IsTime)
+            {
+                if(CheckTime(AssociatedObject.Text) != null)
+                {
+                    // Time is correct!
+                }
+                else
+                {
+                    AssociatedObject.Text = null;
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 00:00形式のテキスト入力が正しくできているかどうか、違う場合はnullにする
+        /// &lt;/summary&gt;
+        /// &lt;param name="time"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private string CheckTime(string time)
+        {
+            if (time == null) return null;
+
+            if (string.IsNullOrWhiteSpace(time)) return null;
+
+            string[] HHmm = time.Split(new char[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+            if (HHmm.Length != 2) return null;
+
+            int hour;
+            int minute;
+            if (!int.TryParse(HHmm[0], out hour)) return null;
+            if (!int.TryParse(HHmm[1], out minute)) return null;
+
+            if (hour &lt; 0 || hour &gt; 24) return null;
+            if (minute &lt; 0 || minute &gt; 59) return null;
+
+            return time;
+        }
+
+        /// &lt;summary&gt;
+        /// ペースト対応
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void Pasting(object sender, DataObjectPastingEventArgs e)
+        {
+            if (e.DataObject.GetDataPresent(typeof(string)))
+            {
+                var pastedText = (string)e.DataObject.GetData(typeof(string));
+
+                TreatSelectedText();
+
+                var position = GetNextCharacterPosition(AssociatedObject.SelectionStart);
+
+                if (Provider.InsertAt(pastedText, position))
+                {
+                    RefreshText(position);
+                }
+            }
+
+            e.CancelCommand();
+        }
+
+        /// &lt;summary&gt;
+        /// Textの更新
+        /// &lt;/summary&gt;
+        private void UpdateText()
+        {
+            //同じときは更新なし
+            if (Provider.ToDisplayString().Equals(AssociatedObject.Text))
+                return;
+
+            var isSet = Provider.Set(AssociatedObject.Text);
+
+            SetText(isSet ? Provider.ToDisplayString() : AssociatedObject.Text);
+        }
+
+        /// &lt;summary&gt;
+        /// Provider.Textの整理
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private bool TreatSelectedText()
+        {
+            if (AssociatedObject.SelectionLength &gt; 0)
+            {
+                return Provider.RemoveAt(AssociatedObject.SelectionStart,
+                                        AssociatedObject.SelectionStart + AssociatedObject.SelectionLength - 1);
+            }
+            return false;
+        }
+
+        private void RefreshText(int position)
+        {
+            SetText(Provider.ToDisplayString());
+
+            AssociatedObject.SelectionStart = position;
+        }
+
+        /// &lt;summary&gt;
+        /// Textをセットします
+        /// &lt;/summary&gt;
+        /// &lt;param name="text"&gt;&lt;/param&gt;
+        private void SetText(string text)
+        {
+            AssociatedObject.Text = string.IsNullOrWhiteSpace(text) ? string.Empty : text;
+        }
+
+        private int GetNextCharacterPosition(int startPosition)
+        {
+            var position = Provider.FindEditPositionFrom(startPosition, true);
+
+            if (position == -1)
+                return startPosition;
+            else
+                return position;
+        }
+    }
+}
+

@@ -1,0 +1,99 @@
+
+using System;
+using System.Data.OleDb;
+using System.Runtime.InteropServices;
+
+namespace mdbSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            string path = @"C:\dev\ps\database\test.mdb";
+            string cnnStr = @"Provider=Microsoft.Jet.OLEDB.4.0; Data Source=" + path;
+            if (System.IO.File.Exists(path))
+            {
+                System.IO.File.Delete(path);
+            }
+            // 32bitで動かす必要がある
+            // https://www.c-sharpcorner.com/uploadfile/mahesh/using-adox-with-ado-net/
+            // Microsoft ADO Ext 6.0
+            var ct = new ADOX.Catalog();
+            var createdObj = ct.Create(cnnStr);
+            ADOX.Table tbl = new ADOX.Table();
+            tbl.Name = "test_tbl";
+            tbl.Columns.Append("user_name", ADOX.DataTypeEnum.adVarWChar, 50);
+            tbl.Columns.Append("age", ADOX.DataTypeEnum.adInteger);
+            ct.Tables.Append(tbl);
+            createdObj.Close();
+            Marshal.ReleaseComObject(createdObj);
+            Marshal.ReleaseComObject(tbl);
+            Marshal.ReleaseComObject(ct);
+
+            using (var conn = new OleDbConnection(cnnStr))
+            {
+                conn.Open();
+                using (var cmd = new OleDbCommand("INSERT INTO test_tbl (user_name, age) VALUES (?, ?)", conn))
+                {
+                    cmd.Parameters.AddWithValue("@user", "明日のジョー");
+                    cmd.Parameters.AddWithValue("@age", 17);
+                    cmd.ExecuteNonQuery();
+
+                }
+                using (var cmd = new OleDbCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（ロールバック）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new OleDbCommand("INSERT INTO test_tbl (user_name, age) VALUES (?, ?)", conn, tran))
+                    {
+                        cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                        cmd.Parameters.AddWithValue("@age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Rollback();
+                }
+                using (var cmd = new OleDbCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（コミット）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new OleDbCommand("INSERT INTO test_tbl (user_name, age) VALUES (?, ?)", conn, tran))
+                    {
+                        cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                        cmd.Parameters.AddWithValue("@age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Commit();
+                }
+                using (var cmd = new OleDbCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+            }
+            Console.ReadLine();
+        }
+    }
+}
+
+

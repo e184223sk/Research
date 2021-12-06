@@ -1,0 +1,139 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Windows.Forms;
+using System.Drawing;
+
+class WinMain : Form
+{
+  DateTime todayData = DateTime.Now;  //現在の日時を取得。
+  private bool addX, addY;
+  string filePath = @"C#放置ゲーム_Date.txt";
+  int counter;  //繰り返しをカウントする用の変数
+  Label lb = new Label();
+
+  //体の位置、大きさの情報　ここをいじくって動かす
+  Rectangle rect;// = new Rectangle(50, 50, 50, 50);
+
+  //イベントメソッド , timer.Tick に追加する。
+  //フォーム内で縦横増減させ、画像を移動させる。
+  private void Move_Tick(object sender, EventArgs e)
+  {
+    //カウンター、これの値によりいろいろ処理
+    counter++;
+    //移動速度処理 float扱えるんかな？わからん
+    if(counter % 3 == 0)
+    {
+      rect.X += addX ? 1 : -2; //横方向移動
+      rect.Y += addY ? 2 : -1; //縦方向移動
+    }
+    //成長速度調整。
+    if(counter &gt;= 100)
+    {
+      rect.Width += 1;  //幅を増やす
+      rect.Height += 1; //高さを増やす
+      //現在の大きさを保存
+      File.WriteAllText(filePath, todayData.ToString() + "\n" +rect.Width.ToString());
+      counter = 0;
+    }
+
+    //フォームの外枠超えようとすると、移動方向反転
+    if(rect.X + rect.Width &gt;= ClientSize.Width)addX = false;
+    else if(rect.X &lt;= 0)addX = true;
+
+    if(rect.Y + rect.Height &gt;= ClientSize.Height)addY = false;
+    else if(rect.Y &lt;= 0)addY = true;
+
+    //現在の大きさを表示
+    lb.Text = rect.Width.ToString();
+    //再描画
+    Invalidate();
+  }
+
+  //画像を描画する処理
+  protected override void OnPaint(PaintEventArgs e)
+  {
+    //base.OnPaint(e); //なにこれ。なんであるの？
+    Graphics g = e.Graphics;
+    SolidBrush whiteBrush = new SolidBrush(Color.FromArgb(0xff, 0xff, 0xff));
+
+    //左目の位置とか大きさとか決める。
+    Rectangle eyeLeft = new Rectangle(
+      rect.X + rect.Width / 2 - rect.Width / 5, 
+      rect.Y + 15, 
+      rect.Width / 7, 
+      rect.Height / 7
+    );
+
+    //右目も
+    Rectangle eyeRight = new Rectangle(
+      rect.X + rect.Width / 2 + rect.Width / 5, 
+      rect.Y + 15, 
+      rect.Width / 7, 
+      rect.Height / 7
+    );
+
+    //体を描画する実際の処理。
+    g.FillEllipse(
+      new SolidBrush(Color.FromArgb(0x00, 0xff, 0xff)),
+      rect
+    );
+
+    //左目描画
+    g.FillEllipse(
+      whiteBrush,
+      eyeLeft
+    );
+
+    //右目
+    g.FillEllipse(
+      whiteBrush,
+      eyeRight
+    );
+  }
+
+  //コンストラクタ
+  WinMain()
+  {
+    //https://dobon.net/vb/dotnet/form/preventmaximize.html
+    //フォームを最大化、最小化できないようにする
+    //MaximizeBox = false;
+    //MinimizeBox = false;
+
+    //前回の記録を読み込み、開いてなかった時間を計算
+    string[] txtArr = File.ReadAllLines(filePath);
+    TimeSpan diffTime = todayData - DateTime.Parse(txtArr[0]);
+
+    //上記で出た時間 = 大きさとして、差異をサイズに取り込む。
+    int diffSize = (int)diffTime.TotalHours + int.Parse(txtArr[1]);
+    rect = new Rectangle(10, 10, diffSize, diffSize);
+
+    //大きさを表すラベルの位置を調整、コントロールに追加
+    lb.Bounds = new Rectangle(10, 10, 200, 20);
+    Controls.Add(lb);
+
+    //ダブルバッファ処理
+    //この塊はワンセットとしとけばたぶんOK
+    SetStyle(
+      ControlStyles.DoubleBuffer |
+      ControlStyles.UserPaint |
+      ControlStyles.AllPaintingInWmPaint, true
+    );
+
+    //突然出てくるタイマー、時間経過でイベント発生させる
+    Timer timer = new Timer();
+    timer.Interval = 10;
+    timer.Tick += new EventHandler(Move_Tick);
+    timer.Start();
+  }
+
+  //メイン関数 アプリケーションラン実行のみ
+  static void Main()
+  {
+    WinMain win = new WinMain();
+    win.Text = "放置ゲーム";
+    Application.Run(win);
+  }
+}
+

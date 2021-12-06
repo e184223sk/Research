@@ -1,0 +1,145 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Interactivity;
+using System.Windows.Media;
+
+namespace WpfApp7TextBlockCutPaste
+{
+    public class TextBlockSelectBehavior : Behavior&lt;TextBlock&gt;
+    {
+        private TextPointer StartSelectPosition;
+        private TextPointer EndSelectPosition;
+        private String SelectedText = "";
+
+        protected override void OnAttached()
+        {
+            base.OnAttached();
+            AssociatedObject.Initialized += AssociatedObject_Initialized;
+            AssociatedObject.Loaded += AssociatedObject_Loaded;
+            AssociatedObject.Unloaded += AssociatedObject_Unloaded;
+            AssociatedObject.MouseDown += AssociatedObject_MouseDown;
+            AssociatedObject.MouseMove += AssociatedObject_MouseMove;
+            AssociatedObject.MouseUp += AssociatedObject_MouseUp;
+        }
+
+        protected override void OnDetaching()
+        {
+            AssociatedObject.Initialized -= AssociatedObject_Initialized;
+            AssociatedObject.Loaded -= AssociatedObject_Loaded;
+            AssociatedObject.Unloaded -= AssociatedObject_Unloaded;
+            AssociatedObject.MouseDown -= AssociatedObject_MouseDown;
+            AssociatedObject.MouseMove -= AssociatedObject_MouseMove;
+            AssociatedObject.MouseUp -= AssociatedObject_MouseUp;
+            base.OnDetaching();
+        }
+
+        private void AssociatedObject_Initialized(object sender, EventArgs e)
+        {
+            // マウスオーバー時のカーソルはIビームに変更
+            AssociatedObject.Cursor = Cursors.IBeam;      
+        }
+
+        private Window _window = null;
+
+        private void AssociatedObject_Loaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            _window = Window.GetWindow(AssociatedObject);
+            if (_window != null) {
+                _window.MouseDown += _window_MouseDown;
+                _window.PreviewKeyDown += _window_PreviewKeyDown;
+            }
+        }
+
+        private void AssociatedObject_Unloaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            if (_window != null) {
+                _window.MouseDown -= _window_MouseDown;
+                _window.PreviewKeyDown -= _window_PreviewKeyDown;
+            }
+        }
+
+        private void _window_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 1 &amp;&amp; StartSelectPosition != null &amp;&amp; EndSelectPosition != null) {
+                TextRange otr = new TextRange(AssociatedObject.ContentStart, AssociatedObject.ContentEnd);
+                otr.ApplyPropertyValue(TextElement.BackgroundProperty, new SolidColorBrush(Colors.Transparent));
+            }
+        }
+
+        private void _window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if ((e.Key == Key.C || e.ImeProcessedKey == Key.C) &amp;&amp; Keyboard.Modifiers == ModifierKeys.Control) {
+                // Ctrl+C が押された場合はクリップボードに選択内容をコピー
+                if (!string.IsNullOrEmpty(SelectedText)) {
+                    Clipboard.SetText(SelectedText);
+                    e.Handled = true;
+                    return;
+                }
+            }
+        }
+
+        private void AssociatedObject_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount &gt;= 2) {
+                // ダブルクリック (全選択)
+                SelectText(AssociatedObject.ContentStart, AssociatedObject.ContentEnd);
+            } else {
+                // シングルクリック (選択開始)
+                if (AssociatedObject.CaptureMouse()) {
+                    Point mouseDownPoint = e.GetPosition(AssociatedObject);
+                    StartSelectPosition = AssociatedObject.GetPositionFromPoint(mouseDownPoint, true);
+                    EndSelectPosition = StartSelectPosition;
+                }
+            }
+        }
+
+        private void AssociatedObject_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (AssociatedObject.IsMouseCaptured) {
+                if (StartSelectPosition == null)
+                    return;
+                // 選択中文字列の背景色変更
+                Point mouseUpPoint = e.GetPosition(AssociatedObject);
+                var newEndSelectPosition = AssociatedObject.GetPositionFromPoint(mouseUpPoint, true);
+                TextRange ntr = new TextRange(StartSelectPosition, newEndSelectPosition);
+                var text = ntr.Text;
+                if (text.Length &lt; SelectedText.Length &amp;&amp; EndSelectPosition != null) {
+                    TextRange etr = new TextRange(newEndSelectPosition, EndSelectPosition);
+                    etr.ApplyPropertyValue(TextElement.BackgroundProperty, new SolidColorBrush(Colors.Transparent));
+                }
+                EndSelectPosition = newEndSelectPosition;
+                ntr.ApplyPropertyValue(TextElement.BackgroundProperty, new SolidColorBrush(Colors.Violet));
+                SelectedText = ntr.Text;
+            }
+        }
+
+        private void AssociatedObject_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (AssociatedObject.IsMouseCaptured) {
+                // 選択終了
+                Point mouseUpPoint = e.GetPosition(AssociatedObject);
+                EndSelectPosition = AssociatedObject.GetPositionFromPoint(mouseUpPoint, true);
+
+                SelectText(StartSelectPosition, EndSelectPosition);
+
+                AssociatedObject.ReleaseMouseCapture();
+            }
+        }
+
+        private void SelectText(TextPointer start, TextPointer end)
+        {
+            // TextBlockから選択範囲文字列取得
+            TextRange ntr = new TextRange(start, end);
+            ntr.ApplyPropertyValue(TextElement.BackgroundProperty, new SolidColorBrush(Colors.Violet));
+            SelectedText = ntr.Text;
+        }
+    }
+}
+

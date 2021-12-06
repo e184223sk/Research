@@ -1,0 +1,78 @@
+
+public class BenchmarkConfig : ManualConfig
+{
+    public BenchmarkConfig()
+    {
+        Add(MarkdownExporter.GitHub);
+        Add(MemoryDiagnoser.Default);
+        Add(Job.ShortRun);
+    }
+}
+
+[Config(typeof(BenchmarkConfig))]
+public class Benchmark
+{
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        original = new SampleItem("item1")
+        {
+            Value = 1,
+            Children = new List&lt;SampleChildItem&gt;()
+        };
+
+        for (int i = 0; i &lt; repeatCount; ++i)
+        {
+            original.Children.Add(new SampleChildItem($"child{i}") { Value = 1 });
+        }
+
+        // プロキシを生成するとオリジナルのリストの要素もプロキシに差し換わってしまうため、
+        // プロキシ生成前にリストをコピー
+        originalChildren = original.Children.ToArray();
+
+        proxy = original.AsTrackable();
+    }
+
+    SampleItem original;
+    SampleChildItem[] originalChildren;
+    SampleItem proxy;
+    int repeatCount = 100;
+
+    [Benchmark(Baseline = true)]
+    public void ChangeOriginal()
+    {
+        for (int i = 0; i &lt; repeatCount; ++i)
+        {
+            original.Value += 1;
+        }
+    }
+
+    [Benchmark]
+    public void ChangeChildOriginal()
+    {
+        foreach (var child in originalChildren)
+        {
+            child.Value += 1;
+        }
+    }
+
+    [Benchmark]
+    public void ChangeViaProxy()
+    {
+        for (int i = 0; i &lt; repeatCount; ++i)
+        {
+            proxy.Value += 1;
+        }
+    }
+
+    [Benchmark]
+    public void ChangeChildViaProxy()
+    {
+        foreach (var child in proxy.Children)
+        {
+            child.Value += 1;
+        }
+    }
+}
+

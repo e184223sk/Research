@@ -1,0 +1,476 @@
+    public class DatePickerBehavior : Behavior&lt;DatePicker&gt;
+    {
+        #region 内部データ
+        private string TempText;
+        private string ViewText;
+        private bool IscustomizeFormat;
+        private DatePickerTextBox _textBox;
+        private IDictionary&lt;DependencyProperty, bool&gt; _isHandlerSuspended;
+        private Button _calendarButton;
+        #endregion
+
+        #region DependencyProperties
+        #region IsKeyEnterToNextControl
+        /// &lt;summary&gt;
+        /// Enterキーでフォーカス移動するフラグ
+        /// &lt;/summary&gt;
+        public bool IsKeyEnterToNextControl
+        {
+            get { return (bool)GetValue(IsKeyEnterToNextControlProperty); }
+            set { SetValue(IsKeyEnterToNextControlProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsKeyEnterToNextControlProperty =
+            DependencyProperty.Register("IsKeyEnterToNextControl", typeof(bool), typeof(DatePickerBehavior),
+                                        new FrameworkPropertyMetadata(false));
+        #endregion
+
+        #region IsMonthYear
+        /// &lt;summary&gt;
+        /// カレンダーを年月までとするフラグ
+        /// &lt;/summary&gt;
+        public static readonly DependencyProperty IsMonthYearProperty =
+            DependencyProperty.Register("IsMonthYear", typeof(bool), typeof(DatePickerBehavior),
+                                         new FrameworkPropertyMetadata(false));
+        public bool IsMonthYear
+        {
+            get { return (bool)GetValue(IsMonthYearProperty); }
+            set { SetValue(IsMonthYearProperty, value); }
+        }
+        #endregion
+
+        #region 和暦用
+        private System.Globalization.JapaneseCalendar jpCalendar;
+        private System.Globalization.CultureInfo cultureInfo;
+        #endregion
+
+        #region カスタム書式
+        /// &lt;summary&gt;
+        /// 書式例
+        /// ggy年MM月dd日(ddd)
+        /// ggy年MM月dd日
+        /// ggy年M月d日(ddd)
+        /// ggy年M月d日
+        /// yyyy年MM月dd日(ddd)
+        /// yyyy年MM月dd日
+        /// yyyy年M月d日(ddd)
+        /// yyyy年M月d日
+        /// MM月dd日(ddd)
+        /// MM月dd日
+        /// M月d日(ddd)
+        /// M月d日
+        /// yyyy/MM/dd(ddd)
+        /// yyyy/MM/dd
+        /// yyyy/M/d(ddd)
+        /// yyyy/M/d
+        /// MM/dd/(ddd)
+        /// MM/dd
+        /// M/d(ddd)
+        /// M/d
+        /// &lt;/summary&gt;
+        public static readonly DependencyProperty CustomDateFormatProperty =
+                    DependencyProperty.Register("CustomDateFormat",
+                            typeof(string),
+                            typeof(DatePickerBehavior),
+                            new FrameworkPropertyMetadata(null));
+        public string CustomDateFormat
+        {
+            get { return (string)GetValue(CustomDateFormatProperty); }
+            set { SetValue(CustomDateFormatProperty, value); }
+        }
+        #endregion
+        #endregion
+
+        #region OnAttached
+        /// &lt;summary&gt;
+        /// コンストラクタで、イベントへメソッドを登録する。
+        /// &lt;/summary&gt;
+        protected override void OnAttached()
+        {
+            base.OnAttached();
+            jpCalendar = new JapaneseCalendar();
+            cultureInfo = new CultureInfo("ja-JP");
+            cultureInfo.DateTimeFormat.Calendar = jpCalendar;
+
+            AssociatedObject.Loaded += AssociatedObjectLoaded;
+            AssociatedObject.SelectedDateChanged += AssociatedObjectSelectedDateChanged;
+            AssociatedObject.PreviewKeyDown += OnPreviewKeyDown;
+        }
+        #endregion
+
+        #region OnDetaching
+        protected override void OnDetaching()
+        {
+            AssociatedObject.Loaded -= AssociatedObjectLoaded;
+            AssociatedObject.SelectedDateChanged -= AssociatedObjectSelectedDateChanged;
+            AssociatedObject.PreviewKeyDown -= OnPreviewKeyDown;
+        }
+        #endregion
+
+
+        private void AssociatedObjectLoaded(object sender, RoutedEventArgs e)
+        {
+            DatePicker datePicker = sender as DatePicker;
+            if (datePicker.Template == null)
+            {
+                return;
+            }
+
+
+            _textBox = datePicker.Template.FindName("PART_TextBox", datePicker) as DatePickerTextBox;
+            if (_textBox != null)
+            {
+                //IME=OFF
+                InputMethod.SetPreferredImeState(_textBox, InputMethodState.Off);
+
+                _textBox.RemoveHandler(TextBox.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
+                _textBox.RemoveHandler(TextBox.LostFocusEvent, new RoutedEventHandler(TextBox_LostFocus));
+                _textBox.RemoveHandler(TextBox.KeyDownEvent, new KeyEventHandler(TextBox_KeyDown));
+                _textBox.RemoveHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(TextBox_TextChanged));
+
+                _textBox.AddHandler(TextBox.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
+                _textBox.AddHandler(TextBox.LostFocusEvent, new RoutedEventHandler(TextBox_LostFocus), true);
+                _textBox.AddHandler(TextBox.KeyDownEvent, new KeyEventHandler(TextBox_KeyDown), true);
+                _textBox.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(TextBox_TextChanged));
+            }
+
+            // PART_Button
+            // 年月のみでカレンダーを表示させる場合に使用します
+            _calendarButton = datePicker.Template.FindName("PART_Button", datePicker) as Button;
+            if (_calendarButton != null &amp;&amp; IsMonthYear)
+            {
+                datePicker.CalendarOpened += DatePickerOnCalendarOpened;
+                datePicker.CalendarClosed += DatePickerOnCalendarClosed;
+            }
+
+            // PART_TextBox
+            // 表示用と編集用で表示フォーマットを変更します
+            this.IscustomizeFormat = !string.IsNullOrEmpty(this.CustomDateFormat);
+            if (this.IscustomizeFormat)
+            {
+                _textBox = datePicker.Template.FindName("PART_TextBox", datePicker) as DatePickerTextBox;
+
+                if (_textBox != null &amp;&amp; datePicker.SelectedDate != null)
+                {
+
+                    if (!_textBox.IsFocused || _textBox.IsReadOnly)
+                    {
+                        //フォーカスがあたっていない、もしくは読み取り専用の時はカスタム書式で表示
+                        if (this.CustomDateFormat.StartsWith("g", StringComparison.CurrentCulture))
+                        {
+                            _textBox.Text = datePicker.SelectedDate.Value.ToString(this.CustomDateFormat, cultureInfo);
+                        }
+                        else
+                        {
+                            _textBox.Text = datePicker.SelectedDate.Value.ToString(this.CustomDateFormat, CultureInfo.CurrentCulture);
+                        }
+                    }
+                    else if (!_textBox.IsReadOnly)
+                    {
+                        //フォーカスが合っていて、編集可能なときは、編集用の書式にする。
+                        _textBox.Text = this.ToEditingDateFormat(datePicker.SelectedDate.Value, datePicker);
+                    }
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// カレンダーを年月表示で表示させる
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void DatePickerOnCalendarOpened(object sender, RoutedEventArgs e)
+        {
+            var calendar = GetDatePickerCalendar(sender);
+            calendar.DisplayMode = CalendarMode.Year;
+
+            calendar.DisplayModeChanged += CalendarOnDisplayModeChanged;
+        }
+
+        /// &lt;summary&gt;
+        /// IsMonth=trueのときのカレンダーが閉じたときの動作
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="routedEventArgs"&gt;&lt;/param&gt;
+        private void DatePickerOnCalendarClosed(object sender, RoutedEventArgs routedEventArgs)
+        {
+            var calendar = GetDatePickerCalendar(sender);
+            AssociatedObject.SelectedDate = calendar.SelectedDate;
+
+            calendar.DisplayModeChanged -= CalendarOnDisplayModeChanged;
+        }
+
+        /// &lt;summary&gt;
+        /// PART_Popup　カレンダーを取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private System.Windows.Controls.Calendar GetDatePickerCalendar(object sender)
+        {
+            DatePicker datePicker = sender as DatePicker;
+            var popup = (Popup)datePicker.Template.FindName("PART_Popup", datePicker);
+            return ((System.Windows.Controls.Calendar)popup.Child);
+        }
+
+        private void CalendarOnDisplayModeChanged(object sender, CalendarModeChangedEventArgs e)
+        {
+            var calendar = (System.Windows.Controls.Calendar)sender;
+
+            if (calendar.DisplayMode != CalendarMode.Month)
+                return;
+
+            calendar.SelectedDate = GetSelectedCalendarDate(calendar.DisplayDate);
+
+            AssociatedObject.IsDropDownOpen = false;
+        }
+
+        private DateTime? GetSelectedCalendarDate(DateTime? selectedDate)
+        {
+            if (!selectedDate.HasValue)
+                return null;
+            return new DateTime(selectedDate.Value.Year, selectedDate.Value.Month, 1);
+        }
+
+        /// &lt;summary&gt;
+        /// 編集用の書式を使って、文字列に変換します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="date"&gt;日付&lt;/param&gt;
+        /// &lt;returns&gt;変換後の文字列&lt;/returns&gt;
+        private string ToEditingDateFormat(DateTime date, DatePicker datePicker)
+        {
+            if (datePicker.SelectedDateFormat == DatePickerFormat.Short)
+            {
+                //ShortDateString。
+                return date.ToShortDateString();
+            }
+            else
+            {
+                //LongDateString
+                return date.ToLongDateString();
+            }
+        }
+
+        #region LostFocusイベント
+        /// &lt;summary&gt;
+        /// LostFocusしたら指定された表示用の書式にします
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベントソース&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベントデータ&lt;/param&gt;
+        private void TextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            SetTextBoxDate(sender);
+        }
+
+        private void SetTextBoxDate(object sender)
+        {
+
+            if (AssociatedObject.Template == null || !this.IscustomizeFormat)
+            {
+                return;
+            }
+            _textBox = sender as DatePickerTextBox;
+            if (_textBox != null &amp;&amp; AssociatedObject.SelectedDate != null)
+            {
+                //変換前に値を一時保持
+                TempText = AssociatedObject.SelectedDate.Value.ToString();
+                //フォーカス喪失時の書式設定に変換
+                if (this.CustomDateFormat.StartsWith("g"))
+                {
+                    ViewText = AssociatedObject.SelectedDate.Value.ToString(this.CustomDateFormat, cultureInfo);
+                }
+                else
+                {
+                    ViewText = AssociatedObject.SelectedDate.Value.ToString(this.CustomDateFormat, CultureInfo.CurrentCulture);
+                }
+
+                _textBox.Text = ViewText;
+                TempText = "";
+            }
+            else
+            {
+                TempText = "";
+                ViewText = "";
+            }
+            return;
+        }
+        #endregion
+
+        /// &lt;summary&gt;
+        /// Enterキーで次のフォーカスに移動します
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void TextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+
+            if (e.Key == Key.Enter &amp; (sender as TextBox).AcceptsReturn == false &amp;&amp; IsKeyEnterToNextControl == true)
+            {
+                KeyEventArgs e1 = new KeyEventArgs(
+                                    e.KeyboardDevice,
+                                    e.InputSource,
+                                    e.Timestamp,
+                                    Key.Tab);
+                e1.RoutedEvent = Keyboard.KeyDownEvent;
+                InputManager.Current.ProcessInput(e1);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Key.DownでIsDropDownOpenをします
+        /// &lt;/summary&gt;
+        private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            Key key = e.Key;
+
+            if (key == Key.System)
+            {
+                key = e.SystemKey;
+            }
+
+            if (key == Key.Down)
+            {
+                if (AssociatedObject.IsDropDownOpen == false)
+                {
+                    AssociatedObject.IsDropDownOpen = true;
+                    e.Handled = true;
+                    return;
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// キーボードフォーカス取得時は編集用のLong/Shortの書式に変更します
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;DatePickerTextBox&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void TextBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (!this.IscustomizeFormat)
+            {
+                return;
+            }
+
+            var textBox = sender as DatePickerTextBox;
+            DateTime dateTime;
+
+            //一時保持した日付を表示します  
+            if (AssociatedObject.SelectedDate == null)
+            {
+                TempText = "";
+                ViewText = "";
+                return;
+            }
+
+            if (DateTime.TryParse(AssociatedObject.SelectedDate.Value.ToString(), out dateTime))
+            {
+                textBox.Text = this.ToEditingDateFormat(dateTime, AssociatedObject);
+            }
+            else
+            {
+                if (DateTime.TryParse(textBox.Text, out dateTime))
+                {
+                    textBox.Text = this.ToEditingDateFormat(dateTime, AssociatedObject);
+                    TempText = textBox.Text;
+                }
+            }
+            return;
+        }
+
+        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            this.SetValueNoCallback(DatePicker.TextProperty, this._textBox.Text);
+        }
+
+        private void SetValueNoCallback(DependencyProperty property, object value)
+        {
+            SetIsHandlerSuspended(property, true);
+            try
+            {
+                SetCurrentValue(property, value);
+            }
+            finally
+            {
+                SetIsHandlerSuspended(property, false);
+            }
+        }
+
+        private void SetIsHandlerSuspended(DependencyProperty property, bool value)
+        {
+            if (value)
+            {
+                if (_isHandlerSuspended == null)
+                {
+                    _isHandlerSuspended = new Dictionary&lt;DependencyProperty, bool&gt;(2);
+                }
+
+                _isHandlerSuspended[property] = true;
+            }
+            else
+            {
+                if (_isHandlerSuspended != null)
+                {
+                    _isHandlerSuspended.Remove(property);
+                }
+            }
+        }
+
+
+        /// &lt;summary&gt;
+        /// 選択日付変更イベント用メソッド
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベントソース&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベントデータ&lt;/param&gt;
+        private void AssociatedObjectSelectedDateChanged(object sender, SelectionChangedEventArgs e)
+        {
+
+            DatePicker datePicker = sender as DatePicker;
+
+            if (datePicker.SelectedDate == null)
+            {
+                //PART_TextBoxの値がない場合は、カレンダーの初期値を本日にします
+                datePicker.DisplayDate = DateTime.Now;
+                return;
+            }
+
+            if (datePicker.Template == null)
+                return;
+
+            //テンプレート内のテキストボックスを検索します。
+            var dateTextBox = datePicker.Template.FindName("PART_TextBox", datePicker) as DatePickerTextBox;
+
+            if (dateTextBox != null)
+            {
+                if (string.IsNullOrWhiteSpace(dateTextBox.Text))
+                    return;
+
+                //変換前に値を一時保持
+                TempText = datePicker.SelectedDate.Value.ToString();
+
+                //編集中の書式
+                if (datePicker.IsFocused || dateTextBox.IsFocused)
+                {
+                    dateTextBox.Text = this.ToEditingDateFormat(datePicker.SelectedDate.Value, datePicker);
+                }
+                else
+                {
+                    if (this.IscustomizeFormat)
+                    {
+                        if (this.CustomDateFormat.StartsWith("g"))
+                        {
+                            dateTextBox.Text = datePicker.SelectedDate.Value.ToString(this.CustomDateFormat, cultureInfo);
+                        }
+                        else
+                        {
+                            dateTextBox.Text = datePicker.SelectedDate.Value.ToString(this.CustomDateFormat, CultureInfo.CurrentCulture);
+                        }
+                    }
+                    else
+                    {
+                        dateTextBox.Text = datePicker.SelectedDate.Value.ToString("yyyy/MM/dd");
+                    }
+                }
+            }
+        }
+
+    }
+

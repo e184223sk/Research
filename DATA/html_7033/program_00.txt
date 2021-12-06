@@ -1,0 +1,174 @@
+using System;
+
+namespace DateTimeOffsetStudy
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                //日本時間のタイムゾーン情報
+                var jstTimeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+                //米国東海岸時間のタイムゾーン情報
+                var etTimeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeOffsetでの変換 - 1（日本時間から夏時間な東海岸時間に）
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+                //2016年8月29日 15時30分11秒 (UTC+9) = いわゆる日本時間の2016年8月29日 15時30分11秒
+                var jstDateTimeOffsetSample1 = new DateTimeOffset(2016, 8, 29, 15, 30, 11, jstTimeZoneInfo.BaseUtcOffset);
+
+                // 東海岸時間に変換
+                // jstDateTimeOffset1に入っている日時は、東海岸時間では夏時間にあたり13時間差なので
+                // 2016年8月29日 2時30分11秒 (UTC-4)が返る
+                //
+                // 夏時間だろうが冬時間だろうが、TimeZoneInfo.ConvertTime()がよきに計らってくれる
+                var etDateTimeOffsetSample1 = TimeZoneInfo.ConvertTime(jstDateTimeOffsetSample1, etTimeZoneInfo);
+
+                Console.WriteLine($"日本時間の{jstDateTimeOffsetSample1}を東海岸時間に変換すると{etDateTimeOffsetSample1}です");
+                // =&gt; 日本時間の8/29/2016 3:30:11 PM +09:00を東海岸時間に変換すると8/29/2016 2:30:11 AM -04:00です
+
+                //DateTimeOffsetはある一意の地点を指しているので、変換したとしてもイコールである
+                Console.WriteLine($"jstDateTimeOffsetSample1.Equals(etDateTimeOffsetSample1) = {jstDateTimeOffsetSample1.Equals(etDateTimeOffsetSample1)}");
+                // =&gt; jstDateTimeOffsetSample1.Equals(etDateTimeOffsetSample1) = True
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeOffsetでの変換 - 2（日本時間から冬時間な東海岸時間に）
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+                //2016年1月29日 15時30分11秒 (UTC+9) = いわゆる日本時間の2016年1月29日 15時30分11秒
+                var jstDateTimeOffsetSample2 = new DateTimeOffset(2016, 1, 29, 15, 30, 11, jstTimeZoneInfo.BaseUtcOffset);
+
+                // 東海岸時間に変換
+                // jstDateTimeOffset2に入っている日時は、東海岸時間では冬時間で14時間差なので
+                // 2016年1月29日 1時30分11秒 (UTC-5)が返る
+                //
+                // 夏時間だろうが冬時間だろうが、TimeZoneInfo.ConvertTime()がよきに計らってくれる
+                var etDateTimeOffset2 = TimeZoneInfo.ConvertTime(jstDateTimeOffsetSample2, etTimeZoneInfo);
+
+                Console.WriteLine($"日本時間の{jstDateTimeOffsetSample2}を東海岸時間に変換すると{etDateTimeOffset2}です");
+                // =&gt; 日本時間の1/29/2016 3:30:11 PM +09:00を東海岸時間に変換すると1/29/2016 1:30:11 AM -05:00です
+
+                Console.WriteLine("");
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=");
+
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeのよくある残念なパターン1 - 指定できない時刻
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                //
+                // 『2016年3月13日 15時59分59秒』と『2015年11月1日 16時00分00秒』を日本時間として扱い、それぞれ東海岸時間にしようとする。
+                // すると、それぞれ『2016年3月13日 1時59分59秒』と『2016年3月13日 3時00分00秒』に変換される。
+                // なぜなら、東海岸時間で冬時間から夏時間に変わるときには1時59分59秒の次は3時00分00秒がくるので、
+                // 前者は『冬時間の1時59分59秒』、後者は『夏時間の3時00分00秒』という変換のされ方になる。
+                //
+                var jstDateTime1 = new DateTime(2016, 3, 13, 15, 59, 59, DateTimeKind.Unspecified);
+                var jstDateTime1Plus1Sec = jstDateTime1.AddSeconds(1);
+                Console.WriteLine($"日本時間の{jstDateTime1}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTime1, jstTimeZoneInfo, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の3/13/2016 3:59:59 PMは東海岸時間の3/13/2016 1:59:59 AMです
+                Console.WriteLine($"日本時間の{jstDateTime1Plus1Sec}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTime1Plus1Sec, jstTimeZoneInfo, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の3/13/2016 4:00:00 PMは東海岸時間の3/13/2016 3:00:00 AMです
+
+                Console.WriteLine("↑↑↑おかしい↑↑↑");
+                Console.WriteLine("");
+
+
+                // DateTimeOffsetなら、時刻を正しく扱える
+                var jstDateTimeOffset1 = new DateTimeOffset(2016, 3, 13, 15, 59, 59, jstTimeZoneInfo.BaseUtcOffset);
+                var jstDateTimeOffset1Plus1Sec = jstDateTimeOffset1.AddSeconds(1);
+
+                Console.WriteLine($"日本時間の{jstDateTimeOffset1}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTimeOffset1, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の3/13/2016 3:59:59 PM +09:00は東海岸時間の3/13/2016 1:59:59 AM -05:00です
+                Console.WriteLine($"日本時間の{jstDateTimeOffset1Plus1Sec}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTimeOffset1Plus1Sec, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の3/13/2016 4:00:00 PM +09:00は東海岸時間の3/13/2016 3:00:00 AM -04:00です
+
+                Console.WriteLine("↑↑↑DateTimeOffsetなら、オフセット部分が-5時間から-4時間に変化しているので問題無い↑↑↑");
+                Console.WriteLine("");
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=");
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeのよくある残念なパターン2 - ダブる時刻
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                //
+                // 『2015年11月1日 14時59分59秒』と『2015年11月1日 15時00分00秒』を日本時間として扱い、それぞれ東海岸時間にしようとする。
+                // すると、それぞれ『2015年11月1日 1時59分59秒』と『2015年11月1日 1時00分00秒』に変換される。
+                // なぜなら、東海岸時間で夏時間から冬時間に変わるときには1時59分59秒の次にもう1回1時00分00秒がくるので、
+                // 前者は『夏時間の1時59分59秒』、後者は『冬時間の1時00分00秒』という変換のされ方になる。
+                //
+                var jstDateTime2 = new DateTime(2015, 11, 1, 14, 59, 59, DateTimeKind.Unspecified);
+                var jstDateTime2Plus1Sec = jstDateTime2.AddSeconds(1);
+                Console.WriteLine($"日本時間の{jstDateTime2}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTime2, jstTimeZoneInfo, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の11/1/2015 2:59:59 PMは東海岸時間の11/1/2015 1:59:59 AMです
+                Console.WriteLine($"日本時間の{jstDateTime2Plus1Sec}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTime2Plus1Sec, jstTimeZoneInfo, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の11/1/2015 3:00:00 PMは東海岸時間の11/1/2015 1:00:00 AMです
+
+                Console.WriteLine("↑↑↑おかしい↑↑↑");
+                Console.WriteLine("");
+
+                // DateTimeOffsetなら、時刻を正しく扱える
+                var jstDateTimeOffset2 = new DateTimeOffset(2015, 11, 1, 14, 59, 59, jstTimeZoneInfo.BaseUtcOffset);
+                var jstDateTimeOffset2Plus1Sec = jstDateTimeOffset2.AddSeconds(1);
+
+                Console.WriteLine($"日本時間の{jstDateTimeOffset2}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTimeOffset2, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の11/1/2015 2:59:59 PM +09:00は東海岸時間の11/1/2015 1:59:59 AM -04:00です
+                Console.WriteLine($"日本時間の{jstDateTimeOffset2Plus1Sec}は東海岸時間の{TimeZoneInfo.ConvertTime(jstDateTimeOffset2Plus1Sec, etTimeZoneInfo)}です");
+                // =&gt; 日本時間の11/1/2015 3:00:00 PM +09:00は東海岸時間の11/1/2015 1:00:00 AM -05:00です
+
+                Console.WriteLine("↑↑↑DateTimeOffsetなら、オフセット部分が-4時間から-5時間に変化しているので問題無い↑↑↑");
+                Console.WriteLine("");
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=");
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeのよくある残念なパターン3 - 変換しようとして例外が発生する時刻（パターン1の裏返し）
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                //
+                // 『2016年3月13日 2時30分11秒』を東海岸時間として扱い、それを日本時間にしようとすると、ArgumentExceptionが発生する。
+                // なぜなら、2016年3月13日は冬時間から夏時間に戻る日で、1時59分59秒の次は3時00分00秒なので、
+                // 東海岸時間には『2016年3月13日 2時30分11秒』は存在しないから。
+                //
+                try
+                {
+                    Console.WriteLine($"{TimeZoneInfo.ConvertTime(new DateTime(2016, 3, 13, 2, 30, 11), etTimeZoneInfo, jstTimeZoneInfo)}");
+                }
+                catch (ArgumentException exception)
+                {
+                    Console.WriteLine($"例外が発生しました. {exception.Message}");
+                }
+
+                Console.WriteLine("");
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=");
+
+
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                // DateTimeのよくある残念なパターン4 - 指定できない時刻（パターン2の裏返し）
+                //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+                //
+                // 『2015年11月1日 0時59分59秒』と『2015年11月1日 1時00分00秒』を東海岸時間として扱い、それぞれ日本時間にしようとする。
+                // すると、それぞれ『2015年11月1日 13時59分59秒』と『2015年11月1日 15時00分00秒』に変換される。
+                // なぜなら、夏時間から冬時間に変わるときは1時59分59秒の次にもう1回1時0分0秒がくるので
+                // UTCからのオフセット値がないと東海岸時間午前1時台は曖昧にしか表現できないため。
+                //
+                Console.WriteLine($"{TimeZoneInfo.ConvertTime(new DateTime(2015, 11, 1, 0, 59, 59), etTimeZoneInfo, jstTimeZoneInfo)}");
+                Console.WriteLine($"{TimeZoneInfo.ConvertTime(new DateTime(2015, 11, 1, 1, 0, 0), etTimeZoneInfo, jstTimeZoneInfo)}");
+
+                Console.WriteLine("");
+                Console.WriteLine("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=");
+
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                Console.WriteLine("Unable to identify target time zone for conversion.");
+            }
+
+        }
+    }
+}
+
+

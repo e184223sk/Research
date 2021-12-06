@@ -1,0 +1,199 @@
+
+namespace LifeGameModel
+{
+    using System;
+    using System.Linq;
+    using System.Diagnostics;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using System.Collections.Generic;
+
+    public class LifeGameManager
+    {
+        private Dictionary&lt;int, List&lt;bool&gt;&gt; _preGeneration = new Dictionary&lt;int, List&lt;bool&gt;&gt;();
+        private Dictionary&lt;int, List&lt;bool&gt;&gt; _curGeneration = new Dictionary&lt;int, List&lt;bool&gt;&gt;();
+        private Task _task = null;
+        private CancellationTokenSource _tokenSource = null;
+        public event EventHandler LayoutUpdated = null;
+
+        private LifeGameManager() { }
+        public static LifeGameManager Instance { get; } = new LifeGameManager();
+
+        public int Rank { get; set; } = 30;
+
+        private double _density = 0.25;
+        public double Density
+        {
+            get =&gt; _density;
+            set
+            {
+                if (value &lt;= 0 || 1.0 &lt;= value) return;
+                _density = value;
+            }
+        }
+
+        public void InitializeGeneration()
+        {
+            _preGeneration.Clear();
+            _curGeneration.Clear();
+            _preGeneration = Enumerable.Range(0, Rank).ToDictionary(_ =&gt; _, _ =&gt; Enumerable.Repeat(false, Rank).ToList());
+            _curGeneration = Enumerable.Range(0, Rank).ToDictionary(_ =&gt; _, _ =&gt; Enumerable.Repeat(false, Rank).ToList());
+        }
+
+        public Dictionary&lt;int, List&lt;bool&gt;&gt; GetCurrentGeneration()
+            =&gt; _curGeneration;
+
+        public void ToggleAlive(int i, int j)
+            // 指定された部分を真偽反転させる
+            =&gt; _curGeneration[i][j] = !_curGeneration[i][j];
+
+        public void StartGame()
+        {
+            if (_task?.Status == TaskStatus.Running)
+            {
+                Trace.WriteLine("[INF] LifeGame is already running");
+                return;
+            }
+
+            _tokenSource = new CancellationTokenSource();
+            _task = Task.Factory.StartNew(() =&gt;
+            {
+                while (!_tokenSource.IsCancellationRequested)
+                {
+                    UpdateGeneration();
+                    LayoutUpdated?.Invoke(null, null);
+
+                    Thread.Sleep(500);
+                }
+            }, _tokenSource.Token);
+
+            Trace.WriteLine("[INF] LifeGame is started");
+        }
+
+        public void StopGame()
+        {
+            if (_task?.Status != TaskStatus.Running || _tokenSource == null)
+            {
+                Trace.WriteLine("[INF] LifeGame is NOT running");
+                return;
+            }
+
+            _tokenSource.Cancel();
+            _task.Wait();
+
+            _tokenSource.Dispose();
+            _task.Dispose();
+
+            _tokenSource = null;
+            _task = null;
+
+            Trace.WriteLine("[INF] LifeGame is stopped");
+        }
+
+        private void UpdateGeneration()
+        {
+            // 世代交代
+            _preGeneration = (from pair in _curGeneration select pair)
+                .ToDictionary(_p =&gt; _p.Key, _p =&gt; new List&lt;bool&gt;(_p.Value));
+            // 現世代の算出
+            for (int i = 0; i &lt; Rank; i++)
+            {
+                for (int j = 0; j &lt; Rank; j++)
+                {
+                    int aliveCell = GetAliveSurroundCellCount(i, j);
+
+                    if (Birth(i, j, aliveCell))
+                    {
+                        // 誕生
+                        _curGeneration[i][j] = true;
+                    }
+                    else if (Depopulation(i, j, aliveCell))
+                    {
+                        // 過疎
+                        _curGeneration[i][j] = false;
+                    }
+                    else if (Survive(i, j, aliveCell))
+                    {
+                        // 生存
+                        _curGeneration[i][j] = true;
+                    }
+                    else if (Overcrowded(i, j, aliveCell))
+                    {
+                        // 過密
+                        _curGeneration[i][j] = false;
+                    }
+                }
+            }
+        }
+
+        private int GetAliveSurroundCellCount(int i, int j)
+        {
+            int above = i == 0 ? Rank - 1 : i - 1;
+            int below = i == Rank - 1 ? 0 : i + 1;
+            int left = j == 0 ? Rank - 1 : j - 1;
+            int right = j == Rank - 1 ? 0 : j + 1;
+
+            int aliveCell = 0;
+            if (_preGeneration[above][left]) aliveCell++;
+            if (_preGeneration[above][j]) aliveCell++;
+            if (_preGeneration[above][right]) aliveCell++;
+            if (_preGeneration[i][left]) aliveCell++;
+
+            if (_preGeneration[i][right]) aliveCell++;
+            if (_preGeneration[below][left]) aliveCell++;
+            if (_preGeneration[below][j]) aliveCell++;
+            if (_preGeneration[below][right]) aliveCell++;
+
+            return aliveCell;
+        }
+
+        private bool Birth(int i, int j, int aliveSurroundCells)
+            =&gt; !_preGeneration[i][j] &amp;&amp; aliveSurroundCells == 3;
+
+        private bool Depopulation(int i, int j, int aliveSurroundCells)
+            =&gt; _preGeneration[i][j] &amp;&amp; aliveSurroundCells &lt;= 1;
+
+        private bool Survive(int i, int j, int aliveSurroundCells)
+            =&gt; _preGeneration[i][j] &amp;&amp; (aliveSurroundCells == 2 || aliveSurroundCells == 3);
+
+        private bool Overcrowded(int i, int j, int aliveSurroundCells)
+            =&gt; _preGeneration[i][j] &amp;&amp; aliveSurroundCells &gt;= 4;
+
+        public void RandomInitializeGeneration()
+        {
+            _preGeneration.Clear();
+            _preGeneration = Enumerable.Range(0, Rank).ToDictionary(_ =&gt; _, _ =&gt; Enumerable.Repeat(false, Rank).ToList());
+
+            int totalCellCount = Rank * Rank;
+            var randomList = GetRandomRange(0, totalCellCount, (int)(totalCellCount * Density));
+            for (int i = 0; i &lt; Rank; i++)
+            {
+                for (int j = 0; j &lt; Rank; j++)
+                {
+                    if (randomList.Any(_r =&gt; _r / Rank == i &amp;&amp; _r % Rank == j))
+                        _curGeneration[i][j] = true;
+                    else
+                        _curGeneration[i][j] = false;
+                }
+            }
+        }
+
+        private List&lt;int&gt; GetRandomRange(int min, int max, int count)
+        {
+            if (min &gt; max || count &lt;= 0) return null;
+
+            Random random = new Random(DateTime.Now.Millisecond);
+            List&lt;int&gt; list = new List&lt;int&gt;();
+
+            while (list.Count &lt; count)
+            {
+                int r = random.Next(min, max);
+                if (list.Contains(r)) continue;
+
+                list.Add(r);
+            }
+            return list;
+        }
+    }
+}
+

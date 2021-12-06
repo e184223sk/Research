@@ -1,0 +1,84 @@
+
+
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+
+class SampleProgram
+{
+    static void PinToQuickAccess(string[] paths)
+    {
+        if ( paths.Length &gt; 0 ) {
+            Type type = Type.GetTypeFromProgID("Shell.Application");
+            dynamic shell = Activator.CreateInstance(type);
+            foreach ( string tmp in paths ) {
+                string path = Path.GetFullPath(tmp);
+                if ( File.Exists(path) &amp;&amp; path.EndsWith(".lnk",true,null) ) {
+                    // lnk file
+                    path = GetTargetPath(path) ?? "";
+                }
+                if ( Directory.Exists(path) ) {
+                    var folder = shell.NameSpace(path);
+                    var item = folder.Self;
+                    item.InvokeVerb("pintohome");
+                }
+            }
+        }
+
+        // COMオブジェクト解放 ... これでいいはず
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+    }
+
+    // ※ピン止めされていないものもリストアップされる
+    static string[] GetEntriesOfQuickAccess()
+    {
+        var paths = new List&lt;string&gt;();
+
+        {
+            Type type = Type.GetTypeFromProgID("Shell.Application");
+            dynamic shell = Activator.CreateInstance(type);
+            dynamic folder = shell.NameSpace("shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}");
+
+            if ( folder != null ) {
+                foreach (dynamic folderItem in folder.Items()) {
+                    string s = folderItem.Path;
+                    paths.Add(s);
+                    Console.WriteLine(s);
+                }
+            }
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        return paths.ToArray();
+    }
+
+    // .lnkファイルからパスを取得する
+    static string GetTargetPath(string fullPath)
+    {
+        {
+            Type type = Type.GetTypeFromProgID("WScript.Shell");
+            dynamic shell = Activator.CreateInstance(type);// IWshRuntimeLibrary.WshShell
+            dynamic lnk = shell.CreateShortcut(fullPath);// IWshRuntimeLibrary.IWshShortcut
+
+            if (string.IsNullOrEmpty(lnk.TargetPath)) {
+                return null;
+            }
+
+            return lnk.TargetPath;
+        }
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        GetEntriesOfQuickAccess();
+        PinToQuickAccess(args);
+    }
+}
+

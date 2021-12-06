@@ -1,0 +1,125 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+
+namespace OOP.HasNotComeSikkuri {
+
+    public abstract class Hand {
+    }
+
+    public class Gu : Hand {
+        public override string ToString()
+            =&gt; "グー";
+    }
+
+    public class Tyoki : Hand {
+        public override string ToString()
+            =&gt; "チョキ";
+    }
+
+    public class Pa : Hand {
+        public override string ToString()
+            =&gt; "パー";
+    }
+
+    public interface IComparer {
+        Type From { get; }
+        Type To { get; }
+        bool Result { get; }
+    }
+
+    public sealed class Wins&lt;T1, T2&gt; : IComparer
+        where T1 : Hand
+        where T2 : Hand
+    {
+        public Type From { get; } = typeof(T1);
+        public Type To { get; } = typeof(T2);
+        public bool Result { get; } = true;
+    }
+
+    public sealed class Reverse : IComparer {
+        public Type From { get { return _Source.To; } }
+        public Type To { get { return _Source.From; } }
+        public bool Result { get { return !_Source.Result; } }
+        readonly IComparer _Source;
+        public Reverse(IComparer source)
+        {
+            _Source = source;
+        }
+    }
+
+    public sealed class Rule {
+        readonly ReadOnlyDictionary&lt;string, IComparer&gt; _Matches;
+        readonly Type[] _AvailableHands;
+
+        public Rule(params IComparer[] rules)
+        {
+            _Matches = new ReadOnlyDictionary&lt;string, IComparer&gt;(
+                rules
+                    .SelectMany(rule =&gt; new[] { rule, new Reverse(rule) })
+                    .GroupBy(rule =&gt; GenerateMatchKey(rule.From, rule.To))
+                    .ToDictionary(gr =&gt; gr.Key, gr =&gt; gr.Last())
+                );
+            _AvailableHands = rules.SelectMany(rule =&gt; new[] { rule.From, rule.To }).Distinct().ToArray();
+        }
+
+        private string GenerateMatchKey(Type t1, Type t2)
+            =&gt; $"{t1}=&gt;{t2}";
+
+        public Hand CreateHand(int randomNumber)
+            =&gt; Activator.CreateInstance(_AvailableHands[(randomNumber % _AvailableHands.Length)]) as Hand;
+
+        public Hand Play(params Hand[] players)
+            =&gt; players.SingleOrDefault(player =&gt; players.All(target =&gt; target == player || Win(player, target)));
+
+        private bool Win(Hand player1, Hand player2)
+            =&gt; (Find(player1, player2, true) ?? Find(player2, player1, false)) != null;
+
+        private IComparer Find(Hand player1, Hand player2, bool expectedResult)
+        {
+            IComparer rule;
+            return _Matches.TryGetValue(GenerateMatchKey(player1.GetType(), player2.GetType()), out rule) &amp;&amp; (rule.Result == expectedResult) ? rule : null;
+        }
+    }
+
+    public class Program {
+        public static void Main()
+        {
+            int numOfPlayers;
+            while (true) {
+                Console.Write("プレーヤー人数を入力してください:");
+                if (int.TryParse(Console.ReadLine(), out numOfPlayers) &amp;&amp; 0 &lt;= numOfPlayers) {
+                    break;
+                }
+            }
+
+            var rule = new Rule(new Wins&lt;Gu, Tyoki&gt;(), new Wins&lt;Tyoki, Pa&gt;(), new Wins&lt;Pa, Gu&gt;());
+            var rand = new Random();
+            while (true) {
+                var players = new Hand[numOfPlayers];
+                for (int i = 0; i &lt; numOfPlayers; i++) {
+                    var player = rule.CreateHand(rand.Next());
+                    Console.WriteLine($"プレーヤー{i + 1}:{player}");
+                    players[i] = player;
+                }
+
+                var winner = rule.Play(players);
+                if (winner != null) {
+                    var index = Array.IndexOf(players, winner);
+                    Console.WriteLine($"プレーヤー{index + 1}の勝ちです");
+                }
+                else {
+                    Console.WriteLine("引き分けです");
+                }
+                Console.WriteLine();
+                Console.WriteLine("Enterキーで終了します");
+                if (Console.ReadKey().Key == ConsoleKey.Enter) {
+                    break;
+                }
+                Console.WriteLine("");
+            }
+        }
+    }
+}
+

@@ -1,0 +1,65 @@
+
+// 現在の順番に基づき、答えを導出する
+// orderIndex: _PlayerOrder上における現在の順番
+// return    : 答え
+public PlayerAnswer Infer(int orderIndex)
+{
+    return _Infer(_PlayerName, _VisibleCards, orderIndex);
+}
+
+// 答えを導出する
+// targetPlayerName: 推論対象のプレイヤーの名前
+// visibleCards    : プレイヤーに見えているカード列
+// orderIndex      : _PlayerOrder上における現在の順番
+// return          : 答え
+public PlayerAnswer _Infer(string targetPlayerName, IEnumerable&lt;_VisibleCard&gt; visibleCards, int limit)
+{
+    var memoKey = new _MemoKey(targetPlayerName, visibleCards, limit);
+
+    // メモより取得
+    if (_Memo.ContainsKey(memoKey))
+    {
+        return _Memo[memoKey];
+    }
+
+    // 自分のカードである可能性のあるカード列（あとで削除するためリストにする）
+    var possibleCardList = _AllCards.Except(visibleCards.Select(x =&gt; x.Card))
+                                    .ToList();
+
+    var playerNames = _Order.GetPlayerNames().Select((playerName, index) =&gt; (playerName, index));
+
+    foreach (var (playerName, index) in playerNames.Take(limit + 1))
+    {
+        // 前の手番が存在するなら
+        if (index &gt;= 1)
+        {
+            var prevIndex = index - 1;
+            var prevPlayerName = _Order.GetPlayerNames().ElementAt(prevIndex);
+
+            // possibleCardListのクローンでループ
+            foreach (var p in possibleCardList.ToArray())
+            {
+                // 前の手番を仮定する
+                var candidates = visibleCards.Concat(new[] { new _VisibleCard(targetPlayerName, p) })
+                                             .Where(x =&gt; x.PlayerName != prevPlayerName)
+                                             .OrderBy(x =&gt; x.PlayerName)
+                                             .ToArray();
+
+                // 仮定を元に答えを導出する
+                var inferred = _Infer(prevPlayerName, candidates, prevIndex);
+
+                // 答えの食い違い
+                if (inferred.Value != AnswerValue.Unknown)
+                {
+                    possibleCardList.Remove(p);
+                }
+            }
+        }
+    }
+
+    var answer = _GetAnswer(targetPlayerName, possibleCardList, visibleCards);
+    _Memo.Add(memoKey, answer);
+
+    return answer;
+}
+

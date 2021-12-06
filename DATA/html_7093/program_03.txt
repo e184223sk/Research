@@ -1,0 +1,50 @@
+
+/// &lt;summary&gt;
+/// GoogleWebAuthorizationBrokerをラップし、リダイレクトURIをカスタム可能にします。
+/// &lt;/summary&gt;
+public class AuthorizationBroker : GoogleWebAuthorizationBroker
+{
+  public static string RedirectUri;
+
+  public new static async Task&lt;UserCredential&gt; AuthorizeAsync(
+    ClientSecrets clientSecrets,
+    IEnumerable&lt;string&gt; scopes,
+    string user,
+    CancellationToken taskCancellationToken,
+    IDataStore dataStore = null )
+  {
+    var initializer = new GoogleAuthorizationCodeFlow.Initializer
+    {
+      ClientSecrets = clientSecrets,
+    };
+    return await AuthorizeAsyncCore( initializer, scopes, user,
+        taskCancellationToken, dataStore ).ConfigureAwait( false );
+  }
+
+  private static async Task&lt;UserCredential&gt; AuthorizeAsyncCore(
+    GoogleAuthorizationCodeFlow.Initializer initializer,
+    IEnumerable&lt;string&gt; scopes,
+    string user,
+    CancellationToken taskCancellationToken,
+    IDataStore dataStore )
+    {
+      initializer.Scopes = scopes;
+      initializer.DataStore = dataStore ?? new FileDataStore( Folder );
+      var flow = new AuthorizationCodeFlow( initializer );
+      return await new AuthorizationCodeInstalledApp( flow,
+          new LocalServerCodeReceiver() )
+          .AuthorizeAsync( user, taskCancellationToken ).ConfigureAwait( false );
+    }
+}
+
+public class AuthorizationCodeFlow : GoogleAuthorizationCodeFlow
+{
+  public AuthorizationCodeFlow( Initializer initializer ) : base( initializer ) { }
+
+  public override AuthorizationCodeRequestUrl
+                  CreateAuthorizationCodeRequest( string redirectUri )
+  {
+      return base.CreateAuthorizationCodeRequest( AuthorizationBroker.RedirectUri );
+  }
+}
+

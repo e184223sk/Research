@@ -1,0 +1,46 @@
+string[] Scopes = { DriveService.Scope.DriveFile }; // アップロードするのでDriveFile
+string ApplicationName = "適当にアプリケーション名";
+
+UserCredential credential;
+
+using (var stream = new FileStream("client_secret_～～.apps.googleusercontent.com.json", FileMode.Open, FileAccess.Read))
+{
+    string credPath = "token.json";
+    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+        GoogleClientSecrets.Load(stream).Secrets,
+        Scopes,
+        "user",
+        CancellationToken.None,
+        new FileDataStore(credPath, true)).Result;
+    Console.WriteLine("Credential file saved to: " + credPath);
+}
+
+// Create Drive API service.
+var service = new DriveService(new BaseClientService.Initializer()
+{
+    HttpClientInitializer = credential,
+    ApplicationName = ApplicationName,
+});
+
+var meta = new Google.Apis.Drive.v3.Data.File()
+{
+    Name = "作成するファイル",
+    MimeType = "application/octet-stream", // 適宜設定しましょう
+    DriveId = "共有ドライブのID (0ABcDeJiHiJKLmn23 みたいな)",
+    Parents = new List&lt;string&gt; { "親フォルダのID (1auYhd9J9j～みたいな)" }
+};
+
+using (var stream = new System.IO.FileStream("アップロードするファイルのフルパス", System.IO.FileMode.Open))
+{
+    // 新規追加
+    var request = service.Files.Create(meta, stream, meta.MimeType);
+    request.Fields = "id, name";
+    request.SupportsAllDrives = true;
+    var ret = request.UploadAsync().Result;
+
+    if (ret.Status == Google.Apis.Upload.UploadStatus.Failed)
+    {
+        throw ret.Exception;
+    }
+}
+

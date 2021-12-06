@@ -1,0 +1,62 @@
+
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+class Program
+{
+    enum Status
+    {
+        None,
+        Successful,
+        Canceled,
+        Failed,
+    }
+
+    TaskCompletionSource&lt;int&gt; _completionSource = new TaskCompletionSource&lt;int&gt;();
+    volatile Status _status = Status.None;
+
+    void RunAsync()
+    {
+        ThreadPool.QueueUserWorkItem(_ =&gt;
+        {
+            while (true)
+            {
+                switch (_status)
+                {
+                    case Status.Successful:
+                        _completionSource.SetResult(10);
+                        goto End;
+
+                    case Status.Canceled:
+                        _completionSource.SetCanceled();
+                        goto End;
+
+                    case Status.Failed:
+                        _completionSource.SetException(new Exception());
+                        goto End;
+                }
+                Thread.Sleep(100);
+            }
+        End:;
+        });
+    }
+
+    static void Main(string[] args)
+    {
+        var p = new Program();
+        p.RunAsync();
+        p._status = Status.Successful;
+
+        var task = p._completionSource.Task;
+        try
+        {
+            task.Wait();
+        }
+        catch { }
+        Console.WriteLine(task.Status);
+
+        Console.ReadLine();
+    }
+}
+

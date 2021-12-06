@@ -1,0 +1,23 @@
+More than 1 year has passed since last update.　C#でMVVMパターンを組んで開発しようとした際に役に立つライブラリの一つにReactivePropertyがあります。
+　ただ、これを使って書くと、従来とは記述が大きく変わってしまいますので、それなりに慣れが必要となります。
+　以下、そんなReactivePropertyの使い方についてのFAQ集となります(自分が躓いたところばかりなので実質備忘録)。※2017/12/31追記：ReactivePropertyのメンテナーの一人でいらっしゃるかずき(Kazuki Ota)さんから指摘を賜り、記事を大幅に修正しました。　確かに書かなくてもプログラムは動きます。ただ、Visual C#の仕様上、上記のように継承していないと メモリーリークの可能性があります。……アイエエエ！？ナンデ！？メモリーリークナンデ！？　参考にすべき資料：
+　　【WPF】ViewModelがINotifyPropertyChangedを実装していないとメモリリークする件 - aridai.NET
+　　MVVMでメモリリークしちゃってました 原因と対策編 - かずきのBlog@hatena　また、メモリーリーク絡みで言いますと、ReactivePropertyやReactiveCommandなどはIDisposableを継承していますので、使用後はDisposeする必要があります。単独で自己完結しているような型ならGC任せでも良いのですが、後述の質問「Q. 既存のModel・ViewModelを全部書き換えるの辛くない？」のように他のオブジェクトがイベントによって紐付けられている場合、Disposeしておくことが望ましいでしょう。具体的にはこんな感じ。　参考資料：
+　　ReactivePropertyの後始末 - かずきのBlog@hatena　ReactiveProperty&lt;T&gt;型はT型の変数を入れる箱のようなもの。
+　通知機能を内包しているのでそのままXAMLにBindingできるし、値の変更を反映させるのも簡単。
+　なお、ReactiveProperty&lt;T&gt;型からT型の値を取り出す際は、Valueプロパティを参照する(C#側でもXAML側でも同様)。　Subscribeメソッドを使う。これの引数にIObserver&lt;T&gt;を渡すことで購読できるので、「値が変更した際にはこういったアクションを起こす」といったことをシンプルに記述できる。
+　なお、以下の例ではラムダ式を渡しているが、using System;しないとラムダ式をIObserver&lt;T&gt;に変換できないので注意！　まず、「ReactiveProperty&lt;T&gt;は他のReactiveProperty&lt;T&gt;から作成できる」ことを説明しておきましょう。例えば「あるTextBoxの中身を書き換えると、それを加工した結果がTextBlockに表示される」ような動きが可能になります。要するに連動ですね。　そして上記のように連動している場合、「連動先は連動元で決まるから、連動先は読み取り専用でも構わない」ということがよくあります。そういった際に用いるのがReadOnlyReactivePropertyです。
+　……ReadOnlyReactivePropertyの使い方は、ReactivePropertyだった箇所を単純に置き換えるだけですので省略します(上記で言えばOutput1～Output3に用いる)。　なお、CombineLatestメソッドは、3つ以上のReactivePropertyを合成するのにも使えます。　前者は「引数を受け取らず、hoge()の返り値を返す」、後者は「引数を1つ取り、hoge()の返り値を返す」といった意味です。実は 変数名として「_」1文字だけでも全然アリ なのでその値を使えるのですが、「_」1文字にすることで「引数は取るけど使わないよ」といった意思表示をすることができます。　実はReactivePropertyの場合、Subcribeメソッド内でラムダ式を使うと、引数で呼び出し元の変数の中身を使用することができます。例えば、ReactiveProperty&lt;Type&gt; Xに対してX.Subcribe(x =&gt; hoge(x));といったコードが書けます(この際、ラムダ式内の変数xはType型となる)。もっとも、ReactiveCommand型だとobject型が引数の型にやってきますが……。　しかし、ReactiveProperty&lt;Type&gt; Xが 購読するイベント内でXの中身を使用しない 場合、X.Subcribe(_ =&gt; hoge());といった風に 「_」を引数名として使用することで明示する ことができるのです。「購読」を説明する前に、まず「イベント」について説明しましょう。
+　イベントとは、「作業を完了した」「ボタンを押した」など、「別の行動を起こすためのキッカケとなる行動」のことです。
+　ここで、「別の行動」を起こすオブジェクト(イベント発生側)と「キッカケとなる行動」を起こすオブジェクト(イベント受取側)は 基本的に別である ことに注意しましょう。
+　イベントに関係する処理としては、大きく分けて次の3種類があります。
+(画像引用元：++C++; // 未確認飛行 C)　そして「購読」とは、この処理1のことを指します。つまり、ReactiveProperty&lt;T&gt;がSubcribeメソッドでラムダ式を受け取る(＝購読する)場合、ReactiveProperty&lt;T&gt;が「(値を変更する)イベント発生側」、ラムダ式が「イベント受取側」となります。
+　また、後述するReactiveCommandにもSubcribeメソッドがありますが、こちらもReactiveCommandが「(ボタン操作などの)イベント発生側」となります。　先にICommandについて説明すると、これはボタン操作などの「コマンド」をMVVM用に抽象化したものです。コマンドには「実行できるか」という要素(CanExecuteメソッド)と「実行時に何をするか」という要素(Executeメソッド)があり、それぞれを実装する必要があります。
+　一方、ReactiveCommand型を使うと、そうした実装の手間を大幅に省くことができます。こちらはReactiveProperty&lt;T&gt;型と異なり、.Valueを付けなくてもいいことに注意しましょう。　その通りです。ReactiveProperty&lt;T&gt;では「値が変更された時に発動」していましたが、ReactiveCommandでは「コマンドが実行された時に発動」します。　そういった時にこそReactivePropertyです。ReactivePropertyにはToReactiveCommandという拡張メソッドがあり、これを使うとIObservable&lt;bool&gt;からReactiveCommand型を生成できます。これから、
+「IObservable&lt;bool&gt;がtrueになった(＝条件を満たした)ときにだけReactiveCommand先のオブジェクトが有効になる」
+といった処理を簡単に記述できるようになります。
+　また、複数の条件を組み合わせることで、「全ての条件を満たした時」や「どれか1つの条件を満たした時」といった有効条件も記述可能です。　これら以外のどのイベントに使えるかを募集中です！
+　上記のようなイベントぐらいにしか使えないと思いこんでいましたが、Interaction.Triggersを使用すれば オブジェクトに対する任意のイベント にICommandやReactiveCommandをBindingすることができます！
+(当然ながら、System.WIndows.Interactivity.dllへの参照追加が必要)　上記の例では、TextBlockオブジェクトにおけるMouseEnterイベントとMouseLeaveイベントについて、コードビハインドではなくCommandを渡して処理させています。　INotifyPropertyChangedを使用する従来の記述法だと、Viewに紐づけされたプロパティを変更通知するため、set側にゴリゴリ書いて実装していました。それらを全部ReactiveProperty&lt;T&gt;で書き換えるのが難しい場合には、INotifyPropertyChangedを実装したクラスをReactiveProperty&lt;T&gt;側に接続することができます。
+
+

@@ -1,0 +1,191 @@
+
+using PCSC;
+using PCSC.Iso7816;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace HCE_Test
+{
+    class HceModel
+    {
+        internal ISCardContext SCardContext { get; private set; }
+        internal string readerName { get; private set; }
+
+        internal void mainProcess()
+        {
+            // 初期化
+            Initialize();
+
+            // NFCRW接続
+            if (!ConnectNFCRW())
+            {
+                return;
+            }
+            // GET UID
+            getUid();
+            // SELECT AID
+            var aid = new byte[] { 0xF2, 0x22, 0x22, 0x22, 0x22 };
+            selectAID(aid);
+        }
+
+        internal void Initialize()
+        {
+            var contextFactory = ContextFactory.Instance;
+            this.SCardContext = contextFactory.Establish(SCardScope.System);
+        }
+
+        internal bool ConnectNFCRW()
+        {
+            string txt = string.Empty;
+            bool result = false;
+            // Console.WriteLine("カードを置いてください。");
+            // Console.ReadKey();
+            try
+            {
+                // 最初に見つけたNFCRWに接続する.
+                var readerNames = SCardContext.GetReaders();
+                if (IsEmpty(readerNames))
+                {
+                    return false;
+                }
+                readerName = readerNames[0];
+                using (var rfidReader = SCardContext.ConnectReader(readerName, SCardShareMode.Shared, SCardProtocol.Any))
+                {
+                    var status = rfidReader.GetStatus();
+                    txt += String.Format("Reader {0}\r\n connected with protocol {1}\r\n in state {2}",
+                        status.GetReaderNames().FirstOrDefault(),
+                        status.Protocol,
+                        status.State);
+                    var atr = status.GetAtr();
+                    if (atr != null || atr.Length &gt; 0)
+                    {
+                        txt += String.Format("\r\n Card ATR: {0}", BitConverter.ToString(atr));
+                    }
+                }
+                result = true;
+
+            }
+            catch (Exception ex)
+            {
+                txt = ex.Message;
+                result = false;
+            }
+            Console.WriteLine(txt);
+            return result;
+        }
+        internal void getUid()
+        {
+            string txt = string.Empty;
+            try
+            {
+                using (var rfidReader = SCardContext.ConnectReader(readerName, SCardShareMode.Shared, SCardProtocol.Any))
+                {
+
+                    var apdu = new CommandApdu(IsoCase.Case2Short, rfidReader.Protocol)
+                    {
+                        CLA = 0xFF,
+                        Instruction = InstructionCode.GetData,
+                        P1 = 0x00,
+                        P2 = 0x00,
+                        Le = 0 // We don't know the ID tag size
+                    };
+                    using (rfidReader.Transaction(SCardReaderDisposition.Leave))
+                    {
+                        // Retrieving the UID .... 
+
+                        var sendPci = SCardPCI.GetPci(rfidReader.Protocol);
+                        var receivePci = new SCardPCI(); // IO returned protocol control information.
+
+                        var receiveBuffer = new byte[256];
+                        var command = apdu.ToArray();
+
+                        int bytesReceived = rfidReader.Transmit(
+                            sendPci, // Protocol Control Information (T0, T1 or Raw)
+                            command, // command APDU
+                            command.Length,
+                            receivePci, // returning Protocol Control Information
+                            receiveBuffer,
+                            receiveBuffer.Length); // data buffer
+
+                        var responseApdu =
+                            new ResponseApdu(receiveBuffer, bytesReceived, IsoCase.Case2Short, rfidReader.Protocol);
+                        if ((responseApdu.SW1 == 0x90) &amp;&amp; (responseApdu.SW2 == 0x00))
+                        {
+                            txt = "UID : ";
+                            txt += responseApdu.HasData ? BitConverter.ToString(responseApdu.GetData()) : "No uid received";
+                        }
+                        else
+                        {
+                            txt = string.Format("SW1: {0:X2}, SW2: {1:X2}\r\n00",
+                                responseApdu.SW1,
+                                responseApdu.SW2);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                txt = ex.Message;
+            }
+            Console.WriteLine(txt);
+        }
+
+        internal void selectAID(byte[] aid)
+        {
+            string txt = string.Empty;
+            try
+            {
+                using (var rfidReader = SCardContext.ConnectReader(readerName, SCardShareMode.Shared, SCardProtocol.Any))
+                {
+                    var apdu = new CommandApdu(IsoCase.Case3Short, rfidReader.Protocol)
+                    {
+                        CLA = 0x00,
+                        Instruction = InstructionCode.SelectFile,
+                        P1 = 0x04,
+                        P2 = 0x00,
+                        Data = aid //AID
+                    };
+                    var command = apdu.ToArray();
+                    txt += string.Format("APDU: {0}\r\n", BitConverter.ToString(command));
+                    using (rfidReader.Transaction(SCardReaderDisposition.Leave))
+                    {
+                        // Retrieving the AID .... 
+
+                        var sendPci = SCardPCI.GetPci(rfidReader.Protocol);
+                        var receivePci = new SCardPCI(); // IO returned protocol control information.
+
+                        var receiveBuffer = new byte[256];
+                        int bytesReceived = rfidReader.Transmit(
+                            sendPci, // Protocol Control Information (T0, T1 or Raw)
+                            command, // command APDU
+                            command.Length,
+                            receivePci, // returning Protocol Control Information
+                            receiveBuffer,
+                            receiveBuffer.Length); // data buffer
+
+                        var responseApdu =
+                            new ResponseApdu(receiveBuffer, bytesReceived, IsoCase.Case2Short, rfidReader.Protocol);
+                        txt += string.Format("SW1: {0:X2}, SW2: {1:X2}\r\n",
+                            responseApdu.SW1,
+                            responseApdu.SW2);
+                        if ((responseApdu.SW1 == 0x90) &amp;&amp; (responseApdu.SW2 == 0x00))
+                        {
+                            txt += "received:";
+                            txt += responseApdu.HasData ? BitConverter.ToString(responseApdu.GetData()) : "No data received";
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                txt = ex.Message;
+            }
+            Console.WriteLine(txt);
+        }
+
+        private static bool IsEmpty(ICollection&lt;string&gt; readerNames) =&gt; readerNames == null || readerNames.Count &lt; 1;
+    }
+}
+

@@ -1,0 +1,75 @@
+
+/// &lt;summary&gt;
+/// ファイル情報コレクションのDataGrid用のICollectionView
+/// &lt;/summary&gt;
+public ReadOnlyReactivePropertySlim&lt;ICollectionView&gt; CViewFileElementVMs { get; }
+
+/// &lt;summary&gt;
+/// 置換前後で差があったファイルのみ表示するか
+/// &lt;/summary&gt;
+public ReactivePropertySlim&lt;bool&gt; IsVisibleReplacedOnly { get; } = new ReactivePropertySlim&lt;bool&gt;(false);
+
+public FileElementsGridViewModel()
+{
+    this.CViewFileElementVMs = model
+        .ObserveProperty(x =&gt; x.FileElementModels)
+        .Select(x =&gt; CreateFilePathVMs(x))
+        .ObserveOnUIDispatcher()
+        .Select(x =&gt; CreateCollectionViewFilePathVMs(x))
+        .ToReadOnlyReactivePropertySlim();
+
+    //表示基準に変更があったら、表示判定対象に変更があったら、CollectionViewの表示を更新する
+    new[]
+    {
+        this.IsVisibleReplacedOnly,
+        ...
+    }
+    .CombineLatest()
+    .Throttle(TimeSpan.FromMilliseconds(100))
+    .ObserveOnUIDispatcher()
+    .Subscribe(_ =&gt; RefleshCollectionViewSafe());
+}
+
+private ICollectionView CreateCollectionViewFilePathVMs(ObservableCollection&lt;FileElementViewModel&gt; fVMs)
+{
+    var cView = CollectionViewSource.GetDefaultView(fVMs);
+    cView.Filter = (x =&gt; GetVisibleRow(x));
+    return cView;
+}
+
+/// &lt;summary&gt;
+/// 2つの表示切り替えプロパティと、各行の値に応じて、その行の表示状態を決定する
+/// &lt;/summary&gt;
+/// &lt;param name="row"&gt;行VM&lt;/param&gt;
+/// &lt;returns&gt;表示状態&lt;/returns&gt;
+private bool GetVisibleRow(object row)
+{
+    if (!(row is FileElementViewModel pathVM))
+        return true;
+
+    var replacedVisible = !IsVisibleReplacedOnly.Value || pathVM.IsReplaced.Value;
+    var conflictedVisible = !IsVisibleConflictedOnly.Value || pathVM.IsConflicted.Value;
+
+    return replacedVisible &amp;&amp; conflictedVisible;
+}
+
+private void RefleshCollectionViewSafe()
+{
+    if (!(CViewFileElementVMs?.Value is ListCollectionView currentView))
+        return;
+
+    //なぜかCollectionViewが追加中・編集中のことがある。
+    if (currentView.IsAddingNew)
+    {
+        LogTo.Warning("CollectionView is Adding");
+        currentView.CancelNew();
+    }
+    if (currentView.IsEditingItem)
+    {
+        LogTo.Warning("CollectionView is Editing");
+        currentView.CommitEdit();
+    }
+
+    currentView.Refresh();
+}
+

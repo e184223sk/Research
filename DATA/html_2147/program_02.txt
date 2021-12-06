@@ -1,0 +1,99 @@
+
+[SerializeField] int Segment;
+[SerializeField] PathContainer Paths;
+
+float PathLength;
+
+//セグメントの総数
+int NumKeys;
+float[] DistanceToTArray;
+float DistanceStepSize;
+
+void Start()
+{
+    Build();
+}
+
+void Build()
+{
+    PathLength = 0;
+    NumKeys = (Paths.Length-1) * Segment+1;
+
+    var tToDistance = CalcTToDistance();
+    DistanceToTArray = CalcDistanceToT(tToDistance);
+}
+
+void Update()
+{
+    transform.position = CalcPos(DistanceToT(Time.time*PathLength/2));
+}
+
+//距離からtに変換
+float DistanceToT(float distance)
+{
+    float d = distance / DistanceStepSize;
+    int index = Mathf.FloorToInt(d);
+    if(index&gt;=DistanceToTArray.Length-1)return DistanceToTArray[DistanceToTArray.Length-1];
+    float t = d - index;
+    return Mathf.Lerp(DistanceToTArray[index], DistanceToTArray[index+1], t);
+}
+
+//tをSegmentに分割して進んだ距離を配列に入れて返す
+float[] CalcTToDistance()
+{
+    var tToDistance = new float[NumKeys];
+
+    var pp = Paths[0].Pos;
+    float t = 0;
+    for (int n = 1; n &lt; NumKeys; n++)
+    {
+        t += 1f / Segment;
+        Vector3 p = CalcPos(t);
+        float d = Vector3.Distance(pp, p);
+        PathLength += d;
+        pp = p;
+        tToDistance[n] = PathLength;
+    }
+
+    return tToDistance;
+}
+
+//距離をSegmentに分割してその位置のtを配列に入れて返す
+float[] CalcDistanceToT(float[] tToDistance)
+{
+    var distanceToT = new float[NumKeys];
+    distanceToT[0] = 0;
+    DistanceStepSize = PathLength/(NumKeys-1);
+    float distance = 0;
+    int tIndex=1;
+    for (int i = 1; i &lt; NumKeys; i++)
+    {
+        distance += DistanceStepSize;
+        var d = tToDistance[tIndex];
+        while (d &lt; distance &amp;&amp; tIndex &lt; NumKeys - 1)
+        {
+            tIndex++;
+            d = tToDistance[tIndex];
+        }
+
+        var prevD = tToDistance[tIndex - 1];
+        float delta = d - prevD;
+        float t = (distance - prevD) / delta;
+        distanceToT[i] = (1f/Segment)*(t + tIndex - 1);
+    }
+
+    return distanceToT;
+}
+
+Vector3 CalcPos(float t)
+{
+    var indexA = Mathf.FloorToInt(Mathf.Min(Paths.Length - 1, t));
+    var indexB = Mathf.FloorToInt(Mathf.Min(Paths.Length - 1, indexA+1));
+    return Bezier3(
+        t-indexA,
+        Paths[indexA].Pos,
+        Paths[indexA].Pos + Paths[indexA].Tangent,
+        Paths[indexB].Pos - Paths[indexB].Tangent,
+        Paths[indexB].Pos);
+}
+

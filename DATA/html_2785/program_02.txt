@@ -1,0 +1,129 @@
+
+
+using System;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Reflection;
+
+class Test
+{
+    enum RegexCodeOpCode {
+        Onerep = 0,
+        Notonerep = 1,
+        Setrep = 2,
+        Oneloop = 3,
+        Notoneloop = 4,
+        Setloop = 5,
+        Onelazy = 6,
+        Notonelazy = 7,
+        Setlazy = 8,
+        One = 9,
+        Notone = 10,
+        Set = 11,
+        Multi = 12,
+        Ref = 13,
+        Bol = 14,
+        Eol = 15,
+        Boundary = 16,
+        Nonboundary = 17,
+        Beginning = 18,
+        Start = 19,
+        EndZ = 20,
+        End = 21,
+        Nothing = 22,
+        Lazybranch = 23,
+        Branchmark = 24,
+        Lazybranchmark = 25,
+        Nullcount = 26,
+        Setcount = 27,
+        Branchcount = 28,
+        Lazybranchcount = 29,
+        Nullmark = 30,
+        Setmark = 31,
+        Capturemark = 32,
+        Getmark = 33,
+        Setjump = 34,
+        Backjump = 35,
+        Forejump = 36,
+        Testref = 37,
+        Goto = 38,
+        Prune = 39,
+        Stop = 40,
+        ECMABoundary = 41,
+        NonECMABoundary = 42,
+        Mask = 63,
+        Rtl = 64,
+        Back           = 128,  // bit to indicate that we're backtracking.
+        Back2          = 256,  // bit to indicate that we're backtracking on a second branch.
+        Ci             = 512,  
+    }
+
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        if(args.Length==0)return;
+
+        Regex r=null;
+
+        try{
+            r = new Regex(args[0]);
+        }
+        catch(Exception e){
+            Console.WriteLine(e);
+            return;
+        }
+
+        Type typeR = r.GetType();
+        FieldInfo fieldRC = typeR.GetField("code", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+
+        dynamic rc = fieldRC.GetValue(r);
+
+        Type typeRC = rc.GetType();
+        FieldInfo fieldRcCodes  = typeRC.GetField("_codes", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo fieldRcString = typeRC.GetField("_strings", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+
+        MethodInfo miOpcodeSize = typeRC.GetMethod("OpcodeSize", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+
+        int[] t    = (int[])fieldRcCodes.GetValue(rc);
+        string[] s = (string[])fieldRcString.GetValue(rc);
+
+        Console.WriteLine("--codes--");
+
+        Console.Write("n:");
+        Console.WriteLine(t.Length);
+        for(int i=0;i&lt;t.Length;i++) {
+            int x = t[i];
+            Console.Write(i);
+            Console.Write(":");
+            Console.Write((RegexCodeOpCode)x);
+
+            int argCount = ((int)miOpcodeSize.Invoke(null, new object[] {x} )) - 1;
+
+            if (argCount &gt; 0) {
+                Console.Write("(");
+                for(int j=i+1;j&lt;=i+argCount&amp;&amp;j&lt;t.Length;j++) {
+                    if(j&gt;i+1){Console.Write(",");}
+                    Console.Write(t[j]);
+                }
+                Console.Write(")");
+                i += argCount;
+            }
+            Console.WriteLine();
+        }
+
+        Console.WriteLine("--strings--");
+
+        Console.Write("n:");
+        Console.WriteLine(s.Length);
+        for(int i=0;i&lt;s.Length;i++) {
+            Console.Write(i);
+            Console.Write(":");
+            Console.WriteLine(s[i]??"&lt;&lt;NULL&gt;&gt;");
+        }
+    }
+}
+

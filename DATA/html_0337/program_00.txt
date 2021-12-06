@@ -1,0 +1,237 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+class MainForm : Form
+{
+    class NativeMethods
+    {
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetProcessDPIAware();
+    }
+    PictureBox pct;
+    ListView lsvFiles;
+    NumericUpDown nudScale;
+    NumericUpDown nudBoundLeft;
+    NumericUpDown nudBoundTop;
+    NumericUpDown nudBoundRight;
+    NumericUpDown nudBoundBottom;
+
+    Image _imgPreviewCache;
+    Rectangle _imgPreviewRect;
+    bool _disableNudEvent;
+
+    MainForm()
+    {
+        NativeMethods.SetProcessDPIAware();
+
+        //Text = ;
+        ClientSize = new Size(1100, 700);
+
+        nudScale = new NumericUpDown(){
+            Location = new Point(0, 0),
+            Width = 100,
+            Maximum = 100,
+            Value = 50,
+            Minimum = 10
+        };
+        nudScale.ValueChanged += (s,e)=&gt;{ShowScaledPreviewImage();};
+        Controls.Add(nudScale);
+
+
+        Button btn = new Button(){
+            Location = new Point(170, 0),
+            Size = new Size(100, 30),
+            Text = "Trim!",
+        };
+        btn.Click += (s,e)=&gt;{TrimAndSaveImages();};
+        Controls.Add(btn);
+
+
+        Controls.Add(nudBoundLeft = new NumericUpDown(){
+            Location = new Point(0, 25), Width = 60,
+            Maximum = 50000,   Value = 0,   Minimum = 0
+        });
+        Controls.Add(nudBoundTop = new NumericUpDown(){
+            Location = new Point(70, 25), Width = 60,
+            Maximum = 50000,   Value = 0,   Minimum = 0
+        });
+        Controls.Add(nudBoundRight = new NumericUpDown(){
+            Location = new Point(140, 25), Width = 60,
+            Maximum = 50000,   Value = 1000,   Minimum = 0
+        });
+        Controls.Add(nudBoundBottom = new NumericUpDown(){
+            Location = new Point(210, 25), Width = 60,
+            Maximum = 50000,   Value = 700,   Minimum = 0
+        });
+        nudBoundLeft.ValueChanged   += (s,e)=&gt;{if(!_disableNudEvent){RedrawBound();}};
+        nudBoundTop.ValueChanged    += (s,e)=&gt;{if(!_disableNudEvent){RedrawBound();}};
+        nudBoundRight.ValueChanged  += (s,e)=&gt;{if(!_disableNudEvent){RedrawBound();}};
+        nudBoundBottom.ValueChanged += (s,e)=&gt;{if(!_disableNudEvent){RedrawBound();}};
+
+
+        lsvFiles = new ListView(){
+            Location = new Point(0, 50),
+            Size = new Size(300, 650),
+            View = View.Details,
+            FullRowSelect = true,
+            GridLines = true,
+            HideSelection = false,
+        };
+        lsvFiles.Columns.Add("Name", 250);
+        //lsvFiles.Columns.Add("W x H", 100);
+        lsvFiles.SelectedIndexChanged += (s,e)=&gt;{LsvFiles_SelectedIndexChanged();};
+        Controls.Add(lsvFiles);
+
+
+        pct = new PictureBox(){
+            Location = new Point(300, 0),
+            Size = new Size(800, 700),
+            Image = new Bitmap(800, 700),
+        };
+        pct.MouseDown += Pct_MouseDown;
+        Controls.Add(pct);
+
+        Load += (s,e)=&gt;{LoadImageList();};
+    }
+
+    void LoadImageList()
+    {
+        lsvFiles.Items.Clear();
+
+        string[] filenames = Directory.GetFiles(@"img/", "TeamsCapture*.png", SearchOption.TopDirectoryOnly);
+
+        Array.Sort&lt;string&gt;(filenames, delegate(string a, string b)
+        {
+            return String.Compare(a, b, true); // ignore case
+        });
+
+        lsvFiles.BeginUpdate();
+        try {
+            foreach ( string filename in filenames ) {
+                lsvFiles.Items.Add(new ListViewItem(new string[]{filename}));
+            }
+        }
+        finally {
+            lsvFiles.EndUpdate();
+        }
+    }
+
+    void LsvFiles_SelectedIndexChanged()
+    {
+        var tmp = lsvFiles.SelectedIndices;
+        if (tmp.Count != 1) {
+            return;
+        }
+
+        if(_imgPreviewCache!=null){
+            _imgPreviewCache.Dispose();
+        }
+        _imgPreviewCache = Image.FromFile(lsvFiles.Items[tmp[0]].Text);
+
+        ShowScaledPreviewImage();
+    }
+
+
+    void ShowScaledPreviewImage()
+    {
+        float zoomRatio = ((float)nudScale.Value)/100;
+
+        Graphics g = Graphics.FromImage(pct.Image);
+        g.FillRectangle(Brushes.White,0,0,pct.Image.Width,pct.Image.Height);
+
+        if ( _imgPreviewCache != null ) {
+
+            _imgPreviewRect.Width  = (int)Math.Round(_imgPreviewCache.Width * zoomRatio);
+            _imgPreviewRect.Height = (int)Math.Round(_imgPreviewCache.Height * zoomRatio);
+            g.DrawImage(_imgPreviewCache, _imgPreviewRect);
+        }
+        int left   = (int)nudBoundLeft.Value;
+        int top    = (int)nudBoundTop.Value;
+        int right  = (int)nudBoundRight.Value;
+        int bottom = (int)nudBoundBottom.Value;
+        if(left&gt;right){int tmp=left;left=right;right=tmp;}
+        if(top&gt;bottom){int tmp=top;top=bottom;bottom=tmp;}
+        Pen pen = new Pen(Color.Blue, 3.0f);
+        g.DrawRectangle(pen, left*zoomRatio, top*zoomRatio, (right-left)*zoomRatio, (bottom-top)*zoomRatio);
+        g.Dispose();
+
+        pct.Refresh();
+    }
+
+    void RedrawBound()
+    {
+        ShowScaledPreviewImage();
+    }
+
+    void Pct_MouseDown(object sender, MouseEventArgs e)
+    {
+        float zoomRatioInverse = 100/((float)nudScale.Value);
+
+        if(e.Button == MouseButtons.Left) {
+            _disableNudEvent = true;
+            nudBoundLeft.Value = (int)(e.X*zoomRatioInverse);
+            _disableNudEvent = false;
+            nudBoundTop.Value  = (int)(e.Y*zoomRatioInverse);
+        }
+        else {
+            _disableNudEvent = true;
+            nudBoundRight.Value = (int)(e.X*zoomRatioInverse);
+            _disableNudEvent = false;
+            nudBoundBottom.Value  = (int)(e.Y*zoomRatioInverse);
+        }
+    }
+
+    void TrimAndSaveImages()
+    {
+        Rectangle rect;
+        {
+            int left = (int)nudBoundLeft.Value;
+            int top  = (int)nudBoundTop.Value;
+            int right = (int)nudBoundRight.Value;
+            int bottom = (int)nudBoundBottom.Value;
+            if(left&gt;right){int tmp=left;left=right;right=tmp;}
+            if(top&gt;bottom){int tmp=top;top=bottom;bottom=tmp;}
+            rect = new Rectangle(left,top,right-left,bottom-top);
+        }
+
+        int cnt = 0;
+        foreach(ListViewItem item in lsvFiles.Items) {
+            string filename = item.Text;
+            string destFileName = @"trimmed/"+cnt.ToString().PadLeft(6,'0')+".png";
+            var img = Image.FromFile(filename);
+            Bitmap bmp = new Bitmap(rect.Width, rect.Height);
+            var g = Graphics.FromImage(bmp);
+            //public void DrawImage (System.Drawing.Image image, int x, int y, System.Drawing.Rectangle srcRect, System.Drawing.GraphicsUnit srcUnit);
+            g.DrawImage(img, 0, 0, rect, GraphicsUnit.Pixel);
+            bmp.Save(destFileName, ImageFormat.Png);
+            g.Dispose();
+            img.Dispose();
+            bmp.Dispose();
+            cnt++;
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm());
+    }
+}
+

@@ -1,0 +1,108 @@
+
+using UnityEditor;
+using UnityEngine;
+using System;
+using System.Reflection;
+using UnityEditor.Compilation;
+
+public abstract class ConstantRepaintPropertyDrawer : PropertyDrawer
+{
+    SerializedObject parentSerializedObject;
+    static readonly FieldInfo fi_m_NativeObjectPtr = typeof(SerializedObject)
+        .GetField("m_NativeObjectPtr", BindingFlags.NonPublic | BindingFlags.Instance);
+
+    static double lastUpdateTime = 0;
+    void Repaint()
+    {
+        if(Framerate &lt;= 0 || EditorApplication.timeSinceStartup &gt; lastUpdateTime + 1 / Framerate)
+        {
+            lastUpdateTime = EditorApplication.timeSinceStartup;
+            foreach (var editor in ActiveEditorTracker.sharedTracker.activeEditors)
+            {
+                if (editor.serializedObject == parentSerializedObject)
+                {
+                    editor.Repaint();
+                    OnRepaint();
+                    return;
+                }
+            }
+        }
+    }
+
+    void _OnSelectionChanged()
+    {
+        OnSelectionChanged();
+        if (parentSerializedObject == null 
+            || (IntPtr)fi_m_NativeObjectPtr.GetValue(parentSerializedObject) == IntPtr.Zero)
+        {
+            EditorApplication.update -= Repaint;
+            Selection.selectionChanged -= _OnSelectionChanged;
+            CompilationPipeline.compilationStarted -= OnCompilationStarted;
+            CompilationPipeline.compilationFinished -= OnCompilationFinished;
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Repaintの目標フレームレート。0以下で無制限（EditorApplication.updateごと）。既定値は60。
+    /// &lt;/summary&gt;
+    protected virtual float Framerate =&gt; 60;
+
+    /// &lt;summary&gt;
+    /// Repaint終了時に毎回呼ばれる。
+    /// &lt;/summary&gt;
+    protected virtual void OnRepaint() { }
+
+    /// &lt;summary&gt;
+    /// Selection変化時に呼ばれる。
+    /// &lt;/summary&gt;
+    protected virtual void OnSelectionChanged() { }
+
+    /// &lt;summary&gt;
+    /// コンパイル開始時に呼ばれる。
+    /// &lt;/summary&gt;
+    protected virtual void OnCompilationStarted(object obj) { }
+
+    /// &lt;summary&gt;
+    /// コンパイル終了時に呼ばれる。
+    /// &lt;/summary&gt;
+    protected virtual void OnCompilationFinished(object obj) { }
+
+    /// &lt;summary&gt;
+    /// Undo/Redoが行われた後に呼ばれる。
+    /// &lt;/summary&gt;
+    protected virtual void OnUndoRedoPerformed() { }
+
+    /// &lt;summary&gt;
+    /// sealed. OnGUIの代わりにOnGUIMainをoverrideしてください。
+    /// &lt;/summary&gt;
+    public sealed override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        if (!ActiveEditorTracker.HasCustomEditor(property.serializedObject.targetObject))
+        {
+            parentSerializedObject = property.serializedObject;
+            EditorApplication.update -= Repaint;
+            EditorApplication.update += Repaint;
+        }
+        Selection.selectionChanged -= _OnSelectionChanged;
+        Selection.selectionChanged += _OnSelectionChanged;
+        CompilationPipeline.compilationStarted -= OnCompilationStarted;
+        CompilationPipeline.compilationStarted += OnCompilationStarted;
+        CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        CompilationPipeline.compilationFinished += OnCompilationFinished;
+        Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+        Undo.undoRedoPerformed += OnUndoRedoPerformed;
+
+        OnGUIMain(position, property, label);
+    }
+
+    /// &lt;summary&gt;
+    /// Override this method to make your own IMGUI based GUI for the property.
+    /// &lt;/summary&gt;
+    protected virtual void OnGUIMain(Rect position, SerializedProperty property, GUIContent label)
+    {
+        base.OnGUI(position, property, label);
+    }
+}
+
+

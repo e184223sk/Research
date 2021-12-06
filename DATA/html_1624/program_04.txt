@@ -1,0 +1,53 @@
+
+    public class DbContextOptionsFactory : IDbContextOptionsFactory
+    {
+        private DbConnection _dbConnection;
+
+        public DbContextOptions&lt;SampleDbContext&gt; Options { get; private set; }
+
+        public DbContextOptionsFactory()
+        {
+            SetDbContextOptions();
+        }
+
+        private void SetDbContextOptions()
+        {
+            switch (DbSetting.DataBaseName)
+            {
+                // 本番環境
+                case "SQLServer":
+                    {
+                        var option = new DbContextOptionsBuilder&lt;SampleDbContext&gt;();
+                        Options = option.UseSqlServer(DbSetting.SQLServerConnectionString).Options;
+                        break;
+                    }
+
+                // テスト環境
+                case "SqliteInMemory":
+                    {
+
+                        if (_dbConnection == null)
+                        {
+                            _dbConnection = new SqliteConnection(DbSetting.SqliteInMemoryConnectionString);
+                            _dbConnection.Open();
+                            var option = new DbContextOptionsBuilder&lt;SampleDbContext&gt;();
+
+                            // InMemoryではトランザクション(スコープ)を使うとエラーになってしまうので回避コード
+                            option.ConfigureWarnings(x =&gt; x.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.AmbientTransactionWarning));
+
+                            Options = option.UseSqlite(_dbConnection).Options;
+
+                            using (var context = new SampleDbContext(Options))
+                            {
+                                context.Database.EnsureDeleted();
+                                context.Database.EnsureCreated();
+                            }
+                        }
+                        break;
+                    }
+
+            }
+        }
+
+    }
+

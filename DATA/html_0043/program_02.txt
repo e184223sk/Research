@@ -1,0 +1,58 @@
+
+using System;
+using System.Net.NetworkInformation;
+using System.Threading.Tasks;
+
+namespace ClassLibrary2
+{
+    public class HeartBeat
+    {
+        private IChecker _checker;
+        private volatile bool _running;
+
+        public HeartBeat(IChecker checker)
+        {
+            _checker = checker;
+        }
+
+        public async Task Start(string url, int interval)
+        {
+            _running = true;
+            while (_running)
+            {
+                try
+                {
+                    var (result, time, message) = _checker.Check(url);
+                    var resultText = result ? "成功" : "失敗";
+                    Console.WriteLine($"{DateTime.Now}\t{resultText}\t{time}ms\t{url}\t{message}");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"{e.Message}");
+                }
+                await Task.Delay(interval);
+            }
+        }
+
+        public void Stop()
+        {
+            _running = false;
+        }
+    }
+
+    public interface IChecker
+    {
+        (bool success, long time, string message) Check(string url);
+    }
+
+    public class PingChecker : IChecker
+    {
+        public (bool success, long time, string message) Check(string url)
+        {
+            var ping = new Ping();
+            PingReply reply = ping.Send(url, timeout: 1000);
+            return (reply.Status == IPStatus.Success, reply.RoundtripTime, reply.Status.ToString());
+        }
+    }
+}
+

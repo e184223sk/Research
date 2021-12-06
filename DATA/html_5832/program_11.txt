@@ -1,0 +1,99 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using HidLibrary;
+
+namespace TemperSample
+{
+    class Program
+    {
+        // 初期化に必要なレポートデータ
+        // 参考：https://www.codeproject.com/Tips/1007522/Temper-USB-Thermometer-in-Csharp 
+        static readonly byte[] ini = { 0x01, 0x01 };
+        static readonly byte[] temp = { 0x01, 0x80, 0x33, 0x01, 0x00, 0x00, 0x00, 0x00 };
+        static readonly byte[] ini1 = { 0x01, 0x82, 0x77, 0x01, 0x00, 0x00, 0x00, 0x00 };
+        static readonly byte[] ini2 = { 0x01, 0x86, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00 };
+
+        static void Main(string[] args)
+        {
+            var deviceList = HidDevices.Enumerate().ToArray();
+
+            var temperInterfaces = deviceList
+                .Where(x =&gt; x.Attributes.ProductHexId == "0x7401" &amp;&amp; x.Attributes.VendorHexId == "0x0C45")
+                .ToArray();
+
+            var control = temperInterfaces.FirstOrDefault(x =&gt; x.DevicePath.Contains("mi_00"));
+            var bulk = temperInterfaces.FirstOrDefault(x =&gt; x.DevicePath.Contains("mi_01"));
+            if (control == null || bulk == null)
+            {
+                Console.WriteLine("Temper device not found");
+                return;
+            }
+
+            control.ReadManufacturer(out byte[] manufacturerRaw);
+            control.ReadProduct(out byte[] productRaw);
+            var manufacturer = Encoding.Unicode.GetString(manufacturerRaw).TrimEnd('\0');
+            var product = Encoding.Unicode.GetString(productRaw).TrimEnd('\0');
+            Console.WriteLine("Manufacturer: {0}", manufacturer);
+            Console.WriteLine("Product: {0}", product);
+
+            WriteAndReadReport(control, 0x01, ini);
+            WriteAndReadReport(bulk, 0x00, ini1);
+            WriteAndReadReport(bulk, 0x00, ini2);
+
+            // 上記で準備完了なのだが、この時点で温度を取得すると75℃といった異常な値が取れる。
+            // 2回ほど読み捨ててごみを除去する。
+            for (int i = 0; i &lt; 2; i++)
+            {
+                WriteAndReadReport(bulk, 0x00, temp);
+            }
+
+            if (!bulk.IsOpen)
+            {
+                Console.WriteLine("Temper initialization failed");
+                return;
+            }
+            double temperatureCelsius = GetTemperatureCelsius(bulk);
+            Console.WriteLine("{0} C", temperatureCelsius);
+
+            var googleUploader = new GoogleSpreadSheetUploader(
+                "**************.apps.googleusercontent.com",
+                "**************",
+                "1/***************-**********",
+                "***************",
+                "TemperMetrics");
+            googleUploader.Upload("シート名", DateTime.Now, new object[]{temperatureCelsius.ToString()});
+        }
+
+        private static HidReport WriteAndReadReport(IHidDevice device, byte reportId, byte[] data)
+        {
+            var outData = device.CreateReport();
+            outData.ReportId = reportId;
+            outData.Data = data;
+            device.WriteReport(outData);
+            while (outData.ReadStatus != HidDeviceData.ReadStatus.Success)
+            {
+                Thread.Sleep(1);
+            }
+            var report = device.ReadReport();
+            return report;
+        }
+
+        // 摂氏で今の温度を取得する
+        private static double GetTemperatureCelsius(IHidDevice bulk)
+        {
+            var report = WriteAndReadReport(bulk, 0x00, temp);
+            int rawReading = (report.Data[3] &amp; 0xFF) + (report.Data[2] &lt;&lt; 8);
+
+            const double calibrationOffset = -1.70;
+            const double calibrationScale = 1;
+            double temperatureCelsius = (calibrationScale * (rawReading * (125.0 / 32000.0))) + calibrationOffset;
+            return temperatureCelsius;
+        }
+    }
+}
+

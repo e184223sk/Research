@@ -1,0 +1,226 @@
+
+
+                // ステータスバイト後のデータ保存用
+                byte dataByte0, dataByte1, dataLength;
+
+                /* MIDIイベント(ステータスバイト0x80-0xEF) */
+                if (statusByte &gt;= 0x80 &amp;&amp; statusByte &lt;= 0xef)
+                {
+                    switch (statusByte &amp; 0xf0)
+                    {
+                        /* チャンネルメッセージ */
+
+                        case 0x80:  // ノートオフ
+                            // どのキーが離されたか
+                            dataByte0 = data[i++];
+                            // ベロシティ値
+                            dataByte1 = data[i++];
+
+                            // 前のレーンがロングノーツなら
+                            if (longFlags[dataByte0])
+                            {
+                                // ロング終点ノート情報生成
+                                var note = new NoteData();
+                                note.eventTime = (int)currentTime;
+                                note.laneIndex = (int)dataByte0;
+                                note.type = NoteType.LongEnd;
+
+                                // リストにつっこむ
+                                noteList.Add(note);
+
+                                // ロングノーツフラグ解除
+                                longFlags[note.laneIndex] = false;
+                            }
+                            break;
+                        case 0x90:  // ノートオン(ノートオフが呼ばれるまでは押しっぱなし扱い)
+                            // どのキーが押されたか
+                            dataByte0 = data[i++];
+                            // ベロシティ値という名の音の強さ。ノートオフメッセージの代わりにここで0を送ってくるタイプもある
+                            dataByte1 = data[i++];
+
+                            {
+                                // ノート情報生成
+                                var note = new NoteData();
+                                note.eventTime = (int)currentTime;
+                                note.laneIndex = (int)dataByte0;
+                                note.type = NoteType.Normal;
+                                // 独自でやっている。ベロシティ値が最大のときのみロングの始点とする
+                                if (dataByte1 == 127)
+                                {
+                                   note.type = NoteType.LongStart;
+                                   // ロングノーツフラグセット
+                                   longFlags[note.laneIndex] = true;
+                                }
+                                // ノートオフイベントではなく、ベロシティ値0をノートオフとして保存する形式もあるので対応
+                                if (dataByte1 == 0)
+                                {
+                                    // 同じレーンで前回がロングノーツ始点なら
+                                    if (longFlags[note.laneIndex])
+                                    {
+                                        note.type = NoteType.LongEnd;
+                                        // ロングノーツフラグ解除
+                                        longFlags[note.laneIndex] = false;
+                                    }
+                                }
+
+                                // リストにつっこむ
+                                noteList.Add(note);
+                            }
+                            break;
+                        case 0xa0:  // ポリフォニック キープレッシャー(鍵盤楽器で、キーを押した状態でさらに押し込んだ際に、その圧力に応じて送信される)
+                            i += 2; // 使わないのでスルー
+                            break;
+                        case 0xb0:  // コントロールチェンジ(音量、音質など様々な要素を制御するための命令)
+                            // コントロールする番号
+                            dataByte0 = data[i++];
+                            // 設定する値
+                            dataByte1 = data[i++];
+
+                            // ※0x00-0x77までがコントロールチェンジで、それ以上はチャンネルモードメッセージとして処理する
+                            if (dataByte0 &lt; 0x78)
+                            {
+                                // コントロールチェンジ
+                            }
+                            else
+                            {
+                                // チャンネルモードメッセージは一律データバイトを2つ使用している
+                                // チャンネルモードメッセージ
+                                switch (dataByte0)
+                                {
+                                    case 0x78:  // オールサウンドオフ
+                                        // 該当するチャンネルの発音中の音を直ちに消音する。後述のオールノートオフより強制力が強い。
+                                        break;
+                                    case 0x79:  // リセットオールコントローラ
+                                        // 該当するチャンネルの全種類のコントロール値を初期化する。
+                                        break;
+                                    case 0x7a:  // ローカルコントロール
+                                        // オフ:鍵盤を弾くとMIDIメッセージは送信されるがピアノ自体から音は出ない
+                                        // オン:鍵盤を弾くと音源から音が出る(基本こっち)
+                                        break;
+                                    case 0x7b:  // オールノートオフ
+                                        // 該当するチャンネルの発音中の音すべてに対してノートオフ命令を出す
+                                        break;
+                                    /* MIDIモード設定 */
+                                    // オムニのオン・オフとモノ・ポリモードを組み合わせて4種類のモードがある
+                                    case 0x7c:  // オムニモードオフ
+                                        break;
+                                    case 0x7d:  // オムニモードオン
+                                        break;
+                                    case 0x7e:  // モノモードオン
+                                        break;
+                                    case 0x7f:  // モノモードオン
+                                        break;
+                                }
+                            }
+                            break;
+
+                        case 0xc0:  // プログラムチェンジ(音色を変える命令)
+                            i += 1;
+                            break;
+
+                        case 0xd0:  // チャンネルプレッシャー(概ねポリフォニック キープレッシャーと同じだが、違いはそのチャンネルの全ノートナンバーに対して有効となる)
+                            i += 1;
+                            break;
+
+                        case 0xe0:  // ピッチベンド(ウォェーンウェューンの表現で使う)
+                            i += 2;
+                            // ボルテのつまみみたいなのを実装する場合、ここの値が役立つかも
+                            break;
+                    }
+                }
+
+                /* システムエクスクルーシブ (SysEx) イベント*/
+                else if(statusByte == 0x70 || statusByte == 0x7f)
+                {
+                    dataLength = data[i++];
+                    i += dataLength;
+                }
+
+                /* メタイベント*/
+                else if(statusByte == 0xff)
+                {
+                    // メタイベントの番号
+                    byte metaEventID = data[i++];
+                    // データ長
+                    dataLength = data[i++];
+
+                    switch (metaEventID)
+                    {
+                        case 0x00:  // シーケンスメッセージ
+                            i += dataLength;
+                            break;
+                        case 0x01:  // テキストイベント
+                            i += dataLength;
+                            break;
+                        case 0x02:  // 著作権表示
+                            i += dataLength;
+                            break;
+                        case 0x03:  // シーケンス/トラック名
+                            i += dataLength;
+                            break;
+                        case 0x04:  // 楽器名
+                            i += dataLength;
+                            break;
+                        case 0x05:  // 歌詞
+                            i += dataLength;
+                            break;
+                        case 0x06:  // マーカー
+                            i += dataLength;
+                            break;
+                        case 0x07:  // キューポイント
+                            i += dataLength;
+                            break;
+                        case 0x20:  // MIDIチャンネルプリフィクス
+                            i += dataLength;
+                            break;
+                        case 0x21:  // MIDIポートプリフィックス
+                            i += dataLength;
+                            break;
+                        case 0x2f:  // トラック終了
+                            i += dataLength;
+                            // ここでループを抜けても良い
+                            break;
+                        case 0x51:  // テンポ変更
+                            {
+                                // テンポ変更情報リストに格納する
+                                var tempoData = new TempoData();
+                                tempoData.eventTime = (int)currentTime;
+
+                                // ４分音符の長さをマイクロ秒単位で格納されている
+                                uint tempo = 0;
+                                tempo |= data[i++];
+                                tempo &lt;&lt;= 8;
+                                tempo |= data[i++];
+                                tempo &lt;&lt;= 8;
+                                tempo |= data[i++];
+
+                                // BPM割り出し
+                                tempoData.bpm = 60000000 / (float)tempo;
+
+                                // 小数点第1で切り捨て処理(10にすると第一位、100にすると第2位まで切り捨てられる)
+                                tempoData.bpm = Mathf.Floor(tempoData.bpm * 10) / 10;
+
+                                // tick値割り出し
+                                tempoData.tick = (60 / tempoData.bpm / headerChunk.division * 1000);
+
+                                // リストにつっこむ
+                                tempoList.Add(tempoData);
+                            }
+                            break;
+                        case 0x54:  // SMTPEオフセット
+                            i += dataLength;
+                            break;
+                        case 0x58:  // 拍子
+                            i += dataLength;
+                            // 小節線を表示させるなら使えるかも
+                            break;
+                        case 0x59:  // 調号
+                            i += dataLength;
+                            break;
+                        case 0x7f:  // シーケンサ固有メタイベント
+                            i += dataLength;
+                            break;
+                    }
+                }
+            }
+

@@ -1,0 +1,71 @@
+
+using System;
+using System.Collections.Generic;
+using Zenject;
+
+namespace MemoryPoolsSample.Scripts.DisposableMemoryPool
+{
+    // IPoolable&lt;IMemoryPool&gt;、IDisposableを実装する
+    public class Foo : IPoolable&lt;IMemoryPool&gt;, IDisposable
+    {
+        private IMemoryPool _pool = default;
+
+        public void Dispose()
+        {
+            _pool.Despawn(this);
+        }
+
+        public void OnDespawned()
+        {
+            _pool = null;
+        }
+
+        // 生成時に呼ばれる。初期化を書くのはここ
+        public void OnSpawned(IMemoryPool pool)
+        {
+            _pool = pool;
+        }
+
+        //　Factoryの時と同様にPlaceholderFactoryの派生クラスを作る。
+        public class Factory : PlaceholderFactory&lt;Foo&gt;
+        {
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Factory _factory = default;
+        private readonly List&lt;Foo&gt; _foos = new List&lt;Foo&gt;();
+
+        public FooSpawner(Foo.Factory factory)
+        {
+            // Factory と同様にCreate()でオブジェクトを生成できる。
+            _foos.Add(_factory.Create());
+        }
+
+        public void AddFoo()
+        {
+            var foo = _foos[0];
+            // Poolに戻すときはDispose()を呼ぶ。
+            foo.Dispose();
+            _foos.Remove(foo);
+        }
+    }
+
+    public class TestInstaller : MonoInstaller&lt;TestInstaller&gt;
+    {
+        public override void InstallBindings()
+        {
+            // FromPoolableMemoryPoolを追加する
+            Container.BindFactory&lt;Foo, Foo.Factory&gt;()
+                .FromPoolableMemoryPool&lt;Foo, FooPool&gt;();
+        }
+    }
+
+    // IL2CPP AOT エラーが発生する場合があるので、Poolクラスは明確に定義する必要がある。
+    public class FooPool : PoolableMemoryPool&lt;IMemoryPool, Foo&gt;
+    {
+    }
+}
+
+

@@ -1,0 +1,78 @@
+
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.OleDb;
+
+namespace WindowsFormsApplication1
+{
+    /// &lt;summary&gt;
+    /// AS400からのデータ取得を行う
+    /// &lt;/summary&gt;
+    class DA_AS400
+    {
+        private string ipAddress;
+        private string schema;
+        /// &lt;summary&gt;
+        /// 接続先のIPアドレスと参照するDBを取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="ip"&gt;IPアドレス&lt;/param&gt;
+        /// &lt;param name="db"&gt;接続するDB&lt;/param&gt;
+        public DA_AS400(String ip, String db)
+        {
+            ipAddress = ip;
+            schema = db;
+        }
+        /// &lt;summary&gt;
+        /// SQLを実行する
+        /// &lt;/summary&gt;
+        /// &lt;param name="SQL"&gt;入力されたSQL&lt;/param&gt;
+        /// &lt;returns&gt;データベースからの取得結果&lt;/returns&gt;
+        private DataTable execSQL(String SQL)
+        {
+            OleDbConnection cn = new OleDbConnection();
+            DataTable returnTable = new DataTable();
+            try
+            {
+                cn.ConnectionString = "Provider=IBMDASQL;Data Source=" + ipAddress +
+                ";User ID=READONLY;Password=READONLY;Default Collection=" + schema + ";Force Translate = 0 ";
+                cn.Open();
+                SQL = SQL + " FETCH FIRST 10000 ROWS ONLY"; //レスポンスを考慮してレコード検索上限数を設ける(初期値は10,000件)
+                OleDbDataAdapter da = new OleDbDataAdapter(SQL, cn);
+                da.Fill(returnTable);
+            }
+            catch (Exception e)
+            {
+                System.Windows.Forms.MessageBox.Show(e.Message);//例外処理は今回は適当に
+            }
+            finally
+            {
+                if (cn != null){
+                    cn.Close();
+                    cn.Dispose();
+                }
+            }
+            return returnTable;
+        }
+        /// &lt;summary&gt;
+        /// スキーマに存在するテーブル名を取得する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public DataTable getTableName()
+        {
+            return execSQL("SELECT Trim(TABLE_TEXT) as table_text,Trim(TABLE_NAME)  as table_name FROM QSYS2.SYSTABLES WHERE TABLE_SCHEMA = " +
+                quote(schema) + " AND TABLE_TEXT &lt;&gt; '' ORDER BY TABLE_TYPE DESC, TABLE_NAME");
+        }
+        /// &lt;summary&gt;
+        /// 入力された文字にシングルクォートをつけて返却する
+        /// &lt;/summary&gt;
+        /// &lt;param name="inputText"&gt;入力文字列&lt;/param&gt;
+        /// &lt;returns&gt;クォートを付けた文字列&lt;/returns&gt;
+        private string quote(String inputText)
+        {
+            return "'" + inputText + "'";
+        }
+
+    }
+}
+

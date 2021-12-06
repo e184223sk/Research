@@ -1,0 +1,100 @@
+
+/// &lt;summary&gt;
+/// メインフォームを利用しないアプリケーションの終了を定義します。
+/// &lt;/summary&gt;
+public class FormlessApplicationContext : ApplicationContext
+{
+    static class SafeNativeMethods
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct MSG
+        {
+            public IntPtr hwnd;
+            public int message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public int time;
+            public POINT pt;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool PeekMessage(
+            out MSG msg, IntPtr hWnd,
+            int wMsgFilterMin, int wMsgFilterMax, int wRemoveMsg);
+    }
+
+    /// &lt;summary&gt;
+    /// 実行しているアプリケーションを取得します。
+    /// &lt;/summary&gt;
+    public FormlessApplication App { get; }
+
+    /// &lt;summary&gt;
+    /// FormlessApplicationContext クラスを初期化し、
+    /// 実行するアプリケーションを設定します。。
+    /// &lt;/summary&gt;
+    /// &lt;param name="app"&gt;実行するアプリケーション&lt;/param&gt;
+    public FormlessApplicationContext(FormlessApplication app)
+        : base()
+    {
+        this.App = app;
+        this.App.Context = this;
+
+        // アプリケーション初期化
+        if (!this.App.Initialize())
+        {
+            // アプリケーション終了
+            Application.Idle += (e, sender) =&gt; this.ExitThread();
+            return;
+        }
+
+        // モーダル状態を捕捉
+        Application.EnterThreadModal += this.Application_EnterThreadModal;
+        Application.LeaveThreadModal += this.Application_LeaveThreadModal;
+        // Idleイベント登録
+        Application.Idle += this.Application_Idle;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            // App破棄
+            this.App.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    private void Application_EnterThreadModal(object sender, EventArgs e)
+    {
+        // Idleイベント一時解除
+        Application.Idle -= this.Application_Idle;
+    }
+
+    private void Application_LeaveThreadModal(object sender, EventArgs e)
+    {
+        // Idleイベント再登録
+        Application.Idle += this.Application_Idle;
+    }
+
+    private void Application_Idle(object sender, EventArgs e)
+    {
+        // ウィンドウメッセージを受信するまでループ処理
+        while (!SafeNativeMethods.PeekMessage(
+            out SafeNativeMethods.MSG _, IntPtr.Zero, 0, 0, 0))
+        {
+            // アプリケーションの処理を実行
+            this.App.DoWork();
+            System.Threading.Thread.Sleep(1);
+        }
+    }
+}
+

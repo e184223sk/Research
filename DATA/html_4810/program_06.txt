@@ -1,0 +1,118 @@
+
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Security.Claims;
+
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+
+namespace svelteCsAsp.Controllers
+{
+    [AuthorizeJwt]
+    // [Authorize]
+    // [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [ApiController]
+    [Route("[controller]/[action]")]
+    public class AuthController : ControllerBase
+    {
+        // 設定管理オブジェクト
+        IConfiguration _config;
+
+        // サインインマネージャー（DefaultIdenityを利用している）
+        SignInManager&lt;IdentityUser&gt; _signInManager =null;
+
+        UserManager&lt;IdentityUser&gt; _userManage = null;
+
+        public class LoginRequest
+        {
+            public string userId { get; set; }
+            public string password { get; set; }
+        }
+
+        // コンストラクタ
+        // サインインマネージャーとコンフィグ管理のオブジェクトをＤＩ
+        public AuthController(SignInManager&lt;IdentityUser&gt; signInManager, IConfiguration config, UserManager&lt;IdentityUser&gt; userManage)
+        {
+            _signInManager = signInManager;
+            _config = config;
+            _userManage = userManage;
+        }
+
+        // ログイン処理
+        [HttpPost]
+        [AllowAnonymous]
+        public async Task&lt;IActionResult&gt; Login(LoginRequest request)
+        {
+            // ASP.Net core のdDefaultIdentityを利用してIDとパスワードの確認
+            var result = await _signInManager.PasswordSignInAsync(request.userId, request.password, false, false);
+            if (result.Succeeded == false)
+            {
+                return BadRequest("ユーザー名またはパスワードが違います。");
+            }
+
+
+            // ログイン成功でおJWTトークンを返す
+            return Ok(new { token = await BuildToken(request) });
+        }
+
+        // ログアウト処理
+        [HttpPost]
+        public IActionResult Logout()
+        {
+
+            _signInManager.SignOutAsync();　&lt;= これは不要な気がする
+
+            return Ok();
+        }
+
+        // JWTトークンの作成
+        private async Task&lt;string&gt; BuildToken(LoginRequest request)
+        {
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var user = await _userManage.FindByNameAsync(request.userId);
+            var principal = await _signInManager.CreateUserPrincipalAsync(user);
+            var roles = await _userManage.GetRolesAsync(user);
+
+            var claims = new List&lt;Claim&gt;(principal.Claims);
+            claims.Add(new Claim(JwtRegisteredClaimNames.Sub, user.UserName));
+            claims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
+            foreach(var role in roles) 
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+
+            var token = new JwtSecurityToken(
+                issuer: _config["Jwt:Issuer"],
+                audience: _config["Jwt:Issuer"],
+                expires: DateTime.Now.AddMinutes(30),
+                signingCredentials: creds,
+                claims: claims);
+            var tmp = new JwtSecurityTokenHandler().WriteToken(token);
+            return tmp;
+        }
+
+        // テスト用
+        [HttpPost]
+        [AuthorizeJwt(Roles = "SystemManager")]
+        public IActionResult IsSystemManager()
+        {
+            return new JsonResult(new {status="OK", message="You are SystemManager!"});
+        }
+
+        [HttpPost]
+        [AuthorizeJwt(Roles = "GroupManager")]
+        public IActionResult IsGroupManager()
+        {
+            return new JsonResult(new {status="OK", message="You are GroupManager!"});
+        }
+    }
+}
+

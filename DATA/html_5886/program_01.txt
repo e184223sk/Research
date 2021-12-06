@@ -1,0 +1,47 @@
+
+public class AutoEnumSource
+{
+    public static object GetSelectedEnumItem(Selector control) =&gt; (object)control.GetValue(SelectedEnumItemProperty);
+    public static void SetSelectedEnumItem(Selector control, object value) =&gt; control.SetValue(SelectedEnumItemProperty, value);
+
+    public static readonly DependencyProperty SelectedEnumItemProperty = DependencyProperty.RegisterAttached(
+        "SelectedEnumItem",
+        typeof(object), typeof(AutoEnumSource),
+        //デフォルトBindingモードをTwoWayにするために、FrameworkPropertyMetadataを使用
+        new FrameworkPropertyMetadata()
+        {
+            PropertyChangedCallback = OnSelectedEnumItemChanged,
+            BindsTwoWayByDefault = true
+        });
+
+    private static void OnSelectedEnumItemChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        //添付プロパティの変更値が有効でなかったら無効
+        Type newType = e.NewValue?.GetType();
+        if (newType == null || !newType.IsEnum)
+        {
+            return;
+        }
+        //添付されたコントロールがSelector以外では無効
+        var selector = d as Selector;
+        //変更値の型が変更前と同じなら何もしない
+        if (selector?.SelectedItem?.GetType() == newType)
+        {
+            return;
+        }
+        //添付されたSelectorのItemSourceに列挙型の全値を入力
+        selector.ItemsSource = Enum.GetValues(newType);
+        //SelectedItemに直接値を入力
+        selector.SelectedItem = e.NewValue;
+
+        //SelectorのSelctedItemにこの添付プロパティを双方向Bindingする
+        var binding = new Binding()
+        {
+            Path = new PropertyPath(AutoEnumSource.SelectedEnumItemProperty),
+            RelativeSource = RelativeSource.Self,
+            Mode = BindingMode.TwoWay
+        };
+        selector.SetBinding(Selector.SelectedItemProperty, binding);
+    }
+}
+

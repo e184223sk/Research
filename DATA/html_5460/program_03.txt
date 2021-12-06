@@ -1,0 +1,61 @@
+
+//using MessagePack;
+//using lz4;
+//using Npgsql;
+//using Utf8Json;
+
+var builder = new NpgsqlConnectionStringBuilder()
+{
+    Host = "localhost",
+    Port = 5432,
+    Database = "currency",
+    Username = "postgres",
+    Password = "postgres"
+};
+
+var msgRootDir = @"C:\data\msglz4";
+var lz4Files = Directory.EnumerateFiles(msgRootDir, "*.msg.lz4", SearchOption.AllDirectories);
+
+using (var con = new NpgsqlConnection(builder.ConnectionString))
+{
+    con.Open();
+    using (var cmd = new NpgsqlCommand())
+    {
+        cmd.Connection = con;
+
+        //CREATE TABLE
+        cmd.CommandText = "CREATE TABLE IF NOT EXISTS btcjpy(" +
+            "ts TIMESTAMP PRIMARY KEY," +
+            "json JSONB)";
+        cmd.ExecuteNonQuery();
+
+        //INSERT 
+        foreach (var lz in lz4Files)
+        {
+            Console.WriteLine(lz);
+
+            IEnumerable&lt;Tuple&lt;DateTime, string&gt;&gt; vals;
+            using (var fs = new FileStream(lz, FileMode.Open, FileAccess.Read))
+            using (var lz4Stream = LZ4Stream.CreateDecompressor(fs, LZ4StreamMode.Read))
+            {
+                var binaries = MessagePackSerializer.Deserialize&lt;byte[][]&gt;(lz4Stream);
+                var jsons = binaries.Select(x =&gt; Encoding.UTF8.GetString(x));
+                vals = jsons.Select(x =&gt; new Tuple&lt;DateTime, string&gt;(
+                    DateTime.Parse(JsonSerializer.Deserialize&lt;JsonData&gt;(x).timestamp), x));
+            }
+
+            //Binary COPY
+            using (var writer = con.BeginBinaryImport(
+                "COPY btcjpy(ts, json) FROM STDIN (FORMAT BINARY)"))
+            {
+                foreach (var v in vals)
+                {
+                    writer.StartRow();
+                    writer.Write(v.Item1, NpgsqlTypes.NpgsqlDbType.Timestamp);
+                    writer.Write(v.Item2, NpgsqlTypes.NpgsqlDbType.Jsonb);
+                }
+            }
+        }
+    }       
+}
+

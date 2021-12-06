@@ -1,0 +1,49 @@
+
+public struct TweenAwaiter : ICriticalNotifyCompletion
+{
+    Tween tween;
+    CancellationToken cancellationToken;
+
+    public TweenAwaiter(Tween tween, CancellationToken cancellationToken)
+    {
+        this.tween = tween;
+        this.cancellationToken = cancellationToken;
+    }
+
+    public bool IsCompleted =&gt; !tween.IsPlaying();
+
+    public void GetResult() =&gt; cancellationToken.ThrowIfCancellationRequested();
+
+    public void OnCompleted(Action continuation) =&gt; UnsafeOnCompleted(continuation);
+
+    public void UnsafeOnCompleted(Action continuation)
+    {
+        CancellationTokenRegistration regist = new CancellationTokenRegistration();
+        var tween = this.tween;
+
+        // Tweenが死んだら続きを実行
+        tween.OnKill(() =&gt;
+        {
+            regist.Dispose(); // CancellationTokenRegistrationを破棄する
+            continuation(); // 続きを実行
+        });
+
+        // tokenが発火したらTweenをKillする
+        regist = cancellationToken.Register(()=&gt;{
+            tween.Kill(true);
+        });
+    }
+
+    public TweenAwaiter GetAwaiter() =&gt; this;
+}
+
+public static class TweenAwaiterEx
+{
+    // TweenにToAwaiter拡張メソッドを追加
+    public static TweenAwaiter ToAwaiter(this Tween self, CancellationToken cancellationToken = default)
+    {
+        return new TweenAwaiter(self, cancellationToken);
+    }
+}
+
+

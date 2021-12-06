@@ -1,0 +1,60 @@
+
+namespace GreeterClient
+{
+    class Program
+    {
+        const string Host = "localhost";
+        const int Port = 50051;
+
+        public static void Main(string[] args)
+        {
+            // Create a channel
+            var channel = new Channel(Host + ":" + Port, ChannelCredentials.Insecure);
+
+            // Create a client with the channel
+            var client = new GreetingService.GreetingServiceClient(channel);
+
+            // Create a request
+            var request = new HelloRequest{
+                Name = "Mete - on C#",
+                Age = 34,
+                Sentiment = Sentiment.Happy
+            };
+
+            // Send the request
+            Console.WriteLine("GreeterClient sending request");
+            var response = client.greeting(request);
+            Console.WriteLine("GreeterClient received response: " + response.Greeting);
+
+            // チャンクデータの作成
+            var fs = new FileStream("00013646_72B.jpg", FileMode.Open);
+            byte[] data = new byte[fs.Length];
+            fs.Read(data, 0, data.Length);
+
+            // ファイルの送信処理
+            var task = Task.Run(async () =&gt;
+            {
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+                for (int i = 0; i &lt; 100; i++)
+                {
+                    // 送信
+                    var stream = client.filesend();
+                    var chunk = Google.Protobuf.ByteString.CopyFrom(data, 0, data.Length);
+                    await stream.RequestStream.WriteAsync(new Chunk() { Chunk_ = chunk });
+                    await stream.RequestStream.CompleteAsync();
+                    var res = await stream.ResponseAsync;
+                }
+                sw.Stop();
+                Console.WriteLine(sw.Elapsed);
+            });
+            task.Wait();
+
+            // Shutdown
+            channel.ShutdownAsync().Wait();
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
+    }
+}
+

@@ -1,0 +1,317 @@
+引数をそのまま印刷
+
+
+makeQR.cs
+using System;
+using System.Windows.Forms;
+using System.Drawing;
+using QRCodeEncoderDecoderLibrary;
+
+public class makeQR
+{
+    public static void Main(string[] args)
+    {
+
+        string str;
+        str = @"" + args[0];
+
+        QREncoder QRCodeEncoder;
+        Bitmap    QRCodeImage;
+
+        QRCodeEncoder = new QREncoder();
+
+        byte [] bytesData = System.Text.Encoding.UTF8.GetBytes(str);
+        string Data = System.Text.Encoding.UTF8.GetString(bytesData);
+
+        QRCodeEncoder.Encode(ErrorCorrection.H, Data);
+        QRCodeImage = QRCodeToBitmap.CreateBitmap(QRCodeEncoder, 4, 8);
+
+        QRCodeImage.Save(@".\\outQR.png", System.Drawing.Imaging.ImageFormat.Png);
+
+    }
+}
+
+
+
+画像を印刷する例
+
+
+makeQR.cs
+
+using System;
+using System.Windows.Forms;
+using System.Drawing;
+
+public class printtest
+{
+    public static void Main(string[] args)
+    {
+        // 印刷
+        System.Drawing.Printing.PrintDocument pd = new System.Drawing.Printing.PrintDocument();
+        pd.PrintPage += new System.Drawing.Printing.PrintPageEventHandler(pd_PrintPage);
+        pd.Print();
+    }
+
+    public static void pd_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
+    {
+        //画像を読み込む
+        Image img = Image.FromFile("outQR.png");
+        //画像を描画する
+        e.Graphics.DrawImage(img, e.MarginBounds);
+        //次のページがないことを通知する
+        e.HasMorePages = false;
+        //後始末をする
+        img.Dispose();
+    }
+}
+
+
+
+QRコード出力時にフォルダが無ければ作成
+
+
+makeQR.cs
+using System;
+using System.IO;
+using System.Windows.Forms;
+using System.Drawing;
+using QRCodeEncoderDecoderLibrary;
+
+public class makeQR
+{
+    public static string workDir = @"c:\QR-output";
+
+    public static void Main(string[] args)
+    {
+        string QRbody, QRfilename;
+        QRbody = @"" + args[0];
+        Directory.CreateDirectory(workDir);
+        QRfilename = workDir + @"\QR-"+ args[0] +".png";
+
+        generateQR(QRbody, QRfilename);
+    }
+
+    public static void generateQR(string QRbody, string QRfilename)
+    {
+        // QR
+        QREncoder QRCodeEncoder;
+        Bitmap    QRCodeImage;
+        QRCodeEncoder = new QREncoder();
+        byte [] bytesData = System.Text.Encoding.UTF8.GetBytes(QRbody);
+        string Data = System.Text.Encoding.UTF8.GetString(bytesData);
+
+        QRCodeEncoder.Encode(ErrorCorrection.H, Data);
+        QRCodeImage = QRCodeToBitmap.CreateBitmap(QRCodeEncoder, 4, 8);
+
+        // QR save
+        QRCodeImage.Save(QRfilename, System.Drawing.Imaging.ImageFormat.Png);
+    }
+}
+
+
+
+QRコード出力し印刷（通常使うプリンター）
+
+
+makeQR.cs
+using System;
+using System.IO;
+using System.Windows.Forms;
+using System.Drawing;
+using QRCodeEncoderDecoderLibrary;
+
+public class makeQR
+{
+    public static string workDir = @"c:\QR-output";
+    public static string QRfilename = "";
+    public static string printingText;
+    public static Font printFont;
+
+    public static void Main(string[] args)
+    {
+        string QRbody;
+        QRbody = @"" + args[0];
+        Directory.CreateDirectory(workDir);
+        QRfilename = workDir + @"\QR-"+ args[0] +".png";
+
+        generateQR(QRbody);
+
+        // 印刷
+        printingText = @"QRの内容: " + args[0];
+        printFont = new Font("ＭＳ Ｐゴシック", 12);
+        System.Drawing.Printing.PrintDocument pd = new System.Drawing.Printing.PrintDocument();
+        pd.PrintPage += new System.Drawing.Printing.PrintPageEventHandler(pd_PrintPage);
+        pd.Print();
+    }
+
+    public static void generateQR(string QRbody)
+    {
+        // QR
+        QREncoder QRCodeEncoder;
+        Bitmap    QRCodeImage;
+        QRCodeEncoder = new QREncoder();
+        byte [] bytesData = System.Text.Encoding.UTF8.GetBytes(QRbody);
+        string Data = System.Text.Encoding.UTF8.GetString(bytesData);
+
+        QRCodeEncoder.Encode(ErrorCorrection.H, Data);
+        QRCodeImage = QRCodeToBitmap.CreateBitmap(QRCodeEncoder, 4, 8);
+
+        // QR save
+        QRCodeImage.Save(QRfilename, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    static void pd_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
+    {
+        //画像を読み込む
+        Image img = Image.FromFile(QRfilename);
+        //画像を描画する
+        //e.Graphics.DrawImage(img, e.MarginBounds); // 幅全体に描画する場合。
+        // 20, 10 の位置に表示
+        e.Graphics.DrawImage(img, 20, 10, img.Width, img.Height); // サイズ指定する場合
+        //文字
+        e.Graphics.DrawString(printingText, printFont, Brushes.Black, 0, 0);
+        //次のページがないことを通知する
+        e.HasMorePages = false;
+        //後始末をする
+        img.Dispose();
+    }
+}
+
+
+
+プリンター名を指定して印刷
+
+https://docs.microsoft.com/ja-jp/dotnet/api/system.drawing.printing.printersettings.printername?view=net-5.0設定ファイルに対応
+
+
+makeQR.iniの作成
+
+
+
+makeQR.ini
+# PrinterName="Microsoft XPS Document Writer"
+PrinterName="Microsoft Print to PDF"
+printingText="印字内容"
+
+
+
+
+c:\QR-output\QR-〇〇.pngを生成し印刷する例
+
+
+
+makeQR.cs
+using System;
+using System.IO;
+using System.Windows.Forms;
+using System.Drawing;
+using System.Text;
+using System.Text.RegularExpressions;
+using QRCodeEncoderDecoderLibrary;
+
+public class makeQR
+{
+    public static string baseDir = @"c:";
+    public static string QRfilename = "";
+    public static string printingText;
+    public static Font printFont;
+    public static string PrinterName = @"Microsoft XPS Document Writer";
+
+    public static void Main(string[] args)
+    {
+        string QRbody;
+        QRbody = @"" + args[0];
+        Directory.CreateDirectory(baseDir + @"\QR-output");
+        QRfilename = baseDir + @"\QR-"+ args[0] +".png";
+
+        generateQR(QRbody);
+
+        // 印刷設定
+        printFont = new Font("ＭＳ Ｐゴシック", 12);
+        System.Drawing.Printing.PrintDocument pd = new System.Drawing.Printing.PrintDocument();
+        pd.PrintPage += new System.Drawing.Printing.PrintPageEventHandler(pd_PrintPage);
+
+        // INIファイルから設定読み込み
+        getIniFile();
+
+        // プリンターを指定して印刷
+        pd.PrinterSettings.PrinterName = PrinterName;
+        // 印刷内容
+        printingText += @" " + args[0];
+
+        if (pd.PrinterSettings.IsValid) {
+            pd.Print();
+        } 
+        else {  
+            MessageBox.Show(@"指定されたプリンターは見つかりません。" + PrinterName);
+        }
+
+    }
+
+    public static void generateQR(string QRbody)
+    {
+        // QR
+        QREncoder QRCodeEncoder;
+        Bitmap    QRCodeImage;
+        QRCodeEncoder = new QREncoder();
+        byte [] bytesData = System.Text.Encoding.UTF8.GetBytes(QRbody);
+        string Data = System.Text.Encoding.UTF8.GetString(bytesData);
+
+        QRCodeEncoder.Encode(ErrorCorrection.H, Data);
+        QRCodeImage = QRCodeToBitmap.CreateBitmap(QRCodeEncoder, 4, 8);
+
+        // QR save
+        QRCodeImage.Save(QRfilename, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    static void pd_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
+    {
+        //画像を読み込む
+        Image img = Image.FromFile(QRfilename);
+        //画像を描画する
+        //e.Graphics.DrawImage(img, e.MarginBounds); // 幅全体に描画する場合。
+        // 20, 10 の位置に表示
+        e.Graphics.DrawImage(img, 20, 10, img.Width, img.Height); // サイズ指定する場合
+        //文字
+        e.Graphics.DrawString(printingText, printFont, Brushes.Black, 0, 0);
+        //次のページがないことを通知する
+        e.HasMorePages = false;
+        //後始末をする
+        img.Dispose();
+    }
+
+    public static void getIniFile()
+    {
+        StreamReader sr = new StreamReader(baseDir + @"\QR\makeQR.ini", Encoding.GetEncoding("Shift_JIS"));
+        // 一行づつ読み込み
+        while (sr.Peek() &gt; -1) {
+            string line = sr.ReadLine();
+            if (Regex.IsMatch(line, "^PrinterName=")) {
+                Match match = Regex.Match(line, @"^PrinterName=""(.*)""");
+                PrinterName = match.Groups[1].Value;
+            }
+            if (Regex.IsMatch(line, "^printingText=")) {
+                Match match = Regex.Match(line, @"^printingText=""(.*)""");
+                printingText = match.Groups[1].Value;
+            }
+        }
+        sr.Close();
+    }
+}
+
+
+
+
+compile.bat
+c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe ^
+  /reference:QRCodeEncoderDecoderLibrary.dll ^
+  /target:winexe makeQR.cs
+
+
+
+makeQR.exe 1
+
+
+
+
+

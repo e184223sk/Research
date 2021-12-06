@@ -1,0 +1,207 @@
+//c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe Process_Kanshi.cs
+
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Collections.Generic;
+using System.Text;
+
+public class lCnt{
+    public int cntWrk { get; set; }
+    public int cntSm { get; set; }
+    public string PNm { get; set; }
+    public string MWT { get; set; }
+    public override string ToString()
+    {
+         return cntWrk + "\t" + cntSm + "\t" + PNm + "\t" + MWT;
+    }
+    public void toWin(){
+        this.cntWrk++;
+        this.cntSm++;
+    }
+    public void toLose(){
+        this.cntSm++;
+    }
+}
+
+public class Process_Kanshi
+{ ///*
+
+
+[DllImport("user32.dll")]
+public static extern int GetAsyncKeyState(long vKey);
+
+[DllImport("USER32.dll", CallingConvention = CallingConvention.StdCall)]
+static extern void SetCursorPos(int X, int Y);
+
+[DllImport("kernel32.dll")]
+private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+[DllImport("kernel32.dll")]
+private static extern bool CloseHandle(IntPtr handle);
+
+[DllImport("USER32.DLL")]
+private static extern IntPtr GetForegroundWindow();
+
+[DllImport("user32.dll", SetLastError = true)]
+private static extern int GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+[DllImport("psapi.dll", CharSet = CharSet.Ansi)]
+private static extern uint GetModuleBaseName(IntPtr hWnd, IntPtr hModule, [MarshalAs(UnmanagedType.LPStr), Out] StringBuilder lpBaseName, uint nSize);
+
+[DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+[DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+private static extern int GetWindowTextLength(IntPtr hWnd);
+
+  public static void Main(string[] args)
+  { ///**
+
+    //Process[] processList;
+
+    DateTime dt = DateTime.Now;
+    string dt_s = dt.ToString("yyyy_MM_dd");
+
+    bool DtMsCr = false;
+    bool DtKyBd = false;
+    bool isWin = false;
+
+    string s_mc = "";
+    string lgT = "";
+    string pT = "";
+
+    string pnm0 = "";
+    string mwt0 = "";
+
+    Dictionary&lt;string, lCnt&gt; prcLog;// = new Dictionary&lt;string, lCnt&gt;();
+
+    for(;;){ ///***
+
+    prcLog = new Dictionary&lt;string, lCnt&gt;();
+
+    for(int i = 0 ; i&lt;60*5; i++){ //****
+
+    //---------
+    DtMsCr = false;
+    DtKyBd = false;
+
+    pnm0 = "";
+    mwt0 = "";
+    pT = "";
+    isWin = false;
+    //---------
+
+    DateTime mdt1 = DateTime.Now;
+
+    //processList = Process.GetProcesses();
+
+    IntPtr hWnd = GetForegroundWindow();
+
+    uint processId;
+    GetWindowThreadProcessId(hWnd, out processId);
+
+    if (hWnd != IntPtr.Zero)
+    {
+        var hnd = OpenProcess(0x0400 | 0x0010 , false, processId);
+
+        var buffer = new StringBuilder(255);
+        GetModuleBaseName(hnd, IntPtr.Zero, buffer, (uint)buffer.Capacity);
+
+        int textLen = GetWindowTextLength(hWnd);
+
+        StringBuilder tsb = new StringBuilder(textLen + 1);
+        GetWindowText(hWnd, tsb, tsb.Capacity);
+
+        var processName = buffer.ToString().ToLower();
+
+        //-----
+        isWin = true;
+        string lmwt = tsb.ToString();
+        lmwt = lmwt.Trim().Replace(" ","");
+        lmwt = lmwt.Substring(0,Math.Min(30,lmwt.Length));
+        pT = processName + "_" + lmwt;
+        Console.WriteLine( pT );
+
+        pnm0 = processName;
+        mwt0 = lmwt;
+        //-----
+
+    }
+
+    if(!isWin &amp;&amp; (int)hWnd!=0){
+        Console.WriteLine( "Unknown" + " _ " + hWnd);
+        pT = "Unknown";
+        pnm0 = "Unknown";
+    }
+
+    if((int)hWnd==0){
+        Console.WriteLine( "LOG_OFF" + " _ " + hWnd);
+        pT = "LOG_OFF";
+        pnm0 = "LOG_OFF";
+    }
+
+    for(int ix = 32 ; ix &lt;= 226; ix ++){
+        if(GetAsyncKeyState(ix) != 0){
+            DtKyBd = true;
+        }
+    }
+    if(s_mc != Control.MousePosition.ToString()){
+        DtMsCr = true;
+    }
+
+
+    //////////////##############
+    if (!prcLog.ContainsKey(pT))
+    {
+        prcLog.Add(pT, new lCnt() { cntWrk=1, cntSm=1, PNm = pnm0, MWT = mwt0 });
+    }else{
+        if(DtKyBd || DtMsCr){
+            prcLog[pT].toWin();
+            //Console.WriteLine( "w");
+        }else{
+            prcLog[pT].toLose();
+            //Console.WriteLine( "l");
+        }
+    }
+    //////////////##############
+    s_mc = Control.MousePosition.ToString();
+
+            DateTime mdt2 = DateTime.Now;
+            TimeSpan mms = mdt2-mdt1;
+            int imms = (int)mms.TotalMilliseconds;
+            //Console.WriteLine( "imms "+ imms);
+            imms = 1000 - imms -10 ;
+            if(imms&gt;=1000 || imms &lt; 0 ){imms=700;}
+        System.Threading.Thread.Sleep(imms);
+
+    } //****
+
+    dt = DateTime.Now;
+    string dt_sl = dt.ToString("yyyy_MM_dd_HHmmss");
+
+    lgT = "";
+    foreach (KeyValuePair&lt;string, lCnt&gt; kvp in prcLog)
+    {
+        lgT = lgT + dt_sl + "\t" + kvp.Key + "\t" +  kvp.Value + Environment.NewLine;
+    }
+
+    System.IO.File.AppendAllText(@".\" + dt_s + ".txt", lgT);
+    lgT = "";
+    pT = "";
+
+    pnm0 = "";
+    mwt0 = "";
+
+    DtMsCr = false;
+    DtKyBd = false;
+    s_mc = Control.MousePosition.ToString();
+
+
+    } ///***
+
+  } ///**
+
+} ///*
+

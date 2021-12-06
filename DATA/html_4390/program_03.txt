@@ -1,0 +1,45 @@
+
+[UpdateInGroup(typeof(BoidSystemGroup))]
+public class CohesionSystem : SystemBase
+{
+    private struct CohesionDataContainer
+    {
+        [ReadOnly] public float alignmentWeight;
+        [ReadOnly] public ComponentDataFromEntity&lt;Translation&gt; positionFromGrovalEntity;
+    }
+
+    protected override void OnUpdate()
+    {
+        var common_data = new CohesionDataContainer
+        {
+            alignmentWeight = Bootstrap.Param.alignmentWeight,
+            positionFromGrovalEntity = GetComponentDataFromEntity&lt;Translation&gt;(true),
+        };
+
+        Dependency = Entities.
+            WithName("CohesionJob").
+            WithAll&lt;BoidType&gt;().
+            WithBurst().
+            ForEach(
+        (ref Acceleration accel, in Translation pos, in DynamicBuffer&lt;NeighborsEntityBuffer&gt; neighbors) =&gt;
+        {
+            if (neighbors.Length == 0) return;
+
+            float3 pos_avg = float3.zero;
+            float3 pos0 = pos.Value;
+            float3 acc = accel.Value;
+
+            for(int i=0; i&lt;neighbors.Length; i++)
+            {
+                pos_avg += common_data.positionFromGrovalEntity[neighbors[i].entity].Value;
+            }
+            pos_avg /= neighbors.Length;
+
+            acc += (pos_avg - pos0) * common_data.alignmentWeight;
+
+            accel = new Acceleration { Value = acc };
+        }
+        ).ScheduleParallel(Dependency);
+    }
+}
+

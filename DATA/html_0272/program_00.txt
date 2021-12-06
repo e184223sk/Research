@@ -1,0 +1,168 @@
+public class InputHook : IDisposable
+{
+    private event HookProc KeyboardProcProperty;
+    private event HookProc MouseProcProperty;
+
+    private readonly IntPtr KeyboardHandle;
+    private readonly IntPtr MouseHandle;
+
+    public InputHook()
+    {
+        IntPtr hInstance = Marshal.GetHINSTANCE(System.Reflection.Assembly.GetExecutingAssembly().GetModules()[0]);
+        KeyboardHandle = SetWindowsHookEx(13, KeyboardProcProperty = KeyboardProc, hInstance, IntPtr.Zero);
+        MouseHandle = SetWindowsHookEx(14, MouseProcProperty = MouseProc, hInstance, IntPtr.Zero);
+    }
+
+    public void Dispose()
+    {
+        UnhookWindowsHookEx(KeyboardHandle);
+        UnhookWindowsHookEx(MouseHandle);
+    }
+
+    public delegate void MouseEvent(int x, int y);
+    public event MouseEvent MouseMove;
+    public event MouseEvent MouseLeftDown;
+    public event MouseEvent MouseLeftUp;
+    public event MouseEvent MouseLeftDoubleClick;
+    public event MouseEvent MouseRightDown;
+    public event MouseEvent MouseRightUp;
+    public event MouseEvent MouseRightDoubleClick;
+    public event MouseEvent MouseMiddleDown;
+    public event MouseEvent MouseMiddleUp;
+    public event MouseEvent MouseMiddleDoubleClick;
+
+    public delegate void MouseWheelEvent(int x, int y, int delta);
+    public event MouseWheelEvent MouseWheel;
+
+    private IntPtr MouseProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode &lt; 0)
+        {
+            return CallNextHookEx(KeyboardHandle, nCode, wParam, lParam);
+        }
+
+        MSLLHOOKSTRUCT data = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+
+        int x = data.pt.x;
+        int y = data.pt.y;
+
+        switch (wParam.ToInt32())
+        {
+            case 0x0200:
+                MouseMove?.Invoke(x, y);
+                break;
+            case 0x0201:
+                MouseLeftDown?.Invoke(x, y);
+                break;
+            case 0x0202:
+                MouseLeftUp?.Invoke(x, y);
+                break;
+            case 0x0203:
+                MouseLeftDoubleClick?.Invoke(x, y);
+                break;
+            case 0x0204:
+                MouseRightDown?.Invoke(x, y);
+                break;
+            case 0x0205:
+                MouseRightUp?.Invoke(x, y);
+                break;
+            case 0x0206:
+                MouseRightDoubleClick?.Invoke(x, y);
+                break;
+            case 0x0207:
+                MouseMiddleDown?.Invoke(x, y);
+                break;
+            case 0x0208:
+                MouseMiddleUp?.Invoke(x, y);
+                break;
+            case 0x0209:
+                MouseMiddleDoubleClick?.Invoke(x, y);
+                break;
+            case 0x020A:
+                MouseWheel?.Invoke(x, y, (short)((data.mouseData &gt;&gt; 16) &amp; 0xFFFF));
+                break;
+        }
+
+        return CallNextHookEx(KeyboardHandle, nCode, wParam, lParam);
+    }
+
+    public delegate void KeyEvent(Key key);
+    public event KeyEvent KeyDown;
+    public event KeyEvent KeyUp;
+
+    private IntPtr KeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode &lt; 0)
+        {
+            return CallNextHookEx(KeyboardHandle, nCode, wParam, lParam);
+        }
+
+        KBDLLHOOKSTRUCT data = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+
+        Key key = KeyInterop.KeyFromVirtualKey(data.vkCode);
+
+        switch (wParam.ToInt32())
+        {
+            case 0x0100:
+            case 0x0104:
+                KeyDown?.Invoke(key);
+                break;
+            case 0x0101:
+            case 0x0105:
+                KeyUp?.Invoke(key);
+                break;
+        }
+
+        return CallNextHookEx(MouseHandle, nCode, wParam, lParam);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [Flags]
+    private enum KBDLLHOOKSTRUCTFlags : uint
+    {
+        LLKHF_EXTENDED = 0x01,
+        LLKHF_LOWER_IL_INJECTED = 0x02,
+        LLKHF_INJECTED = 0x10,
+        LLKHF_ALTDOWN = 0x20,
+        LLKHF_UP = 0x80,
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private class KBDLLHOOKSTRUCT
+    {
+        public int vkCode;
+        public uint scanCode;
+        public KBDLLHOOKSTRUCTFlags flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, HookProc lpfn, IntPtr hMod, IntPtr dwThreadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+}
+

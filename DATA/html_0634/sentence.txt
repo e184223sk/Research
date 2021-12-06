@@ -1,0 +1,13 @@
+前回、以下の記事で、ASP.NET Core 3.1 MVC による Microsoft アカウント認証の実装手順を説明しました。認証ができたら、次は、ロール ベース アクセス コントロール、つまり、コントローラーやアクションに、[Authorize(Roles="admin")] みたいな属性をつけて、特定のグループに所属している場合のみにアクセスを許可するといったことをやりたいのですが、Microsoft アカウント認証のみを対象としたときは、やり方が見つかりませんでした。
+Azure Active Directory アカウントでは、以下の方法で、roles や groups をクレームに含めて、アカウントのロールとして管理、制御できます。これらの方法の様に所属しているロールをクレームに含めることができれば、ロールの管理が容易となるのですが、今回は、アプリ側で、ロールを定義して ASP.NET Core のポリシーで認可を制御する方法を説明します。今回は、appSettings.json にロールと所属するアカウントを定義していきます。
+ここでは、Admins を配列として定義して、その値に、所属するアカウントとして、対象アカウントのオブジェクト ID "http://schemas.microsoft.com/identity/claims/objectidentifier" の値を定義しています。"http://schemas.microsoft.com/identity/claims/objectidentifier" の値は、実際に Microsoft アカウントを認証させて、確認しました。
+以下の記事の手順で、Microsoft アカウント認証を行い、対象アカウントのオブジェクト ID を取得して、設定を行ってください。ASP.NET Core 3.1 MVC による Microsoft アカウント認証#動作確認
+http://schemas.microsoft.com/identity/claims/objectidentifierStartup.ConfigureServices でポリシーを定義、追加します。
+以下のコードでは、先ほど定義した appSettings.json の Admins 配列にオブジェクト ID が含まれているかを評価するポリシー "AdminOnly" を定義、追加しています。
+AuthorizationPolicyBuilder.RequireAssertion を使うとクロージャーで簡単にポリシーを定義できます。あとは、コントローラーやアクションに [Authorize] 属性とともに、ポリシーを指定します。
+[Authorize(Policy = "ポリシー名")] でポリシー名を指定します。
+AuthorizeAttribute のコンストラクターで、ポリシー名を指定できるので、[Authorize("ポリシー名")] とすることもできます。ASP.NET Core 3.1 MVC による Microsoft アカウント認証 の手順で、Azure Active Directory にアプリを登録する際に、[サポートされているアカウントの種類] を "個人用 Microsoft アカウントのみ" とした時、つまり、Microsoft アカウント認証を選択した場合は、ロールの定義や定義したロールをクレームに含めることができないようです。
+よって、今回は、ロールの定義をアプリ側で行い、ユーザー アカウントがロールに含まれていることを検証するポリシーを定義し、ポリシー ベースの認可で、ロール ベース ライクなアクセス制御を実現してみました。
+実は、ASP.NET Core のミドルウェアで、クレームを追加して [Authorize(Roles="ロール名")] といったこともできるのですが、セキュリティ面でどうなのかという点と、ポリシー ベースの方が、色々と応用が利くと考えたので、今回は、ポリシー ベースでの説明としました。
+
+

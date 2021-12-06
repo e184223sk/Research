@@ -1,0 +1,81 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class PhysicsGrabbable : OVRGrabbable
+{
+    GameObject anchor; 
+    GameObject grabHand;
+    Rigidbody rb;
+    Vector3 offsetPos; 
+    Vector3 thisObjPos;
+
+    Vector3 tmpGripTrans;
+
+    bool isCollision;
+    bool grabMomentKinematic;
+    float acceptableDistance = 0.1f;
+
+    protected override void Start()
+    {
+        rb = this.gameObject.GetComponent&lt;Rigidbody&gt;();
+
+        anchor = GameObject.Find("RightControllerAnchor");
+        grabHand = GameObject.Find("hands:Rhand");
+    }
+
+    public override void GrabBegin(OVRGrabber hand, Collider grabPoint)
+    {
+        m_grabbedBy = hand;
+        m_grabbedCollider = grabPoint;
+        grabHand.SetActive(false);
+        this.gameObject.transform.parent = anchor.transform;
+        tmpGripTrans = this.gameObject.transform.localPosition;
+        rb.useGravity = false;
+        grabMomentKinematic = rb.isKinematic;
+        rb.isKinematic = false;
+        rb.constraints = RigidbodyConstraints.FreezeRotation;
+    }
+
+    public override void GrabEnd(Vector3 linearVelocity, Vector3 angularVelocity)
+    {
+        grabHand.SetActive(true);
+        this.gameObject.transform.parent = null;
+        rb.useGravity = true;
+        rb.isKinematic = grabMomentKinematic;
+        rb.constraints = RigidbodyConstraints.None;
+        rb.velocity = linearVelocity;
+        rb.angularVelocity = angularVelocity;
+        m_grabbedBy = null;
+        m_grabbedCollider = null;
+    }
+
+    void OnCollisionEnter(Collision other)
+    {
+        isCollision = true;
+    }
+
+    void OnCollisionExit(Collision other)
+    {
+        isCollision = false;
+    }
+
+    void Update()
+    {
+        if (isGrabbed)
+        {
+            rb.velocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+
+            offsetPos = anchor.transform.position;
+            thisObjPos = this.gameObject.transform.position;
+
+            if (isCollision == false &amp;&amp; Vector3.Distance(thisObjPos,offsetPos)&gt;acceptableDistance)
+            {
+                this.gameObject.transform.localPosition = tmpGripTrans;
+            }
+        }
+    }
+}
+
+

@@ -1,0 +1,201 @@
+More than 3 years have passed since last update.SE1年生の私ですが、先日Visual Studioを使い、Outlook用のVSTOアドインを開発しました。
+そのアドインの単体テストの話を、備忘録として記事にします。今回は、NUnitで単体テストを行うにあたり「リフレクション」や、
+モックライブラリの「NSubstitute」を用いました。開発したアドインのソリューションの構成はこのようになっています。
+以下、この記事に出てくる、クラス名やメソッド名の紹介です。テストクラス (テストする側)
+プロジェクト名： ORCAUnitTest
+クラス名： GetRecipientsUnitTestテスト対象  (テストされる側)
+プロジェクト名： OutlookRecipientConfirmationAddin
+クラス名： Utility
+メソッド名：  GetRecipientsGetRecipientsメソッドのソースコードはこちら
+  
+
+
+Utility.cs
+        /// &lt;summary&gt;
+        /// アイテムから、宛先(Recipient)のリスト取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="Item"&gt;Outlookアイテムオブジェクト&lt;/param&gt;
+        /// &lt;param name="type"&gt;アイテムの種類&lt;/param&gt;
+        /// &lt;param name="IgnoreMeetingResponse"&gt;会議招集の返信かどうか&lt;/param&gt;
+        /// &lt;returns&gt;Recipientsインスタンス(会議招集の返信や、MailItem,MeetingItem,AppointmentItemでない場合null)&lt;/returns&gt;
+        public static List&lt;Outlook.Recipient&gt; GetRecipients(object Item, ref OutlookItemType type, bool IgnoreMeetingResponse = false)
+        {
+            Outlook.Recipients recipients = null;
+            bool isAppointmentItem = false;
+
+            Outlook.MailItem mail = Item as Outlook.MailItem;
+            // MailItemの場合
+            if (mail != null)
+            {
+                recipients = mail.Recipients;
+                type = OutlookItemType.Mail;
+            }
+
+            // (中略)
+
+            else if (Item is Outlook.ReportItem)
+            {
+                Outlook.ReportItem item = Item as Outlook.ReportItem;
+
+                //ReportItemのままだと送信先が取れないため、
+                //いったんIPM.Noteとして別名保存⇒ロードしてからRecipientsを取得する
+                Outlook.ReportItem copiedReport = item.Copy();
+                copiedReport.MessageClass = "IPM.Note";
+                copiedReport.Save();
+
+                //IPM.Noteとして保存してからロードするとMailItemとして扱えるようになる
+                var newReportItem = Globals.ThisAddIn.Application.Session.GetItemFromID(copiedReport.EntryID);
+                Outlook.MailItem newMailItem = newReportItem as Outlook.MailItem;
+                recipients = newMailItem.Recipients;
+                type = OutlookItemType.Report;
+
+                copiedReport.Delete();
+            }
+
+            // 受信者の情報をリストに入れる
+            List&lt;Outlook.Recipient&gt; recipientsList = new List&lt;Outlook.Recipient&gt;();
+
+            int i = isAppointmentItem ? 2 : 1;
+
+            for (; i &lt;= recipients.Count; i++)
+            {
+                // recipients[i]がBccまたはリソース
+                if (recipients[i].Type == (int)Outlook.OlMailRecipientType.olBCC)
+                {
+                    // Bccや、選択されたリソースの場合
+                    if (recipients[i].Sendable)
+                    {
+                        recipientsList.Add(recipients[i]);
+                    }
+                    // 選択されていないリソースの場合
+                    else
+                    {
+                        continue;
+                    }
+                }
+                // 送信者、To、Ccの場合
+                else
+                {
+                    recipientsList.Add(recipients[i]);
+                }
+            }
+
+            return recipientsList;
+        }
+
+
+
+
+初心者の私が、単体テストを作成するにあたり、直面した問題は以下の通り。「テスト対象のクラス/メソッドにアクセスできない(publicでない)場合、どうすればテストできるのか？」
+「Outlookを起動しないテストプロジェクトから、どのようにGlobals.ThisAddinインスタンスを生成するか？」セットアップメソッド（テストが実行される前、1度だけ実行されるメソッド）のコーディング時に
+少し頑張ることで、これらの問題を解決しました。テストコードから、publicでないクラスやメソッドを呼出すと、ビルドエラーになります。
+「'〇〇〇（publicでないクラスやメソッド名）'はアクセスできない保護レベルになっています」
+との事。テストプロジェクトとテスト対象の、アクセシビリティの問題です問題「テスト対象のクラス/メソッドにアクセスできない(publicでない)場合、どうすればテストできるのか？」ズバリ、「リフレクションを使った、アセンブリの動的呼出し」です！Init()メソッド内で、DLLファイルから動的にテスト対象のメソッドを呼び出しました。まず、アセンブリからモジュールを取得。
+モジュールから、クラスの型(Type)を取得します。
+最後に、クラスの型からインスタンスを生成すると、メソッドの属性 「mi」 を取得できます。  セットアップメソッドでの下準備は、以上です。次に、テストコードです。Invoke メソッドを使うと、テストしたいメソッドを呼び出せました！例えば、テスト対象のメソッドには、このようなコードがあります。  このGlobals.ThisAddinインスタンスは、Outlook起動時に自動で生成されるものです。
+しかし、今回の単体テストはNUnitで実行するため、Outlookを起動しません。問題「Outlookを起動しないテストプロジェクトから、どのようにGlobals.ThisAddinインスタンスを生成するか？」ズバリ、「モックオブジェクトを駆使する」ことです！単体テストクラスからは、この「ThisAddIn」にアクセスできないので、自分でThisAddInクラスを作成します。
+NSubstituteを使い、あたかも本物の「ThisAddIn」が取得できたかのように、振る舞いを定義します。少しややこしいですが、これでThisAddInやApplication、Sessionの偽装が完了です。全てのテストケースで、モックオブジェクトに同じ動作を期待する処理は、
+以下のようなコードをセットアップメソッドに記述してもいいです。ここでは、私は .Returns() メソッドを使っています。
+テスト対象でCreateRecipientメソッドが呼ばれると、Recipient型の「testRec」が返却されるようになりました。その他のモックについては、各テストコードで、テスト内容に応じてモックの動作の指定をします。  ThisAddInクラスを、上記の手順で複数生成すると、System.NotSupportedException になります。
+その理由は、ThisAddInのコンストラクタにあります。ThisAddInのコンストラクタが、Factoryプロパティのセッターにアクセスする際に例外が発生したようです手っ取り早い解決法は、ThisAddInクラスを一度生成したら、
+「そのインスタンスをクラス間で使い回す」ことです。その他、単体テストで難しいと感じたポイントを1点紹介します。
+動的型付け変数であるdynamicと、モックについてです。テストコード内で、先程紹介した通りにモックオブジェクトのメソッドの返り値を指定。テストコードの残りの部分も完成させ、テストを実行。  RuntimeBinderExceptionが発生。
+追加情報:「'Castle.Proxies.ContactItemProxy'に'Returns'の定義がありません」
+   Copy()メソッドの返り値が「dynamic」となっているので、上手くいかない模様。単体テスト中、他にもdynamicを返すメソッドを通ることありましたが、
+そこでもRuntimeBinderException が発生しました
+どうやら、NSubstituteのモックでは、動的型付け変数（dynamic）をうまく扱えないようです。CopyHon()というメソッドを追加し、モックオブジェクトには、このメソッドを使ってもらうことにします。
+Copy()メソッドのreturn値に、ReportItem型を返すCopyHon()メソッドを指定。テスト対象のメソッドでは、変わりなくCopy()メソッドを使います。こうすると、モックオブジェクトがdynamicを返り値とするメソッドにアクセスしないようになります。以上2点を修正すると、RuntimeBinderExceptionを回避でき、思い通りの動作になりました。そんなこんなで、遂に完成したテストメソッド！
+長いので折りたたんでおきますが、興味のある方はご覧ください。ソースコードはこちら
+  
+
+
+ReportItemUnitTest.cs
+        /// &lt;summary&gt;
+        /// アイテムが、ReportItemの場合&lt;/para&gt;
+        /// 【期待結果】Recipientsを取得できる
+        /// TypeがReportになる
+        /// &lt;/summary&gt;
+        [Test]
+        public void ReportItemRecipientsTest()
+        {
+            // モックでつかうデータを用意
+            string[] testRecNames = { "testemailaddress1@example.com", "testemailaddress2@example.com" };
+            bool[] testRecSendable = { true, true };
+            int[] testRecType = { (int)OlMailRecipientType.olTo, (int)OlMailRecipientType.olCC };
+
+            // 期待結果を入れるリスト
+            List&lt;Recipient&gt; expectedRecList = new List&lt;Recipient&gt;();
+            expectedRecList.Add(expectedRec1);
+            expectedRecList.Add(expectedRec2);
+
+            testReport.CopyHon().Returns(testReport);
+
+            // モックのReturn値と、期待結果のリストの値を設定
+            MyTestNs myTestNs = Substitute.For&lt;MyTestNs&gt;();
+            testApp.Session.Returns(myTestNs);
+            myTestNs.GetItemFromIDHon(Arg.Any&lt;string&gt;()).Returns(testMail);
+
+            // テストするメソッドにアクセスし、実際の結果を取得
+            var objArray = new object[] { testReport, Utility.OutlookItemType.Mail, false };
+            object actualObj = mi.Invoke(obj, objArray);
+
+            // テスト対象メソッドの返り値をList&lt;Recipient&gt;型にする
+            List&lt;Recipient&gt; actualRecList = new List&lt;Recipient&gt;();
+            IEnumerable&lt;Recipient&gt; actualEnumList = (IEnumerable&lt;Recipient&gt;)actualObj;
+            foreach (var actual in actualEnumList)
+            {
+                actualRecList.Add(actual);
+            }
+
+            SetExpectedValues(testRecNames, testRecSendable, testRecType, expectedRecList);
+
+            // actualとexpectedのリストを比較
+            Assert.AreEqual(actualRecList.Count, expectedRecList.Count);
+            CompareLists(actualRecList, expectedRecList);
+
+            // ref引数のtypeが正しいことを確認
+            Assert.That(objArray[1], Is.EqualTo(Utility.OutlookItemType.Report));
+        }
+
+        /// &lt;summary&gt;
+        /// 期待する結果リストの値を設定するメソッド
+        /// &lt;/summary&gt;
+        /// &lt;param name="testRecNames"&gt;Recipientのアドレス&lt;/param&gt;
+        /// &lt;param name="testRecSendable"&gt;RecipientのSendableプロパティ&lt;/param&gt;
+        /// &lt;param name="testRecType"&gt;RecipientのType&lt;/param&gt;
+        /// &lt;param name="expectedRecList"&gt;期待結果のRecipient型リスト&lt;/param&gt;
+        private void SetExpectedValues(string[] testRecNames, bool[] testRecSendable, int[] testRecType, List&lt;Recipient&gt; expectedRecList)
+        {
+            int i = 0;
+            foreach (string testRec in testRecNames)
+            {
+                expectedRecList[i].Address.Returns(testRecNames[i]);
+                expectedRecList[i].Sendable = testRecSendable[i];
+                expectedRecList[i].Type = testRecType[i];
+                i++;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 実際の値と、期待する値を比較するメソッド
+        /// &lt;/summary&gt;
+        /// &lt;param name="actualList"&gt;メソッドからもどってきたRecipient型リスト&lt;/param&gt;
+        /// &lt;param name="expectedList"&gt;期待する結果を入れたRecipient型リスト&lt;/param&gt;
+        private void CompareLists(List&lt;Recipient&gt; actualList, List&lt;Recipient&gt; expectedList)
+        {
+            for (int i = 0; i &lt; expectedList.Count; i++)
+            {
+                Assert.That(actualList[i].Address, Is.EqualTo(expectedList[i].Address));
+                Assert.That(actualList[i].Sendable, Is.EqualTo(expectedList[i].Sendable));
+                Assert.That(actualList[i].Type, Is.EqualTo(expectedList[i].Type));
+            }
+        }
+
+
+
+この度は「NSubstitute」に、大々的にお世話になりました。
+テスト対象のクラスに渡すデータの偽装ができ、とても便利です。既存のインターフェースやクラスを継承した、
+自作クラス（内容は、テストの都合の良いように変更する）を作成するのも必要不可欠ですね。また、VSTOアドインの開発者向け情報が、インターネットにあまりなく苦戦しました。
+Microsoft社のOutlook VBAリファレンスだけでも、もう少し分かりやすいようにしてほしいところ。
+
+

@@ -1,0 +1,39 @@
+More than 1 year has passed since last update.先日、@neuecc氏が開発したMagicOnionのver2が正式リリースされました。
+MagicOnion2リリースしました！Unityで使えるOSSのリアルタイム通信フレームワークとして、是非試していただければと思います！ https://t.co/yIiJlvtC9tMagicOnionとはHttp/2を使用したgoogle製rpcフレームワーク「grpc」をC#で使いやすくラップし、さらにUnityでの動作もサポートしているリアルタイム通信が可能なフレームワークです。この記事ではという事を伝えていきたいと思います。
+※色々便利な補助ツールが付いててその紹介もしたいんですが、この記事では「簡単、手軽にリアルタイム通信を実現する事」を重視します。
+※チュートリアルをなぞるような入門者向け内容となってます。あと、出来上がるものを先に見せておきますが、まぁなんてことない簡単なチャットです。
+・Windows10
+・Unity 2018.3f02(C# 7.0以降が使える環境であることが必要)
+・Visual Studio 2017 Community 15.8
+・.NET Core SDK 2.2.1
+・.NET Core Runtime 2.2.0
+※.NET CoreはVisual Studioインストール時にデフォで入ってた気がするけど…入ってなかったら↑のリンクから入れる。まずはUnity側で空のプロジェクトを作成し、Unity側でMagicOnionを使えるように各種UnityPackage、Pluginをimportします。・MagicOnion
+https://github.com/cysharp/MagicOnion/releases
+からMagicOnion.Unity.2.x.x.unitypackageをダウンロードし、import・MessagePack CSharp
+https://github.com/neuecc/MessagePack-CSharp/releases
+からMessagePack.Unity.x.x.x.zipをダウンロードし、import・grpc
+https://packages.grpc.io/
+の最新のBuildIDのリンク先へ遷移し、grpc_unity_package.1.18.0-dev.zip
+をダウンロードし、中にあるPluginsフォルダをUnityのProjectWindowへそのままDrag&amp;DropMagicOnionはTask-Likeを使ったTask型を使用しているためC#7.0以降である必要があります。
+それに加えてMessagePack CSharpのためにunsafeを許可する必要があるので、PlayerSettingsから以下の画像のように編集します。
+これでMagicOnionを使える環境は整いました。
+コンパイルしてもエラーが出ることはないはずです。次はUnityのメニューからVisualStudioを開いて、サーバのプロジェクトをの用意をします。
+.NET Coreのコンソールアプリを作成し、NugetからMagicOnionの最新の安定板をインストールしましょう。
+これでとりあえずサーバ側でMagicOnionを使う事ができるようになったので
+Program.csにMagicOnionのサービスを起動するコードを書きます。これでMagicOnionを使用するための最低限の環境構築は終わりました。ではサーバの実装になりますが、まずはServerからClientにPushするためのAPIを定義します。StreamingHubBaseを継承した各Hub(今回はChatHub)はConnection毎に作成され、各ユーザ毎の情報を保持する事ができます。
+あとは、this.Group.AddAsync()で取得できるIGroupを元にRoomの管理を行い、他のクライアントへ通信をPushする事ができる仕組みです。
+サーバ側のコードはこれだけです。まずはざっとチャットのUIを作って実装に入ります
+クライアントコード側で気を付けることとしては
+サーバ側で定義したIChatHubReceiver、IChatHubをクライアント側も知っている必要があります。
+SharedProjectを使用して同じコードを読み込む事が推奨されますが、今回は雑に簡単にコピペで済ませています。クライアント側のコードですが、1ファイルのみなので一旦ひととおり見てみましょう。ポイントとしては
+①ChatComponentがIChatHubReceiverを実装しており、②サーバのEndPointを持つChannelとIChatHubReceiverを実装したChatComponentを元に
+StreamingHubClient(ChatHub)を生成することにより、③サーバ側への通信を飛ばしたり、サーバ側からの通信を受け取ることができる。以上の事を気にしておくだけでサーバ側との通信を元にした処理を書くことができます。
+あとは、このコンポーネントにTextの参照刺したり、ボタンにイベントくっ付けたりするだけですね。あとは、VisualStudio上からサーバ側のプロジェクトを起動し、Unityで実行するだけです。
+手っ取り早く確認したい人はこちらをどうぞいかがでしたでしょうか。
+今回の記事では本当に「ちゃちゃっと動かす」事にフォーカスしましたが、便利なTipsやツールはまだあります。
+それはまた今度別記事にするかほかの方が紹介してくれればよいなと。初代MagicOnionはneuecc氏が株式会社GraniのCTOを務めているときにリリースされましたが、まだ当時はUnityのバージョンが古くてTaskを使うことができず、Unity、Server間のインターフェースを生成するための環境構築が難しかったり、UniRxに実装が完全に依存していて敷居が高かったため、使用者はそこまで増える事はなかったように感じます。。。が！今はUniTaskもありますし、C#7.3も使えるようになり、初代MagicOnionの頃よりも導入、実装の敷居は非常に低くなっているので、使用者の増加を願ってこのようなチュートリアルをなぞるような記事を書くことにしました。
+使用者が増えれば私が本格的に使うまでにみんながバグを踏んでくれるneuecc氏が笑顔になってくれると思うので皆さま、ぜひお願いします。近いうちに検証したいと思ってますが、MagicOnion2でも再接続周りの処理は苦労するんじゃないかなと予想してます。
+初代MagicOnionではHttp/2(というかTCP)の都合上、IPが変わる(4G&lt;-&gt;Wifi)とSessionが切れてしまうため、Sessionが切れた時に「どのように再接続し、再接続後どのような処理を行うか」を各Channelで実装する必要がありました。
+その辺の仕様はver2でもそこまで変わってないんじゃないかなと思うんですが、ちょっとでもシンプルになってるといいな(願望)
+
+

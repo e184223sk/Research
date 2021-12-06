@@ -1,0 +1,207 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
+
+namespace PythonCommandExecutor
+{
+
+    public partial class Form1 : Form
+    {
+        private Process currentProcess;
+        private StringBuilder outStringBuilder = new StringBuilder();
+        private int readCount = 0;
+        private Boolean isCanceled = false;
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        /// &lt;summary&gt;
+        /// Textboxに文字列追加
+        /// &lt;/summary&gt;
+        public void AppendText(String data, Boolean console)
+        {
+            textBox1.AppendText(data);
+            if (console)
+            {
+                textBox1.AppendText("\r\n");
+                Console.WriteLine(data);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 実行ボタンクリック時の動作
+        /// &lt;/summary&gt;
+        private void button1_Click(object sender, EventArgs e)
+        {
+            // 前処理
+            button1.Enabled = false;
+            button2.Enabled = true;
+            isCanceled = false;
+            readCount = 0;
+            outStringBuilder.Clear();
+            this.Invoke((MethodInvoker)(() =&gt; this.textBox1.Clear()));
+
+            // 実行
+            RunCommandLineAsync();
+        }
+
+        /// &lt;summary&gt;
+        /// コマンド実行処理本体
+        /// &lt;/summary&gt;
+        public void RunCommandLineAsync()
+        {
+
+            ProcessStartInfo psInfo = new ProcessStartInfo();
+            psInfo.FileName = this.textBox2.Text.Trim();
+            psInfo.WorkingDirectory = this.textBox3.Text.Trim();
+            psInfo.Arguments = this.textBox4.Text.Trim();
+
+            psInfo.CreateNoWindow = true;
+            psInfo.UseShellExecute = false;
+            psInfo.RedirectStandardInput = true;
+            psInfo.RedirectStandardOutput = true;
+            psInfo.RedirectStandardError = true;
+
+            // Process p = Process.Start(psInfo);
+            Process p = new System.Diagnostics.Process();
+            p.StartInfo = psInfo;
+
+            p.EnableRaisingEvents = true;
+            p.Exited += onExited;
+            p.OutputDataReceived += p_OutputDataReceived;
+            p.ErrorDataReceived += p_ErrorDataReceived;
+
+            p.Start();
+
+            // 標準入力への書き込み
+            using (StreamWriter sw = p.StandardInput)
+            {
+                sw.Write(this.textBox5.Text.Trim()); 
+            }
+
+            //非同期で出力とエラーの読み取りを開始
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+
+            currentProcess = p;
+        }
+
+        void onExited(object sender, EventArgs e)
+        {
+            int exitCode;
+
+            if (currentProcess != null)
+            {
+                currentProcess.WaitForExit();
+
+                // 吐き出されずに残っているデータの吐き出し
+                this.Invoke((MethodInvoker)(() =&gt; AppendText(outStringBuilder.ToString(), false)));
+                outStringBuilder.Clear();
+
+                exitCode = currentProcess.ExitCode;
+                currentProcess.CancelOutputRead();
+                currentProcess.CancelErrorRead();
+                currentProcess.Close();
+                currentProcess.Dispose();
+                currentProcess = null;
+
+                this.Invoke((MethodInvoker)(() =&gt; this.button1.Enabled = true));
+                this.Invoke((MethodInvoker)(() =&gt; this.button2.Enabled=false));
+
+
+                if (isCanceled)
+                {
+                    // 完了メッセージ
+                    this.Invoke((MethodInvoker)(() =&gt; MessageBox.Show("処理をキャンセルしました")));
+                }
+                else
+                {
+                    if (exitCode == 0)
+                    {
+                        // 完了メッセージ
+                        this.Invoke((MethodInvoker)(() =&gt; MessageBox.Show("処理が完了しました")));
+                    }
+                    else
+                    {
+                        // 完了メッセージ
+                        this.Invoke((MethodInvoker)(() =&gt; MessageBox.Show("エラーが発生しました")));
+                    }
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 標準出力データを受け取った時の処理
+        /// &lt;/summary&gt;
+        void p_OutputDataReceived(object sender,
+            System.Diagnostics.DataReceivedEventArgs e)
+        {
+            processMessage(sender, e);
+        }
+
+        /// &lt;summary&gt;
+        /// 標準エラーを受け取った時の処理
+        /// &lt;/summary&gt;
+        void p_ErrorDataReceived(object sender,
+            System.Diagnostics.DataReceivedEventArgs e)
+        {
+            processMessage(sender, e);
+        }
+
+        /// &lt;summary&gt;
+        /// CommandLineプログラムのデータを受け取りTextBoxに吐き出す
+        /// &lt;/summary&gt;
+        void processMessage(object sender, System.Diagnostics.DataReceivedEventArgs e)
+        {
+            if (e != null &amp;&amp; e.Data != null &amp;&amp; e.Data.Length &gt; 0)
+            {
+                outStringBuilder.Append(e.Data + "\r\n");
+            }
+            readCount++;
+            // まとまったタイミングで吐き出し
+            if (readCount % 5 == 0)
+            {
+                this.Invoke((MethodInvoker)(() =&gt; AppendText(outStringBuilder.ToString(), false)));
+                outStringBuilder.Clear();
+                // スレッドを占有しないようスリープを入れる
+                if (readCount % 1000 == 0)
+                {
+                    Thread.Sleep(100);
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// キャンセルボタンクリック時の動作
+        /// &lt;/summary&gt;
+        private void button2_Click(object sender, EventArgs e)
+        {
+            if (currentProcess != null)
+            {
+                try
+                {
+                    currentProcess.Kill();
+                    isCanceled = true;
+                }
+                catch (Exception e2)
+                {
+                    Console.WriteLine(e2);
+                }
+            }
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            // 標準入力エリアのクリア
+            this.textBox5.Clear();
+            // 標準出力エリアのクリア
+            this.textBox1.Clear();
+        }
+    }
+}
+

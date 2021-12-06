@@ -1,0 +1,34 @@
+More than 1 year has passed since last update.この記事はSC（非公式） Advent Calendar 2019、22日目の記事です。簡単な仕様のバッチ処理を作るにあたり、Azure Functionsでサクっと作ろうと考えていました。
+しかしAzure Functionsは従量課金プランで使用した場合に起動から5分（最大10分）でタイムアウトしてしまい、将来的にデータ件数が増えた場合にタイムアウトしてしまう懸念が......。
+AppServiceプランを使用した場合、30分~無制限までタイムアウトを伸ばせますが、お金がそれなりにかかってしまうこともあり、うまい方法はないかと模索していたところ、「Durable Functionsでうまいことできるよ」と教えていただいたので使ってみることにしました。Azure Functionsの拡張機能でステートフル関数を書くことが出来ます。
+Azure Functions単体では難しくなる関数チェーンや並列処理をAzure Functions単体のそれよりも簡単に実装することができます。ざっくりですがDurable Functionsは基本的に以下のような構成になります。Orchestrator関数がActivity関数を取りまとめていて、
+個々のActivityのinput outputの受渡を制御するイメージです。VisualStudio2019でDurableFunctionsクラスを作成した際のデフォルトコードで上記構成を見てみます。プロジェクトを右クリック -&gt; 追加 -&gt; 新しい項目 -&gt; Azure関数 -&gt; Durable Functions Orchestration
+※今回のクラス名はMyDurableFuncにしました。作成すると上述の関数がデフォルトで作成されますので、一つずつ見ていきます。
+・DurableOrchestrationClient
+・Orchestrator
+・Activity上記がDurableOrchestrationClientになります。
+HTTPをトリガーとしてawait starter.StartNewAsync("MyDurableFunc", null);でOrchestrator関数を呼び出しています。続いてOrchestrator関数です。
+CallActivityAsyncでMyDurableFunc_Helloという名前のActivity関数を呼び出しています。
+このOrchestrator関数内でブレークポイントを付けて実行すると、
+一つ目のawait演算子で一度処理が中断されて、再度処理が頭から流れることが確認できます。
+これはDurable Functionsのリプレイ動作によるものです。
+Orchestratorは非同期処理が実行される度にスリープ状態になり、Activityの処理が完了すると再起動し、1行目から処理を実行しなおしています。2回目の実行時オーケストレーターは
+await context.CallActivityAsync&lt;string&gt;("MyDurableFunc_Hello", "Tokyo")
+の処理が完了していることを履歴から確認し
+await context.CallActivityAsync&lt;string&gt;("MyDurableFunc_Hello", "Seattle")
+を実行して再度スリープ状態になり......を繰り返します。
+このリプレイ動作のおかげで、処理の実行中にAzure側で何某か問題が起きても中断されたActivity関数から処理を実行しなおすことが出来る仕組みとなっています。最後はActivity関数です。個々のビジネスロジックはこちらに記述します。Durable Functionsを使う上で気になったことや、ハマったことなどについてツラツラと書いていきます。冒頭でタイムアウトの課題がある為にDurable Functionsを使うと書きましたが、
+Orchestrator関数にはタイムアウトの制約がありません。
+一方でOrchestrator関数から呼び出されるActivity関数は5~10分の制約があるため、
+時間のかかる処理を実行する場合はActivity関数で一回の処理時間をタイムアウトの範囲内に収めるように工夫する必要があります。Azure Functionsと同様。
+Azure Functionsはタイムアウトがある為に、持続的に動き続けてしまい料金が発生......のような心配はありませんが、Durable Functionsを使う場合は意識する必要がありそうです。
+また、リプレイ動作毎に課金されるので、複数のActivity関数を呼び出す場合はそれなりに回数が嵩みます。ローカル環境でTimerTriggerを3分間隔で起動し、DBに登録・削除を行う処理を書いていたところ、
+3分経過時点で後からキックされたOrchestrator関数が実行されたためにデッドロックしエラーとなってしまいました。実運用では夜間1回しか動かないため、このようなことは起きない想定ではありますが、
+以下のようにシングルトンにし、一つのOrchestratorのみ動くように制御しました。
+ここでexistingInstance.RuntimeStatus == OrchestrationRuntimeStatus.Completedでステータスを見ているのは、一回目の起動以降ストレージにインスタンスの情報を持ってしまうため、同一名称のインスタンスで再実行できなくなるのを回避するためです。
+失敗した場合に備えてOrchestrationRuntimeStatus.failなどの条件も加える必要はありそうです。参考リンク最後の方は内容が散らかってしまいましたが、リプレイ動作などの特徴さえ押さえておけば比較的使いやすいサービスのように思います。
+それでは皆さんよいお年をお迎えください。@sat0tabe さん、諸々ご教授ありがとうございました。Azure Durable Functions のドキュメント
+多分わかりやすいDurable Functions
+Durable Functions を始めるときに知っていると幸せになれる７つの Tip
+
+

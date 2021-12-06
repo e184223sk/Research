@@ -1,0 +1,76 @@
+using CEK.CSharp;
+using CEK.CSharp.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Extensions.Logging;
+using System.Threading.Tasks;
+
+namespace LazyHoroscope
+{
+    public static class ClovaIntentHandlerFunction
+    {
+        [FunctionName("ClovaIntentHandlerFunction")]
+        public static async Task&lt;IActionResult&gt; Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            var response = new CEKResponse();
+
+            if (req.Headers.TryGetValue("SignatureCEK", out var signature))
+            {
+                var client = new ClovaClient();
+                var request = await client.GetRequest(signature, req.Body);
+
+                // IntentRequestのみここにくる想定
+                if (request.Request.Type == RequestType.IntentRequest)
+                {
+                    switch (request.Request.Intent.Name)
+                    {
+                        case "ZodiacIntent":
+                            // 占い結果を返す。今回は適当占いなのでランダムにどちらか
+                            // (本来はここでスロットの星座を受け取ってそれに基づいた処理を行う)
+                            if (new System.Random().Next() % 2 == 0)
+                            {
+                                response.AddText("今日は絶好調！とてもよい1日になりますよ！");
+                            }
+                            else
+                            {
+                                response.AddText("今日はあまりついてないかも。転ばないように気を付けてくださいね。");
+                            }
+                            response.ShouldEndSession = true;
+                            break;
+
+                        case "Clova.GuideIntent":
+                            // 使い方
+                            response.AddText("あなたの星座を教えてください。占ってあげます。");
+                            response.ShouldEndSession = false;
+                            break;
+
+                        default:
+                            // その他のインテントの場合
+                            response.AddText("よくわかりませんでしたが、まあまあだと思います。");
+                            response.ShouldEndSession = false;
+                            break;
+                    }
+                }
+                else
+                {
+                    // エラー
+                    response.AddText("よくわかりませんでしたが、たぶんラッキーな1日になると思いますよ。");
+                    response.ShouldEndSession = true;
+                }
+            }
+            else
+            {
+                // エラー
+                response.AddText("よくわかりませんでしたが、きっと大丈夫ですよ。");
+                response.ShouldEndSession = true;
+            }
+            return new OkObjectResult(response);
+        }
+    }
+}
+
+

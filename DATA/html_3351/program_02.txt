@@ -1,0 +1,52 @@
+
+        // Face API Detectを使用して画像分析を行う
+        static async Task&lt;List&lt;FaceInfo&gt;&gt; ImageAnalysisRequest(Dictionary&lt;string, string&gt; imageUrls)
+        {
+            List&lt;FaceInfo&gt; faceInfoList = new List&lt;FaceInfo&gt;();
+            HttpClient client = new HttpClient();
+
+            // リクエストヘッダー
+            client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", ConfigurationManager.AppSettings["subscriptionKey"]);
+
+            // リクエストパラメータ
+            string requestParameters = "returnFaceId=true&amp;returnFaceLandmarks=false";
+
+            string uri = ConfigurationManager.AppSettings["requestUrl"] + "detect" + "?" + requestParameters;
+
+            // 画像ファイルを一枚ずつ処理する
+            foreach (KeyValuePair&lt;string, string&gt; item in imageUrls)
+            {
+                string contentString = string.Empty;
+
+                byte[] byteData = GetImageAsByteArray(item.Value);
+
+                // 画像から顔を検出
+                using (ByteArrayContent content = new ByteArrayContent(byteData))
+                {
+                    // リクエストヘッダーの作成
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    // Face APIの呼び出し
+                    HttpResponseMessage response = await client.PostAsync(uri, content);
+
+                    // 実行結果からJSONの取得
+                    contentString = await response.Content.ReadAsStringAsync();
+                }
+
+            }
+
+            return faceInfoList;
+        }
+
+        // 画像をバイナリデータに変換
+        static byte[] GetImageAsByteArray(string imageFilePath)
+        {
+            using (FileStream fileStream =
+                new FileStream(imageFilePath, FileMode.Open, FileAccess.Read))
+            {
+                BinaryReader binaryReader = new BinaryReader(fileStream);
+                return binaryReader.ReadBytes((int)fileStream.Length);
+            }
+        }
+
+

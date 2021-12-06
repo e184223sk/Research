@@ -1,0 +1,156 @@
+using Microsoft.JScript;
+using System;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Text;
+
+namespace program
+{
+    /// &lt;summary&gt;
+    /// ローカルプログラム
+    /// &lt;/summary&gt;
+    class localprogram
+    {
+        private static bool NativeMessageFlg = true;
+        private static readonly Encoding enc = Encoding.UTF8;
+
+        /// &lt;summary&gt;
+        /// メイン処理
+        /// &lt;/summary&gt;
+        static void Main(string[] args)
+        {
+#if DEBUG
+            // デバッグ時のみ、プロセスにアタッチ
+            System.Diagnostics.Debugger.Launch();
+#endif
+            try
+            {
+                // 起動処理の確認（Chrome拡張機能 or その他（直接起動））
+                if (args.Length &gt; 0 &amp;&amp; args[0].IndexOf("chrome-extension") &gt;= 0)
+                {
+                    // Chrome拡張機能
+                    NativeMessageFlg = true;
+                }
+                else
+                {
+                    // その他（直接起動）
+                    NativeMessageFlg = false;
+                }
+
+                Request request = new Request();
+
+                if (NativeMessageFlg)
+                {
+                    // Chrome拡張機能から取得
+                    Stream stdin = Console.OpenStandardInput();
+                    byte[] bytes = new byte[4];
+                    stdin.Read(bytes, 0, 4);
+
+                    int length = BitConverter.ToInt32(bytes, 0);
+
+                    string input = "";
+                    for (int i = 0; i &lt; length; i++)
+                    {
+                        input += (char)stdin.ReadByte();
+                    }
+                    stdin.Close();
+                    using (var ms = new MemoryStream(enc.GetBytes(input)))
+                    {
+                        var jsonSer = new DataContractJsonSerializer(typeof(Request));
+                        request = (Request)jsonSer.ReadObject(ms);
+                    }
+                }
+                // Chrome拡張機能から受け取った「Action」によって処理を分ける
+                Response response = new Response();
+                int limit = 1024 * 1024 - 2;
+                string stringText = string.Empty;
+                switch (request.Action)
+                {
+                    case "putmessage":
+                        string responsJson;
+                        response.Code = 0;
+                        response.Data = request.Data;
+                        responsJson = ConvertJson(response, typeof(Response));
+                        string stringText1 = GlobalObject.encodeURIComponent(responsJson);
+                        while (stringText1.Length &gt;= limit)
+                        {
+                            WriteString("\"" + stringText1.Substring(0, limit) + "\"");
+                            stringText1 = stringText1.Substring(limit);
+                        }
+                        WriteString("\"" + stringText1 + "\"");
+                        break;
+                    default:
+                        response.Code = 9;
+                        response.Data = "エラー";
+                        responsJson = ConvertJson(response, typeof(Response));
+                        string stringTextErr = GlobalObject.encodeURIComponent(responsJson);
+                        while (stringTextErr.Length &gt;= limit)
+                        {
+                            WriteString("\"" + stringTextErr.Substring(0, limit) + "\"");
+                            stringTextErr = stringTextErr.Substring(limit);
+                        }
+                        WriteString("\"" + stringTextErr + "\"");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+            }
+
+            Environment.Exit(0);
+        }
+
+        /// &lt;summary&gt;
+        /// オブジェクト→JSONへの変換
+        /// &lt;/summary&gt;
+        private static string ConvertJson(object obj, Type type)
+        {
+            using (var ms = new MemoryStream())
+            {
+                var serializer = new DataContractJsonSerializer(type);
+                serializer.WriteObject(ms, obj);
+                return enc.GetString(ms.ToArray());
+            }
+        }
+
+        private static void WriteString(string stringData)
+        {
+            byte[] bytes = BitConverter.GetBytes(stringData.Length);
+            Stream stdout = Console.OpenStandardOutput();
+            for (int i = 0; i &lt; 4; i++)
+            {
+                stdout.WriteByte(bytes[i]);
+            }
+            byte[] b = Encoding.UTF8.GetBytes(stringData);
+            stdout.Write(b, 0, b.Length);
+            stdout.Flush();
+            stdout.Close();
+        }
+
+        /// &lt;summary&gt;
+        /// リクエストパラメータ
+        /// &lt;/summary&gt;
+        [DataContract]
+        struct Request
+        {
+            [DataMember(Name = "Action")]
+            public string Action { get; set; }
+            [DataMember(Name = "Data")]
+            public string Data { get; set; }
+        }
+
+        /// &lt;summary&gt;
+        /// レスポンス
+        /// &lt;/summary&gt;
+        [DataContract]
+        struct Response
+        {
+            [DataMember(Name = "Code")]
+            public int Code { get; set; }
+            [DataMember(Name = "Data")]
+            public string Data { get; set; }
+        }
+    }
+}
+

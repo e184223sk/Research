@@ -1,0 +1,41 @@
+
+private static void FillOneField(ModuleDefinition mainModuleDefinition, ILProcessor processor, TypeDefinition iSerializerDefinition, FieldDefinition[] fieldArray, Encoding utf8, FieldDefinition resolverFieldDefinition, MethodDefinition getMethodDefinition)
+{
+    Collection&lt;VariableDefinition&gt; variableDefinitions = processor.Body.Variables;
+    variableDefinitions.Add(new VariableDefinition(mainModuleDefinition.TypeSystem.Int64));
+    variableDefinitions.Add(new VariableDefinition(new PointerType(mainModuleDefinition.TypeSystem.Byte)));
+
+    long initialNeedLength = utf8.GetByteCount(fieldArray[0].Name) + 4L;
+
+    Instruction[] firstFailInstructions = LoadConstantInt64(-initialNeedLength);
+    Instruction[] secondFailInstructions = LoadConstantInt64(-initialNeedLength + 1L);
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I8, initialNeedLength));
+    processor.Append(Instruction.Create(OpCodes.Blt_S, firstFailInstructions[0]));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_2));
+    WriteChar(processor, '{');
+
+    WriteField(mainModuleDefinition, processor, iSerializerDefinition, utf8, resolverFieldDefinition, getMethodDefinition, fieldArray[0], secondFailInstructions[0], ref initialNeedLength);
+
+    processor.Append(Instruction.Create(OpCodes.Ldloc_1));
+    processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+    processor.Append(Instruction.Create(OpCodes.Conv_I));
+    processor.Append(Instruction.Create(OpCodes.Add));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I4_S, (sbyte)'}'));
+    processor.Append(Instruction.Create(OpCodes.Stind_I1));
+    processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I8, initialNeedLength - 1L));
+    processor.Append(Instruction.Create(OpCodes.Add));
+    processor.Append(Instruction.Create(OpCodes.Ret));
+
+    processor.AppendRange(secondFailInstructions);
+    processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+    processor.Append(Instruction.Create(OpCodes.Add));
+    processor.Append(Instruction.Create(OpCodes.Ret));
+
+    processor.AppendRange(firstFailInstructions);
+    processor.Append(Instruction.Create(OpCodes.Ret));
+}
+

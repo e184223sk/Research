@@ -1,0 +1,53 @@
+
+using System;
+using System.Reflection;
+using NUnit.Framework;
+using NUnit.Framework.Interfaces;
+using NUnit.Framework.Internal;
+using UnityEditor.SceneManagement;
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+public class UnityTestSceneAttribute : NUnitAttribute, ISimpleTestBuilder, IImplyFixture
+{
+    public readonly string scenePath;
+    public UnityTestSceneAttribute(string scenePath) =&gt; this.scenePath = scenePath;
+
+    public TestMethod BuildFrom(IMethodInfo method, Test suite)
+        =&gt; new TestMethod(new MethodProxy(method, () =&gt; EditorSceneManager.OpenScene(scenePath)), suite);
+}
+
+// NUnit.Framework.Internal.MethodWrapperをさらに包むもの
+class MethodProxy : IMethodInfo
+{
+    private readonly IMethodInfo _methodInfo;
+    private readonly Action _beforeTest;
+
+    public MethodProxy(IMethodInfo methodInfo, Action beforeTest)
+    {
+        _methodInfo = methodInfo;
+        _beforeTest = beforeTest;
+    }
+
+    public object Invoke(object fixture, params object[] args)
+    {
+        _beforeTest.Invoke();
+        return _methodInfo.Invoke(fixture, args);
+    }
+
+    public ITypeInfo TypeInfo =&gt; _methodInfo.TypeInfo;
+    public MethodInfo MethodInfo =&gt; _methodInfo.MethodInfo;
+    public string Name =&gt; _methodInfo.Name;
+    public bool IsAbstract =&gt; _methodInfo.IsAbstract;
+    public bool IsPublic =&gt; _methodInfo.IsPublic;
+    public bool ContainsGenericParameters =&gt; _methodInfo.ContainsGenericParameters;
+    public bool IsGenericMethod =&gt; _methodInfo.IsGenericMethod;
+    public bool IsGenericMethodDefinition =&gt; _methodInfo.IsGenericMethodDefinition;
+    public ITypeInfo ReturnType =&gt; _methodInfo.ReturnType;
+    public T[] GetCustomAttributes&lt;T&gt;(bool inherit) where T : class =&gt; _methodInfo.GetCustomAttributes&lt;T&gt;(inherit);
+    public bool IsDefined&lt;T&gt;(bool inherit) =&gt; _methodInfo.IsDefined&lt;T&gt;(inherit);
+    public IParameterInfo[] GetParameters() =&gt; _methodInfo.GetParameters();
+    public Type[] GetGenericArguments() =&gt; _methodInfo.GetGenericArguments();
+    public IMethodInfo MakeGenericMethod(params Type[] typeArguments) =&gt; _methodInfo.MakeGenericMethod();
+}
+
+

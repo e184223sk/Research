@@ -1,0 +1,162 @@
+/// &lt;summary&gt;
+/// 状態を持つSubject。Subscribeしたときに最後に通知された値を流す。一度も通知されていない場合は流れない。
+/// &lt;/summary&gt;
+public class StatefulSubject&lt;T&gt; : ISubject&lt;T&gt;, IDisposable
+{
+    private readonly Subject&lt;T&gt; _Implement = new Subject&lt;T&gt;();
+
+    /// &lt;summary&gt;
+    /// 現在の値
+    /// &lt;/summary&gt;
+    public T Value =&gt; this._Value;
+    private T _Value = default;
+
+    /// &lt;summary&gt;
+    /// 値が設定済みならtrue
+    /// &lt;/summary&gt;
+    public bool HasValue =&gt; this._HasValue;
+    private bool _HasValue = false;
+
+    private Exception _Exception;
+
+    private NotificationKind _LatestNotificationKind = NotificationKind.None;
+
+    /// &lt;summary&gt;
+    /// Provides the observer with new data.
+    /// &lt;/summary&gt;
+    /// &lt;param name="value"&gt;The current notification information.&lt;/param&gt;
+    public void OnNext(T value)
+    {
+        lock (this)
+        {
+            if (this._LatestNotificationKind == NotificationKind.Completed ||
+                this._LatestNotificationKind == NotificationKind.Error)
+            {
+                return;
+            }
+
+            this._Value = value;
+            this._HasValue = true;
+            this._LatestNotificationKind = NotificationKind.Next;
+            this._Implement.OnNext(value);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Notifies the observer that the provider has experienced an error condition.
+    /// &lt;/summary&gt;
+    /// &lt;param name="error"&gt;An object that provides additional information about the error.&lt;/param&gt;
+    public void OnError(Exception error)
+    {
+        lock (this)
+        {
+            if (this._LatestNotificationKind == NotificationKind.Completed ||
+                this._LatestNotificationKind == NotificationKind.Error)
+            {
+                return;
+            }
+
+            this._Exception = error;
+            this._LatestNotificationKind = NotificationKind.Error;
+            this._Implement.OnError(error);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Notifies the observer that the provider has finished sending push-based notifications.
+    /// &lt;/summary&gt;
+    public void OnCompleted()
+    {
+        lock (this)
+        {
+            if (this._LatestNotificationKind == NotificationKind.Completed || 
+                this._LatestNotificationKind == NotificationKind.Error)
+            {
+                return;
+            }
+
+            this._LatestNotificationKind = NotificationKind.Completed;
+            this._Implement.OnCompleted();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Notifies the provider that an observer is to receive notifications.
+    /// &lt;/summary&gt;
+    /// &lt;param name="observer"&gt;The object that is to receive notifications.&lt;/param&gt;
+    /// &lt;returns&gt;A reference to an interface that allows observers to stop receiving notifications before the provider has finished sending them.&lt;/returns&gt;
+    public IDisposable Subscribe(IObserver&lt;T&gt; observer)
+    {
+        lock (this)
+        {
+            if (!this._Implement.IsDisposed)
+            {
+                if (this._HasValue)
+                {
+                    observer.OnNext((T)this._Value);
+                }
+
+                switch (this._LatestNotificationKind)
+                {
+                    case NotificationKind.Next:
+                    case NotificationKind.None:
+                        break;
+                    case NotificationKind.Error:
+                        observer.OnError(this._Exception);
+                        break;
+                    case NotificationKind.Completed:
+                        observer.OnCompleted();
+                        break;
+                }
+            }
+            return this._Implement.Subscribe(observer);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Indicates whether the subject has observers subscribed to it.
+    /// &lt;/summary&gt;
+    public bool HasObservers =&gt; this._Implement.HasObservers;
+
+    /// &lt;summary&gt;
+    /// Indicates whether the subject has been disposed.
+    /// &lt;/summary&gt;
+    public bool IsDisposed =&gt; this._Implement.IsDisposed;
+
+    /// &lt;summary&gt;
+    /// 破棄
+    /// &lt;/summary&gt;
+    public void Dispose()
+    {
+        this._Value = default;
+        this._Exception = default;
+        this._Implement?.Dispose();
+    }
+
+    /// &lt;summary&gt;
+    /// 通知の種類
+    /// &lt;/summary&gt;
+    private enum NotificationKind
+    {
+        /// &lt;summary&gt;
+        /// 未通知
+        /// &lt;/summary&gt;
+        None,
+
+        /// &lt;summary&gt;
+        /// OnNext
+        /// &lt;/summary&gt;
+        Next,
+
+        /// &lt;summary&gt;
+        /// OnError
+        /// &lt;/summary&gt;
+        Error,
+
+        /// &lt;summary&gt;
+        /// OnCompleted
+        /// &lt;/summary&gt;
+        Completed,
+    }
+}
+

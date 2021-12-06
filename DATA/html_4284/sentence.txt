@@ -1,0 +1,46 @@
+本記事は、.NETの標準的なJSONシリアライザ(下記3つ)を次の観点で調査したものです。
+1.System.Text.Json
+2.Newtonsoft.Json(左記はNugetに表示される名称です。以後はJSON.NETと表記)
+3.DataContractJsonSerializer調査の観点
+・「どのJSONシリアライザを選ぶべきか？」
+・「パフォーマンスはどうか？」いきなりですが、先にまとめを書きます。理由は２つある。
+①Microsoft社はJSON.NETを共通フレームワークから除こうしている。
+.NET Core 3.0の破壊的変更より抜粋認証:Newtonsoft.Json 型の置き換え
+ASP.NET Core 3.0 では、Authentication API で使用される Newtonsoft.Json 型が System.Text.Json 型に置き換えられました。 次の場合を除き、Authentication パッケージの基本的な使用方法は影響を受けません。dotnet/aspnetcore #7289より引用As part of the ongoing effort to remove Newtonsoft.Json from the shared framework these types have now been replaced on the Authentication APIs.
+(機械翻訳)共有フレームワークからNewtonsoft.Jsonを削除するための継続的な取り組みの一環として、これらのタイプは認証APIで置き換えられました。②Microsoft社はDataContractJsonSerializerを推奨していない。Microsoft社：DataContractJsonSerializerのページより引用JSON へのシリアル化と JSON からの逆シリアル化を含むほとんどのシナリオでは、 名前空間の System.Text.Jsonのapiを使用することをお勧めします。サポートバージョンの一覧
+Microsoft社 JSONシリアル化 概要のライブラリ入手方法より引用.NET Standard 2.0 以降のバージョン
+.NET Framework 4.7.2 以降のバージョン
+.NET Core 2.0、2.1、および 2.2System.Text.Jsonをサポートしないバージョンの場合は、JSON.NETの使用を考える。書籍「実践で役立つC#プログラミングのイディオム/定石＆パターン」P317 より引用ASP.NET MVCではNetsoftのJSON.NETが標準でプロジェクトに組み込まれています。そのため、ASP.NET MVCの場合は、DataContractJsonSerializerではなく、JSON.NETを使い、JSON形式のシリアル化/逆シリアル化を行うのが一般的です。
+ASP.NET MVCでなくてもJSON.NETを使うことができますので、可能であればJSON.NETの利用も検討してみてください。JSON.NETの使い方は下記が参考になります。
+@IT JSONデータを作成／解析するには？［C#／VB］使い方次第で、パフォーマンスが低下することがある。
+Json文字列を日本語で出力させるために、System.Text.Jsonにエスケープを抑止の設定(※)を追加したところ、抑止の設定を追加しな場合に比べて、パフォーマンスが低下した。
+System.Text.Json以外のライブラリと比較しても、抑止設定を追加した場合のパフォーマンスは他に比べて低い。
+① 実行速度の低下(下記表のmeanを参照。)
+② メモリ使用量の増加(下記表のAllocatedを参照)つまり、ASCII以外の文字列を使わなければ、高いパフォーマンスに使える。少なくともUnicodeでエスケープされることは頭の片隅においた方が良い。※System.Text.Json で文字エンコードをカスタマイズする方法より既定では、シリアライザーでは ASCII 以外のすべての文字がエスケープされます。 
+つまり、\uxxxx に置き換えられます。xxxx は文字の Unicode コードです。この結果は下記の手順を基に作成したものです。
+(a) 3つのライブラリを用いて、「同一データに対してシリアライズ→デシリアライズ」を行う関数を作成した。
+(b) 前記の関数に、最終的な出力が同じになるように調整を加えた。
+(c) benchMarkdotNetで計測を開始した。
+(d) 結果を比較する。.NET Core 3.1.8
+BenchmarkDotNet V0.12.1
+JSON.NET(Newtonsoft.Json) V13.0.1
+OS: Windows 10.0.19041.867
+Intel Core i7-7700HQ CPU 2.80GHz 「計測対象の最終出力結果が同一になる関数」を作成して、それぞれを比較する。
+同一の入力データに対して、シリアライズ後にデシリアライズする。
+それぞれをコンソール出力した時に下記の通りになるように調整する(※)。
+※計測時にはコンソール出力しない。シリアライズ後、Unicodeコードで出力される。原因は以下。
+System.Text.Json で文字エンコードをカスタマイズする方法より既定では、シリアライザーでは ASCII 以外のすべての文字がエスケープされます。 つまり、\uxxxx に置き換えられます。xxxx は文字の Unicode コードです。
+すべての言語セットをエスケープせずにシリアル化するには、UnicodeRanges.All を使用します。下記サイトを参考にエスケープを抑止するオプション指定を追加した。
+.NET Core:JsonSerializerの実践的な使い方また、計測の観点にオプション指定の有無を追加することを決めた。より正確に測るなら、もっと自前の実装を極力排除すべきである。しかし、そこまでやり切る技量は私にはない。ラベルの説明は下記の通り.NET Core 3.0の破壊的変更
+dotnet/aspnetcore #7289
+Microsoft社：DataContractJsonSerializer
+Microsoft社 JSONシリアル化 概要
+書籍：実践で役立つC#プログラミングのイディオム/定石＆パターン　12.3 JSONデータのシリアル化と逆シリアル化
+@IT JSONデータを作成／解析するには？［C#／VB］
+System.Text.Json で文字エンコードをカスタマイズする方法
+.NET 内で JSON のシリアル化と逆シリアル化 (マーシャリングとマーシャリングの解除) を行う方法
+.NET Core:JsonSerializerの実践的な使い方
+Newtonsoft.Json と System.Text.Json の相違点の表
+【.NET/C#】メソッドのパフォーマンスを簡単に集計するライブラリの紹介
+
+

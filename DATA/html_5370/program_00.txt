@@ -1,0 +1,75 @@
+public class PopupMetroWindowAction : PopupWindowAction
+    {
+        #region MetroStyle
+        public ResourceDictionary MetroStyle
+        {
+            get { return (ResourceDictionary)GetValue(MetroStyleProperty); }
+            set { SetValue(MetroStyleProperty, value); }
+        }
+        public static readonly DependencyProperty MetroStyleProperty =
+            DependencyProperty.Register("MetroStyle", typeof(ResourceDictionary), typeof(PopupMetroWindowAction), new PropertyMetadata(null));
+        #endregion
+        #region Accent
+        public Accents? Accent
+        {
+            get { return (Accents?)GetValue(AccentProperty); }
+            set { SetValue(AccentProperty, value); }
+        }
+        public static readonly DependencyProperty AccentProperty =
+            DependencyProperty.Register("Accent", typeof(Accents?), typeof(PopupMetroWindowAction), new PropertyMetadata(null));
+        #endregion
+        #region Theme
+        public Themes? Theme
+        {
+            get { return (Themes?)GetValue(ThemeProperty); }
+            set { SetValue(ThemeProperty, value); }
+        }
+        public static readonly DependencyProperty ThemeProperty =
+            DependencyProperty.Register("Theme", typeof(Themes?), typeof(PopupMetroWindowAction), new PropertyMetadata(null));
+        #endregion
+
+        protected override Window CreateWindow()
+        {
+            MetroWindow window = new DefaultMetroWindow();
+            this.SetMetroStyle(window);
+            return window;
+        }
+        protected override Window CreateDefaultWindow(INotification notification)
+        {
+            MetroWindow window = null;
+            if (notification is IConfirmation) window = new DefaultConfirmationMetroWindow() { Confirmation = (IConfirmation)notification };
+            else window = new DefaultNotificationMetroWindow() { Notification = notification };
+            this.SetMetroStyle(window);
+            return window;
+        }
+        /// &lt;summary&gt;
+        /// &lt;see cref="MetroWindow"/&gt;にMetroStyle(AccentとTheme)をセットする
+        /// &lt;para&gt;MetroStyleが設定されていれば最優先で適用される&lt;/para&gt;
+        /// &lt;para&gt;MetroStyleが設定されておらず、AccentとThemeが設定されていればこれらを適用する&lt;/para&gt;
+        /// &lt;para&gt;MetroStyleが設定されておらず、AccentとThemeの両方が設定されていなければOwnerと同じものを適用する&lt;/para&gt;
+        /// &lt;/summary&gt;
+        /// &lt;param name="window"&gt;&lt;/param&gt;
+        protected virtual void SetMetroStyle(MetroWindow window)
+        {
+            if (window == null) return;
+            if (this.MetroStyle != null)
+            {
+                window.Resources.MergedDictionaries.Add(this.MetroStyle);
+                return;
+            }
+            if (this.Accent.HasValue &amp;&amp; this.Theme.HasValue)
+            {
+                MahApps.Metro.ThemeManager.ChangeAppStyle(
+                    window,
+                    MahApps.Metro.ThemeManager.GetAccent(AccentsExtensions.ToStringFromEnum(this.Accent.Value)),
+                    MahApps.Metro.ThemeManager.GetAppTheme(ThemesExtensions.ToStringFromEnum(this.Theme.Value)));
+                return;
+            }
+            window.Owner = Window.GetWindow(this.AssociatedObject);
+            if (window.Owner is MetroWindow)
+            {
+                window.Resources.MergedDictionaries.AddRange(window.Owner.Resources.MergedDictionaries);
+            }
+        }
+    }
+

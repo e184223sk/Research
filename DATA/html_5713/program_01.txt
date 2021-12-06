@@ -1,0 +1,187 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Globalization;
+using System.IO;
+
+namespace eawtest
+{
+    public class EastAsianWidth
+    {
+        public enum Kinds
+        {
+            Undefined = 0,
+            Neutral = 1,
+            Anbiguous = 2,
+            Harfwidth = 3,
+            Wide = 4,
+            Fullwidth = 5,
+            Narrow = 6,
+        }
+
+        private class MapData
+        {
+            public int Start;
+            public int End;
+            public int Kind;
+        }
+
+        private class MapDataComparer : IComparer&lt;MapData&gt;
+        {
+            public int Compare(MapData x, MapData y)
+            {
+                return Comparer&lt;int&gt;.Default.Compare(x.Start, y.Start);
+            }
+        }
+
+        public static EastAsianWidth CreateFromUcd(string path)
+        {
+            // 読み込み
+            var srcmap = new List&lt;MapData&gt;();
+            var kindTexts = new List&lt;string&gt;(new string[] { "_", "N", "A", "H", "W", "F", "Na", });
+            var lines = File.ReadAllLines(path);
+            var data = default(MapData);
+            var comparer = new MapDataComparer();
+            foreach (var parts in lines.Select(l =&gt; l.Split('#')[0].Trim()).Select(l =&gt; l.Split(';')).Where(p =&gt; p.Length == 2))
+            {
+                int idx = parts[0].IndexOf("..");
+                data = new MapData();
+                data.Start = int.Parse((idx &gt; 0 ? parts[0].Substring(0, idx) : parts[0]), NumberStyles.HexNumber);
+                data.End = int.Parse((idx &gt; 0 ? parts[0].Substring(idx + 2) : parts[0]), NumberStyles.HexNumber);
+                if ((data.Kind = kindTexts.IndexOf(parts[1])) &lt; 0)
+                {
+                    throw new Exception(string.Format("unknown kind. {0}", parts[1]));
+                }
+                int pos = srcmap.BinarySearch(data, comparer);
+                srcmap.Insert(pos &lt; 0 ? ~pos : pos, data);
+            }
+            int maxCodePoint = srcmap.Max(x =&gt; x.End) + 1;
+            srcmap.Add(new MapData() { Start = maxCodePoint, End = maxCodePoint, Kind = 0, });
+
+            // undefined も含めたマッピング構築
+            var map = new List&lt;int&gt;();
+            int lastStart = 0;
+            var prev = srcmap[0];
+            if (prev.Start &gt; 0)
+            {
+                map.Add(0 + (int)Kinds.Undefined);
+                lastStart = prev.Start;
+            }
+            for (int i = 1; i &lt; srcmap.Count; i++)
+            {
+                var next = srcmap[i];
+                if (prev.Kind == next.Kind &amp;&amp; (prev.End + 1) == next.Start)
+                {
+                    prev = next;
+                    continue;
+                }
+                map.Add((lastStart &lt;&lt; 4) + prev.Kind);
+                if ((prev.End + 1) != next.Start)
+                {
+                    map.Add(((prev.End + 1) &lt;&lt; 4) + (int)Kinds.Undefined);
+                }
+                prev = next;
+                lastStart = next.Start;
+            }
+            map.Add((maxCodePoint &lt;&lt; 4) + (int)Kinds.Undefined);
+
+            return new EastAsianWidth(map.ToArray(), maxCodePoint);
+        }
+
+
+        private int maxCodePoint = 0;
+        private int[] map = null;
+
+        private EastAsianWidth(int[] map, int maxCodePoint)
+        {
+            this.map = map;
+            this.maxCodePoint = maxCodePoint;
+        }
+
+        private int GetKindInternal(int cp)
+        {
+            if (cp &lt; 0 || cp &gt;= this.maxCodePoint)
+            {
+                return (int)Kinds.Undefined;
+            }
+            int target = (cp &lt;&lt; 4) | 0x0F;
+            int pos = Array.BinarySearch&lt;int&gt;(this.map, target);
+            int val = this.map[pos &lt; 0 ? (~pos - 1) : pos];
+            return val &amp; 0x0F;
+        }
+
+        public Kinds GetKind(int cp)
+        {
+            return (Kinds)GetKindInternal(cp);
+        }
+
+        public Kinds GetKind(char c)
+        {
+            return GetKind((int)c);
+        }
+
+        public bool IsZenkaku(int cp)
+        {
+            Kinds kind = GetKind(cp);
+            return kind == Kinds.Fullwidth || kind == Kinds.Wide;
+        }
+
+        public bool IsZenkaku(char c)
+        {
+            return IsZenkaku((int)c);
+        }
+
+        public bool IsHankaku(int cp)
+        {
+            return !IsZenkaku(cp);
+        }
+
+        public bool IsHankaku(char c)
+        {
+            return !IsZenkaku(c);
+        }
+
+        public void Save(string filePath)
+        {
+            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                var bw = new BinaryWriter(fs);
+                bw.Write(this.maxCodePoint);
+                bw.Write(this.map.Length);
+                for (int i = 0; i &lt; this.map.Length; i++)
+                {
+                    bw.Write(this.map[i]);
+                }
+            }
+            return;
+        }
+
+        public static EastAsianWidth Load(string filePath)
+        {
+            int size = 0;
+            var data = default(int[]);
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var br = new BinaryReader(fs);
+                size = br.ReadInt32();
+                int len = br.ReadInt32();
+                data = new int[len];
+                int prev = 0;
+                for (int i = 0; i &lt; data.Length; i++)
+                {
+                    int val = br.ReadInt32();
+                    if (prev &gt; val)
+                    {
+                        // 昇順になっていない場合は異常と判断
+                        throw new InvalidDataException();
+                    }
+                    data[i] = val;
+                    prev = val;
+                }
+            }
+            return new EastAsianWidth(data, size);
+        }
+    }
+}
+

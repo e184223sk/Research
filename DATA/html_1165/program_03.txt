@@ -1,0 +1,59 @@
+
+using System;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace kanazawa.Function
+{
+    public static class get_qiita_views
+    {
+        [FunctionName("get_qiita_views")]
+        public static async void Run([TimerTrigger("0 0 * * * *")]TimerInfo myTimer, ILogger log)
+        {
+            log.LogInformation($"C# Timer trigger function executed at: {jstTime}");
+            // Qiita APIのURL
+            string url = "https://qiita.com/api/v2/users/" + Parameter.getQiitaUserName() + "/items";
+            // 投稿記事情報取得
+            string json = await GetJson(url);
+
+            // デシリアライズ時の設定
+            var settings = new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                MissingMemberHandling = MissingMemberHandling.Ignore
+            };
+
+            // デシリアライズ
+            List&lt;QiitaInformationModel&gt; models = JsonConvert.DeserializeObject&lt;List&lt;QiitaInformationModel&gt;&gt;(json, settings);
+
+            // 各投稿記事のView数を取得
+            string getViewsCountUrl;
+            foreach (var model in models)
+            {
+                getViewsCountUrl = "https://qiita.com/api/v2/items/" + model.Id;
+                model.PageViewsCount = JsonConvert.DeserializeObject&lt;QiitaInformationModel&gt;(await GetJson(getViewsCountUrl)).PageViewsCount;
+                log.LogInformation($"title: {model.Title}");
+                log.LogInformation($"views: {model.PageViewsCount}");
+            }
+        }
+
+        private static async Task&lt;string&gt; GetJson(string url)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+            // OAuth 2.0 Authorization Headerの設定
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Parameter.getQiitaAccessToken());
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+            string result = await response.Content.ReadAsStringAsync();
+
+            return result;
+        }
+    }
+}
+

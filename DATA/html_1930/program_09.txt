@@ -1,0 +1,154 @@
+
+        /// &lt;summary&gt;
+        /// Configures the repository using information from the assembly.
+        /// &lt;/summary&gt;
+        /// &lt;param name="assembly"&gt;The assembly containing &lt;see cref="log4net.Config.ConfiguratorAttribute"/&gt;
+        /// attributes which define the configuration for the repository.&lt;/param&gt;
+        /// &lt;param name="repository"&gt;The repository to configure.&lt;/param&gt;
+        /// &lt;exception cref="ArgumentNullException"&gt;
+        /// &lt;para&gt;&lt;paramref name="assembly" /&gt; is &lt;see langword="null" /&gt;.&lt;/para&gt;
+        /// &lt;para&gt;-or-&lt;/para&gt;
+        /// &lt;para&gt;&lt;paramref name="repository" /&gt; is &lt;see langword="null" /&gt;.&lt;/para&gt;
+        /// &lt;/exception&gt;
+        private void ConfigureRepository(Assembly assembly, ILoggerRepository repository)
+        {
+            if (assembly == null)
+            {
+                throw new ArgumentNullException("assembly");
+            }
+            if (repository == null)
+            {
+                throw new ArgumentNullException("repository");
+            }
+
+            // Look for the Configurator attributes (e.g. XmlConfiguratorAttribute) on the assembly
+#if NETSTANDARD1_3
+            object[] configAttributes = assembly.GetCustomAttributes(typeof(log4net.Config.ConfiguratorAttribute)).ToArray();
+#else
+            object[] configAttributes = Attribute.GetCustomAttributes(assembly, typeof(log4net.Config.ConfiguratorAttribute), false);
+#endif
+            if (configAttributes != null &amp;&amp; configAttributes.Length &gt; 0)
+            {
+                // Sort the ConfiguratorAttributes in priority order
+                Array.Sort(configAttributes);
+
+                // Delegate to the attribute the job of configuring the repository
+                foreach(log4net.Config.ConfiguratorAttribute configAttr in configAttributes)
+                {
+                    if (configAttr != null)
+                    {
+                        try
+                        {
+                            configAttr.Configure(assembly, repository);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogLog.Error(declaringType, "Exception calling ["+configAttr.GetType().FullName+"] .Configure method.", ex);
+                        }
+                    }
+                }
+            }
+
+            if (repository.Name == DefaultRepositoryName)
+            {
+                // Try to configure the default repository using an AppSettings specified config file
+                // Do this even if the repository has been configured (or claims to be), this allows overriding
+                // of the default config files etc, if that is required.
+
+                string repositoryConfigFile = SystemInfo.GetAppSetting("log4net.Config");
+                if (repositoryConfigFile != null &amp;&amp; repositoryConfigFile.Length &gt; 0)
+                {
+                    string applicationBaseDirectory = null;
+                    try
+                    {
+                        applicationBaseDirectory = SystemInfo.ApplicationBaseDirectory;
+                    }
+                    catch(Exception ex)
+                    {
+                        LogLog.Warn(declaringType, "Exception getting ApplicationBaseDirectory. appSettings log4net.Config path ["+repositoryConfigFile+"] will be treated as an absolute URI", ex);
+                    }
+
+                    string repositoryConfigFilePath = repositoryConfigFile;
+                    if (applicationBaseDirectory != null)
+                    {
+                        repositoryConfigFilePath = Path.Combine(applicationBaseDirectory, repositoryConfigFile);
+                    }
+
+                    // Determine whether to watch the file or not based on an app setting value:
+                    bool watchRepositoryConfigFile = false;
+#if NET_2_0 || MONO_2_0 || MONO_3_5 || MONO_4_0 || NETSTANDARD1_3
+                    Boolean.TryParse(SystemInfo.GetAppSetting("log4net.Config.Watch"), out watchRepositoryConfigFile);
+#else
+                                    {
+                                        string watch = SystemInfo.GetAppSetting("log4net.Config.Watch");
+                                        if (watch != null &amp;&amp; watch.Length &gt; 0)
+                                        {
+                                            try
+                                            {
+                                                watchRepositoryConfigFile = Boolean.Parse(watch);
+                                            }
+                                            catch (FormatException)
+                                            {
+                                                // simply not a Boolean
+                                            }
+                                        }
+                                    }
+#endif
+
+                    if (watchRepositoryConfigFile)
+                    {
+                        // As we are going to watch the config file it is required to resolve it as a 
+                        // physical file system path pass that in a FileInfo object to the Configurator
+                        FileInfo repositoryConfigFileInfo = null;
+                        try
+                        {
+                            repositoryConfigFileInfo = new FileInfo(repositoryConfigFilePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogLog.Error(declaringType, "DefaultRepositorySelector: Exception while parsing log4net.Config file physical path [" + repositoryConfigFilePath + "]", ex);
+                        }
+                        try
+                        {
+                            LogLog.Debug(declaringType, "Loading and watching configuration for default repository from AppSettings specified Config path [" + repositoryConfigFilePath + "]");
+
+                            XmlConfigurator.ConfigureAndWatch(repository, repositoryConfigFileInfo);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogLog.Error(declaringType, "DefaultRepositorySelector: Exception calling XmlConfigurator.ConfigureAndWatch method with ConfigFilePath [" + repositoryConfigFilePath + "]", ex);
+                        }
+                    }
+                    else
+                    {
+                    // As we are not going to watch the config file it is easiest to just resolve it as a 
+                    // URI and pass that to the Configurator
+                    Uri repositoryConfigUri = null;
+                    try
+                    {
+                        repositoryConfigUri = new Uri(repositoryConfigFilePath);
+                    }
+                    catch(Exception ex)
+                    {
+                        LogLog.Error(declaringType, "Exception while parsing log4net.Config file path ["+repositoryConfigFile+"]", ex);
+                    }
+
+                    if (repositoryConfigUri != null)
+                    {
+                        LogLog.Debug(declaringType, "Loading configuration for default repository from AppSettings specified Config URI ["+repositoryConfigUri.ToString()+"]");
+
+                        try
+                        {
+                            // TODO: Support other types of configurator
+                            XmlConfigurator.Configure(repository, repositoryConfigUri);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogLog.Error(declaringType, "Exception calling XmlConfigurator.Configure method with ConfigUri ["+repositoryConfigUri+"]", ex);
+                        }
+                    }
+                    }
+                }
+            }
+        }
+

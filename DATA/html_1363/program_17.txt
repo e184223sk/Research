@@ -1,0 +1,37 @@
+
+private async void Start()
+{
+    var token = this.GetCancellationTokenOnDestroy();
+
+    var uris = new[]
+    {
+        "https://www.google.com/",
+        "https://unity.com/ja",
+        "https://github.com/"
+    };
+
+
+    // URIのリストに対してアクセスしてデータをとってくる
+    // ただし常に実行される通信は同時に1つであり、
+    // 前回のものが完了しないと次の通信に進まない
+    await uris.ToUniTaskAsyncEnumerable()
+        // 通信完了を待機してメッセージを発行する
+        .SelectAwait(async x =&gt; await FetchAsync(x))
+        .ForEachAsync(x =&gt; Debug.Log(x), token);
+}
+
+
+private async UniTask&lt;string&gt; FetchAsync(string uri)
+{
+    using (var uwr = UnityWebRequest.Get(uri))
+    {
+        await uwr.SendWebRequest();
+        if (uwr.isNetworkError || uwr.isHttpError)
+        {
+            throw new Exception($"Error&gt;{uwr.error}");
+        }
+
+        return uwr.downloadHandler.text;
+    }
+}
+

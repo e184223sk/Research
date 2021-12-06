@@ -1,0 +1,37 @@
+
+// RSAでファイルを暗号化する
+private void RsaEncrypt(string FilePath, string OutFilePath)
+{
+  StreamReader sr = new StreamReader(@"PublicKey.txt", Encoding.UTF8);
+  string PublicKey = sr.ReadToEnd();
+  sr.Close();
+
+  //RSACryptoServiceProviderオブジェクトの作成
+  RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(2048);
+  rsa.FromXmlString(PublicKey); //公開鍵を指定
+
+  using (FileStream fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
+  {
+    using (FileStream outfs = new FileStream(OutFilePath, FileMode.Create, FileAccess.Write))
+    {
+      byte[] byteArray;
+      byte[] outbuffer = new byte[214];  // 剰余サイズ(256bytes) -2 -2 * hLen(SHA-1) = 214 Max 
+
+      int len = 0;
+
+      // ファイルサイズを求めて書き込む
+      FileInfo fi = new FileInfo(FilePath);
+      Int64 FileSize = Convert.ToInt64(fi.Length);
+      byteArray = BitConverter.GetBytes(FileSize);
+      outfs.Write(byteArray, 0, 8);
+
+      while ((len = fs.Read(outbuffer, 0, outbuffer.Length)) &gt; 0)
+      {
+        byte[] encryptedData = rsa.Encrypt(outbuffer, RSAEncryptionPadding.OaepSHA1); //OAEPパディング=trueでRSA復号
+        outfs.Write(encryptedData, 0, encryptedData.Length);
+      }
+    }
+
+  }
+}
+

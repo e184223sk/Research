@@ -1,0 +1,74 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Web;
+using Microsoft.QualityTools.Testing.Fakes;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace WebAppTest_Test
+{
+    [TestClass]
+    public class defaultTests
+    {
+        [TestMethod]
+        public void Page_Load_Test()
+        {
+            using (ShimsContext.Create())
+            {
+                #region 偽装の実装
+                // Request.Formが返すダミーを準備
+                NameValueCollection dummyForm = new NameValueCollection();
+                // Request.QueryStringが返すダミーを宣言
+                NameValueCollection dummyQS = new NameValueCollection();
+                // Request.Itemsが返すダミーを準備
+                NameValueCollection dummyItems = new NameValueCollection();
+
+                // HttpContext.Requestが返すダミーを準備
+                var fakeRequest = new System.Web.Fakes.ShimHttpRequest()
+                {
+                    // Formプロパティの偽装
+                    FormGet = () =&gt; dummyForm,
+                    // QueryStringの偽装
+                    QueryStringGet = () =&gt; dummyQS,
+                    ItemGetString = (string key) =&gt; dummyItems[key]
+                };
+
+                // HttpContext.Sessionが返すダミーを準備
+                DummySessionState dummySessionItem = new DummySessionState();
+                var fakeSessionState = new System.Web.SessionState.Fakes.ShimHttpSessionState()
+                {
+                    ItemGetString = (x) =&gt; dummySessionItem[x],
+                    ItemSetStringObject = (x, value) =&gt; dummySessionItem[x] = value
+                };
+
+                // HttpContextのItemsが返すダミーを準備
+                var fakeItems = new Hashtable();
+
+                // HttpContext.Curretnの偽装
+                System.Web.Fakes.ShimHttpContext.CurrentGet = ()
+                    =&gt; new System.Web.Fakes.ShimHttpContext()
+                    {
+                        // HttpContext.Current.Requestの偽装
+                        RequestGet = () =&gt; fakeRequest,
+                        // HttpContext.Current.Sessionの偽装
+                        SessionGet = () =&gt; fakeSessionState,
+                        // // HttpContext.Current.Itemsの偽装
+                        ItemsGet = () =&gt; fakeItems,
+                    };
+                #endregion
+
+                // 例外を発生させる文言をセット
+                dummyItems["presentation"] = "例外表示";
+
+                var page = new defaultPageInheritor();
+                Assert.ThrowsException&lt;ApplicationException&gt;(
+                    () =&gt; page.Page_Load(null, null)
+                    );
+            }
+        }
+    }
+}
+
+

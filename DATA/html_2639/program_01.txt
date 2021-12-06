@@ -1,0 +1,116 @@
+
+public class ItemListView : MonoBehaviour
+{
+    [SerializeField] private Button[] itemButtons = default;
+    [SerializeField] private GameObject nextPageButton = default;
+    [SerializeField] private GameObject prevPageButton = default;
+    [SerializeField] private InputField searchInput = default;
+    [SerializeField] private Text pagination = default;
+    private IEnumerable&lt;Item&gt; items;
+    private List&lt;Item&gt; showItems = new List&lt;Item&gt;();
+    private int page = 1;
+
+    private int MaxPage =&gt; (showItems.Count / itemButtons.Length) + 1;
+    public void SetItems(IEnumerable&lt;Item&gt; items)
+    {
+        this.items = items;
+    }
+
+    public void Open()
+    {
+        showItems.AddRange(items);
+        UpdateDisplay();
+        gameObject.SetActive(true);
+    }
+
+    public void Close()
+    {
+        searchInput.text = "";
+        this.page = 1;
+        showItems.Clear();
+        gameObject.SetActive(false);
+    }
+
+    public void NextPage()
+    {
+        this.page++;
+        UpdateDisplay();
+    }
+
+    public void PrevPage()
+    {
+        this.page--;
+        UpdateDisplay();
+    }
+
+    public void Search()
+    {
+        var keyward = searchInput.text;
+        showItems.Clear();
+        var compareInfo = CultureInfo.CurrentCulture.CompareInfo;
+        var resultItems = items.Where(i =&gt; 0 &lt;= compareInfo.IndexOf(i.Name, keyward, CompareOptions.IgnoreWidth | CompareOptions.IgnoreKanaType | CompareOptions.IgnoreCase));
+        showItems.AddRange(resultItems);
+        this.page = 1;
+        UpdateDisplay();
+    }
+
+    private void UpdateDisplay()
+    {
+        UpdateItemButtons();
+        UpdatePageButtons();
+        UpdatePagination();
+    }
+
+    private void UpdateItemButtons()
+    {
+        int baseIndex = (page - 1) * itemButtons.Length;
+        for (int i = 0; i &lt; itemButtons.Length; i++)
+        {
+            var itemButton = itemButtons[i];
+            itemButton.onClick.RemoveAllListeners();
+            if (i + baseIndex &gt;= showItems.Count)
+            {
+                itemButtons[i].gameObject.SetActive(false);
+                continue;
+            }
+
+            var item = showItems[i + baseIndex];
+            itemButton.GetComponentInChildren&lt;Text&gt;().text = item.Name;
+            itemButton.onClick.AddListener(item.Use);
+            itemButton.gameObject.SetActive(true);
+        }
+    }
+
+    private void UpdatePageButtons()
+    {
+        if (page &gt; 1)
+        {
+            this.prevPageButton.SetActive(true);
+        }
+        else
+        {
+            this.prevPageButton.SetActive(false);
+        }
+
+        if (page &lt; MaxPage)
+        {
+            this.nextPageButton.SetActive(true);
+        }
+        else
+        {
+            this.nextPageButton.SetActive(false);
+        }
+
+    }
+
+    private void UpdatePagination()
+    {
+        if (showItems.Count == 0)
+        {
+            this.pagination.text = "0/0";
+        }
+
+        this.pagination.text = $"{page}/{MaxPage}";
+    }
+}
+

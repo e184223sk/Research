@@ -1,0 +1,131 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using HomographySharp.Double;
+using MathNet.Numerics.LinearAlgebra.Double;
+using OpenCvSharp;
+
+namespace ArUcoSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            const string YamlFilePath = @"calib.yml";
+
+            // webカメラキャプチャ
+            var camera = new OpenCvSharp.VideoCapture(0)
+            {
+                //// 解像度の指定
+                FrameWidth = 1920,
+                FrameHeight = 1080
+            };
+
+            using (camera)
+            {
+                var src = new Mat();
+
+                // ずっとループ
+                while (true)
+                {
+                    // カメラ内部パラメータ格納用
+                    Mat mtx = new Mat();
+                    Mat dist = new Mat();
+
+                    // ymlファイルを読み来み計算パラメータを取得
+                    using (var fs = new FileStorage(YamlFilePath, FileStorage.Mode.Read))
+                    {
+                        mtx = fs["mtx"].ReadMat();
+                        dist = fs["dist"].ReadMat();
+                    }
+
+                    // 撮影画像の読み取り
+                    camera.Read(src);
+
+                    if (src.Empty())
+                    {
+                        break;
+                    }
+
+                    if (Cv2.WaitKey(300) == 13)
+                    {
+                        Console.WriteLine("Enterキーが押されました");
+                        break;
+                    }
+
+                    Mat calib = new Mat();
+                    // 歪み補正
+                    Cv2.Undistort(src, calib, mtx, dist);
+                    Cv2.ImShow("calib", calib);
+
+                    var p_dict = OpenCvSharp.Aruco.CvAruco.GetPredefinedDictionary(OpenCvSharp.Aruco.PredefinedDictionaryName.Dict4X4_50);
+                    Point2f[][] corners, rejectedImgPoints;
+                    var detect_param = OpenCvSharp.Aruco.DetectorParameters.Create();
+                    int[] ids;
+                    // マーカー検出
+                    OpenCvSharp.Aruco.CvAruco.DetectMarkers(calib, p_dict, out corners, out ids, detect_param, out rejectedImgPoints);
+                    if (ids.Length != 0)
+                    {
+                        // 検出されたマーカ情報の描画
+                        // OpenCvSharp.Aruco.CvAruco.DrawDetectedMarkers(calib, corners, ids, new Scalar(0, 255, 0));
+
+                        // 番号順にする為にids,cornersを固めて
+                        // dictionaryにしてソート
+                        var markers = Enumerable.Zip(ids, corners, (i, c) =&gt; new { i, c })
+                            .ToDictionary(x =&gt; x.i, x =&gt; x.c)
+                            .OrderBy(i =&gt; i.Key);
+
+                        List&lt;Point2f&gt; midllePoints = new List&lt;Point2f&gt;();
+
+                        int cnt = 0;
+                        foreach (var marker in markers)
+                        {
+                            var average_X = marker.Value.Average(p =&gt; p.X);
+                            var average_Y = marker.Value.Average(p =&gt; p.Y);
+                            // マーカーの中心座標を取得
+                            midllePoints.Add(new Point2f(average_X, average_Y));
+                            //Console.WriteLine($"marker{cnt} X:{average_X}, Y:{average_Y}");
+                            cnt++;
+                        }
+                        // マーカーの中心座標を描画
+                        midllePoints.ForEach(mp =&gt; calib.Circle(
+                                (int)mp.X, (int)mp.Y, 1, new Scalar(0, 0, 255), 3, LineTypes.AntiAlias
+                            ));
+
+                        // ここから座標変換
+                        var srcList = new List&lt;DenseVector&gt;(4);
+                        var dstList = new List&lt;DenseVector&gt;(4);
+
+                        srcList.Add(DenseVector.OfArray(new double[] { 667, 241 }));
+                        srcList.Add(DenseVector.OfArray(new double[] { 1111, 237 }));
+                        srcList.Add(DenseVector.OfArray(new double[] { 1115.75, 680.75 }));
+                        srcList.Add(DenseVector.OfArray(new double[] { 671, 684.5 }));
+
+                        dstList.Add((HomographyHelper.CreateVector2(271.2993, 48.5128)));
+                        dstList.Add(HomographyHelper.CreateVector2(270.3106, -51.8232));
+                        dstList.Add(HomographyHelper.CreateVector2(171.3913, -50.9119));
+                        dstList.Add(HomographyHelper.CreateVector2(175.4043, 47.8111));
+
+                        // 射影変換行列を求めて
+                        var homo = HomographyHelper.FindHomography(srcList, dstList);
+                        // 入力平面から出力平面上の座標に変換
+                        // 試しにmarker0の位置を変換(画像座標系→ロボット座標系)
+                        (double X, double Y) = homo.Translate(667, 241);
+                        Console.WriteLine($"homography_ROBOT:X:{X}, Y:{Y}");
+
+                        mtx.Dispose();
+                        dist.Dispose();
+                        calib.Dispose();
+                    }
+                }
+
+                Cv2.DestroyAllWindows();
+            }
+        }
+    }
+}
+

@@ -1,0 +1,9 @@
+More than 3 years have passed since last update.前回記事 で調べると書き残して〆た Azure Functions から SignalR Service を使って通知を送信する部分を調べました。RealtimeSignIn の README によると動作の概要はこんな感じ。Azure Functions と SignalR Service の接点はの二箇所になります。流れはこんな感じですね。SDK等が提供されているわけではありませんが、このままで単純な送信は対応可能です。signin Function を叩かれたタイミングでClientHubのURLとアクセストークンを生成し、ブラウザ側に返す所の抜粋。
+前項と同じく接続文字列から抜き出したエンドポイント・アクセスキーからClient用HubのURLとアクセストークンを生成して返しています。AzureSignalR.cs を組み込んで Azure Functions から SignalR Service へのデータ送信は簡単にできそうです。
+しかしChatRoomアプリのような「ブラウザ→SignalR Service→サーバ(Azure Functions)」のフローはどう実現するのか謎なままです。
+まあそこは普通にPOSTで代用してもいいのかもしれませんが、GAする頃には Azure Functions側に SignalR Service Trigger的なものが追加されているかもしれません。というわけで ChatRoom・RealtimeSignIn をニコイチして改造し、Azure Functions/SignalR Service/Storage の3サービスだけで動く ServerlessChatRoom サンプルを作ってみました。チャットルーム参加時に呼び出すHttpTriggerです。
+ブラウザからSignalR Serviceに接続するためのエンドポイントURL・アクセストークンを返します。メッセージ送信用のHttpTriggerです。
+発言者・メッセージをそのまま AzureSignalR を介してブロードキャスト送信します。こちらは ChatRoom のindex.htmlを改造します。Join HttpTrigger を呼び出し、返ってきたエンドポイントURL・アクセストークンを使用して SignalR の接続を作るように変更します。オリジナルだとSignalRで送信していた所を BroadcastMessage HttpTrigger を呼び出し、Azure Functions からメッセージを送信する形にします。完成したソースを以下に置いておきます。
+StorageにWebページを配置、Azure Functions をデプロイしてアプリケーション設定の"AzureSignalRConnectionString", "BlobHost"をお使いの SignalRServiceの接続文字列・Storageのホストに変更すれば動きます。ソースコード
+
+

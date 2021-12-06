@@ -1,0 +1,41 @@
+More than 1 year has passed since last update.Unityで作っているスマホゲームに、端末移行や故障・紛失からの復旧のための、バックアップ機能を付けようと思った。
+小規模であればFirebaseの無償枠で十分に使えると聞いたため、やってみる。なにはともあれ Firebase(https://console.firebase.google.com/) にアクセスし、Googleアカウントでログインする。その後、「プロジェクトを作成」を選択。
+任意のプロジェクト名を付ける。Google Analyticsが使える。
+無料なので、何も考えずにONのまま。アカウントは適当に設定。
+（このあたり良く分かっていない。新規作成は面倒だったので、Default Account for Firebaseを使った）Firebaseを使うためには、アプリの登録が必要になる。
+アプリ自体は開発中なので、当然まだリリースしていないが、パッケージ名だけ先に決めてしまい、登録する。「開始するにはアプリを追加してください」の上にあるUnityロゴを選択。今回はAndroidを対象とする。後からiOSも追加できるので、特に気にせず登録。
+パッケージ名は決めておいたものを入力(e.g. com.company.appname)。
+ニックネームは必要に応じて適当に入力。設定ファイルをダウンロードできるようになる。
+google-services.jsonをダウンロードして、UnityのAssets配下に置く。
+場所は任意らしいが、特に階層は掘らず、直下に置いた。Firebase Unity SDKを入手する。
+ボタンを押すとfirebase_unity_sdk_6.15.2.zipがダウンロードできた。
+これは後で使う。
+とりあえずFirebase側の設定を最後までやってしまうアプリが追加できたら、左ペインからRealtime Databaseを選び、データベースを作成を選ぶセキュリティルールを聞かれる。
+後で設定すればいいので、今はテストモードで開始を選ぶ。今はとりあえず動かすことが目標。
+この記事では省くが、Google様からもしつこく注意されるとおり、公開前には必ずルールを設定しなおすこと。これでDBが作成された。
+試しに、データを一つ作ってみる。今回は/usersを作り、その下に各ユーザのセーブデータを格納していく構成にした。（わざわざここで作らなくても、あとで無ければ勝手に作ってくれる。これはあくまで確認用）これで、/users/{ユーザID}/xxxみたいな感じで、データのバックアップを作る。ここから先はUnity側の作業。FirebaseからダウンロードしたZipファイル中の\firebase_unity_sdk\dotnet4にFirebaseDatabase.unitypackageが入っているので、それをUnityにImport。（手順は画面に表示されている通り）。
+dotnet3か4かは、作っているアプリに寄る。なおこの時、Unity側のPlatformが誤ってPC, Mac &amp; Linux Standaloneになっていて、インポートした後でUnable to load options for default appというエラーが発生した。Assets/StreamingAssets\google-services-desktop.jsonを読み込もうとして失敗する。
+焦らずAndroidへSwitch Platformして解決。FirebaseSDKを入れた後、Unityを動かそうとすると、以下のエラーが発生。他にはこんなエラーもググると、これはPlayGamesPluginのバージョンが古いかららしいので、更新する。
+https://github.com/playgameservices/play-games-plugin-for-unity/issues/2877PlayGamesPluginはリゾルバを更新すれば自動で上がるので、そちらを更新する。
+参考：
+  - https://qiita.com/tkyaji/items/b838c97228f99f194bcd
+  - https://qiita.com/kusu123/items/9aac7f1b899b95edde07リゾルバは以下から取得。見ての通りunitypackageになっているので、Firebase SDKと同様、インポートするだけ。
+https://github.com/googlesamples/unity-jar-resolver/blob/master/external-dependency-manager-latest.unitypackage「Obsoleteファイルを消すか？」と聞かれたら、削除する。（何回か出るかも。毎回削除でOK）
+これを消さないと別のエラーが出る。ダイヤログが出ない場合、Unityを再起動すると出て来るかも。PackageManagerレジストリを追加するか？と聞かれたので、素直にAdd Selected Registries。
+Packageの移行を進められたので、これまた素直にApply。
+これでエラーが消えた。PackageのMigrate中、なぜかUnityがフリーズすることがあった。
+Unityの再起動で直った。あとはFirebaseと通信するためのコードを書いていくまず、Assets直下に置いてある google-services.json の中身を開いて、接続先のURLを確認。project_info.firebase_urlの欄がそれ。（https://アプリ名.firebaseio.com/という形式のはず）このurlを使って、firebaseの中身を読み書きするためのオブジェクトを作成する。実際にfirebaseにデータを書き込んでみる。上で作った/users/{ユーザID}/にデータを入れていくわけだけど、最初にユーザIDを採番しなければいけない。
+これが重複すると、他人のデータを上書きすることになってしまう。各ユーザにユニークなIDを自分でつけてもらうゲームも多いが、FirebaseではIDの採番を行うためのメソッド(Push)もあるので、今回はそれを使う。
+Push()はあくまでユニークな文字列を返してくれるだけなので、これだけではFirebase側にデータは書き込まれない。IDができたら、実際のデータを入れてみる。とりえあずはテスト的に作成日を突っ込んでみた。ちゃんとfirebaseに書き込まれている。失敗する場合は、パスを間違えているか、書き込み権限が不足している可能性があるので、ルールを再確認するよろし。
+それでも原因がわからない場合は、後述するコールバックを追加して、失敗した理由をログ出力する。SetValueAsyncだと、数字とか文字列とか、単一のデータしか書き込めない。
+例えば以下のようなクラスがあった時、全部自前でバラしてセーブするのは面倒くさい。こういう時のために、オブジェクトをJsonデータに変換して、それを記録するためのメソッドSetRawJsonValueAsync()が用意されている。が、実は上記は失敗例。
+これをやっても、Firebase側には何も表示されないと思う。
+それどころか、先の処理で保存していたcreated_atも消えてしまう。この原因は以下これを直すために、以下の修正を行う。結果が以下。Dictionaryが保存できないため、Jsonに変換する前にListに詰め替えている。
+こうすれば、クラス丸ごとJsonに保存することが可能。単にSetValueAsync()を実行しただけだと、このメソッドが非同期で実行されるため、書き込みに成功したのか、失敗したのか、わからない。なのでコールバックを受け取る。コールバックが実装できたので、「保存に成功/失敗したら、画面にメッセージを出す」という機能を付けたくなる。
+が、これはまたうまく動かないことがある。
+「エラーは一切出ないのに画面がなにも更新されない」という状況になったなら、スレッドを疑った方が良いかもしれない。
+コールバックが実行されるスレッドがUIスレッドでない場合、画面は更新できない。詳細はここでは割愛するが、この場合はコンテキストを切り替えてUIスレッドでコールバックを実行すればいい。
+UIスレッドについて詳しく知りたい方は、Unity UI ThreadとかSynchronizationContextとかでググってください。読み込みはGetValueAsync()を使うだけ。シンプル。書き込みの時に書いたコールバックやら、スレッドの切り替えやら、オブジェクトへの変換やら、そういうのを盛り込むと以下のようになると思う。以上。
+確かにSDKを入れて入出力するだけだから、簡単なのはそうなんだろうけど、罠もたくさんあって結構時間を使ってしまった。
+
+

@@ -1,0 +1,40 @@
+virtual protected void InitializeBones(OVRPlugin.Skeleton skeleton)
+{
+    _bones = new List&lt;OVRBone&gt;(new OVRBone[skeleton.NumBones]);
+    Bones = _bones.AsReadOnly();
+
+    if (!_bonesGO)
+    {
+        _bonesGO = new GameObject("Bones");
+        _bonesGO.transform.SetParent(transform, false);
+        _bonesGO.transform.localPosition = Vector3.zero;
+        _bonesGO.transform.localRotation = Quaternion.identity;
+    }
+
+    // pre-populate bones list before attempting to apply bone hierarchy
+    for (int i = 0; i &lt; skeleton.NumBones; ++i)
+    {
+        BoneId id = (OVRSkeleton.BoneId)skeleton.Bones[i].Id;
+        short parentIdx = skeleton.Bones[i].ParentBoneIndex;
+        Vector3 pos = skeleton.Bones[i].Pose.Position.FromFlippedXVector3f();
+        Quaternion rot = skeleton.Bones[i].Pose.Orientation.FromFlippedXQuatf();
+
+        var boneGO = new GameObject(id.ToString());
+        boneGO.transform.localPosition = pos;
+        boneGO.transform.localRotation = rot;
+        _bones[i] = new OVRBone(id, parentIdx, boneGO.transform);
+    }
+
+    for (int i = 0; i &lt; skeleton.NumBones; ++i)
+    {
+        if (((OVRPlugin.BoneId)skeleton.Bones[i].ParentBoneIndex) == OVRPlugin.BoneId.Invalid)
+        {
+            _bones[i].Transform.SetParent(_bonesGO.transform, false);
+        }
+        else
+        {
+            _bones[i].Transform.SetParent(_bones[_bones[i].ParentBoneIndex].Transform, false);
+        }
+    }
+}
+

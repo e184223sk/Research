@@ -1,0 +1,58 @@
+using System;
+using System.Threading.Tasks;
+using Windows.Graphics.Imaging;
+using Windows.Storage.Streams;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Media.Imaging;
+
+namespace SandStormUWP
+{
+    public sealed partial class MainPage : Page
+    {
+        public MainPage()
+        {
+            this.InitializeComponent();
+
+            Task.Run(() =&gt;
+            {
+                while (true)
+                {
+                    const int width = 256;
+                    const int height = 256;
+
+                    byte[] data = new byte[width * height * 4];
+
+                    Random rnd = new System.Random();    // インスタンスを生成
+                    int rndMax = 256;                    // 0～256の乱数を取得
+
+                    // バイト列に色情報を入れる
+                    for (int i = 0; i &lt; width; i++)
+                    {
+                        for (int j = 0; j &lt; height; j++)
+                        {
+                            data[4 * (i + j * width)] = (byte)rnd.Next(rndMax);
+                            data[4 * (i + j * width) + 1] = (byte)rnd.Next(rndMax);
+                            data[4 * (i + j * width) + 2] = (byte)rnd.Next(rndMax);
+                            data[4 * (i + j * width) + 3] = (byte)rnd.Next(rndMax);
+                        }
+                    }
+
+                    var task = this.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, async () =&gt;
+                    {
+                        WriteableBitmap bitmap = new WriteableBitmap(width, height);
+
+                        InMemoryRandomAccessStream inMRAS = new InMemoryRandomAccessStream();
+                        BitmapEncoder encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, inMRAS);
+                        encoder.SetPixelData(BitmapPixelFormat.Rgba8, BitmapAlphaMode.Ignore, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96.0, 96.0, data);
+                        await encoder.FlushAsync();
+                        BitmapImage bitmapImage = new BitmapImage();
+                        bitmapImage.SetSource(inMRAS);
+                        MyImage.Source = bitmapImage;   // 「MyImage」は、xamlの&lt;Image Name="MyImage"/&gt;より。砂嵐を張り付けるImageの名前。
+                    });
+                }
+            });
+        }
+    }
+}
+
+

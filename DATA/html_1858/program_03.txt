@@ -1,0 +1,225 @@
+
+#define USE_RAWSQL
+
+using ANCEntry_EFMvcApp.Common;
+using ANCEntry_EFMvcApp.Data;
+using ANCEntry_EFMvcApp.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.EntityFrameworkCore;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Data.SqlClient;
+
+// ★非常に重要 System.Data.SqlClientを使わないこと！
+// ★特にSystem.Data.SqlClient.SqlParameterはEFのFromSqlRawでは使えない！
+
+namespace ANCEntry_EFMvcApp.Controllers
+{
+    /// &lt;summary&gt;
+    /// このクラス名によりアプリケーションからは/People/{メソッド名}にてPersonモデルに対する
+    /// CRUD処理の呼び出しが可能。
+    /// &lt;/summary&gt;
+    public class PeopleController : Controller
+    {
+        private const int PageSize = 5;
+
+        private readonly ANCEntry_EFMvcAppContext _context;
+
+        public PeopleController(ANCEntry_EFMvcAppContext context)
+        {
+            _context = context;
+        }
+
+        // ････(途中省略)････
+
+        /// &lt;summary&gt;
+        /// 検索ソート機能付き一覧画面表示用メソッド。
+        /// ２項目用の検索値とソート条件指定を受け取る。
+        /// &lt;/summary&gt;
+        /// &lt;param name="crt_name"&gt;名前(FirstName/LastName共通)の検索値。一致条件は一部一致とする。&lt;/param&gt;
+        /// &lt;param name="crt_age"&gt;年齢の検索条件。一致条件は前後５歳の幅を持たせる。&lt;/param&gt;
+        /// &lt;param name="sortfield"&gt;ソート条件。項目名に所定の区切り文字で昇順・逆順指定を加える。&lt;/param&gt;
+        /// &lt;returns&gt;引数の検索＋ソート条件で抽出されたレコードのリスト。更にLINQ式により変換が可能&lt;/returns&gt;
+        [HttpGet]
+        public async Task&lt;IActionResult&gt; Index(string crt_name, string crt_age,
+            string sortfield)
+        {
+            IQueryable&lt;Person&gt; selected;
+
+#if USE_RAWSQL
+            // こっちが有効、生のSQLが引き渡される。
+            string strSQL = "SELECT * FROM dbo.Person";
+            string strWhere = string.Empty;
+
+            var param_name = new SqlParameter("@param_name", string.Empty);
+            var param_age = new SqlParameter("@param_age", 0);
+            param_age.Value = 0;
+
+            if (!string.IsNullOrEmpty(crt_name))
+            {
+                param_name.Value = "%" + crt_name + "%";
+                strWhere = "( FirstName LIKE @param_name ) OR ( LastName LIKE @param_name )";
+            }
+            if (!string.IsNullOrEmpty(crt_age))
+            {
+                var int_age = 0;
+                if (Int32.TryParse(crt_age, out int_age))
+                {
+                    param_age.Value = int_age;
+                    strWhere = (!string.IsNullOrEmpty(strWhere) ? string.Format("({0}) AND", strWhere) : string.Empty)
+                        + "(( Age &gt;= @param_age - 5 ) AND ( Age &lt;= @param_age + 5 ))";
+                }
+            }
+            if (!string.IsNullOrEmpty(strWhere))
+            {
+                strSQL = strSQL += Environment.NewLine + "WHERE " + strWhere;
+            }
+
+            // ★ショックなことにSQLでOrder byを書くとPaginatingListによるPagingが効かなくなる！
+            //bool desc = false;
+            //bool.TryParse(sortdesc, out desc);
+            //if (!string.IsNullOrEmpty(sortfield))
+            //{
+            //    strSQL += Environment.NewLine +
+            //        "ORDER BY " + sortfield + (desc ? " DESC" : string.Empty);
+            //}
+            selected = _context.Person.FromSqlRaw(strSQL, param_name, param_age);
+
+#else
+            // SQLを使わずに全てLINQで書く場合。
+            selected = from p in _context.Person select p;
+            if (!string.IsNullOrEmpty(crt_name))
+            {
+                selected = selected.Where(model =&gt;
+                (
+                    (model.LastName.ToLower().Contains(crt_name.ToLower())) ||
+                    (model.FirstName.ToLower().Contains(crt_name.ToLower()))
+                ));
+            }
+            if (!string.IsNullOrEmpty(crt_age))
+            {
+                int age = 0;
+                if (Int32.TryParse(crt_age, out age))
+                {
+                    selected =selected.Where(model =&gt;
+                        ((model.Age &gt;= age - 5) &amp;&amp; (model.Age &lt;= age + 5)));
+                }
+            }
+#endif
+            // ★ショックなことにSQLでOrder byを使うとページング機能が使えないため
+            // 下のようにグダグダ書かないといけない。
+
+            bool desc = false;
+            string sortfiledBody = string.Empty;
+            if (!string.IsNullOrEmpty(sortfield))
+            {
+                string[] tokens = sortfield.Split(PersonFind2Model.DLM);
+                if (tokens.Length &gt; 1)
+                {
+                    var sortDirection = tokens[tokens.Length - 1];
+                    if (sortDirection.Equals("DESC", StringComparison.CurrentCultureIgnoreCase))
+                    {
+                        desc = true;
+                    }
+                    for(int i = 0; i &lt; tokens.Length - 1; i++)
+                    {
+                        sortfiledBody += tokens[i] + PersonFind2Model.DLM;
+                    }
+                    sortfiledBody = sortfiledBody.Substring(0, sortfiledBody.Length - 1);
+                }
+                else
+                {
+                    sortfiledBody = sortfield;
+                }
+
+                // ★OrderByやOrderByDescendingが受けるのはFunc&lt;T&gt;ではなくて
+                // Linq.Expression.Expression&lt;Func&lt;T&gt;&gt;である。
+                // これは構文解析したFunc&lt;T&gt;なので、Func&lt;T&gt;を先に定義してから
+                // その後で逆アセンブリすることはかなり難しい模様なのでいったんここで終了。
+                switch (sortfiledBody.ToLower())
+                {
+                    case "personid":
+                        if (desc)
+                        {
+                            selected = selected.OrderByDescending(m =&gt; m.PersonID);
+                        }
+                        else
+                        {
+                            selected = selected.OrderBy(m =&gt; m.PersonID);
+                        }
+                        break;
+
+                    case "firstname":
+                        if (desc)
+                        {
+                            selected = selected.OrderByDescending(m =&gt; m.FirstName);
+                        }
+                        else
+                        {
+                            selected = selected.OrderBy(m =&gt; m.FirstName);
+                        }
+                        break;
+
+                    case "lastname":
+                        if (desc)
+                        {
+                            selected = selected.OrderByDescending(m =&gt; m.LastName);
+                        }
+                        else
+                        {
+                            selected = selected.OrderBy(m =&gt; m.LastName);
+                        }
+                        break;
+
+                    case "email":
+                        if (desc)
+                        {
+                            selected = selected.OrderByDescending(m =&gt; m.EMail);
+                        }
+                        else
+                        {
+                            selected = selected.OrderBy(m =&gt; m.EMail);
+                        }
+                        break;
+
+                    case "age":
+                        if (desc)
+                        {
+                            selected = selected.OrderByDescending(m =&gt; m.Age);
+                        }
+                        else
+                        {
+                            selected = selected.OrderBy(m =&gt; m.Age);
+                        }
+                        break;
+                }
+            }
+            else
+            {
+                if (desc)
+                {
+                    selected = selected.OrderByDescending(m =&gt; m.PersonID);
+                }
+                else
+                {
+                    selected = selected.OrderBy(m =&gt; m.PersonID);
+                }
+            }
+
+            var peopleList = await selected.ToListAsync();
+            var myModel = new PersonSearchModel
+            {
+                People = peopleList,
+                Crt_Name = crt_name,
+                Crt_Age = crt_age,
+                SortField = sortfield,
+            };
+
+            return View(myModel);
+        }
+
+    }
+
+

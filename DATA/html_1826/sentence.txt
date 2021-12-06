@@ -1,0 +1,24 @@
+社内の新人研修の課題として後輩にやってもらった内容となりますが、参考になる部分も多かったので手順をまとめています。
+今回は Tour of Heroes を対象としていますが同様の構成のアプリを一から作る際にも参考になるかと思います。Tour of Heroes においては Web API との通信部分を In-memory Web API を用いてシミュレートしています。今回は ASP.NET Core で Web API を実装し、 Tour of Heroes と実装した Web API とを通信するように修正します。In-memory Web API についての Tutorial 内における言及は 6. サーバーからデータの取得 にあります。
+また Tour of Heroes は完成済みとします。本記事を書くにあたってはこちらにある完成品をダウンロードしています。最終的には Tour of Heroes, Web API, データベース をそれぞれ Azure PaaS 上にデプロイして動かすことを目標としますが本記事ではいずれもローカル環境で動かすまでについてをまとめます。Visual Studio から SQL Server データベースプロジェクトを作成します。本記事では作成したデータベースを localDB に公開します。
+Heroes テーブルを追加し Id, Name 列を設定します。列に関しては Tour of Heroes ソースコードから Hero インターフェースを参考とします。
+Hero テーブルを追加した際、Id のプロパティ欄 「Null の許容」 が False になっていることと「IENTITY の指定」が True になっていることを確認します。これらの設定は下図のように列のプロパティ設定から変更します。T-SQL の行が INT NOT NULL PRIMARY KEY IDENTITY となっていればおｋです。（T-SQL を直接変更しても構いません）
+
+Visual Studio からデータベースプロジェクトを localDB に公開します。（基本的なことかもしれませんが MSSQLLocalDB と ProjectsV13 というインスタンスの違いについて誰か教えて下さい＞＜）
+
+※localDB への公開のウィンドウの出し方
+プロジェクト右クリック → 公開... によって表示できます。データベースの公開を確認します。Heroes テーブルにはまだデータが入っていません。ここでは SQL Server (mssql) を Visual Studio Code にインストールして localDB へ接続しています。
+チュートリアル: ASP.NET Core で Web API を作成する を参考とします。本章においてはこちらの参考資料のセクションに対応するようにそれぞれのセクションでの手順や注意点などをまとめます(省略するセクションもあります)。参考資料と併せてご覧いただけると良いと思います。今回は実際にデータベースを作成していますので Microsoft.EntityFrameworkCore.InMemory についてはインストールしません。UseInMemoryDatabase ではなく UseSqlServer を使用します。
+また appsettings.json に localDB への接続情報を設定し使用します。接続文字列に関してはよしなに設定してください。Heroes テーブルにはデータを登録してませんので API プロジェクトをデバッグ実行し https://localhost:44389/api/Heroes にアクセスすると下記のように空のデータが返ってきます。こちらは参考資料に対応するセクションはありません。
+Tour of Heroes では searchHeroes メソッドにより、ヒーロー名 (Hero.name) をパラメータとしてヒーローのマッチング結果を返してもらうように Web API にリクエストしています。
+ここまでの手順で Web API にはそうした実装が含まれていませんのでこちらを実装します。GetHeroes メソッドで api/Heroes/?name=takashi のようにクエリ文字列として検索語となる文字列を受け取れるようにします。クエリ文字列の受け取りについては こちら を参考にしました。
+検索ロジックの実装ですが string.Contains メソッドで検索語を部分文字列として持つ名前のヒーローを抽出するようにします。ここまでで Web API とデータベースが接続されたので最後に Tour of Heroes から Web API を接続するように修正していきます。本章ではいくつかある修正ポイントを一つずつ追ってみていきたいと思います。元から記述されているコメントの通り In-memory Web API モジュールをインポートしている箇所をコメントアウトしています。
+なお README - Import the in-memory web api module の Notes の最終項目（In Production, ...）に実行環境によってモジュールのインポートを削除する方法も書いてありますが、今回はローカル環境での実行時には実装した Web API （Web API もローカル環境で実行されています）に接続したいので今回は当てはまりません。In-memory Web API のインポートを削除すると Tour of Heroes でのメッセージからもわかるように http://localhost:4200/api/heroes へのリクエストで 404 Not Found となっていることが確認できます。実際に Web API にリクエストを送るメソッドは hero.service.ts で実装されています。heroesUrl の値を下記のように前の手順で実装した Web API のものに変更します。修正後のメッセージを見ると意図した URL に対してリクエストを行うように変化していることが確認できます。
+しかし依然としてデータは取得できません。Chrome のデベロッパーツールから Console 上にエラーメッセージが表示されていることを確認します。前の手順で Web API の URL を変更する方法ではうまくいかないことがわかったので バックエンドサーバーへのプロキシ を参考に Web API にリクエストを送ります。前の手順で変更した heroesUrl の値は元に戻しておきます。proxy.conf.json の設定で注意が必要なことは target のプロトコルとポート番号が実装した Web API のそれと一致していることです。今回の手順であれば https になっていることに注意してください。angular.json に関しては参考資料ままですので割愛します。ここまでで getHeroes (ヒーロー一覧の取得)で Web API に接続できたことを確認します。
+Tour of Heroes 画面上に下記のメッセージが表示されます。また Chrome デベロッパーツールの　Network タブから heroes へのリクエストが Status Code: 200 で返ってきていることを確認します。ここまでの実装ではヒーローの更新処理がうまくいきません。
+ヒーローの詳細画面からヒーロー名を更新する操作をすると 405 Method Not Allowed となります。上記メッセージからもわかるように Tour of Heroes の実装では api/heroes に対してリクエストをしています。Chrome のデベロッパーツールからも確認できます。
+対して Web API の PutHero メソッドは api/Heroes/{id} としてヒーローの id を受け取るように実装されています。getHero メソッドや deleteHero メソッドを参考に url の値を修正します。Tour of Heroes, Web API をそれぞれ localhost で実行し Tour of Heroes からの各種操作を確認します。
+下記は 「操作 / Tour of Heroes メソッド / Web API メソッド」 の対応です。一連の操作による画面上でのデータの変化およびデータベースの値の変化を確認します。Tour of Heroes でモックやダミーとなっていた Web API とデータベースの実装を行いました。
+ローカル環境での実行で今回実装したそれぞれのアプリ、データベースが接続されていることを確認しました。
+
+

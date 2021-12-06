@@ -34,5 +34,17 @@ namespace WebScraping.Properties {
                 this["_FileCount"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int _ReferenceCount {
+            get {
+                return ((int)(this["_ReferenceCount"]));
+            }
+            set {
+                this["_ReferenceCount"] = value;
+            }
+        }
     }
 }

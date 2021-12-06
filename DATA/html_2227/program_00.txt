@@ -1,0 +1,455 @@
+
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Numerics;
+
+class WaveInTest : Form
+{
+
+
+    class NativeMethods
+    {
+        const int MAXPNAMELEN = 32;
+
+        public const int MMSYSERR_NOERROR = 0; // MMRESULT
+
+        public const int WAVE_FORMAT_1M08 = 0x00001;
+        public const int WAVE_FORMAT_1S08 = 0x00002;
+        public const int WAVE_FORMAT_1M16 = 0x00004;
+        public const int WAVE_FORMAT_1S16 = 0x00008;
+        public const int WAVE_FORMAT_2M08 = 0x00010;
+        public const int WAVE_FORMAT_2S08 = 0x00020; // 22.05 kHz, stereo, 8-bit
+        public const int WAVE_FORMAT_2M16 = 0x00040;
+        public const int WAVE_FORMAT_2S16 = 0x00080;
+        public const int WAVE_FORMAT_4M08 = 0x00100;
+        public const int WAVE_FORMAT_4S08 = 0x00200;
+        public const int WAVE_FORMAT_4M16 = 0x00400;
+        public const int WAVE_FORMAT_4S16 = 0x00800;
+
+        public const int CALLBACK_WINDOW   = 0x10000;
+
+        public const int WIM_OPEN  = 0x3BE;
+        public const int WIM_CLOSE = 0x3BF;
+        public const int WIM_DATA  = 0x3C0;
+
+        public const int WAVE_FORMAT_PCM = 1;
+
+        //const int WAVE_MAPPER = -1;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] // CharSet.Unicodeを指定しないとstringのサイズが不正になる
+        public struct WaveInCaps{
+            public Int16 wMid;
+            public Int16 wPid;
+            public Int32 vDriverVersion;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = MAXPNAMELEN)]
+            public string szPname;
+            public Int32 dwFormats;
+            public Int16 wChannels;
+            Int16 wReserved1;
+        } ;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct WaveFormatEx
+        {
+            public Int16 wFormatTag;
+            public Int16 nChannels;
+            public Int32 nSamplesPerSec;
+            public Int32 nAvgBytesPerSec;
+            public Int16 nBlockAlign;
+            public Int16 wBitsPerSample;
+            public Int16 cbSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct WaveHdr
+        {
+            public IntPtr lpData;
+            public Int32 dwBufferLength;
+            public Int32 dwBytesRecorded;
+            public IntPtr dwUser;
+            public Int32 dwFlags;
+            public Int32 dwLoops;
+            public IntPtr lpNext;
+            public Int32 reserved;
+        }
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInGetNumDevs();
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInGetDevCaps(
+            Int32 uDeviceID,
+            ref WaveInCaps wic,
+            Int32 cbwic
+        );
+
+        // for 32bit only
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInOpen(
+            ref IntPtr hwi,
+            Int32 uDeviceID,
+            ref WaveFormatEx _wfx,
+            IntPtr dwCallback,  // Int32
+            Int32 dwCallbackInstance,
+            Int32 fdwOpen
+        );
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInClose(IntPtr hwi);
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInPrepareHeader(IntPtr hwi, ref WaveHdr wh, Int32 cbwh);
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInUnprepareHeader(IntPtr hwi, ref WaveHdr wh, Int32 cbwh);
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInAddBuffer(IntPtr hwi, ref WaveHdr wh, Int32 cbwh);
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInStart(IntPtr hwi);
+
+        [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Int32 waveInStop(IntPtr hwi);
+    }
+
+    class MyWaveBuffer
+    {
+        public GCHandle selfHandle;
+        public GCHandle dataHandle;
+        public byte[] data;
+        public NativeMethods.WaveHdr hdr;
+        public static readonly int cbwh = 32;// Marshal.SizeOf(hdr);
+
+        public MyWaveBuffer(int length)
+        {
+            data = new byte[length];
+            dataHandle = GCHandle.Alloc(data, GCHandleType.Pinned);
+            selfHandle = GCHandle.Alloc(this);
+
+            hdr = new NativeMethods.WaveHdr();
+            hdr.lpData = dataHandle.AddrOfPinnedObject();
+            hdr.dwBufferLength = length;
+            hdr.dwFlags = 0;
+            hdr.reserved = 0;
+            hdr.dwUser = GCHandle.ToIntPtr(selfHandle);
+        }
+    }
+
+
+    static readonly int N_FFT = 12;
+    static readonly int BUFFER_SIZE = 4096; // must be 2^N_FFT
+    static readonly int N_BUFFERS = 30;
+    NativeMethods.WaveFormatEx _wfx;
+    MyWaveBuffer[] _wbuf;
+    byte[] _waveData;
+    int[]  _indexConverter;
+    System.Numerics.Complex[] _fftBuffer;
+    System.Numerics.Complex[] _fftCoef; // e^{-i\pi index/BUFFER_SIZE}
+    IntPtr _hwi;
+    bool _redrawRequest;
+    bool _rec;
+    int _counter;
+
+    Button btn;
+    PictureBox pct;
+    System.Windows.Forms.Timer timer;
+
+    static readonly int WIDTH  = 400;
+    static readonly int HEIGHT = 300;
+
+    WaveInTest()
+    {
+        Text = "WaveIn Test";
+        ClientSize = new Size(WIDTH, HEIGHT+30);
+
+        _rec = false;
+        _waveData = new byte[BUFFER_SIZE];
+        _fftBuffer = new Complex[BUFFER_SIZE];
+        _indexConverter = new int[BUFFER_SIZE];
+        _fftCoef = new Complex[BUFFER_SIZE];
+        InitializeIndexConverter();
+        InitializeCoef();
+        _redrawRequest = false;
+
+
+        Load += Form_Load;
+
+        Closing += (sender,e)=&gt;{
+            if ( _hwi != IntPtr.Zero ) {
+                _rec = false;
+                NativeMethods.waveInClose(_hwi);
+                _hwi = IntPtr.Zero;
+            }
+        };
+
+        btn = new Button(){Text="Rec"};
+        btn.Enabled = false;
+        btn.Click += (sender,e)=&gt;{
+            if ( !_rec &amp;&amp; _hwi != IntPtr.Zero) {
+                btn.Enabled = false;
+                _rec = true;
+                int retCode = NativeMethods.waveInStart(_hwi);
+                if ( retCode != NativeMethods.MMSYSERR_NOERROR ) {
+                    Console.WriteLine("waveInStart ErrorCode: 0x"+retCode.ToString("X"));
+                }
+            }
+        };
+        Controls.Add(btn);
+
+        pct = new PictureBox();
+        pct.Top = 30;
+        pct.Size = new Size(WIDTH, HEIGHT);
+        pct.Image = new Bitmap(WIDTH, HEIGHT);
+        Controls.Add(pct);
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 250;
+        timer.Tick += (sender,e)=&gt;{MyRedraw();};
+        timer.Start();
+    }
+
+
+    void Form_Load(object sender, EventArgs e)
+    {
+        ShowDeviceInfo();
+
+        _wfx = new NativeMethods.WaveFormatEx();
+        _wfx.cbSize = 0;//(Int16)Marshal.SizeOf(_wfx);
+        _wfx.wFormatTag = NativeMethods.WAVE_FORMAT_PCM;
+        _wfx.nChannels = 1;//wic.wChannels;
+        _wfx.nSamplesPerSec = 22050;
+        _wfx.wBitsPerSample = 8;
+        _wfx.nBlockAlign = (Int16)(_wfx.wBitsPerSample / 8 * _wfx.nChannels);
+        _wfx.nAvgBytesPerSec = _wfx.nSamplesPerSec * _wfx.nBlockAlign;
+
+        {
+            int retCode = NativeMethods.waveInOpen(ref _hwi, 0, ref _wfx, this.Handle, 0, NativeMethods.CALLBACK_WINDOW);
+            if ( retCode != NativeMethods.MMSYSERR_NOERROR ) {
+                Console.WriteLine("waveInOpen ErrorCode: 0x"+retCode.ToString("X"));
+                return;
+            }
+            Console.WriteLine("waveInOpen success");
+        }
+    }
+
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg) {
+            case NativeMethods.WIM_OPEN:
+                Console.WriteLine("open");
+                if (PrepareBuffer()) {
+                    btn.Enabled = true;
+                }
+                base.WndProc(ref m);
+                break;
+            case NativeMethods.WIM_CLOSE:
+                base.WndProc(ref m);
+                break;
+            case NativeMethods.WIM_DATA:
+                if ( _rec ) {
+                    WaveInCallbackProc(m.WParam, m.LParam);
+                }
+                base.WndProc(ref m);
+                break;
+            default:
+                base.WndProc(ref m);
+                break;
+        }
+    }
+
+
+    bool ShowDeviceInfo()
+    {
+        int n = NativeMethods.waveInGetNumDevs();
+        if ( n == 0 ) {
+            Console.WriteLine("No waveIn devices.");
+            return false;
+        }
+
+        var wic = new NativeMethods.WaveInCaps();
+        for ( int i=0 ; i&lt;n ; i++ ) {
+            int retCode = NativeMethods.waveInGetDevCaps(i, ref wic, Marshal.SizeOf(wic)); 
+            if ( retCode == NativeMethods.MMSYSERR_NOERROR ) {
+                Console.WriteLine("Name: "        + wic.szPname);
+                Console.WriteLine("  Formats: 0x" + wic.dwFormats.ToString("X"));
+                Console.WriteLine("  Channels: "  + wic.wChannels.ToString());
+            }
+            else {
+                Console.WriteLine("waveInGetDevCaps ErrorCode: 0x"+retCode.ToString("X"));
+            }
+        }
+
+        return true;
+    }
+
+    bool PrepareBuffer()
+    {
+        if(_hwi==IntPtr.Zero){return false;}
+
+        int retCode;
+
+        _wbuf = new MyWaveBuffer[N_BUFFERS];
+
+        for ( int i=0 ; i&lt;N_BUFFERS ; i++ ) {
+            _wbuf[i] = new MyWaveBuffer(BUFFER_SIZE);
+
+            retCode = NativeMethods.waveInPrepareHeader(_hwi, ref _wbuf[i].hdr, MyWaveBuffer.cbwh);
+            if ( retCode != NativeMethods.MMSYSERR_NOERROR ) {
+                Console.WriteLine("waveInPrepareHeader ErrorCode: 0x"+retCode.ToString("X"));
+                return false;
+            }
+
+            retCode = NativeMethods.waveInAddBuffer(_hwi, ref _wbuf[i].hdr, MyWaveBuffer.cbwh);
+            if ( retCode != NativeMethods.MMSYSERR_NOERROR ) {
+                Console.WriteLine("waveInAddBuffer ErrorCode: 0x"+retCode.ToString("X"));
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public bool WaveInCallbackProc(IntPtr hwi, IntPtr hwvhdr)
+    {
+        NativeMethods.WaveHdr wvhdr;
+
+        if ( !_rec ) { return false; }
+        if ( hwi != _hwi ) { return false; }
+
+        MyWaveBuffer t;
+        wvhdr = (NativeMethods.WaveHdr)Marshal.PtrToStructure(hwvhdr, typeof(NativeMethods.WaveHdr));
+        t = (MyWaveBuffer)GCHandle.FromIntPtr(wvhdr.dwUser).Target;
+
+        if ( t.hdr.dwBytesRecorded == BUFFER_SIZE ) {
+            Array.Copy(t.data, 0, _waveData, 0, BUFFER_SIZE);
+            _redrawRequest = true;
+        }
+
+        _counter++;
+        Text = _counter.ToString();
+
+        int retCode;
+        retCode = NativeMethods.waveInUnprepareHeader(hwi, ref t.hdr, Marshal.SizeOf(wvhdr));
+        if(retCode!=NativeMethods.MMSYSERR_NOERROR){Console.WriteLine("waveInUnprepareHeader failed");}
+        retCode = NativeMethods.waveInPrepareHeader(hwi, ref t.hdr, Marshal.SizeOf(wvhdr));
+        if(retCode!=NativeMethods.MMSYSERR_NOERROR){Console.WriteLine("waveInPrepareHeader failed");}
+        retCode = NativeMethods.waveInAddBuffer(hwi, ref t.hdr, Marshal.SizeOf(wvhdr));
+        if(retCode!=NativeMethods.MMSYSERR_NOERROR){Console.WriteLine("waveInAddBuffer failed");}
+
+//        Text = _counter.ToString() + "+";
+
+        return true; 
+    }
+
+    int ReverseBit(int index)
+    {
+        for(int k=0;k&lt;N_FFT/2;k++){
+            int tmpU = 1&lt;&lt;(N_FFT-1-k);
+            int tmpL = 1&lt;&lt;k;
+            if ((index&amp;tmpU)==0 &amp;&amp; (index&amp;tmpL)!=0){
+                index = (index - tmpL) + tmpU;
+            }
+            else if((index&amp;tmpU)!=0 &amp;&amp; (index&amp;tmpL)==0){
+                index = (index - tmpU) + tmpL;
+            }
+        }
+        return index;
+    }
+
+    void InitializeIndexConverter()
+    {
+        for(int i=0;i&lt;BUFFER_SIZE;i++){
+            _indexConverter[i] = ReverseBit(i);
+        }
+    }
+    void InitializeCoef()
+    {
+        for(int i=0;i&lt;BUFFER_SIZE;i++){
+            _fftCoef[i] = Complex.Exp(new Complex(0,(-2*Math.PI*i)/BUFFER_SIZE));
+        }
+    }
+
+    // Znext[i0] = Z[i0] + e^{-i\pi iTheta0} Z[i1]
+    // Znext[i1] = Z[i0] + e^{-i\pi iTheta1} Z[i1]
+    void addRot(int i0, int i1, int iTheta0, int iTheta1)
+    {
+        Complex t = _fftBuffer[i0];
+
+        _fftBuffer[i0] = t + _fftBuffer[i1] * _fftCoef[iTheta0];
+        _fftBuffer[i1] = t + _fftBuffer[i1] * _fftCoef[iTheta1];
+    }
+
+    void fft()
+    {
+        for(int i=0;i&lt;BUFFER_SIZE;i++){
+            _fftBuffer[i] = new Complex( _waveData[_indexConverter[i]], 0.0);
+        }
+
+        int step = 1;
+        for(int d=0;d&lt;N_FFT;d++){
+            for(int k=0;k&lt;BUFFER_SIZE;k+=2*step){
+                for(int i=0;i&lt;step;i++){
+                    addRot(k+i,k+i+step,i&lt;&lt;(N_FFT-1-d),(i+step)&lt;&lt;(N_FFT-1-d));
+                }
+            }
+            step &lt;&lt;= 1;
+        }
+    }
+
+    void MyRedraw()
+    {
+        if ( _redrawRequest ) {
+            int step = 2;//(BUFFER_SIZE+WIDTH-1)/WIDTH;
+            Graphics g = Graphics.FromImage(pct.Image);
+            g.Clear(Color.White);
+
+            int xPrev = (0*WIDTH)/BUFFER_SIZE;
+            int yPrev = (_waveData[0] * HEIGHT/2) / 256;
+
+            for(int i=step;i&lt;BUFFER_SIZE;i+=step) {
+                int x = (i*WIDTH)/BUFFER_SIZE;
+                int y = (_waveData[i] * HEIGHT/2) / 256;
+
+                g.DrawLine(Pens.Black, xPrev, yPrev, x, y);
+
+                xPrev = x;
+                yPrev = y;
+            }
+
+            fft();
+
+            xPrev = (0*WIDTH)/(BUFFER_SIZE/2);
+            yPrev = HEIGHT - ((int)(Complex.Abs(_fftBuffer[0])) * HEIGHT/2) / 256;
+
+            for(int i=step;i&lt;(BUFFER_SIZE/2);i+=step) {
+                int x = (i*WIDTH)/(BUFFER_SIZE/2);
+                int y = HEIGHT - ((int)(Complex.Abs(_fftBuffer[i])) * HEIGHT/2) / 256;
+
+                g.DrawLine(Pens.Black, xPrev, yPrev, x, y);
+
+                xPrev = x;
+                yPrev = y;
+            }
+
+            g.Dispose();
+            pct.Refresh();
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if ( Marshal.SizeOf(IntPtr.Zero) != 4 ) {
+            throw new Exception("must compile as 32bit application. (csc /platform:x86)");
+        }
+        else {
+            Application.Run(new WaveInTest());
+        }
+    }
+}
+
+

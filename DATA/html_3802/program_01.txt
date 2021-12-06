@@ -1,0 +1,46 @@
+
+// 共用する接続の作成
+using (var connection = new EntityConnection("name=NorthwindEntities"))
+{
+    // SaveChanges() を実行するたびに接続が開閉され、分散トランザクションになるのを防ぐため、あらかじめ開いておく。
+    connection.Open();
+
+    // TransactionScope で囲む。
+    var options = new TransactionOptions { IsolationLevel = IsolationLevel.ReadCommitted };
+    using (var scope = new TransactionScope(TransactionScopeOption.Required, options))
+    {
+        // 1つめのコンテキスト（接続を指定して生成）
+        using (var context = new NorthwindEntities(connection, false))
+        {
+            var product = context.Products.Single(p =&gt; p.ProductID == 1);
+            product.ProductName = "New Product Name";
+            context.SaveChanges();
+        }
+
+        // 2つめのコンテキスト（接続を指定して生成）
+        using (var context = new NorthwindEntities(connection, false))
+        {
+            var employee = context.Employees.Single(e =&gt; e.EmployeeID == 1);
+            employee.Title = "New Title";
+            context.SaveChanges();
+        }
+
+        // まとめてコミット
+        scope.Complete();
+    }
+}
+
+// コンテキストの部分クラス
+public partial class NorthwindEntities : DbContext
+{
+    /// &lt;summary&gt;
+    /// コンストラクタ。
+    /// &lt;/summary&gt;
+    /// &lt;param name="existingConnection"&gt;コンテキストで使用する接続。&lt;/param&gt;
+    /// &lt;param name="contextOwnsConnection"&gt;false を指定すると、コンテキストが Dispose されたときに接続を Dispose しない。&lt;/param&gt;
+    public NorthwindEntities(DbConnection existingConnection, bool contextOwnsConnection)
+        : base(existingConnection, contextOwnsConnection)
+    {
+    }
+}
+

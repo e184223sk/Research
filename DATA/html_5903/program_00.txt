@@ -1,0 +1,632 @@
+package com.azuki.actions;
+
+import java.util.ArrayList;
+import java.util.List;
+import javax.swing.JOptionPane;
+import com.change_vision.jude.api.inf.AstahAPI;
+import com.change_vision.jude.api.inf.exception.ProjectNotFoundException;
+import com.change_vision.jude.api.inf.model.IClass;
+import com.change_vision.jude.api.inf.model.IModel;
+import com.change_vision.jude.api.inf.model.IAttribute;
+import com.change_vision.jude.api.inf.model.IMultiplicityRange;
+import com.change_vision.jude.api.inf.model.IOperation;
+import com.change_vision.jude.api.inf.model.IGeneralization;
+import com.change_vision.jude.api.inf.model.INamedElement;
+import com.change_vision.jude.api.inf.model.ITemplateBinding;
+import com.change_vision.jude.api.inf.model.IClassifierTemplateParameter;
+import com.change_vision.jude.api.inf.model.IRealization;
+import com.change_vision.jude.api.inf.model.IParameter;
+import com.change_vision.jude.api.inf.model.IPackage;
+import com.change_vision.jude.api.inf.project.ProjectAccessor;
+import com.change_vision.jude.api.inf.ui.IPluginActionDelegate;
+import com.change_vision.jude.api.inf.ui.IWindow;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.BufferedWriter;
+import java.io.PrintWriter;
+import java.io.IOException;
+
+public class PrintClassAction implements IPluginActionDelegate
+{
+    public Object run(IWindow window) throws UnExpectedException
+    {
+        try {
+            AstahAPI api = AstahAPI.getAstahAPI();
+            ProjectAccessor projectAccessor = api.getProjectAccessor();
+            IModel iCurrentProject = projectAccessor.getProject();
+            List&lt;IClass&gt; classeList = new ArrayList&lt;IClass&gt;();
+            getAllClasses(iCurrentProject, classeList);
+            // changed code from here.
+            System.out.println("[Output follow files]");
+            for (IClass c : classeList)
+            {
+                List&lt;String&gt; classCode = MakeClassCode(c);  // make 1 class code string
+                WriteCSFile(getClassTypeName(c), classCode); // write file
+                PrintList(classCode);                       // output to console
+            }
+            System.out.println("... are created.");
+            // changed code to here.
+        } catch (ProjectNotFoundException e) {
+            String message = "Please open a project";
+            JOptionPane.showMessageDialog(window.getParent(), message,
+                "Warning", JOptionPane.WARNING_MESSAGE);
+            throw new CalculateUnExpectedException();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(window.getParent(),
+                "Exception occured", "Alert", JOptionPane.ERROR_MESSAGE);
+            throw new UnExpectedException();
+        }
+        return null;
+    }
+
+    public class CalculateUnExpectedException extends UnExpectedException
+    {
+    }
+
+    private void getAllClasses(INamedElement element, List&lt;IClass&gt; classList)
+          throws ClassNotFoundException, ProjectNotFoundException {
+        if (element instanceof IPackage) {
+          for(INamedElement ownedNamedElement : ((IPackage) element).getOwnedElements()) {
+            getAllClasses(ownedNamedElement, classList);
+          }
+        } else if (element instanceof IClass) {
+          classList.add((IClass) element);
+        }
+      }
+
+        // My Methods
+
+        private String getClassTypeName(IClass _class)
+    {
+        return _class.getName();
+    }
+
+    private String getClassOption(IClass _class)
+    {
+        StringBuilder buff = new StringBuilder();
+        if (_class.isAbstract() == true) { buff.append("abstract "); }
+        if (_class.isPublicVisibility() == true) { buff.append("public "); }
+        if (_class.isPackageVisibility() == true) { buff.append("internal "); }
+        if (_class.isProtectedVisibility() == true) { buff.append("C# class can not to be protected. "); }
+        if (_class.isPrivateVisibility() == true) { buff.append("C# class can not to be private. "); }
+        return buff.toString();
+    }
+
+    private boolean isInterface(IClass _class)
+    {
+        return _class.hasStereotype("interface");
+    }
+
+    private boolean isCSharpPrimitiveType(String typeName)
+    {
+        if (typeName.equals("byte") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Byte") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("sbyte") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("SByte") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("int") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Int32") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("uint") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("UInt32") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("short") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Int16") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("ushort") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("UInt16") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("long") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Int64") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("ulong") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("UInt64") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("float") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Single") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("double") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Double") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("char") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Char") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("bool") == true)
+        {
+            return true;
+        }
+        else if (typeName.equals("Boolean") == true)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    private String getTemplateParameter(IClass _class)
+    {
+        StringBuilder buff = new StringBuilder();
+        IClassifierTemplateParameter[] ctemps = _class.getTemplateParameters();
+        if (ctemps.length &gt; 0) { buff.append("&lt;"); }
+        for (int i = 0; i &lt; ctemps.length; i++)
+        {
+            buff.append(ctemps[i].getName());
+            if (i &lt; ctemps.length - 1) { buff.append(","); }
+        }
+        if (ctemps.length &gt; 0) { buff.append("&gt;"); }
+        return buff.toString();
+    }
+
+    private boolean getClassIsActive(IClass _class)
+    {
+        return _class.isActive();
+    }
+
+    private String getClassDefinition(IClass _class)
+    {
+        return _class.getDefinition();
+    }
+
+    private String getBaseClassName(IClass _class)
+    {
+        StringBuilder buff = new StringBuilder();
+        IGeneralization[] gens = _class.getGeneralizations();
+        for (int i = 0; i &lt; gens.length; i++)
+        {
+            buff.append(gens[i].getSuperType().getName() + " ");
+            if (i &lt; gens.length - 1)
+            {
+                buff.append(" , ");
+            }
+        }
+        return buff.toString();
+    }
+
+    private String getInterfaceClassName(IClass _class)
+    {
+        StringBuilder buff = new StringBuilder();
+        IRealization[] ifs = _class.getClientRealizations();
+        for (int i = 0; i &lt; ifs.length; i++)
+        {
+            buff.append(ifs[i].getSupplier().getName() + " ");
+            if (i &lt; ifs.length - 1)
+            {
+                buff.append(" , ");
+            }
+        }
+        return buff.toString();
+    }
+
+    private IAttribute[] getAssociations(IClass _class)
+    {
+        IAttribute[] atts = _class.getAttributes();
+        int count = 0;
+        for (int i = 0; i &lt; atts.length; i++)
+        {
+            if (atts[i].getAssociation() != null)
+            {
+                count++;
+            }
+        }
+        IAttribute data[] = new IAttribute[count];
+        int add = 0;
+        for (int i = 0; i &lt; atts.length; i++)
+        {
+            if (atts[i].getAssociation() != null)
+            {
+                data[add++] = atts[i];
+            }
+        }
+        return data;
+    }
+
+    private IAttribute[] getAttributes(IClass _class)
+    {
+        IAttribute[] atts = _class.getAttributes();
+        int count = 0;
+        for (int i = 0; i &lt; atts.length; i++)
+        {
+            if (atts[i].getAssociation() == null)
+            {
+                count++;
+            }
+        }
+        IAttribute data[] = new IAttribute[count];
+        int add = 0;
+        for (int i = 0; i &lt; atts.length; i++)
+        {
+            if (atts[i].getAssociation() == null)
+            {
+                data[add++] = atts[i];
+            }
+        }
+        return data;
+    }
+
+    private String getAssociation(IAttribute _att)
+    {
+        if (_att.getAssociation() != null)
+        {
+            if (_att.getName().equals("") == true)
+            {
+                System.out.println("no association end name , so not make code for type " + _att.getType() + ".");
+                return "";
+            }
+            StringBuilder buff = new StringBuilder();
+            buff.append(getAttributeOption(_att));
+            boolean isList = isList(_att);
+            if (isList == true) { buff.append("List&lt;"); }
+            buff.append(_att.getType() + " ");
+            if (isList == true) { buff.append("&gt; "); }
+            buff.append(_att.getName() + " ");
+            buff.append(";");
+            return buff.toString();
+        }
+        return "";
+    }
+
+    private String getAttribute(IAttribute _att, boolean isInterface)
+    {
+        if (_att.getAssociation() == null)
+        {
+            // create attribute type and name
+            StringBuilder type = new StringBuilder();
+            boolean isList = isList(_att);
+            if (isList == true) { type.append("List&lt;"); }
+            String cSharpTypeName = convertJavaTypeToCSharpType(_att.getType().getName());
+            type.append(cSharpTypeName + " ");
+            if (isList == true) { type.append("&gt; "); }
+            String typeString = type.toString();
+
+            String localmark = "_";
+
+            StringBuilder buff = new StringBuilder();
+            if( isInterface == false ){
+                // class
+                //  private attribute
+                if( _att.isStatic() == true ){
+                    buff.append("static ");
+                }
+                buff.append("private " + typeString + " " + localmark + _att.getName() );
+                //  initialize for private attribute
+                String initval = _att.getInitialValue();
+                if (isCSharpPrimitiveType(cSharpTypeName) == false)
+                {
+                    buff.append(" = new " + cSharpTypeName + "(");
+                    if (initval.equals("") != true)
+                    {
+                        buff.append(initval);
+                    }
+                    buff.append(")");
+                }
+                else
+                {
+                    if (initval.equals("") != true)
+                    {
+                        buff.append(" = " + initval);
+                    }
+                }
+                buff.append(";");
+                buff.append("\r\n");
+                buff.append("\t" + getAttributeOption(_att) + typeString + " " + _att.getName());
+                buff.append("\r\n\t{");
+                if( _att.isStatic() == false ){
+                    buff.append("\r\n\t\tset { " + localmark + _att.getName() + " = value; }");
+                }
+                buff.append("\r\n\t\tget { return " + localmark + _att.getName() + "; }");
+                buff.append("\r\n\t}");
+            } else {
+                // interface
+                buff.append(typeString + " " + _att.getName());
+                buff.append(" { set; get; } ");
+            }
+            return buff.toString();
+        }
+        return "";
+    }
+
+    private boolean isList(IAttribute _att)
+    {
+        boolean _list = false;
+        IMultiplicityRange[] multis = _att.getMultiplicity();
+        for (int i = 0; i &lt; multis.length; i++) // fukusuu aru ?
+        {
+            if (multis[i].getUpper() &gt; 1)
+            {
+                _list = true;
+            }
+        }
+        return _list;
+    }
+
+    private String getAttributeOption(IAttribute _att)
+    {
+        StringBuilder buff = new StringBuilder();
+        if (_att.isStatic() == true) { buff.append("static "); }
+        if (_att.isPublicVisibility() == true) { buff.append("public "); }
+        if (_att.isPackageVisibility() == true) { buff.append("internal "); }
+        if (_att.isProtectedVisibility() == true) { buff.append("protected "); }
+        if (_att.isPrivateVisibility() == true) { buff.append("private "); }
+        return buff.toString();
+    }
+
+    public String getOperation(IOperation _ope, boolean isInterface)
+    {
+        StringBuilder buff = new StringBuilder();
+        if( isInterface == false ){
+            buff.append(getOpearationOption(_ope));
+        }
+        buff.append(_ope.getReturnTypeExpression() + " ");
+        buff.append(_ope.getName() + "(");
+        buff.append(getOperationAttributes(_ope) + ")");
+        if( isInterface == true ){
+            buff.append(";");
+        }
+        return buff.toString();
+    }
+
+    public String getOperationDefinition(IOperation _ope)
+    {
+        StringBuilder buff = new StringBuilder();
+        String str = _ope.getDefinition();
+        //      str.replaceAll("\n", "\r\n");
+        String[] lines = str.split("\n");
+        for (String line : lines)
+        {
+            buff.append("\r\n\t\t" + line );
+        }
+        buff.append("\r\n");
+        return buff.toString();
+    }
+
+    private String getOpearationOption(IOperation _ope)
+    {
+        StringBuilder buff = new StringBuilder();
+        if (_ope.isStatic() == true) { buff.append("static "); }
+        if (_ope.isAbstract() == true) { buff.append("abstract "); }
+        if (_ope.isPublicVisibility() == true) { buff.append("public "); }
+        if (_ope.isPackageVisibility() == true) { buff.append("internal "); }
+        if (_ope.isProtectedVisibility() == true) { buff.append("protected "); }
+        if (_ope.isPrivateVisibility() == true) { buff.append("private "); }
+        return buff.toString();
+    }
+
+    private String convertJavaTypeToCSharpType(String _typeName)
+    {
+        String typeName = _typeName;
+        if (typeName.equals("boolean") == true)
+        {
+            typeName = "Boolean";
+        }
+        return typeName;
+    }
+
+    private String getOperationAttributes(IOperation _ope)
+    {
+        StringBuilder buff = new StringBuilder();
+        IParameter[] params = _ope.getParameters();
+        for (int i = 0; i &lt; params.length; i++ ){
+            if ( params[i].getDirection().equals("out") == true ){ buff.append("out "); } else if( params[i].getDirection().equals("inout") == true ){ buff.append("ref "); }
+                buff.append(convertJavaTypeToCSharpType( params[i].getType().getName() ) + " ");
+                buff.append(params[i].getName());
+                if(i&lt; params.length-1 ){
+                    buff.append(" , ");
+                }
+            }
+            return buff.toString();
+        }
+
+    /* create c# code */
+
+    private List&lt;String&gt; MakeClassCode(IClass _class)
+    {
+        boolean isInterface = isInterface(_class);
+
+        List&lt;String&gt; CodeList = new ArrayList&lt;String&gt;();
+        CodeList.add(MakeUsing());
+        CodeList.add(MakeClassDef(_class));
+
+        IAttribute[] assos = getAssociations(_class);
+        CodeList.add("\r\n\t// Associations");
+        for (int i = 0; i &lt; assos.length; i++)
+        {
+            String asscode = getAssociation(assos[i]);
+            if (asscode.equals("") == false)
+            {
+                CodeList.add("\t" + asscode);
+            }
+        }
+
+        IAttribute[] atts = getAttributes(_class);
+        CodeList.add("\r\n\t// Attributes");
+        for (int i = 0; i &lt; atts.length; i++)
+        {
+            CodeList.add("\t" + getAttribute(atts[i],isInterface));
+            CodeList.add("");
+        }
+
+        IOperation[] opes = _class.getOperations();
+        CodeList.add("\r\n\t// Operations");
+        for (int i = 0; i &lt; opes.length; i++)
+        {
+            CodeList.add("\t" + getOperation(opes[i],isInterface));
+            if( isInterface == false ){
+                // class
+                CodeList.add("\t{" + getOperationDefinition(opes[i]) + "\r\n\t}");
+            } else {
+                // interface
+            }
+            CodeList.add("");
+        }
+        CodeList.add("}\r\n");
+        return CodeList;
+    }
+
+    private String MakeUsing()
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.append("using System;\r\n");
+        buff.append("using System.Collections;\r\n");
+        buff.append("using System.Collections.Generic;\r\n");
+        buff.append("using System.Linq;\r\n");
+        buff.append("using System.Text;\r\n");
+        return buff.toString();
+    }
+
+    private String MakeClassDef(IClass _class)
+    {
+        StringBuilder buff = new StringBuilder();
+        buff.append(getClassOption(_class));
+        if (isInterface(_class) == true)
+        {
+            buff.append("interface ");
+        }
+        else
+        {
+            buff.append("class ");
+        }
+        buff.append(getClassTypeName(_class));
+        buff.append(getTemplateParameter(_class));
+        String baseClassName = getBaseClassName(_class);
+        String interfaceClassName = getInterfaceClassName(_class);
+        if (baseClassName.equals("") == false)
+        {
+            buff.append(" : ");
+            buff.append(baseClassName);
+            if (interfaceClassName.equals("") == false)
+            {
+                buff.append(",");
+                buff.append(interfaceClassName);
+            }
+        }
+        else if (interfaceClassName.equals("") == false)
+        {
+            buff.append(" : ");
+            buff.append(",");
+            buff.append(interfaceClassName);
+        }
+        buff.append(" {");
+        return buff.toString();
+    }
+
+
+    /* file output */
+    private void WriteCSFile(String className, List&lt;String&gt; contents)
+    {
+        try
+        {
+            String filePath = "c:/tmp/" + className + ".cs";
+            System.out.println(filePath);
+
+            File file = new File(filePath);
+
+            try
+            {
+                file.createNewFile();
+            }
+            catch (IOException e)
+            {
+                System.out.println(e);
+            }
+
+            if (checkWritefile(file))
+            {
+                PrintWriter pwriter = new PrintWriter(new BufferedWriter(new FileWriter(file)));
+
+                for (String linedata : contents)
+                {
+                    pwriter.println(linedata);
+                }
+                pwriter.close();
+
+            }
+            else
+            {
+                System.out.println("Can not write in file.");
+            }
+        }
+        catch (IOException e)
+        {
+            System.out.println(e);
+        }
+    }
+
+    private static boolean checkWritefile(File file)
+    {
+        if (file.exists())
+        {
+            if (file.isFile() &amp;&amp; file.canWrite())
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void PrintList(List&lt;String&gt; datalist)
+    {
+        for (String linedata : datalist)
+        {
+            System.out.println(linedata);
+        }
+    }
+}
+

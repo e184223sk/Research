@@ -1,0 +1,54 @@
+
+private async Task GetComplexObjects()
+{
+    Grpc.Core.Channel channel = GetChannel();
+    LargeSearch.LargeSearchClient client = new LargeSearch.LargeSearchClient(channel);
+
+    Condition condition = new Condition
+    {
+        Keyword = "***"
+    };
+
+    // 取得したオブジェクトを格納するリスト
+    List&lt;ComplexObject&gt; objects = new List&lt;ComplexObject&gt;();
+
+    using (AsyncServerStreamingCall&lt;ComplexObjectResponse&gt; call = client.GetComplexObjects(condition))
+    {
+        while (await call.ResponseStream.MoveNext().ConfigureAwait(false))
+        {
+            ComplexObjectResponse response = call.ResponseStream.Current;
+            ComplexObject obj = GetOrAdd(objects, response.Index);
+            obj.FillResponse(response);
+        }
+    }
+
+    for (int i = 0; i &lt; objects.Count; ++i)
+    {
+        Debug.WriteLine(string.Format("ComplexObject[{0}] = {1}"
+        , i
+        , objects[i] == null ? null
+            : Newtonsoft.Json.JsonConvert.SerializeObject(objects[i], Newtonsoft.Json.Formatting.Indented)
+        ));
+    }
+
+}
+
+/// &lt;summary&gt;
+/// 指定されたインデックスに対応するオブジェクトを返します。
+/// &lt;/summary&gt;
+/// &lt;param name="objects"&gt;オブジェクトを格納しているリスト&lt;/param&gt;
+/// &lt;param name="index"&gt;インデックス&lt;/param&gt;
+/// &lt;returns&gt;オブジェクト&lt;/returns&gt;
+private ComplexObject GetOrAdd(List&lt;ComplexObject&gt; objects, int index)
+{
+    if (index &lt; objects.Count) { return objects[index]; }
+    lock (objects)
+    {
+        if (index &lt; objects.Count) { return objects[index]; }
+        if (index &gt; objects.Count) { objects.AddRange(new ComplexObject[index - objects.Count]); }
+        ComplexObject obj = new ComplexObject();
+        objects.Add(obj);
+        return obj;
+    }
+}
+

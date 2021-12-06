@@ -1,0 +1,54 @@
+
+private async void Watcher_Received(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        {
+            var targetMac = "*****"; // アプリで調べたMAC
+            var mac = args.BluetoothAddress.ToString("x");
+            var bleServiceUUID = args.Advertisement.ServiceUuids.FirstOrDefault();
+            var name = args.Advertisement.LocalName;
+            //目当てのデバイスだけ
+            if (mac == targetMac)
+            {
+                addLog("name " + name);
+                addLog("uuid " + bleServiceUUID);
+                //アドバタイズデータを羅列
+                foreach (var adv in args.Advertisement.DataSections)
+                {
+                    addLog(" " + adv.DataType.ToString("x") + ":" + BitConverter.ToString(adv.Data.ToArray()));
+                }
+            }
+            //目当てのデバイスのUUIDが取れたら
+            if (mac == targetMac &amp;&amp; bleServiceUUID != Guid.Empty)
+            {
+                advWatcher.Stop();
+                try
+                {
+                    //接続
+                    BluetoothLEDevice device = await BluetoothLEDevice.FromBluetoothAddressAsync(args.BluetoothAddress);
+                    addLog("get service");
+                    var services = await device.GetGattServicesAsync();
+                    foreach (var serv in services.Services)
+                    {
+                        addLog(serv.Uuid.ToString());
+                        addLog("  get characteristics");
+                        var charcteristic = await serv.GetCharacteristicsAsync();
+                        foreach (var ch in charcteristic.Characteristics)
+                        {
+                            addLog("     " + ch.Uuid.ToString() + "  " + ch.CharacteristicProperties.ToString());
+                            //読めそうなら読み取ってデコードしてみる
+                            if (ch.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Read))
+                            {
+                                var val = await ch.ReadValueAsync();
+                                var data = val.Value.ToArray();
+                                string text = System.Text.Encoding.UTF8.GetString(data);
+                                addLog("     value " + BitConverter.ToString(data) + " &gt;&gt; " + text);
+                            }
+                        }
+                    }         
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Exception...{ex.Message})");
+                }
+            }
+        }
+

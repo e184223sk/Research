@@ -1,0 +1,133 @@
+using System;
+using System.ComponentModel;
+using System.Windows.Forms;
+using System.Reflection;
+using System.IO;
+
+namespace DoWork
+{
+    public partial class frmDoWork : Form
+    {
+        // 取込処理名
+        public string ExecuteName { get; set; }
+        // 取込処理の引数
+        public string Arguments { get; set; }
+        // コンテキスト
+        public AssemblyLoadContext Context { get; set; }
+
+        private Type _myType = null;
+        private Object _instance = null;
+
+        // コンストラクタ
+        public frmDoWork()
+        {
+            InitializeComponent();
+        }
+
+        // 画面初回表示時
+        private void frmDoWork_Shown(object sender, EventArgs e)
+        {
+            // アセンブリ名を使ってクラス ライブラリーを動的に読み込み
+            string baseName = Path.GetFileNameWithoutExtension(ExecuteName);
+            var myDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            var assemblyPath = Path.Combine(myDirectory, ExecuteName);
+            Assembly assembly = Context.LoadFromAssemblyPath(assemblyPath);
+            _myType = assembly.GetType(baseName + ".Program");
+            _instance = Activator.CreateInstance(_myType);
+
+            // アセンブリ内のクラスの Update イベントの EventInfo を取得
+            EventInfo eventInfo = _myType.GetEvent("Update");
+            var methodInfo = this.GetType().GetMethod("OnUpdate");
+
+            Delegate handler = Delegate.CreateDelegate(eventInfo.EventHandlerType, this, methodInfo);
+
+            // EventInfo に対してイベント ハンドラーを追加
+            eventInfo.AddEventHandler(_instance, handler);
+            // 閉じるボタンを無効にする
+            btnClose.Enabled = false;
+
+            // ProgressChangedイベントが発生するようにする
+            bgWorker.WorkerReportsProgress = true;
+            // 処理を開始する
+            bgWorker.RunWorkerAsync();
+        }
+
+        // 画面を閉じる
+        private void btnClose_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+
+        // 取込処理
+        private void bgWorker_DoWork(object sender, DoWorkEventArgs e)
+        {
+            BackgroundWorker bgWorker = (BackgroundWorker)sender;
+
+            // 処理を開始する
+            int result = (int)_myType.InvokeMember("Main", BindingFlags.InvokeMethod, null, _instance, new object[] { Arguments.Split(',') });
+
+            // 結果を設定する
+            e.Result = result;
+        }
+
+        // 途中経過イベント処理
+        private void bgWorker_ProgressChanged(object sender, ProgressChangedEventArgs e)
+        {
+            // ProgressBarの値を変更する
+            Invoke((Action)delegate ()
+            {
+                prbDowork.Value = e.ProgressPercentage;
+                // タイトルのテキストを変更する
+                lblTitle.Text = (e.ProgressPercentage).ToString() + " %";
+            });
+        }
+
+        // 取込処理が終わったときに呼び出される
+        private void bgWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            Invoke((Action)delegate ()
+            {
+                if (e.Error != null)
+                {
+                    // エラーが発生したとき
+                    lblTitle.Text = "エラー:" + e.Error.Message;
+                }
+                else
+                {
+                    // ProgressBarの結果を取得する
+                    int result = (int)e.Result;
+
+                    if (result == -1)
+                    {
+                        // エラーで中断したとき
+                        lblTitle.Text = "処理を中断しました。";
+                    }
+                    else
+                    {
+                        // 正常に終了したとき
+                        prbDowork.Value = prbDowork.Maximum;
+                        lblTitle.Text = "完了しました。";
+                    }
+                }
+                // 閉じるボタンを有効に戻す
+                btnClose.Enabled = true;
+            });
+        }
+
+        // 進捗値の更新
+        public void OnUpdate(object sender, ProgressChangedEventArgs e)
+        {
+            // ProgressChangedイベントハンドラを呼び出し
+            bgWorker.ReportProgress(e.ProgressPercentage);
+        }
+
+        // 実行処理
+        public void Execute(string executeName, string args)
+        {
+            this.ExecuteName = executeName;
+            this.Arguments = args;
+            this.ShowDialog();
+        }
+    }
+}
+

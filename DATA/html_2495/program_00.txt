@@ -1,0 +1,49 @@
+using System.Collections.Generic;
+using Zenject;
+
+namespace MemoryPoolsSample.Scripts.Factory
+{
+    // Pooling を行わない悪い実装例
+    public class Foo
+    {
+        public class Factory : PlaceholderFactory&lt;Foo&gt;
+        {
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Factory _fooFactory = default;
+        private readonly List&lt;Foo&gt; _foos = new List&lt;Foo&gt;();
+
+        // Constructor Injection
+        public FooSpawner(Foo.Factory fooFactory)
+        {
+            _fooFactory = fooFactory;
+        }
+
+        // AddFoo を呼び出たびに、新しいヒープメモリが割り当てられる
+        public void AddFoo()
+        {
+            _foos.Add(_fooFactory.Create());
+        }
+
+        //　RemoveFoo が呼び出されるたびに、FooSpawnerからFooに対する参照が1つずつ失われ
+        // 最終的にガーベージコレクタによって回収される。その際、スパイクが発生してしまう。
+        public void RemoveFoo()
+        {
+            _foos.RemoveAt(0);
+        }
+    }
+
+    public class FooInstaller : MonoInstaller&lt;FooInstaller&gt;
+    {
+        public override void InstallBindings()
+        {
+            Container.Bind&lt;FooSpawner&gt;().AsSingle();
+            Container.BindFactory&lt;Foo, Foo.Factory&gt;();
+        }
+    }
+}
+
+

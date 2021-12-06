@@ -1,0 +1,92 @@
+More than 1 year has passed since last update.本記事は MagicOnion v2 の環境構築の方法を紹介しています。
+MagicOnion v3 の環境構築については以下の別記事で書き直しています。Unity + .NET Core + MagicOnion v3 環境構築ハンズオンMagicOnion v2.6.3 が公開されました。
+それに合わせて gRPC のパッケージへのリンクの修正や、スクリーンショットの更新を行いました。動作確認は下記の環境で行っています。
+- Windows 10
+- Unity 2019.1.14f1
+- Visual Studio 2019 v16.3.5
+- MagicOnion 2.6.3MagicOnion は一度環境を構築してしまえば、触り心地が良くてとても使いやすいフレームワークだと思います。しかし初期構築がやや複雑で、特に Unity と サーバー(.NET Core) の両方の経験が無い方が挑戦した場合はどこかでつまづいてしまうことも多いのではないかと思いました。そこで、どちらかの経験が無い方でもつまずかずにポチポチと環境構築できる資料を目指して書いたのがこの記事になります。もし途中でつまづくところがありましたら Twitter で教えていただけると喜びます。ハンズオンの所要時間は Unity と VisualStudio をインストール済みの状態から開始して、30分～1時間程度です。MagicOnion は Windows と Mac のどちらの環境でも基本的には動作します。
+ただし Mac は IL2CPP に対応するためのコードジェネレーターの不具合があるため注意が必要です。参考Issue
+https://github.com/neuecc/MessagePack-CSharp/issues/3552018.3 以降の Unity をインストールしてください。UnityHub からインストールすると Visual Studio 2017 がインストールされますが、最新版の 2019 を推奨します。Visual Studio 2019 は下記のサイトからダウンロードできます。
+https://visualstudio.microsoft.com/ja/?rr=https%3A%2F%2Fwww.google.com%2Fエディションは無料で利用できる Community を選びます。
+インストール時に下記のオプションを有効にしてください。既に Visual Studio をインストール済みで、の各種オプションがインストールされているか不明な場合は Visual Studio Installer を起動して現状の確認や、追加のインストールが可能です。
+Mac の方は Visual Studio For Mac を利用してください。
+こちらもバージョンは 2019 をおすすめします。こちらのページからダウンロードが可能です。
+Visual Studio が 2019 の場合は Download .NET Core SDK のリンクからダウンロードしてください。
+Visual Studio が 2017 の場合は Compatible with Visual Studio 2017 と書かれたリンクからダウンロードしてください。
+
+※VS2019 なら上の赤枠、VS2017 なら下の赤枠のものをダウンロードしてください。今回は 3D プロジェクトを作成します。
+プロジェクト名は任意ですが、サーバーサイドのプロジェクトと見分けをつけやすくするために Sample.Unity としてみました。保存先は任意の保存先を入力してください。
+Unity が起動したら PlayerSettings を開きます。
+Player を選択して、下記の2箇所を変更します。次に下記のフォルダを作成します。※Sample.Unity は自分のプロジェクト名に読み替えてください。こちらのページから下記の2つをダウンロードします。Version はダウンロード可能な最新のものを選択します。
+ダウンロードが終わったら MagicOnion.Client.Unity.unitypackage をダブルクリックしてインポートします。
+次に moc.zip の中身の MagicOnion.UniversalCodeGenerator を GeneratorTools フォルダにコピーします。
+こちらのページから下記の2つをダウンロードします。バージョンは UnityPackage は 1.7.3.5、CodeGenerator は 1.7.3.6 です。ダウンロードが終わったら MessagePack.Unity.1.7.3.5.unitypackage をダブルクリックしてインポートします。次に MessagePackUniversalCodeGenerator.zip の中身の MessagePackUniversalCodeGenerator を GeneratorTools フォルダにコピーします。gRPC の Unity 用のパッケージを以下のサイトからダウンロードします。
+https://packages.grpc.io/画面右側の BuildID をクリックすると、そのビルドのパッケージをダウンロードできます。現在は 2.24.0 を使えばサーバー側と同じバージョンになりますので、下記のリンクからダウンロードします。
+https://packages.grpc.io/archive/2019/09/f3cd878e0b6d11cd134be27d0ead7352a527f6de-9c60f3e0-20ab-4d7b-8441-930e1d5588cb/index.xmlダウンロードの際は grpc_unity_package.2.24.0-dev.zip を選択します。
+ダウンロードが終わったら、Asset\Plugins 以下に中身をコピーします。
+Assets\Scenes 以下に SampleController スクリプトを作成します。
+SampleController のコードは以下をコピペしてください。
+Start() でサーバーへ接続し、OnDestroy() で切断するようになっています。※その他の処理は動作確認の章で書き加えます。SampleScene へ空の GameObject を追加します。
+追加した GameObject に SampleController を AddComponent します。
+MagicOnion を利用する際は Unity 側で作成した class などをサーバーサイドと共有して使うことが一般的です。
+今回は Assets\Scripts\ServerShared 以下に作成した script をすべて共有する設定を行います。
+この設定作業自体は後でサーバー側の設定で行いますが、先に動作確認用の class を用意しておきます。Assets\ServerShared\MessagePackObjects 以下に Player スクリプトを作成します。
+Player のコードは以下をコピペしてください。MagicOnion を使用する場合、Client ⇔ サーバー間の通信で使用する class はこのような MessagePackObject として定義します。MessagePackObject として定義するために必要なことは下記の2つだけですので覚えておきましょう。Unity 側の構築はここまでです。続いてサーバー側の構築作業を進めます。ソリューションを右クリックして、新しいプロジェクトを追加します。
+コンソールアプリ（.NET Core）を選択し、次へをクリックします。
+任意のプロジェクト名を入力します。（ここでは Sample.Server としました）
+場所はプロジェクトのルートを指定してください。
+これによってルート直下のフォルダ構成はこのようになります。
+NuGet から MagicOnion をインストールします。
+ツール -&gt; NuGet パッケージマネージャー -&gt; ソリューションの NuGet パッケージの管理 を開きます。
+参照 をクリックし、 MagicOnion を検索します。
+検索結果から MagicOnion.Hosting を選択し、Sample.Server にチェックをいれてインストールをクリックします。
+ライセンスに同意します。
+Unity の Vector3 などをサーバー側で扱えるようにするために、MessagePack.UnityShims をインストールします。
+先ほどの MagicOnion のインストールと同じ要領で、NuGet から MessagePack.UnityShims を検索してインストールします。
+Sample.Server をダブルクリックして、Sample.Server.csproj を開きます。
+Sample.Server.crproj へ下記の設定を追加します。
+※Sample.Unity の部分は自分の Unity 側のプロジェクト名に読み替えてください。ファイル全体はこのようになります。
+この状態でソリューションエクスプローラーを見てみると、Unity 側で作った ServerShared フォルダ以下のファイルなどが、サーバー側のプロジェクトと共有できていることがわかります。
+Program.cs を下記の内容で上書き保存します。
+これでサーバー側のプロジェクトを起動すると MagicOnion が起動するようになります。※ServerPort として指定している IP アドレスは 0.0.0.0 のままで大丈夫です。
+※TCP の 12345 ポートが利用できない環境の場合は 80 などの一般的なポートを使用してください。ここからは動作確認を行います。
+MagicOnion は普通の API 通信とリアルタイム通信の2種類の通信が利用できますので、それぞれをテストしてみます。まずは普通の API 通信から試してみます。Assets\Scripts\ServerShared\Services 以下に SampleService スクリプトを作ります。
+SampleService の中身は以下をコピペして保存してください。
+今回は足し算をしてくれる API と掛け算をしてくれる API を定義してみます。Sample.Server を右クリックして、新しいフォルダを追加します。
+名前は Services とします。
+
+次に Services フォルダ内にクラスを追加します。
+名前は SampleService.cs とします。
+SampleService.cs の中身は以下をコピペして保存してください。SampleController に SampleService を呼び出すコードを追加します。
+下記のコードをコピペして上書きしてください。まずはサーバーを起動します。ですが、その前にソリューションのスタートアッププロジェクトをサーバー側のプロジェクトにしておきます。
+Sample.Server を右クリックして、スタートアッププロジェクトに設定をクリックします。
+これによって、普段は Unity にアタッチ と表示されていたボタンが Sample.Server の表示に代わります。
+このボタンを押すとサーバーを起動することができます。
+
+※スタートアッププロジェクトを元に戻す場合は Assembly-CSharp を右クリックしてスタートアッププロジェクトに指定します。
+※Unity にアタッチしつつサーバーを起動したい場合はマルチスタートアッププロジェクトを使用します。（後述）続いて、サーバーを起動した状態で Unity の Scene を再生します。
+Unity の Console にログが表示されました。
+サーバー側も API が呼ばれたログが表示されました。
+続いてリアルタイム通信を試してみます。普通の API 通信と同じく、まずは API の定義から作ります。
+Assets\Scripts\ServerShared\Hubs 以下に SampleHub スクリプトを作ります。
+SampleHub の中身は以下をコピペして保存してください。
+今回はゲームにログイン、チャットで発言、位置情報を更新、ゲームから切断、という4つの API を作ります。普通の API の実装の時と同じ要領で、Sample.Server 以下に Hubs フォルダを作り、その中に SampleHub.cs を作ります。
+SampleHub.cs の中身は以下をコピペして保存してください。SampleController に SampleHub の各 API を呼び出すコードを追加します。
+下記のコードをコピペして上書きしてください。普通の API 通信の動作確認と同じ要領でサーバーを起動し、その後で Unity で Scene を再生します。Unity の Console にログが表示されました。
+これで普通の API 通信とリアルタイム通信の両方の動作確認ができました。※この方法は現在 Windows にのみ対応しています。
+　Mac の場合は bash でコードジェネレーターを叩くなどの別の方法を使用してください。UnityEditor 上で動かすなら今のままでも問題ないのですが、IL2CPP を使う場合（例えば Platform を iOS にしたとき）はこのようなエラーが発生します。
+IL2CPP は動的なコード生成に対応していないため、コードジェネレーターを使用して事前に必要なコードを生成する必要があります。MagicOnion と MessagePack for C# のコードジェネレーターは入手済みでしたので、それを UnityEditor 上からワンぽちで実行できるようにします。Assets\Editor 以下に MenuItems スクリプトを作ります。
+MenuItems の中身は以下をコピペして保存します。
+プロジェクトの Path をハードコードしている箇所がありますので、そちらは自分の環境にあわせて書き換えてください。すると Unity Editor のメニューに MagicOnion が追加されます。
+CodeGenerate ボタンを押してみます。
+コード生成が完了すると以下のようなログが出力されます。
+実際に生成されたコードは Generated フォルダに保存されています。
+※これを触る必要はありません。
+最後にこのコードが Scene 起動時に Register されるようにします。Scripts フォルダに C# Script を作り、名前を InitialSettings とします。
+InitialSettings の中身は下記をコピペして保存します。これで IL2CPP の環境でも動くようになります。途中で説明を割愛したマルチスタートアッププロジェクトの利用方法です。ソリューション を右クリックして、スタートアッププロジェクト の設定をクリックします。
+マルチスタートアッププロジェクト にチェックをいれ、Assembly-CSharp と Sample.Server のアクションを 開始 にして OK を押します。 
+この状態で 開始 を押すと、Unityにアタッチしながらサーバーを起動することができます。
+こんなに長い記事を最後まで読んでいただいてありがとうございます。
+少しでも役に立つことがあれば幸いです。環境構築に成功して、より技術的な内容や実践的なコードが必要になった際は下記の記事などがおすすめです。
+
+

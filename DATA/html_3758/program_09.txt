@@ -1,0 +1,78 @@
+
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Moq;
+using Unity;
+using Xunit;
+using TestableSample3.App;
+using TestableSample3.Lib;
+
+namespace TestableSample3.Test
+{
+    public class Test_MainFlow
+    {
+        private MainFlow MainFlow { get; }
+
+        private Mock&lt;IConsoleWrapper&gt; ConsoleWrapperMock { get; }
+        private Mock&lt;ITaskWrapper   &gt; TaskWrapperMock    { get; }
+
+        public Test_MainFlow()
+        {
+            ConsoleWrapperMock = new Mock&lt;IConsoleWrapper&gt;();
+            TaskWrapperMock    = new Mock&lt;ITaskWrapper&gt;();
+
+            var container = new UnityContainer();
+            container.RegisterInstance&lt;IConsoleWrapper&gt;(ConsoleWrapperMock.Object);
+            container.RegisterInstance&lt;ITaskWrapper   &gt;(TaskWrapperMock   .Object);
+            container.RegisterType&lt;MainFlow&gt;();
+
+            MainFlow = container.Resolve&lt;MainFlow&gt;();
+        }
+
+        [Theory]
+        [MemberData(nameof(Run_Data))]
+        public async Task Run(IEnumerable&lt;TypedValue&gt; expecteds, string value)
+        {
+            ConsoleWrapperMock.Setup(x =&gt; x.ReadLine(It.IsAny&lt;string&gt;()))
+                              .Returns&lt;string&gt;(x =&gt; value);
+
+            TaskWrapperMock.Setup(x =&gt; x.Delay(It.IsAny&lt;int&gt;()))
+                           .Returns&lt;int&gt;(x =&gt; Task.CompletedTask);
+
+            await MainFlow.Run();
+
+            var count = expecteds.Count();
+            TaskWrapperMock   .Verify(x =&gt; x.Delay    (It.IsAny&lt;int   &gt;()), Times.Exactly(count));
+            ConsoleWrapperMock.Verify(x =&gt; x.WriteLine(It.IsAny&lt;string&gt;()), Times.Exactly(count));
+
+            foreach (var e in expecteds)
+            {
+                ConsoleWrapperMock.Verify(x =&gt; x.WriteLine(e.ToString()), Times.Once);
+            }
+        }
+
+        public static IEnumerable&lt;object[]&gt; Run_Data()
+        {
+            return new[]
+            {
+                new object[]
+                {
+                    new[]
+                    {
+                        new TypedValue(""),
+                        new TypedValue("null"),
+                        new TypedValue("true"),
+                        new TypedValue("false"),
+                        new TypedValue("-1"),
+                        new TypedValue("2.3"),
+                        new TypedValue(" "),
+                        new TypedValue("abcde")
+                    },
+                    ",null,true,false,-1,2.3, ,abcde"
+                },
+            };
+        }
+    }
+}
+

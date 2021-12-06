@@ -1,0 +1,77 @@
+
+public void Load(string filename)
+{
+    byte[] der = null;
+    using (var stream = new FileStream(filename, FileMode.Open))
+    {
+        // Base64デコードして、DER(バイナリー形式)にする
+        var encoded = pem.
+            Replace(@"-----BEGIN PUBLIC KEY-----", string.Empty).
+            Replace(@"-----END PUBLIC KEY-----", string.Empty);
+        encoded = new Regex(@"\r?\n").Replace(encoded, string.Empty);
+        der = Convert.FromBase64String(encoded);
+    }
+
+    this.parameters = CreateParameter(der);
+}
+
+private RSAParameters CreateParameter(byte[] der)
+{
+    byte[] sequence1 = null;
+    using (var reader = new BinaryReader(new MemoryStream(der))
+    {
+        sequence1 = Read(reader);
+    }
+
+    byte[] sequence2 = null;
+    using (var reader = new BinaryReader(new MemoryStream(sequence1))
+    {
+        Read(reader); // sequence
+        sequence2 = Read(reader); // bit string
+    }
+
+    byte[] sequence3 = null;
+    using (var reader = new BinaryReader(new MemoryStream(sequence2))
+    {
+        sequence3 = Read(reader); // sequence
+    }
+
+    var parameters = new RSAParameters();
+    using (var reader = new BinaryReader(new MemoryStream(sequence3))
+    {
+        parameters.Modulus = Read(reader); // モジュラス
+        parameters.Exponent = Read(reader); // 公開指数
+    }
+
+    return parameters;
+}
+
+private byte[] Read(BinaryReader reader)
+{
+    // tag
+    reader.ReadByte();
+
+    // length
+    int length = 0;
+    byte b = reader.ReadByte();
+    if ((b &amp; 0x80) == 0x80) // length が128 octet以上
+    {
+        int n = b &amp; 0x7F;
+        byte[] buf = new byte[] {0x00, 0x00, 0x00, 0x00};
+        for (var i = n-1; i&gt;=0; --i)
+            buf[i] = reader.ReadByte();
+        length = BitConverter.ToInt32(buf, 0);
+    } else // length が 127 octet以下
+    {
+        length = b;
+    }
+
+    // value
+    if (length == 0)
+        return new byte[0];
+    byte first = reader.ReadByte();
+    if (first == 0x00) length -= 1; // 最上位byteが0x00の場合は、除いておく
+    else reader.BaseStream.Seek(-1, SeekOrigin.Current); // 1byte 読んじゃったので、streamの位置を戻しておく
+    return reader.ReadBytes(length);
+}
+

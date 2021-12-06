@@ -1,0 +1,82 @@
+
+
+// コンテナー（ラッパー相当）
+public class Container
+{
+    // 対象処理をラップする処理
+    public U Execute&lt;T, U&gt;(Func&lt;TransactionInfo, T, U&gt; proc, T param)
+    {
+        // トランザクション情報を取得する
+        var info = GetTransactionInfo();
+
+        // トランザクションを開始する
+        StartTransaction(info);
+
+        try
+        {
+            // 対象処理を実行する
+            var result = proc(info, param);
+
+            // トランザクションをコミットする
+            CommitTransaction(info);
+
+            // 対象処理の戻り値を返す
+            return result;
+        }
+        catch (Exception)
+        {
+            // 例外が発生した場合
+            // トランザクションをロールバックする
+            RollbackTransaction(info);
+
+            // 発生した例外はそのままスローする
+            throw;
+        }
+    }
+
+    // Overload
+    public T Execute&lt;T&gt;(Func&lt;TransactionInfo, T&gt; proc) { /* ... */ }
+    public void Execute&lt;T&gt;(Action&lt;TransactionInfo, T&gt; proc, T param) { /* ... */ }
+    public void Execute&lt;T&gt;(Action&lt;TransactionInfo&gt; proc) { /* ... */ }
+
+    // Private Method
+    private TransactionInfo GetTransactionInfo() { /* ... */ }
+    private void StartTransaction(TransactionInfo info) { /* ... */ }
+    private void CommitTransaction(TransactionInfo info) { /* ... */ }
+    private void RollbackTransaction(TransactionInfo info) { /* ... */ }
+}
+
+// 何かしらトランザクションに関係する情報
+public class TransactionInfo { /* ... */ }
+
+// ラッパーを使う人
+public class Client
+{
+    public Container Container { get; }
+
+    public Client(Container container)
+    {
+        Container = container;
+    }
+
+    // メイン処理
+    public void MainProcess()
+    {
+        // 対象処理に必要なパラメーターを用意する
+        var param = new Param();
+
+        // ラッパー経由で処理を実行する
+        var result = Container.Execute(TargetProcess, param);
+
+        // 受け取った結果を使って何かする
+        // ...
+    }
+
+    // 対象処理 → ※ これをラップしたい
+    private Result TargetProcess(TransactionInfo info, Param param) { /* ... */ }
+
+    // 対象処理の引数と戻り値
+    private class Param { /* ... */ }
+    private class Result { /* ... */ }
+}
+

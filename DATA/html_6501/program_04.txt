@@ -1,0 +1,70 @@
+
+    public class TesFileReader
+    {
+        private BinaryReader br;
+        private long pos;
+        private long len;
+        private bool cp;
+
+        public TesFileReader(string path)
+        {
+            br = new BinaryReader(new FileStream(path, FileMode.Open, FileAccess.Read));
+            pos = 0;
+            len = br.BaseStream.Length;
+            cp = false;
+        }
+        private TesFileReader(BinaryReader br, long pos, long len)
+        {
+            this.br = br;
+            this.pos = pos;
+            this.len = len;
+            this.cp = true;
+        }
+        ~TesFileReader()
+        {
+            if (!cp)
+                br.Close();
+        }
+        public bool EOF
+        {
+            get
+            {
+                bool result = len &lt;= pos;
+                return result;
+            }
+        }
+        public void Seek(long count)
+        {
+            pos += count;
+        }
+        private TesBytes Read(long count, bool next)
+        {
+            if (pos != br.BaseStream.Position)
+                br.BaseStream.Seek(pos, SeekOrigin.Begin);
+
+            if (Int32.MaxValue &lt; count)
+                throw new Exception();
+
+            TesBytes result = new TesBytes(br.ReadBytes((int)count));
+
+            if (!next)
+                br.BaseStream.Seek(-count, SeekOrigin.Current);
+
+            return result;
+        }
+        public TesBytes GetBytes(long count, long offset = 0, bool next = true)
+        {
+            if (len &lt; pos + count + offset)
+                throw new Exception();
+
+            TesBytes result = Read(offset + count, next);
+            if (0 &lt; offset)
+                result = result.GetOffset(offset, count);
+
+            if (next)
+                pos += count;
+
+            return result;
+        }
+    }
+

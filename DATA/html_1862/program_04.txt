@@ -1,0 +1,42 @@
+
+private Guid switchUUID = new Guid("cba20d00-224d-11e6-9fb8-0002a5d5c51b");
+        private Guid commandUUID = new Guid("cba20002-224d-11e6-9fb8-0002a5d5c51b");
+        private async void Watcher_Received(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        {
+            var targetMac = "*******"; // アプリで調べたMAC
+            var mac = args.BluetoothAddress.ToString("x");
+            var bleServiceUUID = args.Advertisement.ServiceUuids.FirstOrDefault();
+            var name = args.Advertisement.LocalName;
+            //アドレスじゃなくてUUIDで選択
+            if (bleServiceUUID == switchUUID)
+            {
+                advWatcher.Stop();
+                try
+                {
+                    //接続
+                    BluetoothLEDevice device = await BluetoothLEDevice.FromBluetoothAddressAsync(args.BluetoothAddress);
+                    //サービスUUIDを使って目的のサービスを取得
+                    var gattService = await device.GetGattServicesForUuidAsync(switchUUID);
+                    if (gattService.Status == GattCommunicationStatus.Success)
+                    {
+                        //コマンド送信用UUIDを使ってキャラクタリスティックを取得
+                        var characteristics = await gattService.Services.FirstOrDefault().GetCharacteristicsForUuidAsync(commandUUID);
+                        if (characteristics.Status == GattCommunicationStatus.Success)
+                        {
+                            var command = characteristics.Characteristics.FirstOrDefault();
+                            if (command.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Write))
+                            {
+                                byte[] comPress = { 0x57, 0x01, 0x00 };
+                                var res = await command.WriteValueAsync(comPress.AsBuffer(), GattWriteOption.WriteWithResponse);
+                                addLog(res.ToString());
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Exception...{ex.Message})");
+                }
+            }
+        }
+

@@ -1,0 +1,44 @@
+
+//ファイルを読んで読み込んだデータの列挙を返す
+static IEnumerable&lt;Index&gt; CombineCopyParallelFix2( string srcPath )
+{
+    // コピー元ファイルの一覧（FileInfoの配列）を作る
+    System.IO.DirectoryInfo dir = new System.IO.DirectoryInfo( srcPath );
+    var files = dir.EnumerateFiles( "*", System.IO.SearchOption.AllDirectories );
+
+    // ファイルを読み込む
+    foreach( var file in files )
+    {
+        using( var reader = new System.IO.FileStream( file.FullName, System.IO.FileMode.Open ) )
+        {
+            var indexItem = new Index();
+            indexItem.body = new byte[reader.Length];
+            reader.Read( indexItem.body, 0, indexItem.body.Length );
+            indexItem.name = file.Name;
+            yield return indexItem;// 列挙します
+        }
+    }
+}
+
+// データの列挙を受け取って連結したファイルと目次を書き出す
+static void WriteCombineFile( IEnumerable&lt;Index&gt; indexList, string dstPath )
+{
+    using( var writer = new System.IO.FileStream( dstPath+"\\CombineCopy.bin", System.IO.FileMode.Create ) )
+    using( var indexWriter = new System.IO.StreamWriter( dstPath+"\\index.txt", false ) )
+    {
+        foreach( var indexItem in indexList )
+        {
+            writer.Write( indexItem.body, 0, indexItem.body.Length );
+            indexWriter.WriteLine( $"{indexItem.name} {indexItem.body.Length}" );
+        }
+    }
+}
+
+static void Main( string[] args )
+{
+    string src_path = @"転送元ローカルパス";
+    string dst_path = @"転送先リモートパス";
+    var item = CombineCopyEnumerable( src_path ); // 列挙を作成して
+    WriteCombineFile( item, dst_path ); // それを書き込む
+}
+

@@ -1,0 +1,384 @@
+using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Configs;
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Jobs;
+using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace FillBenchMark
+{
+    internal class BenchmarkConfig : ManualConfig
+    {
+        public BenchmarkConfig()
+        {
+            AddJob(Job.ShortRun.
+                WithWarmupCount(1).
+                WithIterationCount(1).
+                WithLaunchCount(5));
+        }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            _ = new FillBytesBenchmarks();
+            var testee = new FillCharsBenchmarks();
+            testee.UnsafeFillAsNativeIntAggressive("", new ArraySegment&lt;char&gt;(new char[44], 2, 4));
+            _ = BenchmarkSwitcher.FromAssembly(Assembly.GetExecutingAssembly()).Run();
+        }
+    }
+
+    [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByParams)]
+    [SimpleJob(runtimeMoniker: RuntimeMoniker.NetCoreApp21)]
+    [SimpleJob(runtimeMoniker: RuntimeMoniker.NetCoreApp31)]
+    public unsafe class FillBytesBenchmarks
+    {
+        byte value;
+        public IEnumerable&lt;object[]&gt; ArrayPatterns()
+        {
+            yield return new object[] { "    8,a", new ArraySegment&lt;byte&gt;(new byte[8]) };
+            yield return new object[] { "   80,a", new ArraySegment&lt;byte&gt;(new byte[80]) };
+            yield return new object[] { "  800,a", new ArraySegment&lt;byte&gt;(new byte[800]) };
+            yield return new object[] { " 8000,a", new ArraySegment&lt;byte&gt;(new byte[8000]) };
+            yield return new object[] { "80000,a", new ArraySegment&lt;byte&gt;(new byte[80000]) };
+            yield return new object[] { "    8,u", new ArraySegment&lt;byte&gt;(new byte[8 + 1], 1, 8) };
+            yield return new object[] { "   80,u", new ArraySegment&lt;byte&gt;(new byte[80 + 1], 1, 80) };
+            yield return new object[] { "  800,u", new ArraySegment&lt;byte&gt;(new byte[800 + 1], 1, 800) };
+            yield return new object[] { " 8000,u", new ArraySegment&lt;byte&gt;(new byte[8000 + 1], 1, 8000) };
+            yield return new object[] { "80000,u", new ArraySegment&lt;byte&gt;(new byte[80000 + 1], 1, 80000) };
+        }
+
+        public FillBytesBenchmarks()
+        {
+            var r = new Random();
+            value = (byte)r.Next();
+
+            foreach (var segment in ArrayPatterns())
+            {
+                var expect = new byte[((ArraySegment&lt;byte&gt;)segment[1]).Count];
+                expect.AsSpan().Fill(value);
+
+                if (!ForLoop("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!CrtMemset("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!SpanFill("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!ArrayFill("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeInit("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeInitUnaligned("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeFill("", (ArraySegment&lt;byte&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+            }
+        }
+
+        [Benchmark(Baseline = true), ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; ForLoop(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            for (var i = 0; i &lt; segment.Count; i++)
+            {
+                segment[i] = value;
+            }
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; CrtMemset(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            fixed (byte* p = segment.Array)
+            {
+                NativeMethods.MemSet(p + segment.Offset, value, segment.Count);
+            }
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; SpanFill(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            segment.AsSpan().Fill(value);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; ArrayFill(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            System.Array.Fill(segment.Array, value, segment.Offset, segment.Count);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; UnsafeInit(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            Unsafe.InitBlock(ref segment.Array[segment.Offset], value, (uint)segment.Count);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; UnsafeInitUnaligned(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            Unsafe.InitBlockUnaligned(ref segment.Array[segment.Offset], value, (uint)segment.Count);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;byte&gt; UnsafeFill(string name, ArraySegment&lt;byte&gt; segment)
+        {
+            fixed (byte* begin = segment.Array)
+            {
+                var end = begin + segment.Count;
+                for (var p = begin + segment.Offset; p &lt; end; ++p)
+                    *p = value;
+            }
+            return segment;
+        }
+    }
+
+
+    [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByParams)]
+    [SimpleJob(runtimeMoniker: RuntimeMoniker.NetCoreApp21)]
+    [SimpleJob(runtimeMoniker: RuntimeMoniker.NetCoreApp31)]
+    public unsafe class FillCharsBenchmarks
+    {
+        char value;
+
+        public FillCharsBenchmarks()
+        {
+            var r = new Random();
+            value = '\xD4D5';
+
+            foreach (var segment in ArrayPatterns())
+            {
+                var expect = new char[((ArraySegment&lt;char&gt;)segment[1]).Count];
+                expect.AsSpan().Fill(value);
+
+                if (!ForLoop("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!SpanFill("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!ArrayFill("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeFill("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeWrite("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!SpanFillAsNativeInt("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+                if (!UnsafeFillAsNativeIntAggressive("", (ArraySegment&lt;char&gt;)segment[1]).AsSpan().SequenceEqual(expect))
+                {
+                    throw new Exception();
+                }
+            }
+        }
+
+        public IEnumerable&lt;object[]&gt; ArrayPatterns()
+        {
+            yield return new object[] { "    4,a", new ArraySegment&lt;char&gt;(new char[4]) };
+            yield return new object[] { "   40,a", new ArraySegment&lt;char&gt;(new char[40]) };
+            yield return new object[] { "  400,a", new ArraySegment&lt;char&gt;(new char[400]) };
+            yield return new object[] { " 4000,a", new ArraySegment&lt;char&gt;(new char[4000]) };
+            yield return new object[] { "40000,a", new ArraySegment&lt;char&gt;(new char[40000]) };
+            yield return new object[] { "    4,u", new ArraySegment&lt;char&gt;(new char[4 + 1], 1, 4) };
+            yield return new object[] { "   40,u", new ArraySegment&lt;char&gt;(new char[40 + 1], 1, 40) };
+            yield return new object[] { "  400,u", new ArraySegment&lt;char&gt;(new char[400 + 1], 1, 400) };
+            yield return new object[] { " 4000,u", new ArraySegment&lt;char&gt;(new char[4000 + 1], 1, 4000) };
+            yield return new object[] { "40000,u", new ArraySegment&lt;char&gt;(new char[40000 + 1], 1, 40000) };
+        }
+
+        [Benchmark(Baseline = true), ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; ForLoop(string name, ArraySegment&lt;char&gt; segment)
+        {
+            for (var i = 0; i &lt; segment.Count; i++)
+            {
+                segment[i] = value;
+            }
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; SpanFill(string name, ArraySegment&lt;char&gt; segment)
+        {
+            segment.AsSpan().Fill(value);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; ArrayFill(string name, ArraySegment&lt;char&gt; segment)
+        {
+            System.Array.Fill(segment.Array, value, segment.Offset, segment.Count);
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; UnsafeFill(string name, ArraySegment&lt;char&gt; segment)
+        {
+            fixed (char* begin = &amp;segment.Array[segment.Offset])
+            {
+                var end = begin + segment.Count;
+                for (var p = begin; p &lt; end; ++p)
+                    *p = value;
+            }
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; UnsafeWrite(string name, ArraySegment&lt;char&gt; segment)
+        {
+            fixed (char* begin = &amp;segment.Array[segment.Offset])
+            {
+                var N = segment.Count;
+                var p = begin;
+                for (var i = N; 0 &lt; i; ++p, --i)
+                    Unsafe.WriteUnaligned(p, value);
+            }
+            return segment;
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; SpanFillAsNativeInt(string name, ArraySegment&lt;char&gt; segment)
+        {
+            var N = segment.Count;
+            if (IntPtr.Size == 4)
+            {
+                uint source = (uint)(value | value &lt;&lt; 16);
+                var span = MemoryMarshal.Cast&lt;char, uint&gt;(segment.AsSpan());
+                span.Fill(source);
+
+                var count = span.Length * sizeof(uint) / sizeof(char);
+                for (var i = count; i &lt; N; ++i)
+                    segment.Array[segment.Offset + i] = value;
+
+                return segment;
+            }
+            else
+            {
+                ulong source = ((ulong)value | (ulong)value &lt;&lt; 16 | (ulong)value &lt;&lt; 32 | (ulong)value &lt;&lt; 48);
+                var span = MemoryMarshal.Cast&lt;char, ulong&gt;(segment.AsSpan());
+                span.Fill(source);
+
+                var count = span.Length * sizeof(ulong) / sizeof(char);
+                for (var i = count; i &lt; N; ++i)
+                    segment.Array[segment.Offset + i] = value;
+
+                return segment;
+            }
+        }
+
+        [Benchmark, ArgumentsSource(nameof(ArrayPatterns))]
+        public ArraySegment&lt;char&gt; UnsafeFillAsNativeIntAggressive(string name, ArraySegment&lt;char&gt; segment)
+        {
+            fixed (char* begin = segment.Array)
+            {
+                var p = begin + segment.Offset;
+                var rem = (uint)p % IntPtr.Size;
+                var i = 0;
+
+                if (IntPtr.Size == 4)
+                {
+                    switch (rem)
+                    {
+                        case 1 * sizeof(char):
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            break;
+                        case 0:
+                            break;
+                        default:
+                            throw new ArgumentException();
+                    }
+                    uint source = (uint)(value | value &lt;&lt; 16);
+                    var span = new Span&lt;uint&gt;(p + i, (segment.Count - i) / (sizeof(uint) / sizeof(char)));
+                    span.Fill(source);
+                    i += span.Length * (sizeof(uint) / sizeof(char));
+                }
+                else
+                {
+                    switch (rem)
+                    {
+                        case 3 * sizeof(char):
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            break;
+                        case 2 * sizeof(char):
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            break;
+                        case 1 * sizeof(char):
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            p[i++] = value;
+                            if (i == segment.Count)
+                                goto END;
+                            break;
+                        case 0:
+                            break;
+                        default:
+                            throw new ArgumentException();
+                    }
+                    ulong source = ((ulong)value | (ulong)value &lt;&lt; 16 | (ulong)value &lt;&lt; 32 | (ulong)value &lt;&lt; 48);
+                    var span = new Span&lt;ulong&gt;(p + i, (segment.Count - i) / (sizeof(ulong) / sizeof(char)));
+                    span.Fill(source);
+                    i += span.Length * (sizeof(ulong) / sizeof(char));
+                }
+
+                for (; i &lt; segment.Count; ++i)
+                    segment[i] = value;
+
+                END:
+                return segment;
+            }
+        }
+    }
+
+    unsafe static class NativeMethods
+    {
+        [DllImport("msvcrt.dll", EntryPoint = "memset", CallingConvention = CallingConvention.Cdecl, SetLastError = false, CharSet = CharSet.Ansi)]
+        public static extern IntPtr MemSet(byte* dest, int c, int byteCount);
+
+    }
+}
+
+

@@ -1,0 +1,63 @@
+void Update()
+{
+        if (_liveCamera == null || _liveCamera.OutputTexture == null)
+        {
+            return;
+        }
+
+        // カメラ映像の縦横を取得しておく
+        int screen_width = _liveCamera.OutputTexture.width;
+        int screen_height = _liveCamera.OutputTexture.height;
+
+        if (mat_calibration == null)
+        {
+            // キャリブレーション画像の領域をRGBAで初期化しておく。
+            mat_calibration = new Mat(screen_height, screen_width, CvType.CV_8UC4);
+            texture = new Texture2D(mat_calibration.cols(), mat_calibration.rows(), TextureFormat.RGBA32, false);
+        }
+        // openCV系のライブラリをUpdate()の中で使う場合にはusingを多用してリソースをちゃんとリリースさせたほうがよい。すぐ落ちるから。
+        // カメラ画像もRGBAを想定して４チャンネル分を確保しておく。
+        using (Mat mat_livecamera = new Mat(screen_height, screen_width, CvType.CV_8UC4))
+        {
+            // カメラ画像はTextureで取れるので、それをMAT型に変換しOpenCVで画像処理しやすいようにする。
+            Utils.textureToMat(_liveCamera.OutputTexture, mat_livecamera);
+            Mat mat_bg_rgba = null;
+            if (_media.TextureProducer != null)
+            {
+                mat_bg_rgba = new Mat(_media.TextureProducer.GetTexture(0).height, _media.TextureProducer.GetTexture(0).width, CvType.CV_8UC4);
+                Utils.textureToMat(_media.TextureProducer.GetTexture(0), mat_bg_rgba);
+                Imgproc.resize(mat_bg_rgba, mat_bg_rgba,new Size(screen_width, screen_height));
+                // 画像データ（数値データ）を反転させる(0-&gt;255へ。255-&gt;0へ)
+                Core.flip(mat_bg_rgba, mat_bg_rgba, 0);
+            }
+            // スペースキーが押下されたら、いまカメラに写っている画像をキャリブレーション画像として置き換える。
+            if (Input.GetKeyUp(KeyCode.Space) || Input.touchCount &gt; 0)
+            {
+                mat_livecamera.copyTo(mat_calibration);
+            }
+
+            using (Mat fgMaskMat = new Mat(screen_height, screen_width, CvType.CV_8UC1))
+            using (Mat bgMaskMat = new Mat(screen_height, screen_width, CvType.CV_8UC1))
+            using (BackgroundSubtractorMOG2 mog2 = OpenCVForUnity.Video.createBackgroundSubtractorMOG2())
+            {
+                // BackgroundSubtractorMOG2メソッドを使って背景差分を導出する
+                mog2.apply(mat_calibration, fgMaskMat);
+                mog2.apply(mat_livecamera, fgMaskMat);
+
+                // 場合によっては2値化させる前に画像をぼやかして、ちいさい差分を消す。（なかったことにする）
+                //Imgproc.medianBlur(fgMaskMat, fgMaskMat, 10);
+                // 透過させる場所をはっきりさせるため、2値下する。
+                Imgproc.threshold(fgMaskMat, fgMaskMat, 100, 255, Imgproc.THRESH_BINARY);
+
+                // マスク画像をつかって画像を反転させる。
+                Core.bitwise_not(fgMaskMat, bgMaskMat);
+
+                mat_bg_rgba.copyTo(mat_livecamera, bgMaskMat);
+                // 完成した画像をMAT型から元のTexture型に変換する。
+                Utils.matToTexture(mat_livecamera, texture);
+            }
+        }
+        ApplyMapping(texture);
+    }
+}
+

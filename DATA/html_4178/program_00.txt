@@ -1,0 +1,47 @@
+using System;
+using System.Threading.Tasks;
+using Android.Content;
+using Java.Interop;
+using Xamarin.Forms;
+using Xamarin.Forms.Platform.Android;
+
+[assembly: ExportRenderer(typeof(WebView), typeof(WebViewSample.Droid.CustomWebViewRenderer))]
+
+namespace WebViewSample.Droid
+{
+    public class CustomWebViewRenderer : Xamarin.Forms.Platform.Android.WebViewRenderer
+    {
+        public CustomWebViewRenderer(Context context) : base(context) { }
+
+        protected override void OnElementChanged(ElementChangedEventArgs&lt;WebView&gt; e)
+        {
+            base.OnElementChanged(e);
+            Control.AddJavascriptInterface(new JavaScriptHandler(Control), "MyCalc");
+        }
+    }
+
+    class JavaScriptHandler : Java.Lang.Object
+    {
+        private readonly Android.Webkit.WebView webView;
+
+        public JavaScriptHandler(Android.Webkit.WebView webView)
+        {
+            this.webView = webView;
+        }
+
+        [Export]
+        [Android.Webkit.JavascriptInterface]
+        async public void heavyAdd(int num)
+        {
+            await Task.Delay(1000);
+            var result = num * 2;
+
+            // メインスレッドから呼ばないとエラー
+            this.webView.Post(() =&gt; 
+            {
+                this.webView.LoadUrl($"javascript:MyCalc.onResult({result});");
+            });
+        }
+    }
+}
+

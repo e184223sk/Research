@@ -1,0 +1,130 @@
+/// &lt;summary&gt;
+/// Slackメッセージの取得に必要な機能を提供するサービス
+/// &lt;/summary&gt;
+public class SlackMessageGetService
+{
+    #region 定数
+
+    /// &lt;summary&gt;
+    /// アクセストークン用のクエリパラメータ名
+    /// &lt;/summary&gt;
+    private const string c_AccessTokenQueryParameterName = "token";
+
+    /// &lt;summary&gt;
+    /// チャンネルID用のクエリパラメータ名
+    /// &lt;/summary&gt;
+    private const string c_ChannelIdQueryParameterName = "channel";
+
+    /// &lt;summary&gt;
+    /// 取得メッセージ数用のクエリパラメータ名
+    /// &lt;/summary&gt;
+    private const string c_MessageCountQueryParameterName = "limit";
+
+    /// &lt;summary&gt;
+    /// 投稿時間の最小値用のクエリパラメータ名
+    /// &lt;/summary&gt;
+    private const string c_OldestQueryParameterName = "oldest";
+
+    /// &lt;summary&gt;
+    /// 投稿時間の最大値用のクエリパラメータ名
+    /// &lt;/summary&gt;
+    private const string c_LatestQueryParameterName = "latest";
+
+    ・・・
+
+    #endregion
+
+    #region フィールド
+
+    /// &lt;summary&gt;
+    /// SlackにPOST,GETするために使用するHttpClient
+    ///
+    /// ユーザーの利用方法を想定したとき、接続先のホストは[チーム名].slack.comしかありえないため、
+    /// HttpClientは単一インスタンスのみとする
+    /// &lt;/summary&gt;
+    // ReSharper disable once InconsistentNaming
+    private static readonly HttpClient m_HttpClient = new HttpClient();
+
+    #endregion
+
+    #region 公開サービス
+
+    /// &lt;summary&gt;
+    /// メッセージを取得する
+    /// &lt;/summary&gt;
+    /// &lt;param name="accessToken"&gt;アクセストークン&lt;/param&gt;
+    /// &lt;param name="channelId"&gt;チャンネルID&lt;/param&gt;
+    /// &lt;param name="messageCount"&gt;取得するメッセージ数&lt;/param&gt;
+    /// &lt;param name="oldest"&gt;投稿時間の最小値&lt;/param&gt;
+    /// &lt;param name="latest"&gt;投稿時間の最大値&lt;/param&gt;
+    /// &lt;returns&gt;取得メッセージ一覧&lt;/returns&gt;
+    public async Task&lt;IEnumerable&lt;Message&gt;&gt; GetMessages(string accessToken, string channelId, int messageCount, DateTime oldest, DateTime latest)
+    {
+        var messages = new List&lt;Message&gt;();
+
+        // latestとoldestをUNIX時間に変換
+        var oldestDateTimeOffset = new DateTimeOffset(oldest);
+        var oldestUnixTime = oldestDateTimeOffset.ToUnixTimeSeconds();
+        var latestDateTimeOffset = new DateTimeOffset(latest);
+        var latestUnixTime = latestDateTimeOffset.ToUnixTimeSeconds();
+
+        // クエリパラメータを作成するためにディクショナリを作成
+        // ディクショナリのKeyがクエリパラメータ名、ディクショナリのValueがクエリパラメータの値
+        var parameters = new Dictionary&lt;string, string&gt;()
+        {
+            { c_AccessTokenQueryParameterName, accessToken},
+            { c_ChannelIdQueryParameterName, channelId},
+            { c_MessageCountQueryParameterName, messageCount.ToString()},
+            { c_OldestQueryParameterName, oldestUnixTime.ToString()},
+            { c_LatestQueryParameterName, latestUnixTime.ToString()}
+        };
+
+        try
+        {
+            // クエリパラメータを作成し、文字列で読み出す
+            var parametersString = await new FormUrlEncodedContent(parameters).ReadAsStringAsync();
+            // 読みだしたクエリパラメータを使ってリクエストURLを作成する。
+            var requestBaseUrl = "https://slack.com/api/conversations.history";
+            var requestUrl = $"{requestBaseUrl}?{parametersString}";
+            var response = await m_HttpClient.GetAsync(requestUrl).ConfigureAwait(false);
+            // レスポンスのコンテンツをstringで読み出す
+            var responseBodyString = await response.Content.ReadAsStringAsync();
+            // 読みだしたJsonを、オブジェクトにデシリアライズする
+            var responceObject = JsonConvert.DeserializeObject&lt;GetSlackMessagesResponce&gt;(responseBodyString);
+
+            // 戻り値用のメッセージ一覧を作成
+            foreach (var messageResponce in responceObject.messages)
+            {
+                // 本文を設定
+                var message = new Message()
+                {
+                    Text = messageResponce.text
+                };
+
+                // 添付ファイルを設定
+                foreach (var file in messageResponce.files)
+                {
+                    var addFile = new File()
+                    {
+                        FileURL = file.url_private,
+                        Id = file.id,
+                    };
+                    message.Files.Add(addFile);
+                }
+
+                messages.Add(message);
+            }
+
+            return messages;
+        }
+        catch
+        {
+            return messages;
+        }
+    }
+
+    ・・・
+
+    #endregion
+}
+

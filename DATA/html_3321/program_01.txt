@@ -1,0 +1,133 @@
+
+namespace ScriptPazzleUnlock
+{
+    public static class Function1
+    {
+        [FunctionName("Function1")]
+        public static async Task&lt;IActionResult&gt; Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            log.LogInformation("C# HTTP trigger function processed a request.");
+
+            string network = req.Query["network"];
+            network = network ?? "BTC";
+            // トランザクションをブロードキャストするか否かのフラグ
+            bool broadcast = (req.Query["b"] == "1");
+
+            StringBuilder sb = new System.Text.StringBuilder("");
+            sb.AppendFormat("Network:{0}", network).AppendLine();
+
+            // クライアントからのパラメータを受け取る
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+
+            string btcAddress      = data.btcAddress;
+            string lockingScript   = data.lockingScript;
+            string unlockingScript = data.unlockingScript;
+            string sendToAddress   = data.sendToAddress;
+            var feeSatoshi         = data.feeSatoshi;
+
+            // chain.soでビットコインアドレスのUTXOを取得する
+            WebRequest request = WebRequest.Create("https://chain.so/api/v2/get_tx_unspent/" + network + "/" + btcAddress);
+            WebResponse response = request.GetResponse();
+            using (Stream dataStream = response.GetResponseStream())
+            {
+                StreamReader reader = new StreamReader(dataStream);
+                string responseFromServer = reader.ReadToEnd();
+                dynamic res = JsonConvert.DeserializeObject(responseFromServer);
+
+                var client = new QBitNinjaClient(Network.Main);
+                var transaction = Transaction.Create(Network.Main);
+                var hallOfTheMakersAddress = BitcoinAddress.Create(btcAddress);
+                var hallOfTheSendAddress   = BitcoinAddress.Create(sendToAddress);
+                var minerFee = new Money((decimal)feeSatoshi, MoneyUnit.Satoshi);
+
+                foreach (dynamic tx in res.data.txs)
+                {
+                    var transactionResponse = client.GetTransaction(uint256.Parse(tx.txid.ToString())).Result;
+                    //Transaction tran = transactionResponse.Transaction;
+
+                    var receivedCoins = transactionResponse.ReceivedCoins;
+                    OutPoint outPointToSpend = null;
+                    foreach (var coin in receivedCoins)
+                    {
+                        if (coin.TxOut.ScriptPubKey == hallOfTheMakersAddress.ScriptPubKey)
+                        {
+                            outPointToSpend = coin.Outpoint;
+
+                            if (outPointToSpend == null)
+                            {
+                                throw new Exception("No transaction output has a ScriptPubKey for the coin that sent it.");
+                            }
+
+                            transaction.Inputs.Add(new TxIn()
+                            {
+                                PrevOut = outPointToSpend
+                            });
+
+                            var txInAmount = receivedCoins[(int)outPointToSpend.N].TxOut.Value;
+                            Money sendValue = txInAmount - minerFee;
+                            transaction.Outputs.Add(new TxOut()
+                            {
+                                Value = sendValue,
+                                ScriptPubKey = hallOfTheSendAddress.ScriptPubKey
+                            });
+                        }
+                    }
+                }
+
+                // 半角スペース区切りでOPコードを取得する
+                String[] unlockingScripts = unlockingScript.Split(" ", StringSplitOptions.RemoveEmptyEntries);
+                // OPコードを格納する配列
+                Op[] ops = new Op[] {};
+                foreach (string op in unlockingScripts)
+                {
+                    OpcodeType opcode;
+                    if (Op.GetOpCode(op, out opcode))
+                    {
+                        Array.Resize(ref ops, ops.Length + 1);
+                        ops[ops.Length - 1] = opcode;
+                    }
+                }
+
+                var p2shProof = PayToScriptHashTemplate
+                    .Instance
+                    .GenerateScriptSig(ops, new Script(lockingScript));
+
+                for (int i = 0; i &lt; transaction.Inputs.Count; i++)
+                {
+                    transaction.Inputs[i].ScriptSig = p2shProof;
+                    // ここでパズルの答え合わせをしてる
+                    if (transaction.Inputs.AsIndexedInputs().First().VerifyScript(hallOfTheMakersAddress.ScriptPubKey) == false)
+                    {
+                        throw new Exception("Verify script is fail. Can't unlook.");
+                    }
+                }
+
+                if (broadcast) {
+                    BroadcastResponse broadcastResponse = client.Broadcast(transaction).Result;
+                    if (!broadcastResponse.Success)
+                    {
+                        throw new Exception("Error message: " + broadcastResponse.Error.Reason);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Success! You can check out the hash of the transaciton in any block explorer:");
+                        Console.WriteLine(transaction.GetHash());
+                    }
+                }
+
+                sb.AppendFormat("Success! You can check out the hash of the transaciton in any block explorer.");
+                sb.AppendFormat("Transaction id:{0}", transaction.GetHash().ToString());
+            }
+
+            response.Close();
+
+            return sb != null
+                ? (ActionResult)new OkObjectResult(sb.ToString())
+                : new BadRequestObjectResult("Please pass a name on the query string or in the request body");
+        }
+    }
+}
+

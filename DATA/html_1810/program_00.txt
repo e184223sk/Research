@@ -1,0 +1,145 @@
+namespace WpfApp2
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public class G
+    {
+        //global
+        public static Rect svrect = new Rect();
+        public static Rect frmrect = new Rect(0, 0, 190, 450);
+        public static Rect icrect = new Rect(0, 0, 48, 48);
+        public static Rect tbrect = new Rect(1803, 1052, 16, 16);  //100% 
+        //public static Rect tbrect = new Rect(1367,835, 16, 16);   //125%
+        public static int step = 20;    //画面のトランジション時のステップ数
+        public static bool swapclick = false;
+        public static bool dragging = false;
+    }
+
+    public partial class MainWindow : Window
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+
+
+            //notify icon 表示
+            this.NotifyIcon.Icon = Properties.Resources.notify_static;
+            this.NotifyIcon.Visibility = Visibility.Collapsed;
+        }
+
+        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ButtonState != MouseButtonState.Pressed) return;
+            this.DragMove();
+        }
+
+        private void Window_LocationChanged(object sender, EventArgs e)
+        {
+            //dragmoveの場合はマウスダウンイベントをキャンセルさせる
+            G.swapclick = false;
+        }
+
+        private void Swapsize_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            //DragMoveとSwapSizeの区別のためのフラグ
+            G.swapclick = true;
+        }
+        private void Swapsize_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (G.swapclick == true)
+            {
+                Rect org = new Rect(this.Left, this.Top, this.Width, this.Height);
+                Rect trg = org;
+                if (this.Width == 190)
+                {
+                    //ノーマル→アイコン表示
+                    trg.Width = G.icrect.Width;
+                    trg.Height = G.icrect.Height;
+                }
+                else 
+                {
+                    //アイコン→ノーマル表示
+                    trg.Width = G.frmrect.Width;
+                    trg.Height = G.frmrect.Height;
+                }
+                TransWin(org, trg, G.step);
+            }
+            G.swapclick = false;
+        }
+
+        private void Notifize_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            //Notify化
+            if (e.LeftButton == MouseButtonState.Pressed)
+            {
+                G.svrect = new Rect(this.Left, this.Top, this.Width, this.Height);
+                TransWin(G.svrect, G.tbrect, G.step);
+                this.Opacity = 0;           //main windowを全透明に
+                this.NotifyIcon.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void NotifyIcon_TrayLeftMouseUp(object sender, RoutedEventArgs e)
+        {
+
+            //Notifyアイコンのスクリーン座標を取得
+            G.tbrect.X = GetMousePosition().X;
+            G.tbrect.Y = GetMousePosition().Y;
+
+            //taskbarの高さを取得(ピクセル値で）
+            int taskbarheight = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height - System.Windows.Forms.Screen.PrimaryScreen.WorkingArea.Height;
+            //notifyIconのY座標は、ワーキングエリアHeight＋(taskbarheight-16)/2とするのがいいの？
+            G.tbrect.Y = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea.Height + (taskbarheight - 16) / 2;
+            //G.tbrect.X = -1 * Mouse.GetPosition(this.NotifyIcon).X;
+            G.tbrect.X = GetMousePosition().X;
+
+            //NotifyIconからの復帰
+            this.NotifyIcon.Visibility = Visibility.Collapsed;
+            this.Opacity = 1;               //main windowを表示
+            TransWin(G.tbrect, G.svrect, G.step);
+
+
+        }
+        private void TransWin(Rect org, Rect trg, int step)
+        {
+            //画面トランジション
+            for (int i = 0; i &lt; step; i ++)
+            {
+                this.Left = org.Left + (trg.Left - org.Left) * i / step;
+                this.Top = org.Top + (trg.Top - org.Top) * i / step;
+                this.Width = org.Width + (trg.Width - org.Width) * i / step;
+                this.Height = org.Height + (trg.Height - org.Height) * i / step;
+            }
+
+            this.Left = trg.Left;
+            this.Top = trg.Top ;
+            this.Width = trg.Width;
+            this.Height = trg.Height;
+        }
+
+        public System.Windows.Point GetMousePosition()
+        {
+            System.Drawing.Point point = System.Windows.Forms.Control.MousePosition;
+            return new System.Windows.Point(point.X, point.Y);
+        }
+
+        private void NotifyIcon_MouseEnter(object sender, MouseEventArgs e)
+        {
+
+        }
+
+        private void NotifyIcon_TrayMouseMove(object sender, RoutedEventArgs e)
+        {
+            var temppos = Mouse.GetPosition(this.NotifyIcon).X;
+            //var iconleft = GetMousePosition().X - temppos;
+            var iconleft = temppos;
+            this.NotifyIcon.ToolTipText = iconleft.ToString();
+
+
+        }
+
+    }
+}
+
+

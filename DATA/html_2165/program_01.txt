@@ -1,0 +1,31 @@
+
+// インジェクトする側(ホスト)のメインメソッド
+static async Task Main(string[] args)
+{
+    // メモ帳のプロセスIDを取得する
+    var pid = (uint)Process.GetProcessesByName("notepad").First().Id;
+    var injector = new Injector();
+
+    // メモ帳に自身のDLLをインジェクトし、DLL内のEntoryPoint関数を実行させる
+    using (var con = await injector.InjectAsync(pid, c =&gt; EntryPoint(c)))
+    {
+        var buffer = new byte[1024];
+        while (con.IsConnected)
+        {
+            // メモ帳にインジェクトしたマネージドコードからの返答を待つ
+            var count = await con.Pipe.ReadAsync(buffer, 0, buffer.Length, CancellationToken.None);
+            var str = Encoding.UTF8.GetString(buffer, 0, count);
+            Console.WriteLine($"recv:{str}");
+        }
+    }
+}
+
+// インジェクトされた側で実行されるメソッド
+public static async ValueTask EntryPoint(Connection con)
+{
+    var text = "Hello from notepad.exe!";
+    var buf = Encoding.UTF8.GetBytes(text);
+    // 引数で渡されたConnectionを使用してホストと通信する。
+    await con.Pipe.WriteAsync(buf, 0, buf.Length);
+}
+

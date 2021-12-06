@@ -1,0 +1,53 @@
+
+using Polly;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+
+namespace Common
+{
+
+    public static class RetryHelper
+    {
+        public static void OpenWithRetry(this SqlConnection connection)
+        {
+
+            PolicyResult policyResult = Policy.Handle&lt;SqlException&gt;(ex =&gt; TransientErrorNumbers.Contains(ex.Number))
+                .Retry(3)
+                .ExecuteAndCapture(connection.Open);
+
+            if (policyResult.Outcome == OutcomeType.Failure)
+            {
+                // 実行に失敗した
+                if (policyResult.FinalException is SqlException)
+                {
+                    SqlConnection.ClearPool(connection);
+
+                    throw policyResult.FinalException;
+                    // FinalException に例外が格納されている
+                }
+            }
+        }
+
+        private static readonly HashSet&lt;int&gt; TransientErrorNumbers = new HashSet&lt;int&gt;
+        {
+            50000,
+            40197,
+            40501,
+            10053,
+            10054,
+            10060,
+            40613,
+            40143,
+            233,
+            121,
+            64,
+            53,
+            20,
+             -2
+        };
+
+    }
+
+}
+
+

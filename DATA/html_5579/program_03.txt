@@ -1,0 +1,34 @@
+
+private async Task HandleTextAsync(string replyToken, string userMessage, string userId)
+{  
+    ISendMessage replyMessage = new TextMessage("");
+    // LUIS で文章を解析
+    var luisResult = await luisClient.Predict(userMessage);
+    if(luisResult.TopScoringIntent.Name == "greeting")
+    {
+        replyMessage = new TextMessage("どうもどうも"); 
+    }
+    else if(luisResult.TopScoringIntent.Name == "order")
+    {
+        // メニューエンティティがある場合
+        if(luisResult.Entities.ContainsKey("menu"))
+        {
+            replyMessage = new TextMessage($"毎度！{luisResult.Entities["menu"].First().Value} ですね！");
+        }
+        else
+        {
+            // 注文だがメニューがわからない場合はメニューをボタンで提示
+            replyMessage = new TemplateMessage("menu", new ButtonsTemplate(
+                title: "注文",
+                text: "毎度！注文ですね。何にしましょう？",
+                actions: new List&lt;ITemplateAction&gt;(){
+                    new MessageTemplateAction("松","松"),
+                    new MessageTemplateAction("竹","竹"),
+                    new MessageTemplateAction("梅","梅"),
+                    }));
+        }
+    }
+
+    await messagingClient.ReplyMessageAsync(replyToken, new List&lt;ISendMessage&gt; { replyMessage });
+}
+

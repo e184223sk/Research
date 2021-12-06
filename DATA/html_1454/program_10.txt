@@ -1,0 +1,118 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace ClosureSample.Sample5_Local_2
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            foreach (var i in await Task.WhenAll(A.F()))
+            {
+                Console.WriteLine(i);
+            }
+        }
+    }
+
+    static class A
+    {
+        public static IEnumerable&lt;Task&lt;int&gt;&gt; F()
+        {
+            return new D(-2);
+        }
+
+        // クロージャ用の内部クラス
+        class C
+        {
+            public int ii;
+
+            public int B()
+            {
+                return ii;
+            }
+        }
+
+        // yield用の内部クラス
+        class D : IEnumerable&lt;Task&lt;int&gt;&gt;, IEnumerator&lt;Task&lt;int&gt;&gt;, IDisposable
+        {
+            private int state;
+            private Task&lt;int&gt; current;
+            private int initialThreadId;
+            private C c;
+            private int i; // カウンターがフィールドとして含まれている
+
+            public D(int st)
+            {
+                state = st;
+                initialThreadId = Environment.CurrentManagedThreadId;
+            }
+
+            public void Dispose()
+            {
+            }
+
+            public Task&lt;int&gt; Current =&gt; current;
+
+            object IEnumerator.Current =&gt; current;
+
+            public bool MoveNext()
+            {
+                switch (state)
+                {
+                    case 0: // 1回目
+                        state = -1;
+                        i = 1; // カウンターを初期化
+                        break;
+                    case 1: // 2回目以降
+                        state = -1;
+                        c = null;
+                        i++; // カウンターを更新
+                        break;
+                    default:
+                        return false;
+                }
+
+                // for文の中身
+                if (i &lt;= 10)
+                {
+                    c = new C(); // クロージャを毎回初期化！
+                    c.ii = i; // クロージャにiを束縛
+                    current = Task.Run(c.B);
+                    state = 1;
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+
+            public IEnumerator&lt;Task&lt;int&gt;&gt; GetEnumerator()
+            {
+                if (state == -2 &amp;&amp; initialThreadId == Environment.CurrentManagedThreadId)
+                {
+                    state = 0;
+                    return this;
+                }
+                else
+                {
+                    return new D(0);
+                }
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
+        }
+    }
+}
+

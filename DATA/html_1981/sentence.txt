@@ -1,0 +1,34 @@
+自分が勤めている会社に、社内Wikiみたいなものがあるのですが、各ページに書かれている参考資料へのパスが、社内のファイルサーバやローカルのパスになっていることが、多々あります。
+パスを毎回コピーしてエクスプローラに貼り付けるのが、だんだん面倒になってきました。
+そこで、Chrome拡張機能で自動化することにしました。先に言っておきますが、苦労の割にあまり自動化されません。。。しかも、Chromeウェブストアにないため、Chromeを起動する度に毎回「無効化する」かどうか聞かれます。
+作った機能からして、Chromeウェブストアに置かせてもらえる気がしません。そのため、毎回聞かれても無効化せずに利用いただくか、投稿が部分的にでも何かの参考になれば幸いです。以下を丸パク、いや、参考にさせていただき、やったことを挙げていきます。
+- Native Message1(外部ソフト登録）
+- Native Message2(拡張機能）
+- Native Message3(通信設定　拡張側)
+- Native Message5(2byte文字等の対応)name、description、versionはお好きな値で。
+あと、以下の例なら、48x48の好きなアイコン画像も必要です。今回は、パスとなる文字列を選択後の、コンテキストメニューから呼ぶことにしました。
+manifest.jsonで"persistent": falseにしているため、chrome.contextMenus.create()の中でonclickは指定しないで、メニューのIDから判断することにします。スクリプトの終わり際にある、以下2点が重要です。
+- chrome.runtime.sendNativeMessage()を呼んでいること
+- chrome.runtime.sendNativeMessage()の第1引数を、後述するレジストリキーと合わせること
+特に1点目は、参考サイトの方法
+（chrome.runtime.connectNative()で取得したportに対してport.postMessage()を呼ぶ）
+と異なります。
+その理由は、ホスト側のプロセスが勝手に終わっても、Chrome側にエラーNative host has exited.が発生しないようにするためです。作ったマニフェストファイルとスクリプト（とアイコン画像）を、ローカルの任意フォルダに集めます。
+（以降、フォルダをC:\Work\OpenSelectedTextと仮定しますが、各自読み替えてください）
+そして、Chromeのメニュー「その他のツール」－「拡張機能」から、
+「パッケージ化されていない拡張機能を読み込む」ボタンを押し、上記フォルダを指定します。
+読み込んだ拡張機能に表示されたIDの値が次に必要なので、控えておいてください。拡張機能と通信するホスト用に、任意名称のマニフェストファイルを作ります。
+（以降、ファイル名をOST_Host.jsonと仮定しますが、各自読み替えてください）nameは後述のレジストリキーと合わせます。
+descriptionはお好きな値で。
+pathには、この後作るホスト（*.exe）へのパスを書きます。
+allowed_originsには、下記の例からID部分を、読み込んだ拡張機能のIDに修正します。で、作ったマニフェストファイルもC:\Work\OpenSelectedTextに置いちゃいます。（本当はどこでもいいと思いますが）レジストリ上、HKEY_CURRENT_USER\SOFTWARE\Google\ChromeにキーNativeMessagingHostsがなければ、作成しておきます。
+さらに、NativeMessagingHosts直下に、スクリプトで呼ぶchrome.runtime.sendNativeMessage()の第1引数と同じ名称のキー（今回ならhost1）を作成します。
+作成したキー（今回ならhost1）の値に、ホストのマニフェストファイルへの絶対パスを設定します。レジストリ登録用のファイル（*.reg）風に書くと、こんな感じです。C#で作ります。参考サイトには「コンソールアプリケーション」とあったのですが、DOS窓をチラ見せしたくないので、筆者は以下の手順で作り始めました。
+（この手順が正しいかは不明ですが）Chromeから来るデータはJSONなので、（ただ使ってみたかっただけですが）DataContractJsonSerializerを使ってみます。作成したプロジェクトには以下3点、参照を追加します。
+- Microsoft.JScript
+- System.Runtime.Serialization
+- System.ServiceModel.Web（これだけは.NET Framework 4以降なら不要）新規クラス「NativeMessage.cs」を追加して、「Program.cs」とともに、以下のように実装します。ビルドして生成したファイルも、C:\Work\OpenSelectedTextに置いちゃいます。
+（ホストのマニフェストファイルに書いたpathと合わせます）選択範囲を狭くすれば、ファイルパスに対しても親フォルダを表示できるので、我ながら便利だと思います。
+あとは、以下2点だけが気になります。
+
+

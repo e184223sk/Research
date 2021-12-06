@@ -1,0 +1,31 @@
+
+public class MainWindowViewModel : INotifyPropertyChanged, IDisposable
+{
+  ... 省略 ...
+
+  private CompositeDisposable Disposables { get; } = new CompositeDisposable();
+  public ReactiveCommand SampleCommand { get; }
+  public ReactivePropertySlim&lt;string&gt; Input { get; }
+  public ReadOnlyReactivePropertySlim&lt;string&gt; Output { get; }
+
+  public MainWindowViewModel()
+  {
+    // メソッドチェーンの最後で AddTo をして CompositeDisposable に登録
+    Input = new ReactivePropertySlim&lt;string&gt;()
+      .AddTo(Disposables);
+    Output = Input.Select(x =&gt; x?.ToUpper())
+      .Delay(TimeSpan.FromSeconds(3))
+      .ObserveOnUIDispatcher()
+      .ToReadOnlyReactivePropertySlim()
+      .AddTo(Disposables);
+    // Command 自体を Dispose すれば普通は問題ないが WithSubscribe を個別に開放する方法もあります
+    SampleCommand = Input.Select(x =&gt; string.IsNullOrEmpty(x))
+      .ToReactiveCommand()
+      .WithSubscribe(() =&gt; { ...省略... }, Disposables.Add) // WithSubscribe は第二引数で Disposable を追加するメソッドを受け取れる
+      .AddTo(Disposables); // コマンド自身を追加する場合は AddTo
+  }
+
+  // 今回の ViewModel は不要になったタイミングで Dispose が呼ばれる想定
+  public void Dispose() =&gt; Disposables.Dispose();
+}
+

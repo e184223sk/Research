@@ -1,0 +1,318 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Automation;
+using System.Windows.Forms;
+
+public static class NativeMethods
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+
+    public const int WH_MOUSE_LL = 14;
+    public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, HookProc callback, IntPtr hInstance, int threadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UnhookWindowsHookEx(IntPtr hHook);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr CallNextHookEx(IntPtr hHook, int nCode, IntPtr wParam, IntPtr lParam);
+
+    public const int  WM_LBUTTONDOWN = 0x0201;
+
+    // [DllImport("user32.dll")]
+    // [return: MarshalAs(UnmanagedType.Bool)]
+    // public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll",SetLastError = true)]
+    public static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("User32.dll")]
+    public static extern IntPtr GetDC(IntPtr hwnd);
+
+    [DllImport("User32.dll")]
+    public static extern void ReleaseDC(IntPtr hwnd, IntPtr dc);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetProcessDPIAware();
+}
+
+
+public class AutomationTest : Form
+{
+    IntPtr _hHook;
+    NativeMethods.HookProc _handler;
+    GCHandle _hookProcHandle;
+    NativeMethods.POINT _lastPoint;
+
+    System.Windows.Forms.Timer timer;
+    Button btn;
+    ListView lsv;
+
+    AutomationTest()
+    {
+        // NativeMethods.SetProcessDPIAware();
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 10;
+        timer.Tick += (s,e)=&gt;{Timer_Tick();};
+
+        btn = new Button(){Text="get"};
+        btn.Click += (s,e)=&gt;{Btn_Click();};
+        Controls.Add(btn);
+
+        lsv = new ListView(){
+            Location = new System.Drawing.Point(0, 40),
+            Size = new System.Drawing.Size(400, 400),
+            FullRowSelect = true,
+            GridLines = true,
+            HideSelection = false,
+            MultiSelect = false,
+            View = View.Details
+        };
+        lsv.MouseDoubleClick += Lsv_MouseDoubleClick;
+        lsv.Columns.AddRange(new ColumnHeader[]{
+            new ColumnHeader(){Text="ClassName",Width=100},
+            new ColumnHeader(){Text="AutomationId",Width=50},
+            new ColumnHeader(){Text="ControlType",Width=100},
+            new ColumnHeader(){Text="FrameworkId",Width=50},
+            new ColumnHeader(){Text="Name",Width=100},
+            new ColumnHeader(){Text="ItemType",Width=50},
+            new ColumnHeader(){Text="X",Width=50},
+            new ColumnHeader(){Text="Y",Width=50},
+            new ColumnHeader(){Text="Width",Width=50},
+            new ColumnHeader(){Text="Height",Width=50},
+        });
+        Controls.Add(lsv);
+
+        FormClosed += (s,e)=&gt;{UnHook();};
+
+        Load += (s,e)=&gt;{MyResize();};
+        Resize += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+    }
+
+    void MyResize()
+    {
+        int h = ClientSize.Height - lsv.Top;
+        if (h&lt;50){h=50;}
+        lsv.Size = new System.Drawing.Size(ClientSize.Width, h);
+    }
+
+    void Timer_Tick()
+    {
+        UnHook();
+        if ( !timer.Enabled ) {
+            return;
+        }
+        timer.Stop();
+        btn.Enabled = true;
+
+        var p = new System.Windows.Point(_lastPoint.x, _lastPoint.y);
+        //var elem = AutomationElement.FromHandle(NativeMethods.WindowFromPoint(_lastPoint));
+        var elem = AutomationElement.FromPoint(p);
+        bool topElemFlag = true;
+
+        lsv.BeginUpdate();
+        try {
+            while (elem != null) {
+                AutomationElement.AutomationElementInformation elemInfo;
+                try {
+                    elemInfo = elem.Current;
+                }
+                catch( ElementNotAvailableException ) {
+                    return;
+                }
+
+                if ( topElemFlag ) {
+                    DrawPointAndRectToScreen(p, elemInfo.BoundingRectangle);
+                }
+
+                lsv.Items.Add(AeToListItem(elemInfo));
+                elem = FindNextElementFromPoint(elem, p);
+
+                topElemFlag = false;
+            }
+        }
+        finally {
+            lsv.EndUpdate();
+        }
+    }
+
+    AutomationElement FindNextElementFromPoint(AutomationElement elem, System.Windows.Point p)
+    {
+        var childElements = elem.FindAll(TreeScope.Children, Condition.TrueCondition);
+
+        foreach(AutomationElement childElem in childElements) {
+            AutomationElement.AutomationElementInformation elemInfo;
+            try {
+                elemInfo = childElem.Current;
+            }
+            catch( ElementNotAvailableException ) {
+                return null;
+            }
+
+            if ( elemInfo.BoundingRectangle.Contains(p) ) {
+                return childElem;
+            }
+        }
+        return null;
+    }
+
+    ListViewItem AeToListItem(AutomationElement.AutomationElementInformation a)
+    {
+        System.Windows.Rect r = a.BoundingRectangle;
+
+        return new ListViewItem(new string[]{
+            a.ClassName,
+            a.AutomationId,
+            a.ControlType.ToString(),
+            a.FrameworkId,
+            a.Name,
+            a.ItemType,
+            r.X.ToString(),
+            r.Y.ToString(),
+            r.Width.ToString(),
+            r.Height.ToString()
+        });
+    }
+
+    void Btn_Click()
+    {
+        try {
+            SetHook();
+        }
+        catch (System.ComponentModel.Win32Exception e) {
+            MessageBox.Show(e.ToString());
+            return;
+        }
+
+        btn.Enabled = false;
+        lsv.Items.Clear();
+    }
+
+    void Lsv_MouseDoubleClick(object sender, MouseEventArgs e)
+    {
+        ListViewHitTestInfo info = lsv.HitTest(e.Location);
+        if ( info.SubItem != null ) {
+            SubForm f = new SubForm(info.SubItem.Text);
+            f.ShowDialog();
+        }
+    }
+
+    void DrawPointAndRectToScreen(System.Windows.Point p, System.Windows.Rect rect)
+    {
+        IntPtr desktopDC = NativeMethods.GetDC(IntPtr.Zero);
+
+        if (desktopDC == IntPtr.Zero) {
+            // failed
+            return;
+        }
+
+        try {
+            var pen = new System.Drawing.Pen(System.Drawing.Color.Red, 3.0f);
+            // 描画が欠ける Scalingがうまくいっていないっぽい
+            using (var g = System.Drawing.Graphics.FromHdc(desktopDC)) {
+                g.DrawLine(pen, (float)((p.X-5)*_highDpiScale), (float)((p.Y-5)*_highDpiScale), (float)((p.X+5)*_highDpiScale), (float)((p.Y+5)*_highDpiScale));
+                g.DrawLine(pen, (float)((p.X-5)*_highDpiScale), (float)((p.Y+5)*_highDpiScale), (float)((p.X+5)*_highDpiScale), (float)((p.Y-5)*_highDpiScale));
+                g.DrawRectangle(pen, (float)(rect.X*_highDpiScale), (float)(rect.Y*_highDpiScale), (float)(rect.Width*_highDpiScale), (float)(rect.Height*_highDpiScale));
+            }
+        }
+        finally {
+            NativeMethods.ReleaseDC(IntPtr.Zero, desktopDC);
+        }
+    }
+
+    void SetHook()
+    {
+        IntPtr module = IntPtr.Zero;
+        _handler = CallbackProc;
+        _hookProcHandle = GCHandle.Alloc(_handler);
+        _hHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _handler, module, 0);
+
+        if ( _hHook == IntPtr.Zero ) {
+            // failed
+            int errorCode = Marshal.GetLastWin32Error();
+            _hookProcHandle.Free();
+            _handler = null;
+            throw new System.ComponentModel.Win32Exception(errorCode);
+        }
+    }
+
+    void UnHook()
+    {
+        if ( _hHook != IntPtr.Zero ) {
+            NativeMethods.UnhookWindowsHookEx(_hHook);
+            _hHook = IntPtr.Zero;
+            _hookProcHandle.Free();
+            _handler = null;
+        }
+    }
+
+    IntPtr CallbackProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if ( nCode &lt; 0 ) {
+            return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+        }
+        else {
+            if ( (long)wParam == NativeMethods.WM_LBUTTONDOWN ) {
+                //NativeMethods.GetCursorPos(out _lastPoint);
+                var p = Cursor.Position;
+                _lastPoint = new NativeMethods.POINT(){x=p.X, y=p.Y};
+                Console.Write(_lastPoint.x);
+                Console.Write(", ");
+                Console.WriteLine(_lastPoint.y);
+                timer.Start();
+
+                // cancel
+                return new IntPtr(1);
+            }
+
+            return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+        }
+    }
+
+
+    static float _highDpiScale = 1.0f;
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if (args.Length==1) {
+            float scale = (float)(Convert.ToInt32(args[0])/100.0);
+            if (scale&gt;=1.0f &amp;&amp; scale&lt;=5.0f) {
+                _highDpiScale = scale;
+            }
+        }
+        Application.Run(new AutomationTest());
+    }
+}
+
+internal class SubForm : Form
+{
+    internal SubForm(string text)
+    {
+        var txt = new TextBox(){
+            Text = text,
+            Multiline = true,
+            ScrollBars = ScrollBars.Both,
+            Dock = DockStyle.Fill
+        };
+        txt.KeyDown += (sender,e)=&gt;{
+            if (e.Control &amp;&amp; e.KeyCode == Keys.A) { txt.SelectAll(); }
+        };
+        Controls.Add(txt);
+    }
+}
+

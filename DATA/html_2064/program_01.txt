@@ -1,0 +1,87 @@
+
+
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using ShopifyWebhookHandler.Models;
+using System.Text;
+using System.Security.Cryptography;
+
+namespace ShopifyWebhookHandler
+{
+    public class ShopifyWebHookHandlerProductUpdateHandler
+    {
+        private string _sharedSecret = "Your Key Here";
+
+        [FunctionName("ShopifyWebHookHandlerProductUpdateHandler")]
+        public async Task&lt;IActionResult&gt; Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            log.LogInformation("Hello? Did you call me?");
+
+            // Read all
+            req.Headers.TryGetValue("X-Shopify-Topic", out var topic);
+            req.Headers.TryGetValue("X-Shopify-Hmac-Sha256", out var hMacSha256);
+            req.Headers.TryGetValue("X-Shopify-Shop-Domain", out var domain);
+            req.Headers.TryGetValue("X-Shopify-API-Version", out var apiVersion);
+            string requestBody = await new StreamReader(req.Body,Encoding.UTF8).ReadToEndAsync();
+
+            if (topic != "")
+            {
+                // do something if it's not the tipc you are looking for
+                log.LogInformation("Topic was: " + topic );
+            }
+
+            var keyBytes = Encoding.UTF8.GetBytes(_sharedSecret);
+            var dataBytes = Encoding.UTF8.GetBytes(requestBody);
+
+            var hmac = new HMACSHA256(keyBytes);
+            var hmacBytes = hmac.ComputeHash(dataBytes);
+            var createSignature = Convert.ToBase64String(hmacBytes);
+
+            if (hMacSha256 == createSignature)
+            {
+                // do something if key does not match
+
+            }
+
+            log.LogInformation("I compare " + hMacSha256 + " vs " + createSignature);
+
+            if (domain != "")
+            {
+                // do something if it's not the domain you are looking for
+                log.LogInformation("Domain was: " + domain);
+            }
+
+            // Map data into ProductModel
+            var data = JsonConvert.DeserializeObject&lt;ProductModel&gt;(requestBody);
+
+            log.LogInformation("The product " + data.title + " was updated. Api version is " + apiVersion + ".");
+
+            return data != null
+                ? (ActionResult)new OkObjectResult("Good news, all good.")
+                : new BadRequestObjectResult("Bad news, I got NULL.");
+        }
+
+        private string sha256(string randomString)
+        {
+            var crypt = new System.Security.Cryptography.SHA256Managed();
+            var hash = new System.Text.StringBuilder();
+            byte[] crypto = crypt.ComputeHash(Encoding.UTF8.GetBytes(randomString));
+            foreach (byte theByte in crypto)
+            {
+                hash.Append(theByte.ToString("x2"));
+            }
+            return hash.ToString();
+        }
+    }
+}
+
+

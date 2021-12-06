@@ -1,0 +1,127 @@
+
+using Accord.Neuro;
+using Accord.Neuro.ActivationFunctions;
+using Accord.Neuro.Networks;
+using AForge.Neuro.Learning;
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace AccordPerceptronTest
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        #region 学習データ
+        #region 色データ
+        private double[][] inputs = {
+            new double[] {214,182,65,1},
+            new double[] {173,140,56,1},
+            new double[] {64,0,178,1},
+
+            ～～ 中略 ～～
+
+            new double[] {184,242,140,1},
+            new double[] {145,174,105,1},
+        };
+        #endregion
+        #region 教師データ
+        // 暖色系 : { 1 } , 寒色系 : { -1 }
+        private double[][] outputs = {
+            new double[] { 1 },
+            new double[] { 1 },
+            new double[] { -1 },
+
+            ～～ 中略 ～～
+
+            new double[] { -1 },
+            new double[] { -1 },
+        };
+        #endregion
+        #endregion
+
+        DeepBeliefNetwork network = null;
+        double[] selectedColor = new double[4];
+
+        /// &lt;summary&gt;
+        /// 機械学習
+        /// &lt;/summary&gt;
+        private void Training()
+        {
+            // ネットワークの生成
+            network = new DeepBeliefNetwork(
+                new GaussianFunction(),          // 活性化関数の指定
+                inputsCount: 4,                  // 入力層の次元
+                hiddenNeurons: new int[] { 1 }); // 出力層の次元
+
+            // ネットワークの重みをガウス分布で初期化する
+            new GaussianWeights(network).Randomize();
+            network.UpdateVisibleWeights();
+
+            // DBNの学習アルゴリズムの生成  
+            var teacher = new PerceptronLearning(network);
+
+            // 学習実行。同じデータを1000回学習させる。
+            for (int i = 0; i &lt; 1000; i++)
+               teacher.RunEpoch(inputs, outputs);
+
+            // 重みの更新
+            network.UpdateVisibleWeights();
+        }
+
+        /// &lt;summary&gt;
+        /// 機械学習開始
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void button1_Click(object sender, EventArgs e)
+        {
+            Training();
+
+            MessageBox.Show("完了しました");
+
+            button2.Enabled = true;
+            button3.Enabled = true;
+        }
+
+        /// &lt;summary&gt;
+        /// 色選択
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void button2_Click(object sender, EventArgs e)
+        {
+            colorDialog1.ShowDialog(this);
+            Color tempColor = colorDialog1.Color;
+
+            panel1.BackColor = tempColor;
+
+            selectedColor[0] = Convert.ToDouble(tempColor.R);
+            selectedColor[1] = Convert.ToDouble(tempColor.G);
+            selectedColor[2] = Convert.ToDouble(tempColor.B);
+            selectedColor[3] = 1;
+
+            label1.Text = string.Empty;
+        }
+
+        /// &lt;summary&gt;
+        /// 判定
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void button3_Click(object sender, EventArgs e)
+        {
+            double[] output = network.Compute(selectedColor);
+
+            //  一番確率の高いクラスのインデックスを得る
+            string result = output[0] &gt;= 0 ? "暖色系です" : "寒色系です";
+
+            label1.Text = result;
+        }
+    }
+}
+

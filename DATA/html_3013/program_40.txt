@@ -1,0 +1,57 @@
+
+private static void FillFields(ModuleDefinition mainModuleDefinition, ILProcessor processor, TypeDefinition iSerializerDefinition, FieldDefinition[] fieldArray, Encoding utf8, FieldDefinition resolverFieldDefinition, MethodDefinition getMethodDefinition)
+{
+    Collection&lt;VariableDefinition&gt; variableDefinitions = processor.Body.Variables;
+    variableDefinitions.Add(new VariableDefinition(mainModuleDefinition.TypeSystem.Int64));
+    variableDefinitions.Add(new VariableDefinition(new PointerType(mainModuleDefinition.TypeSystem.Byte)));
+    variableDefinitions.Add(new VariableDefinition(mainModuleDefinition.TypeSystem.Int64));
+
+    // ,:0
+    long initialNeedLength = fieldArray.Aggregate(0, (accumulation, definition) =&gt; accumulation + utf8.GetByteCount(definition.Name)) + 1L + fieldArray.Length * 3L;
+
+    Instruction il0000 = Instruction.Create(OpCodes.Ldloc_0);
+
+    processor.Append(Instruction.Create(OpCodes.Ldc_I8, initialNeedLength));
+    processor.Append(Instruction.Create(OpCodes.Dup));
+    processor.Append(Instruction.Create(OpCodes.Neg));
+    processor.Append(Instruction.Create(OpCodes.Stloc_0));
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.Append(Instruction.Create(OpCodes.Dup));
+    processor.Append(Instruction.Create(OpCodes.Stloc_2));
+    processor.Append(Instruction.Create(OpCodes.Bgt, il0000));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_2));
+    WriteChar(processor, '{');
+
+    WriteField(mainModuleDefinition, processor, iSerializerDefinition, utf8, resolverFieldDefinition, getMethodDefinition, fieldArray[0], il0000, ref initialNeedLength);
+
+    for (var i = 1; i &lt; fieldArray.Length; i++)
+    {
+        processor.Append(Instruction.Create(OpCodes.Ldloc_1));
+        processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+        processor.Append(Instruction.Create(OpCodes.Conv_I));
+        processor.Append(Instruction.Create(OpCodes.Add));
+        WriteChar(processor, ',');
+        WriteField(mainModuleDefinition, processor, iSerializerDefinition, utf8, resolverFieldDefinition, getMethodDefinition, fieldArray[i], il0000, ref initialNeedLength);
+    }
+
+    processor.Append(Instruction.Create(OpCodes.Ldloc_1));
+    processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+    processor.Append(Instruction.Create(OpCodes.Conv_I));
+    processor.Append(Instruction.Create(OpCodes.Add));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I4_S, (sbyte)'}'));
+    processor.Append(Instruction.Create(OpCodes.Stind_I1));
+
+    processor.Append(Instruction.Create(OpCodes.Ldloc_2));
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.Append(Instruction.Create(OpCodes.Sub));
+    processor.Append(Instruction.Create(OpCodes.Ret));
+
+    processor.Append(il0000);
+    processor.Append(Instruction.Create(OpCodes.Ldloc_2));
+    processor.Append(Instruction.Create(OpCodes.Sub));
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.Append(Instruction.Create(OpCodes.Add));
+    processor.Append(Instruction.Create(OpCodes.Ret));
+}
+

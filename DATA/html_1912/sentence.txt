@@ -1,0 +1,5 @@
+More than 1 year has passed since last update.Windows 7 の頃には問題なかった処理が Windows 10 に変更するとメモリリークするようになったので調べてみた。Windows 7 の頃はこれで問題なかったのだが、 Windows 10 では GetPrintQueue() で取得した PrintQueue がメモリリークすることがある。具体的には、 XpsDocumentWriter.Write() を実行すると、 Windows 10 では COM Surrogate (dllhost.exe) に処理を委譲するようになっており、印刷が終わっても PrintQueue が破棄されるまでメモリが解放されないようだ。プリンタドライバを古いものに替えると起きなくなったので、ドライバの不具合を疑いメーカーに問い合わせした所、 PrintTicket に対応したドライバを使用すると起きるらしい。
+dllhost.exe は OS のモジュールなのでメーカー側ではどうしようもできないようだ。印刷が終わったら PrintQueue を Dispose すればメモリが解放される。本来、これが行儀のいい書き方なので、困っている人はあまりいないかもしれないが、 Visual Studio で印刷すると同様のリークが起きたりするので、 Microsoft 内でも想定外なバグなのかもしれない。
+サンプルのコードなんかを単純にコピペしてる人は困っているかもしれない。しかし、自分で new したものを Dispose するのは忘れないが、 GetPrintQueue() 内で新規にインスタンスが作成されていると思わないし、フレームワークが返したオブジェクトを勝手に Dispose してもいいのかとか色々考えてしまうので、あまり良い実装でないように思う。因みにこのリークは .Net Core では起こりません。サンプルコードはこちら
+
+

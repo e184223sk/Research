@@ -1,0 +1,154 @@
+using System;
+using System.Linq;
+using System.IO;
+using System.Text;
+using System.Collections;
+using System.Collections.Generic;
+
+class Player
+{
+    static void Main(string[] args) {
+        Player control = new Player();
+        string[] numbers;
+        Input[] inputs;
+        // game loop
+        while (true) {
+            numbers = Console.ReadLine().Split(' ');
+            int N = int.Parse(numbers[0]);
+            int P = int.Parse(numbers[1]);
+            Console.Error.WriteLine("P={0}", P);
+            inputs = new Input[N];
+            for (int i = 0; i &lt; N; i++) {
+                numbers = Console.ReadLine().Split(' ');
+                int X0 = int.Parse(numbers[0]);
+                int Y0 = int.Parse(numbers[1]);
+                int X1 = int.Parse(numbers[2]);
+                int Y1 = int.Parse(numbers[3]);
+                inputs[i] = new Input(i, X0, Y0, X1, Y1);
+            }
+            Input me = inputs[P];
+            string dir = control.HandleInputs(me, inputs);
+            control.DumpMap();
+            Console.WriteLine(dir);
+        }
+    }
+    Cell[,] map = new Cell[30, 20];
+    Queue&lt;Cell&gt; ffQueue = new Queue&lt;Cell&gt;();
+    private Player() {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                map[x, y] = new Cell(x, y, -1);
+            }
+        }
+    }
+    private string HandleInputs(Input me, Input[] inputs) {
+        Console.Error.WriteLine(me);
+        foreach(var input in inputs) {
+            if (input.X1 &lt; 0) DeleteIdsFromMap(input.Id);
+            else AddInputToMap(input);
+        }
+        ExecuteFloodfill(me);
+        if (CanMoveTo(me, -1, 0)) return "LEFT";
+        if (CanMoveTo(me, 1, 0)) return "RIGHT";
+        if (CanMoveTo(me, 0, -1)) return "UP";
+        if (CanMoveTo(me, 0, 1)) return "DOWN";
+        return "?";
+    }
+    void AddInputToMap(Input input) {
+        this.map[input.X1, input.Y1].V = input.Id;
+    }
+    void DeleteIdsFromMap(int id) {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                if (map[x, y].V == id) map[x, y].V = -1;
+            }
+        }
+    }
+    bool CanMoveTo(Input me, int xOffset, int yOffset) {
+        int x = me.X1+xOffset;
+        int y = me.Y1+yOffset;
+        if (x &lt; 0) return false;
+        if (x &gt; 29) return false;
+        if (y &lt; 0) return false;
+        if (y &gt; 19) return false;
+        return map[x, y].V == -1 || map[x, y].V == 9;
+    }
+    bool IsEmptyCell(Cell center, int xOffset, int yOffset) {
+        int x = center.X+xOffset;
+        int y = center.Y+yOffset;
+        if (x &lt; 0) return false;
+        if (x &gt; 29) return false;
+        if (y &lt; 0) return false;
+        if (y &gt; 19) return false;
+        return map[x, y].V == -1;
+    }
+    void DumpMap() {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                if (map[x, y].V == -1) Console.Error.Write("-");
+                else if (map[x, y].V == 9) Console.Error.Write("+");
+                else Console.Error.Write(map[x, y].V);
+                Console.Error.Write(" ");
+            }
+            Console.Error.WriteLine();
+        }
+    }
+    void ExecuteFloodfill(Input me) {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                if (map[x, y].V == 9) map[x, y].V = -1;
+            }
+        }
+        Cell c = map[me.X1, me.Y1];
+        if (IsEmptyCell(c, -1, 0)) ffQueue.Enqueue(map[c.X-1, c.Y]);
+        if (IsEmptyCell(c, 1, 0)) ffQueue.Enqueue(map[c.X+1, c.Y]);
+        if (IsEmptyCell(c, 0, -1)) ffQueue.Enqueue(map[c.X, c.Y-1]);
+        if (IsEmptyCell(c, 0, 1)) ffQueue.Enqueue(map[c.X, c.Y+1]);
+        FloodfillLoop();
+    }
+    void FloodfillLoop() {
+        while(ffQueue.Count &gt; 0) {
+            Cell c = ffQueue.Dequeue();
+            if(map[c.X, c.Y].V != -1) continue;
+            c.V = 9;
+            if (IsEmptyCell(c, -1, 0)) ffQueue.Enqueue(map[c.X-1, c.Y]);
+            if (IsEmptyCell(c, 1, 0)) ffQueue.Enqueue(map[c.X+1, c.Y]);
+            if (IsEmptyCell(c, 0, -1)) ffQueue.Enqueue(map[c.X, c.Y-1]);
+            if (IsEmptyCell(c, 0, 1)) ffQueue.Enqueue(map[c.X, c.Y+1]);
+        }
+    }
+}
+class Input
+{
+    public int Id;
+    public int X0;
+    public int Y0;
+    public int X1;
+    public int Y1;
+    public Input(int id, int x0, int y0, int x1, int y1) {
+        this.Id = id;
+        this.X0 = x0;
+        this.Y0 = y0;
+        this.X1 = x1;
+        this.Y1 = y1;
+    }
+    public override string ToString() {
+        return String.Format("Input{{X0:{0}, Y0:{1}, X1:{2}, Y1:{3}}}", X0, Y0, X1, Y1);
+    }
+}
+class Cell
+{
+    public int X;
+    public int Y;
+    public int V;
+    public Cell(int x, int y, int v) {
+        this.X = x;
+        this.Y = y;
+        this.V = v;
+    }
+    public override string ToString() {
+        return String.Format("Cell{{X:{0}, Y:{1}, V:{2}}}", X, Y, V);
+    }
+}
+
+

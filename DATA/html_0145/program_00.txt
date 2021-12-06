@@ -1,0 +1,375 @@
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+class SampleForm : Form
+{
+    static readonly int ExpectedHeaderMaxLines = 20;
+    static readonly Regex rxTableBeginTag = new Regex(@"&lt;table(?:\s)?[^&gt;]*&gt;", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+    //                                         1                   2             3                             *?は最短マッチ   o:pはMS office(word)対策
+    static readonly Regex rxTag = new Regex(@"&lt;([a-z][a-z0-9]*|o:p)(|\s[^&gt;]*)&gt;|&lt;/([a-z][a-z0-9]*|o:p)&gt;|&lt;!--(?:.*?)--&gt;", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+    //static readonly Regex rxTag = new Regex(@"&lt;([a-z][a-z0-9]*)(|\s[^&gt;]*)&gt;|&lt;/([a-z][a-z0-9]*)&gt;|&lt;!--(?:.*?)--&gt;", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+
+    TextBox txtAdoc;
+
+    SampleForm()
+    {
+        Text = "HTML table(Clipborad) to AsciiDoc";
+        ClientSize = new Size(700, 430);
+
+        var btn = new Button(){
+            Size = new Size(280, 25),
+            Text = "Get AsciiDoc from Clipborad",
+        };
+        btn.Click += (s,e)=&gt;{ParseFromHtmlClipboard();};
+        Controls.Add(btn);
+
+        var btnDbg = new Button(){
+            Location = new Point(300, 0),
+            Size = new Size(220, 25),
+            Text = "Get HTML from Clipborad(開発者用)",
+        };
+        btnDbg.Click += (s,e)=&gt;{DumpHtmlClipboard();};
+        Controls.Add(btnDbg);
+
+        txtAdoc = new TextBox(){
+            Location = new Point(0,30),
+            Size = new Size(700, 400),
+            Text = "",
+            Multiline = true,
+            WordWrap = false, // 折り返し表示をしない
+            ScrollBars = ScrollBars.Both,
+        };
+        Controls.Add(txtAdoc);
+        txtAdoc.KeyDown += (s,e)=&gt;{ if (e.Control &amp;&amp; e.KeyCode == Keys.A) { ((TextBox)s).SelectAll(); } };
+
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+    }
+
+    void MyResize()
+    {
+        int h = ClientSize.Height - txtAdoc.Top;
+        if(h&lt;50){h=50;}
+        txtAdoc.Size = new Size(ClientSize.Width, h);
+    }
+
+    void ParseFromHtmlClipboard()
+    {
+        MemoryStream ms = GetHtmlClipboard();
+        if ( ms != null ) {
+            string tmp = Parse(ms);
+            if ( tmp != null ) {
+                txtAdoc.Text = tmp;
+                txtAdoc.Focus();
+                txtAdoc.SelectAll();
+            }else {
+                txtAdoc.Text = "Parse Failed";
+            }
+        }
+        else {
+            txtAdoc.Text = "Clipboard Load failed";
+        }
+    }
+
+    void DumpHtmlClipboard()
+    {
+        MemoryStream ms = GetHtmlClipboard();
+        if ( ms != null ) {
+            string tmp = GetHtmlText(ms);
+            if ( tmp != null ) {
+                txtAdoc.Text = tmp;
+                //txtAdoc.Focus();
+                //txtAdoc.SelectAll();
+            }else {
+                txtAdoc.Text = "Parse Failed";
+            }
+        }
+        else {
+            txtAdoc.Text = "Clipboard Load failed";
+        }
+    }
+
+    static MemoryStream GetHtmlClipboard()
+    {
+        return Clipboard.GetData("Html Format") as MemoryStream;
+    }
+
+    static string GetHtmlText(MemoryStream ms)
+    {
+        int startHtml = -1;
+        int endHtml = -1;
+
+        // ヘッダ情報(StartHTML, EndHTML)を取得
+        //  StartHTML:nnnnnnnnnn
+        //  EndHTML:nnnnnnnnnn
+        //public StreamReader(Stream stream, Encoding encoding, bool detectEncodingFromByteOrderMarks, int bufferSize, bool leaveOpen)
+        //  leaveOpen=trueで開かないと、msが閉じてしまう。
+        using ( var sr = new StreamReader(ms, Encoding.UTF8, true, 1024, true) ) {
+            Regex rx = new Regex(@"^(StartHTML:|EndHTML:)([0-9]+)");
+            int lineCount = 0;
+            string s;
+            while ( (s = sr.ReadLine()) != null )
+            {
+                lineCount++;
+                Match m = rx.Match(s);
+                if ( m.Success ) {
+                    int n = Convert.ToInt32(m.Groups[2].Value, 10); // 10進
+                    if ( m.Groups[1].Value == "StartHTML:" ) {
+                        startHtml = n;
+                    }
+                    else {
+                        endHtml = n;
+                    }
+                    if ( startHtml &gt;= 0 &amp;&amp; endHtml &gt; startHtml ) {
+                        break;
+                    }
+                }
+                if ( lineCount &gt;= ExpectedHeaderMaxLines ) {
+                    break;
+                }
+            }
+        }
+
+        // HTML部分を取得(EndHTMLは無視)
+        ms.Position = startHtml;
+        using ( var sr = new StreamReader(ms, Encoding.UTF8, false) )
+        {
+            return sr.ReadToEnd();
+        }
+    }
+
+    // stypeタグの中身を返す
+    static string GetStyleText(string htmlText, out int endPos)
+    {
+        endPos = 0;
+        int styleStartTagPos = htmlText.IndexOf("&lt;style&gt;");
+        if ( styleStartTagPos &lt; 0 ) {
+            return null;
+        }
+        styleStartTagPos += "&lt;style&gt;".Length;
+
+        int styleEndTagPos = htmlText.IndexOf("&lt;/style&gt;", styleStartTagPos);
+        if ( styleEndTagPos &lt; 0 ) {
+            return null;
+        }
+        endPos = styleEndTagPos + "&lt;/style&gt;".Length;
+
+        int commentStartTagPos = htmlText.IndexOf("&lt;!--", styleStartTagPos);
+        if ( commentStartTagPos &gt;= 0 ) {
+            commentStartTagPos += "&lt;!--".Length;
+        }
+        int commentEndTagPos   = (commentStartTagPos&lt;0)?-1:htmlText.IndexOf("--&gt;", commentStartTagPos);
+        if (commentStartTagPos &gt;= 0 &amp;&amp; commentEndTagPos &gt; commentStartTagPos &amp;&amp; commentEndTagPos &lt; styleEndTagPos ) {
+            // コメントタグがある場合、コメントタグを除去（コメントタグ内のみを返す）
+            return htmlText.Substring(commentStartTagPos, commentEndTagPos - commentStartTagPos);
+        }
+        else {
+            // コメントタグがない場合
+            return htmlText.Substring(styleStartTagPos, styleEndTagPos - styleStartTagPos);
+        }
+    }
+
+    static int IndexOfUsingRegex(string src, int startPos, Regex rTarget, out int length)
+    {
+        Match m = rTarget.Match(src, startPos);
+        if ( !m.Success ) {
+            length = 0;
+            return -1;
+        }
+        length = m.Groups[0].Length;
+        return m.Groups[0].Index;
+    }
+
+    // tableタグ込みで返す
+    // ネストは許容しない(検出してnullを返す)
+    static string GetFirstTableText(string htmlText, int pos)
+    {
+        int len;
+        int tableStartTagPos = IndexOfUsingRegex(htmlText, pos, rxTableBeginTag, out len);
+        if ( tableStartTagPos &lt; 0 ) {
+            return null;
+        }
+
+        int tableEndTagPos = htmlText.IndexOf("&lt;/table&gt;", tableStartTagPos+len);
+        if ( tableEndTagPos &lt; 0 ) {
+            return null;
+        }
+        int dummy;
+        int tmpPos = IndexOfUsingRegex(htmlText, tableStartTagPos+len, rxTableBeginTag, out dummy);
+
+        if ( tmpPos&gt;=0 &amp;&amp; tmpPos&lt;tableEndTagPos ) {
+            // ネストしている（閉じタグよりも手前の位置に2つ目の開始タグを検出した）
+            return null;
+        }
+
+        tableEndTagPos += "&lt;/table&gt;".Length;
+        return htmlText.Substring(tableStartTagPos, tableEndTagPos - tableStartTagPos);
+    }
+
+
+    //static readonly Regex rxCss = new Regex(@":;", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+    //static Dictionary&lt;string,Dictionary&lt;string,string&gt;&gt; ParseCssPart(string styleText)
+    //{
+    //}
+
+    // https://momdo.github.io/html/syntax.html#attributes-2
+    //  属性名は、制御文字、U+0020 SPACE、U+0022（"）、U+0027（'）、U+003E（&gt;）、U+002F（/）、U+003D（=）、および非文字以外の1つ以上の文字で構成されなければならない。HTML構文において、外来要素に対するものでさえ、属性名は、ASCII小文字およびASCII大文字の任意の組み合わせで書かれてもよい。
+    //  属性値は、テキストが曖昧なアンパサンドを含めることができない追加の制限をもつ場合を除き、テキストおよび文字参照の混合物である。
+    // 引用符で囲まれない属性値構文
+    //  ASCII空白文字 U+0022 QUOTATION MARK文字（"）、
+    //                U+0027 APOSTROPHE文字（'）、U+003D EQUALS SIGN文字（=）、
+    //                U+003C LESS-THAN SIGN文字（&lt;）、U+003E GREATER-THAN SIGN文字（&gt;）、
+    //             またはU+0060 GRAVE ACCENT文字（`）文字を含んではならず、かつ空文字列であってはならない。
+
+    //                                           1                                            =      2                                   3            4 
+    //                                           &lt;-------------------------------------&gt;             &lt;--------------------------------&gt;  &lt;-----&gt;      &lt;-------&gt;
+    //                                                                                            &lt;----------------------------------------------------------------&gt;
+    static readonly Regex rxAttr = new Regex(@"\b([^\x00-\x1F\x20\x22\x27\x2F\x3D\x3E]+)\s*(?:=\s*(?:([^\x20\x22\x27\x3C\x3D\x3E\x60]+)|'([^']*)'|\x22([^x22]*)\x22))?", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
+    static Dictionary&lt;string,string&gt; ParseAttrs(string attrsStr)
+    {
+        var dict = new Dictionary&lt;string,string&gt;();
+
+        Match mAttr = rxAttr.Match(attrsStr);
+        while ( mAttr.Success ) {
+            string key = mAttr.Groups[1].Value.ToLower();
+
+            string value = "";
+            if ( mAttr.Groups[2].Length&gt;0 ) {
+                value = mAttr.Groups[2].Value;
+            }
+            else if(mAttr.Groups[3].Length&gt;0) {
+                value = mAttr.Groups[3].Value;
+            }
+            else if(mAttr.Groups[4].Length&gt;0) {
+                value = mAttr.Groups[4].Value;
+            }
+            else { // without "="
+                // do nothing
+            }
+
+            if ( !dict.ContainsKey(key) ) {
+                dict.Add(key, value);
+            }
+
+            mAttr = mAttr.NextMatch();
+        }
+        return dict;
+    }
+
+    static string EscapeContentForAdocTableCell(string s)
+    {
+        // Replace (string input, string replacement);
+        s = rxTag.Replace(s, ""); // HTML全般のタグを消去
+        s = s.Replace("\r\n", " ")
+             .Replace("\n", " ")
+             .Replace("\r", " ")
+             .Replace("\t", " ")
+             .Replace("&amp;nbsp;", " ")
+             .Replace("&amp;lt;", "&lt;")
+             .Replace("&amp;gt;", "&gt;")
+             .Replace("&amp;amp;", "&amp;")
+             .Replace("|", "{VBar}"); // ADoc用
+        return s;
+    }
+
+    static string ParseTableToAdoc(string tableText)
+    {
+        var sb = new StringBuilder();
+
+
+
+        Match m = rxTag.Match(tableText);
+        string lastStartTag = null;
+        int lastPos = -1;
+        int lastTdPos = -1;
+        int currentTdCount = 0;
+
+        sb.AppendLine("|===");
+
+        while (m.Success) {
+            if ( m.Groups[1].Length &gt; 0 ) {
+                string tag = m.Groups[1].Value;
+                string attrsStr = m.Groups[2].Value;
+                lastPos = m.Groups[0].Index + m.Groups[0].Length;
+
+                if ( tag == "tr" ) {
+                    currentTdCount = 0;
+                }
+                else if ( tag == "td" ) {
+                    lastTdPos = lastPos;
+                    if ( lastStartTag != "tr" ) {
+                        sb.Append(" ");
+                    }
+                    var attrs = ParseAttrs(attrsStr);
+                    if (attrs.ContainsKey("colspan") || attrs.ContainsKey("rowspan")){
+                        if ( attrs.ContainsKey("colspan") ) {
+                            sb.Append(attrs["colspan"]);
+                        }
+                        if ( attrs.ContainsKey("rowspan") ) {
+                            sb.Append(".");
+                            sb.Append(attrs["rowspan"]);
+                        }
+                        sb.Append("+");
+                    }
+                    sb.Append("|");
+                    currentTdCount++;
+                }
+                lastStartTag = tag;
+            }
+            else if ( m.Groups[3].Length &gt; 0 ) {
+                string tag = m.Groups[3].Value;
+                int tagStartPos = m.Groups[0].Index;
+                //Console.WriteLine("&lt;/" + m.Groups[3].Value +"&gt;");
+                if ( tag == "tr" ) {
+                    sb.AppendLine("");
+                }
+                else if ( tag == "td" ) {
+                    string s = tableText.Substring(lastTdPos, tagStartPos - lastTdPos);
+                    sb.Append(EscapeContentForAdocTableCell(s));
+                    lastTdPos = -1;
+                }
+                lastPos = -1;
+                lastStartTag = null;
+            }
+
+            m = m.NextMatch();
+        }
+
+        sb.AppendLine("|===");
+
+        Console.WriteLine(sb.ToString());
+
+        return sb.ToString();
+    }
+
+    static string Parse(MemoryStream ms)
+    {
+        // debug code {
+        //string htmlText = File.ReadAllText("testdata_html_excel.txt");
+
+        // } end of debug code
+
+        string htmlText = GetHtmlText(ms);
+        int pos;
+        string styleText = GetStyleText(htmlText, out pos)??"";
+        string tableText = GetFirstTableText(htmlText, pos);
+        return ParseTableToAdoc(tableText);
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new SampleForm());
+    }
+}
+

@@ -1,0 +1,95 @@
+using System;
+
+using Npgsql;
+using System.Transactions;
+using System.Data;
+
+
+namespace npgsql_test
+{
+    class Class1
+    {
+        static void Main(String[] args)
+        {
+            //SQL処理で用いる変数を予め宣言
+            NpgsqlCommand cmd = null;
+            string cmd_str = null;
+            DataTable dt = null;
+            NpgsqlDataAdapter da = null;
+
+            //接続文字列
+            string conn_str1 = "Server=192.168.56.111;Port=5432;User ID=postgres;Database=tes_db1;Password=password;Enlist=true";
+            string conn_str2 = "Server=192.168.56.111;Port=5432;User ID=postgres;Database=tes_db2;Password=password;Enlist=true";
+
+            //TransactionScopeの利用(分散トランザクション)
+            using (TransactionScope ts = new TransactionScope()) 
+            {
+                //接続その1(tes_db1へ接続)
+                using (NpgsqlConnection conn1 = new NpgsqlConnection(conn_str1))
+                {
+                    //PostgreSQLへ接続後、INSERT処理を実施し、SELECT結果を取得
+                    conn1.Open();
+
+                    //test対象のテーブルをリセット(全データDELETE)
+                    cmd_str = "DELETE FROM test1";
+                    cmd = new NpgsqlCommand(cmd_str, conn1);
+                    cmd.ExecuteNonQuery();
+
+                    //INSERT処理
+                    cmd_str = "INSERT INTO test1 VALUES(1, 'AAA'), (2, 'BBB')";
+                    cmd = new NpgsqlCommand(cmd_str, conn1);
+                    cmd.ExecuteNonQuery();
+
+                    //SELECT処理
+                    dt = new DataTable();
+                    cmd_str = "SELECT * FROM test1";
+                    cmd = new NpgsqlCommand(cmd_str, conn1);
+                    da = new NpgsqlDataAdapter(cmd);
+                    da.Fill(dt);
+
+                    //SELECT結果表示
+                    Console.WriteLine("tes_db1:");
+                    for (int i = 0; i &lt; dt.Rows.Count; i++)
+                    {
+                        Console.WriteLine("(col1, col2) = (" + dt.Rows[i][0] + ", " + dt.Rows[i][1] + ")");
+                    }
+                }
+
+                //接続その2(tes_db2へ接続)
+                using (NpgsqlConnection conn2 = new NpgsqlConnection(conn_str2))
+                {
+                    //PostgreSQLへ接続後、INSERT処理を実施し、SELECT結果を取得
+                    conn2.Open();
+
+                    //test対象のテーブルをリセット(全データDELETE)
+                    cmd_str = "DELETE FROM test2";
+                    cmd = new NpgsqlCommand(cmd_str, conn2);
+                    cmd.ExecuteNonQuery();
+
+                    //INSERT処理
+                    cmd_str = "INSERT INTO test2 VALUES(3, 'ccc'), (4, 'ddd')";
+                    cmd = new NpgsqlCommand(cmd_str, conn2);
+                    cmd.ExecuteNonQuery();
+
+                    //SELECT処理
+                    dt = new DataTable();
+                    cmd_str = "SELECT * FROM test2";
+                    cmd = new NpgsqlCommand(cmd_str, conn2);
+                    da = new NpgsqlDataAdapter(cmd);
+                    da.Fill(dt);
+
+                    //SELECT結果表示
+                    Console.WriteLine("tes_db2:");
+                    for (int i = 0; i &lt; dt.Rows.Count; i++) 
+                    {
+                        Console.WriteLine("(col1, col2) = (" + dt.Rows[i][0] + ", " + dt.Rows[i][1] + ")");
+                    }
+                }
+
+                //トランザクション完了
+                ts.Complete();
+            }
+        }
+    }
+}
+

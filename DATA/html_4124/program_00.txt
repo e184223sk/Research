@@ -1,0 +1,306 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Yhpg
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Test("foo/bar/baz", "foo,bar,baz");
+            Test("/foo/bar/baz'/", "-");
+            Test("\"", "-");
+            Test("'", "-");
+            Test("/", "-");
+            Test("\"\"", "-");
+            Test("''", "-");
+            Test("//", "/");
+            Test("\"/'", "-");
+            Test("'/\"", "-");
+            Test("Qux", "Qux");
+            Test("Foo/Bar", "Foo,Bar");
+            Test("foo\"bar", "-");
+            Test("foo'bar", "-");
+            Test("/foo/bar", "-");
+            Test("Foo//Bar", "Foo/Bar");
+            Test("foo/bar/", "-");
+            Test("'\"'a'\"'/b", "\"a\",b");
+            Test("Foo\"/\"Bar", "Foo/Bar");
+            Test("foo\"'\"bar", "foo'bar");
+            Test("foo'\"'bar", "foo\"bar");
+            Test("foo///bar", "foo/,bar");
+            Test("\"Z\"\"tO\"uFM", "ZtOuFM");
+            Test("''/foo/bar", "-");
+            Test("////'/\"//'", "///\"//");
+            Test("File/'I/O'", "File,I/O");
+            Test("Foo'//'Bar", "Foo//Bar");
+            Test("foo/''/bar", "-");
+            Test("foo/bar/\"\"", "-");
+            Test("'/////'////", "///////");
+            Test("'foo\"\"\"bar'", "foo\"\"\"bar");
+            Test("//'int'/V/c", "/int,V,c");
+            Test("foo/bar/baz", "foo,bar,baz");
+            Test("'H//Sg//zN'/", "-");
+            Test("//'//\"/'/'\"'", "///\"/,\"");
+            Test("foo//bar/baz", "foo/bar,baz");
+            Test("\"\"\"///\"/'/'//", "///,//");
+            Test("58\"\"N\"//nIk'd", "-");
+            Test("foo\"/\"bar/baz", "foo/bar,baz");
+            Test("/////'\"/'/'\"/'", "//,\"/,\"/");
+            Test("f\"//J\"/O9o\"//'", "-");
+            Test("foo\"//\"bar/baz", "foo//bar,baz");
+            Test("foo/bar////baz", "foo,bar//baz");
+            Test("\"\"\"'/'//'''/\"//", "'/'//'''//");
+            Test("8//'/k///\"3da\"'", "8//k///\"3da\"");
+            Test("foo/'/bar/'/baz", "foo,/bar/,baz");
+            Test("///''\"//\"\"///\"\"\"", "/,/////");
+            Test("//wUJ8KNAk'n0//\"", "-");
+            Test("What/is/'\"real\"'", "What,is,\"real\"");
+            Test("\"//'/////\"''/'//'", "//'/////,//");
+            Test("\"8hKE\"3Fx/4//Hk/J", "8hKE3Fx,4/Hk,J");
+            Test("'////''\"'//'/\"///'", "////\"//\"///");
+            Test("Ro\"/j''/2u/f/r/\"3n", "Ro/j''/2u/f/r/3n");
+            Test("hoge\"//\"fuga//piyo", "hoge//fuga/piyo");
+            Test("'foo//bar'//baz/qux", "foo//bar/baz,qux");
+            Test("//'//\"'/\"///'\"/''//", "///\",///',/");
+            Test("2/L'3'A8p/7//wP49Jb", "2,L3A8p,7/wP49Jb");
+            Test("\"foo'\"/\"bar'\"/\"baz'\"", "foo',bar',baz'");
+            Test("'//'\"//'///'///''\"//", "////'///'///''/");
+            Test("F6vX/q/Zu//5/'/H\"/'w", "F6vX,q,Zu/5,/H\"/w");
+            Test("\"foo'bar\"/'hoge\"fuga'", "foo'bar,hoge\"fuga");
+            Test("/\"/'//'/\"\"\"''//'/\"'''", "-");
+            Test("0gK\"koYUb\"\"S/p''z/\"Et", "0gKkoYUbS/p''z/Et");
+            Test("Foo/Bar/\"Hoge'/'Fuga\"", "Foo,Bar,Hoge'/'Fuga");
+        }
+
+        static void Test(string input, string expected)
+        {
+            var actual = Parser.Parse(input);
+            if (expected != actual)
+            {
+                Console.WriteLine($"input:{input} expected:{expected} actual:{actual}");
+            }
+        }
+    }
+
+    class Parser
+    {
+        private readonly StringBuilder builder = new StringBuilder();
+        private readonly List&lt;string&gt; entries = new List&lt;string&gt;();
+        private readonly MealyMachine stateMachine = new MealyMachine();
+
+        public static string Parse(string input)
+        {
+            var p = new Parser();
+            p.ParseInternal(input);
+            return p.GetResult();
+        }
+
+        private void ParseInternal(string input)
+        {
+            foreach (var c in input)
+            {
+                Next(c);
+            }
+            entries.Add(builder.ToString());
+            builder.Clear();
+        }
+
+        private void Next(char c)
+        {
+            var output = stateMachine.Next(c);
+            if (output.IsSeparated)
+            {
+                entries.Add(builder.ToString());
+                builder.Clear();
+            }
+            if (output.HasRawCharacter)
+            {
+                builder.Append(output.RawCharacter);
+            }
+        }
+
+        private string GetResult() =&gt;
+            (stateMachine.state == State.Entry)
+                ? string.Join(",", entries)
+                : "-";
+    }
+
+    enum State
+    {
+        EmptyEntry,
+        EmptyDoubleQuoting,
+        EmptySingleQuoting,
+        EmptySlashing,
+        Entry,
+        DoubleQuoting,
+        SingleQuoting,
+        Slashing,
+        Invalid
+    }
+
+    class MealyMachine
+    {
+        internal State state = State.EmptyEntry;
+
+        public Output Next(char c)
+        {
+            (State next, Output output) = Next(state, c);
+            state = next;
+            return output;
+        }
+
+        private static (State, Output) Next(State state, char c)
+        {
+            switch (state)
+            {
+                case State.EmptyEntry:
+                    return FromEmptyEntry(c);
+                case State.Entry:
+                    return FromEntry(c);
+                case State.EmptyDoubleQuoting:
+                    return FromEmptyDoubleQuoting(c);
+                case State.DoubleQuoting:
+                    return FromDoubleQuoting(c);
+                case State.EmptySingleQuoting:
+                    return FromEmptySingleQuoting(c);
+                case State.SingleQuoting:
+                    return FromSingleQuoting(c);
+                case State.EmptySlashing:
+                    return FromEmptySlashing(c);
+                case State.Slashing:
+                    return FromSlashing(c);
+                default:
+                    return (State.Invalid, default(Output));
+            }
+        }
+
+        private static (State, Output) FromEmptyEntry(char c)
+        {
+            switch (c)
+            {
+                case '\'':
+                    return (State.EmptySingleQuoting, default(Output));
+                case '"':
+                    return (State.EmptyDoubleQuoting, default(Output));
+                case '/':
+                    return (State.EmptySlashing, default(Output));
+                default:
+                    return (State.Entry, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromEntry(char c)
+        {
+            switch (c)
+            {
+                case '\'':
+                    return (State.SingleQuoting, default(Output));
+                case '"':
+                    return (State.DoubleQuoting, default(Output));
+                case '/':
+                    return (State.Slashing, default(Output));
+                default:
+                    return (State.Entry, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromEmptyDoubleQuoting(char c)
+        {
+            switch (c)
+            {
+                case '"':
+                    return (State.EmptyEntry, default(Output));
+                default:
+                    return (State.DoubleQuoting, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromDoubleQuoting(char c)
+        {
+            switch (c)
+            {
+                case '"':
+                    return (State.Entry, default(Output));
+                default:
+                    return (State.DoubleQuoting, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromEmptySingleQuoting(char c)
+        {
+            switch (c)
+            {
+                case '\'':
+                    return (State.EmptyEntry, default(Output));
+                default:
+                    return (State.SingleQuoting, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromSingleQuoting(char c)
+        {
+            switch (c)
+            {
+                case '\'':
+                    return (State.Entry, default(Output));
+                default:
+                    return (State.SingleQuoting, new Output(c));
+            }
+        }
+
+        private static (State, Output) FromEmptySlashing(char c)
+        {
+            switch (c)
+            {
+                case '/':
+                    return (State.Entry, new Output(c));
+                default:
+                    return (State.Invalid, default(Output));
+            }
+        }
+
+        private static (State, Output) FromSlashing(char c)
+        {
+            switch (c)
+            {
+                case '"':
+                    return (State.EmptyDoubleQuoting, new Output(true));
+                case '\'':
+                    return (State.EmptySingleQuoting, new Output(true));
+                case '/':
+                    return (State.Entry, new Output(c));
+                default:
+                    return (State.Entry, new Output(true, c));
+            }
+        }
+    }
+
+    struct Output
+    {
+        public bool IsSeparated;
+        public char RawCharacter;
+
+        public Output(bool isSeparated)
+        {
+            IsSeparated = isSeparated;
+            RawCharacter = default(char);
+        }
+
+        public Output(char rawCharacter)
+        {
+            IsSeparated = false;
+            RawCharacter = rawCharacter;
+        }
+
+        public Output(bool isSeparated, char rawCharacter)
+        {
+            IsSeparated = isSeparated;
+            RawCharacter = rawCharacter;
+        }
+
+        public bool HasRawCharacter =&gt; RawCharacter != default(char);
+    }
+}
+

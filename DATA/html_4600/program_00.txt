@@ -1,0 +1,62 @@
+public class BindManager
+{
+    private Dictionary&lt;(Type type, string triggerName), List&lt;BindInfo&gt;&gt; _dict;
+
+    public BindManager()
+    {
+        _dict = new Dictionary&lt;(Type type, string triggerName), List&lt;BindInfo&gt;&gt;();
+    }
+
+    public void AddViewModel(INotifyPropertyChanged viewModel)
+    {
+        viewModel.PropertyChanged += BindEventHandler;
+    }
+
+    public void RemoveViewModel(INotifyPropertyChanged viewModel)
+    {
+        viewModel.PropertyChanged -= BindEventHandler;
+    }
+
+    //トリガープロパティに値がセットされたとき動作するハンドラー
+    private void BindEventHandler(object sender, PropertyChangedEventArgs e)
+    {
+        if (_dict.ContainsKey((sender.GetType(), e.PropertyName)))
+            foreach (BindInfo b in _dict[(sender.GetType(), e.PropertyName)])
+                b.SetValue();
+    }
+
+    //バインド定義を処理
+    public void AddBindMember&lt;T&gt;(object control, string memberName, Expression&lt;Func&lt;T&gt;&gt; expression)
+    {
+        Delegate deleg = expression.Compile();
+        BindInfo bindInfo = new BindInfo(control, memberName, deleg);
+        //コントロールのプロパティに初期値がセットされる
+        bindInfo.SetValue();
+        //PropertyInfoを収集する
+        var visitor = new ExVisitor();
+        visitor.Visit(expression);
+        //プロパティ変更イベント発生時参照するディクショナリを作る
+        foreach (PropertyInfo info in visitor.Properties.Distinct())
+            _dict.GetWithNew((info.DeclaringType, info.Name)).Add(bindInfo);
+    }
+
+    //バインド情報を持つクラス
+    public class BindInfo
+    {
+        private object _target;
+        private string _memberName;
+        private Delegate _deleg;
+        public BindInfo(object control, string memberName, Delegate deleg)
+        {
+            _target = control;
+            _memberName = memberName;
+            _deleg = deleg;
+        }
+        public void SetValue()
+        {
+            PropertyInfo p = _target.GetType().GetProperty(_memberName);
+            p.SetValue(_target, _deleg.DynamicInvoke());
+        }
+    }
+}
+

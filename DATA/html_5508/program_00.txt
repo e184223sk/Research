@@ -1,0 +1,93 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using UnityEngine;
+
+public class Sample_Android : ISample {
+    private Sample sampleGameObject;
+    private SampleEventListener listener;
+    private static AndroidJavaObject androidInstance;
+
+    public Sample_Android(Sample sampleParent) {
+        sampleGameObject = sampleParent;
+
+        InitAndroidInstance();
+        CreateListenerObject();
+
+        if (sampleParent.androidSampleCode != null) {
+            Start(null);
+        }
+    }
+
+    private void CreateListenerObject() {
+        listener = sampleGameObject.gameObject.AddComponent&lt;SampleEventListener&gt;();
+
+        using (AndroidJavaObject activityObject = GetCurrentActivity()) {
+            activityObject.CallStatic("setCallbackGameObjectName", sampleGameObject.gameObject.name);
+        }
+
+        listener.SetNativeParent(this);
+    }
+
+    public void Start(string sampleCode) {
+        using (AndroidJavaObject activityObject = GetCurrentActivity()) {
+            if (sampleGameObject.androidSampleCode != null) {
+                activityObject.Call("start", sampleGameObject.androidSampleCode);
+            } else if (sampleCode != null) {
+                activityObject.Call("start", sampleCode);
+            }
+        }
+    }
+
+    public void DoSomething() {
+        using (AndroidJavaObject activityObject = GetCurrentActivity()) {
+            activityObject.Call("doSomething");
+        }
+    }
+
+    public int GetScore() {
+        using (AndroidJavaObject activityObject = GetCurrentActivity()) {
+            return activityObject.Call&lt;int&gt;("getScore");
+        }
+    }
+
+    public SampleStatus GetStatus() {
+        SampleStatus status = SampleStatus.Unavailable;
+
+        using (AndroidJavaObject statusObject = androidInstance.Call&lt;AndroidJavaObject&gt;("getStatus")) {
+            string statusName = statusObject.Call&lt;string&gt;("name");
+
+            if (statusName.Equals("Unavailable")) {
+                status = SampleStatus.Unavailable;
+            } else if(statusName.Equals("Available")) {
+                status = SampleStatus.Available;
+            }
+        }
+
+        return status;
+    }
+
+    public string GetSomeText() {
+        return androidInstance.Call&lt;string&gt;("getSomeText");
+    }
+
+    public bool IsAvailable() {
+        using (AndroidJavaObject activityObject = GetCurrentActivity()) {
+            return activityObject.Call&lt;bool&gt;("isAvailable");
+        }
+    }
+
+    public AndroidJavaObject GetCurrentActivity() {
+        using (AndroidJavaClass playerClass = new AndroidJavaClass("com.unity3d.player.UnityPlayer")) {
+            return playerClass.GetStatic&lt;AndroidJavaObject&gt;("currentActivity");
+        }
+    }
+
+    protected static void InitAndroidInstance() {
+        using (AndroidJavaClass sampleClass = new AndroidJavaClass("com.sdk.Sample")) {
+            androidInstance = sampleClass.CallStatic&lt;AndroidJavaObject&gt;("getInstance"); 
+        }
+    }
+}
+

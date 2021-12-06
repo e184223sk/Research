@@ -1,0 +1,41 @@
+
+// PropertyChangedの発火はUIスレッドが期待される
+abstract class ViewModelBase : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler PropertyChanged;
+    protected void RaisePropertyChanged([CallerMemberName]string propertyName = null)
+        =&gt; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+}
+
+// 適当なViewModel
+class ViewModel : ViewModelBase
+{
+    ImageSource thumbnail;
+    public ImageSource Thumbnail {
+        get =&gt; thumbnail;
+        set
+        {
+            RaisePropertyChanged();
+            thumbnail = value;
+        }
+    }
+}
+
+async Task ApplyImageAsync(ObservableCollection&lt;ViewModel&gt; viewModels, Image image)
+{
+    var bitmap = await Task.Run(() =&gt; new Bitmap(image)); // Drawing.Image =&gt; Bitmap 変換
+    ImageSource thumbnail = Imaging.CreateBitmapSourceFromHBitmap(source.GetHbitmap(),
+        IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+        // Bitmap =&gt; ImageSource
+        // ただ変換しているだけのように思えるが、実はImageSourceの生成はUIスレッドで行わなければならない。
+        // しかも例外が起こるのは、ImageSource生成時ではなく、BindされたViewModelのOnXXXChangedが飛んで
+        // 実際にImageSourceが使われるときになるので注意が必要。
+    var viewModel = new ViewModel(){ Thumbnail = thumbnail, };
+        // この例では新規インスタンスなのでPropertyChangedは発火しても何も起こらないが、
+        // すでにBindされている場合はPropertyChangedの発火でUI操作が走る可能性があるので、
+        // ViewModelのプロパティを操作するときはUIスレッドでやる必要がある。
+    viewModel.Add(viewModel);
+        // ObservableCollection&lt;T&gt;.OnCollectionChangedが呼ばれ
+        // その先にはUI操作が刺さっているので、UIスレッドでAddする必要がある。
+}
+

@@ -1,0 +1,32 @@
+
+        public IObservable&lt;KeyInfo&gt; CreateCommandObserver(string command)
+        {
+            IObservable&lt;KeyInfo&gt; inputObserverSelector(char c)
+                =&gt; this.input.KeyStream.Where(k =&gt; k.Key == c &amp;&amp; k.State);
+
+            // 方向キーを識別するための関数
+            bool isDirection(char c) =&gt; return '1' &lt;= c &amp;&amp; c &lt;= '9';
+
+            var observer = inputObserverSelector(command[0]);
+            for (int i = 1; i &lt; command.Length; ++i)
+            {
+                var index = i;
+                // 同じ入力が連続する場合、マージしてしまうと通知が重複して飛んでくるのを回避
+                if (command[index] != command[index - 1])
+                {
+                    observer = observer.Merge(inputObserverSelector(command[index]));
+                }
+
+                observer = observer
+                    .Buffer(2, 1)
+                    // 最初の入力がボタンの場合は間隔チェックが必要
+                    .Where(b =&gt; (index == 1 &amp;&amp; isDirection(command[0]))
+                             || b[1].Frame - b[0].Frame &lt; 10)
+                    .Where(b =&gt; b[0].Key == command[index - 1]
+                             &amp;&amp; b[1].Key == command[index])
+                    .Select(b =&gt; b[1]);
+            }
+
+            return observer;
+        }
+

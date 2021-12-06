@@ -1,0 +1,18 @@
+More than 1 year has passed since last update.今回は小ネタです。この記事は AvalonEdit のカスタマイズを試みた際の備忘録です。自作のメモ帳アプリ で、エディタコントロールとして非常に高機能なライブラリである AvalonEdit を使用しています。標準で多様な動作を実現できますが、機能を拡張しようとすると詰まりがちです。巨大なライブラリ故に内部の実装が複雑で、私の理解力では解読が難航します。
+時間が経つと経緯を忘れそうなのでメモとして残しています。AvalonEdit は改行文字を可視化することができ、標準では "\r", "\n", "¶" の記号で表示されます。これをサクラエディタのような矢印（"←", "↓", "↵"）に変更したいです。株式会社かなざわネット様のサイト でこれを叶える方法を解説頂いていますが、AvalonEdit のソースに手を加えずに実現する方法を模索しました。以下でたぶんできてます。改行マークは下記の VisualLineTextSource.CreateTextRunForNewLine() で指定されています。
+これを取り巻く要素を調整して、本件の実現を目指しました。CreateTextRunForNewLine() は非公開メソッドであり、VisualLineTextSource は sealed クラスのため継承できません。
+したがって、CreateTextRunForNewLine() を再定義した新しいクラスを作り、VisualLineTextSource の呼び出し元を新クラスに置き換えることを考えました。ところが VisualLineTextSource は以下のような呼び出し階層を持ちます。
+まず非公開メソッドが入るためこれは変更できません。その先は多くの参照元があるメソッドに繋がるため、影響範囲が大きく、現実的ではありません。　VisualLineTextSource
+　└ private TextView.BuildVisualLine()
+　　├ public TextView.GetOrConstructVisualLine()
+　　│ └ 多数の呼び出し元
+　　└ private TextView.CreateAndMeasureVisualLines()
+　　　└ protected TextView.MeasureOverride()
+　　　　└ 多数の呼び出し元CreateTextRunForNewLine() 内では、改行マークを TextViewCachedElements.GetTextForNonPrintableCharacter() で TextLine クラスに変換して呼び出し元に返しています。
+GetTextForNonPrintableCharacter() の書き換えを検討しましたが、これも失敗です。TextViewCachedElements も継承できないため、やるとすればクラスごと置き換えになりますが、
+呼び出し元はいずれも非公開メソッドの TextView.OnDocumentChanged(), TextView.RecreateCachedElements() であるため、これも現実的な対応を見出せません。失敗２の TextViewCachedElements は GetTextForNonPrintableCharacter() で改行マークを受け取り、TextLine に変換します。この TextLine は、ゆくゆくは VisualLineElement に設定され、画面描画に使用されます。
+一度変換した「改行マーク」と「TextLine」の組み合わせは nonPrintableCharacterTexts にキャッシュされ、次回からはこれが再利用されています。つまり、このキャッシュを調整し {"¶", TextLine("↵") } のような組み合わせを登録すれば、描画されるマークをコンバートできるということです。TextViewCachedElements のインスタンスは TextView.cachedElements という internal なメンバ変数のため、TextView を継承してもアクセスできません。TextViewCachedElements.nonPrintableCharacterTexts も同様に非公開です。
+ここではリフレクションを使いメンバ変数にアクセスして書き換えることになります。そのほか、TextLine を作るためにいくつかの非公開メソッドが必要になります。
+これらも含めたものが、"結論" に載せたコードになります。
+
+

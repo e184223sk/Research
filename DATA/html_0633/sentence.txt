@@ -1,0 +1,70 @@
+Azure Functionsで大規模なコードを開発していると、デバッグがめんどくさい･･･
+HTTPトリガーをコールしてから目的の関数にたどり着くまで待ち時間が長いことも多い。
+なので、直接アクティビティ関数をデバッグできないか調査。
+MSの以下のドキュメントをを参考にした。
+https://docs.microsoft.com/ja-jp/azure/azure-functions/functions-manually-run-non-http「HTTP によってトリガーされない関数に HTTP 要求を介してアクセスするには、フォルダー admin/functions から要求を送信する必要があります。」とあるので、デバッグ時もそうすればいいのでは？という単純な思考でデバッグしてみる。ソースは以下。(クリックするとソースが表示されます)
+
+    public static class Function2
+    {
+        [FunctionName("Function2")]
+        public static async Task&lt;List&lt;string&gt;&gt; RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context)
+        {
+            var outputs = new List&lt;string&gt;();
+
+            // Replace "hello" with the name of your Durable Activity Function.
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "Tokyo"));
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "Seattle"));
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "London"));
+
+            // returns ["Hello Tokyo!", "Hello Seattle!", "Hello London!"]
+            return outputs;
+        }
+
+        [FunctionName("Function2_Hello")]
+        public static string SayHello([ActivityTrigger] IDurableOrchestrationContext inputs, ILogger log)
+        //public static string SayHello([ActivityTrigger] string name, ILogger log)
+        {
+            var name = inputs.GetInput&lt;string&gt;();
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Function3")]
+        public static string SayHello3([ActivityTrigger] string inputString, ILogger log)
+        {
+            var input = JsonConvert.DeserializeObject&lt;Function3Input&gt;(inputString);
+
+            var name = input.Name;
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Function2_HttpStart")]
+        public static async Task&lt;HttpResponseMessage&gt; HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            // Function input comes from the request content.
+            string instanceId = await starter.StartNewAsync("Function2", null);
+
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+
+        public class Function3Input
+        {
+            public string Name { get; set; }
+            public string Age { get; set; }
+        }
+    }
+
+
+オーケストレーター関数を最初に作成したときのサンプルに毛をはやした(Functions3とFunction3Inputを足した)もの。
+Functions2_HelloとFunctions3を直接呼び出せるか確認する。Functions2_Helloは呼び出せなかった。Function3は呼び出せた。
+以下のようにリクエストするとFunction3が呼びだる。アクティビティ関数の引数にわたる文字列は「input」という固定のプロパティにJSON形式の文字列を渡せば、それがそのまま渡るみたい。
+上記の場合、Function3の引数には「{"name":"aaa","age":"20"}」という文字列が渡される。ちなみに、Function2_Helloのほうを同じように呼び出すと、リクエストは成功(202 Accepted)するが、デバッグコンソール上でエラーが表示される。エラー見ると「インタフェースクラスなのでインスタンス化できません」って言われてるのでなんか無理そうだし調べるのめんどくさそうだしいいやってことで調べるのやめた()もし呼び出せた方いたらやり方教えてください。今日は以上～。
+
+

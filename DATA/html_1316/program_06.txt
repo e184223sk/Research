@@ -1,0 +1,58 @@
+
+class CharacterInfo
+{
+    public Vector3 pos;
+    public Quaternion rot;
+    public float time;
+}
+
+[SerializeField] private float moveDamp = 12.0f; // 移動減衰
+
+private List&lt;CharacterInfo&gt; infoList = new List&lt;CharacterInfo&gt;();
+private float fixedTime = 0.0f; // 他キャラ情報の補正時間
+private float startTime = 0.0f; // 自クライアントの補正時間
+private int infoListIdx = 0; // 参照するinfoListのindex
+
+void Start()
+{
+    // 自クライアントの時間補正も考慮する
+    startTime = Time.fixedTime;
+}
+
+public void OnReceive(CharacterInfo info)
+{
+    // 最初に送られてきた他キャラ情報の時間を起点にする
+    // こうする事で、送られてきた時点から経過時間を考える事が出来る
+    if (fixedTime == 0.0f) fixedTime = info.time;
+    info.time -= fixeTime;
+    infoList.Add(info);
+}
+
+void FixedUpdate()
+{
+    var t = Time.fixedTime - startTime; // 現在の時間
+    var i = infoListIdx;
+    while (i &lt; infoList.Count - 2)
+    {
+        // 一定期間内に他キャラがいる
+        if (t &gt;= infoList[i].time &amp;&amp; t &lt; infoList[i+1].time)
+        {
+            // 補間時間を割り出す
+            var rate = Mathf.InverseLerp(infoList[i].time, infoList[i+1].time, t);
+            // 目的位置を割り出す
+            targetPos = Vector3.Lerp(infoList[i].pos, infoList[i+1].pos, rate);
+            // 回転はここで指定
+            transform.rotation = Quaternion.Slerp(infoList[i].rot, infoList[i+1].rot, rate);
+            // インデックス指定
+            infoListIdx = Mathf.Max(i - 1, 0);
+            // 不要な他キャラ情報は削除
+            if (infoListIdx &gt; 0) infoList.RemoveAt(0);
+            break;
+        }
+        i++;
+    }
+
+    // 滑らかに移動するために固めの線形補間を使う
+    transform.position = Vector3.Lerp(transform.position, targetPos, Time.fixedDeltaTime * moveDamp);
+}
+

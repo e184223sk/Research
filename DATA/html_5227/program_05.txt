@@ -1,0 +1,287 @@
+
+[ApiVersion(2, 1)]
+public class GhostMain : TerrariaPlugin
+{
+    public override string Author =&gt; "YOUの名前";
+
+    public override string Description =&gt; "プラグイン説明";
+
+    public override string Name =&gt; "TeleportGhost";
+
+    public override Version Version =&gt; Assembly.GetExecutingAssembly().GetName().Version;
+
+    // 配列に入力切り替わり時間と前回の入力を保存しておく(上左下右)
+    private int[,] lastControlChangedTicks = new int[Main.player.Length, 4];
+
+    private bool[,] lastPlayerControl = new bool[Main.player.Length, 4];
+
+    private int currentGameTick = 0;
+
+    private const int SHORT_TELEPORT_DOUBLE_TAP_TICK = 20;
+
+    private const int SHORT_TELEPORT_DISTANCE_X = 320;
+
+    private const int SHORT_TELEPORT_DISTANCE_Y = 320;
+
+    public GhostMain(Main game)
+        : base(game)
+    {
+    }
+
+    public override void Initialize()
+    {
+        ServerApi.Hooks.NetGetData.Register(this, OnGetData);
+        ServerApi.Hooks.GameUpdate.Register(this, UpdateGameTick);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            ServerApi.Hooks.NetGetData.Deregister(this, OnGetData);
+            ServerApi.Hooks.GameUpdate.Deregister(this, UpdateGameTick);
+        }
+    }
+
+    private void UpdateGameTick(EventArgs args)
+    {
+        currentGameTick++;
+    }
+
+    private void OnGetData(GetDataEventArgs args)
+    {
+        if (args.Handled)
+        {
+            return;
+        }
+
+        switch (args.MsgID)
+        {
+            case PacketTypes.PlayerUpdate:
+                OnPlayerUpdate(args);
+                break;
+        }
+    }
+
+    private void OnPlayerUpdate(GetDataEventArgs args)
+    {
+        // ゴーストの時だけ処理
+        if (!Main.player[args.Msg.whoAmI].ghost)
+        {
+            return;
+        }
+
+        // 処理するので処理しましたフラグを建てる
+        args.Handled = true;
+
+        // 今回はゴーストが移動したときにテレポートさせたいだけなので、一度テラリアサーバーが行う処理と同じことをする。
+        BinaryReader reader = new BinaryReader(new MemoryStream(args.Msg.readBuffer, args.Index, args.Length));
+        int playerIndex = reader.ReadByte();
+        if (playerIndex != Main.myPlayer || Main.ServerSideCharacter)
+        {
+            Player player = Main.player[playerIndex];
+
+            BitsByte bitsByte = reader.ReadByte();
+            BitsByte bitsByte1 = reader.ReadByte();
+            BitsByte bitsByte2 = reader.ReadByte();
+            BitsByte bitsByte3 = reader.ReadByte();
+            player.controlUp = bitsByte[0];
+            player.controlDown = bitsByte[1];
+            player.controlLeft = bitsByte[2];
+            player.controlRight = bitsByte[3];
+            player.controlJump = bitsByte[4];
+            player.controlUseItem = bitsByte[5];
+            player.direction = (bitsByte[6] ? 1 : (-1));
+            if (bitsByte1[0])
+            {
+                player.pulley = true;
+                player.pulleyDir = (byte)((!bitsByte1[1]) ? 1 : 2);
+            }
+            else
+            {
+                player.pulley = false;
+            }
+
+            player.vortexStealthActive = bitsByte1[3];
+            player.gravDir = (bitsByte1[4] ? 1 : (-1));
+            player.TryTogglingShield(bitsByte1[5]);
+            player.ghost = bitsByte1[6];
+            player.selectedItem = reader.ReadByte();
+            player.position = reader.ReadVector2();
+            if (bitsByte1[2])
+            {
+                player.velocity = reader.ReadVector2();
+            }
+            else
+            {
+                player.velocity = Vector2.Zero;
+            }
+
+            if (bitsByte2[6])
+            {
+                player.PotionOfReturnOriginalUsePosition = reader.ReadVector2();
+                player.PotionOfReturnHomePosition = reader.ReadVector2();
+            }
+            else
+            {
+                player.PotionOfReturnOriginalUsePosition = null;
+                player.PotionOfReturnHomePosition = null;
+            }
+
+            player.tryKeepingHoveringUp = bitsByte2[0];
+            player.IsVoidVaultEnabled = bitsByte2[1];
+            player.sitting.isSitting = bitsByte2[2];
+            player.downedDD2EventAnyDifficulty = bitsByte2[3];
+            player.isPettingAnimal = bitsByte2[4];
+            player.isTheAnimalBeingPetSmall = bitsByte2[5];
+            player.tryKeepingHoveringDown = bitsByte2[7];
+            player.sleeping.SetIsSleepingAndAdjustPlayerRotation(player, bitsByte3[0]);
+
+            // ゴーストを短距離テレポート
+            ShortTeleportGhost(player);
+
+            // ゴーストにタイル情報送信
+            RemoteClient.CheckSection(playerIndex, player.position);
+        }
+    }
+
+    private void ShortTeleportGhost(Player player)
+    {
+        int playerIndex = player.whoAmI;
+
+        // テレポート相対位置
+        Vector2 teleportOffset = Vector2.Zero;
+        if (player.controlUp || player.controlJump)
+        {
+            if (!lastPlayerControl[playerIndex, 0])
+            {
+                // プレイヤーコントロール入力変化(上入力なし→あり)
+                if (lastControlChangedTicks[playerIndex, 0] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+                {
+                    teleportOffset.Y -= SHORT_TELEPORT_DISTANCE_Y;
+                }
+            }
+        }
+        else
+        {
+            if (lastPlayerControl[playerIndex, 0])
+            {
+                // プレイヤーコントロール入力変化(上入力あり→なし)
+                lastControlChangedTicks[playerIndex, 0] = currentGameTick;
+            }
+        }
+
+        if (player.controlLeft)
+        {
+            if (!lastPlayerControl[playerIndex, 1])
+            {
+                // プレイヤーコントロール入力変化(左入力なし→あり)
+                if (lastControlChangedTicks[playerIndex, 1] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+                {
+                    teleportOffset.X -= SHORT_TELEPORT_DISTANCE_X;
+                }
+            }
+        }
+        else
+        {
+            if (lastPlayerControl[playerIndex, 1])
+            {
+                // プレイヤーコントロール入力変化(上入力あり→なし)
+                lastControlChangedTicks[playerIndex, 1] = currentGameTick;
+            }
+        }
+
+        if (player.controlDown)
+        {
+            if (!lastPlayerControl[playerIndex, 2])
+            {
+                // プレイヤーコントロール入力変化(下入力なし→あり)
+                if (lastControlChangedTicks[playerIndex, 2] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+                {
+                    teleportOffset.Y += SHORT_TELEPORT_DISTANCE_Y;
+                }
+            }
+        }
+        else
+        {
+            if (lastPlayerControl[playerIndex, 2])
+            {
+                // プレイヤーコントロール入力変化(左入力あり→なし)
+                lastControlChangedTicks[playerIndex, 2] = currentGameTick;
+            }
+        }
+
+        if (player.controlRight)
+        {
+            if (!lastPlayerControl[playerIndex, 3])
+            {
+                // プレイヤーコントロール入力変化(右入力なし→あり)
+                if (lastControlChangedTicks[playerIndex, 3] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+                {
+                    teleportOffset.X += SHORT_TELEPORT_DISTANCE_X;
+                }
+            }
+        }
+        else
+        {
+            if (lastPlayerControl[playerIndex, 3])
+            {
+                // プレイヤーコントロール入力変化(右入力あり→なし)
+                lastControlChangedTicks[playerIndex, 3] = currentGameTick;
+            }
+        }
+
+        // プレイヤー入力を記録(パケットが来るまで入力は変化しないため、リセット等は必要ない)
+        lastPlayerControl[playerIndex, 0] = player.controlUp || player.controlJump;
+        lastPlayerControl[playerIndex, 1] = player.controlLeft;
+        lastPlayerControl[playerIndex, 2] = player.controlDown;
+        lastPlayerControl[playerIndex, 3] = player.controlRight;
+
+        // 移動距離が0以外の場合
+        if (teleportOffset != Vector2.Zero)
+        {
+            bool isSSC = Main.ServerSideCharacter;
+            TSPlayer tsPlayer = TShock.Players[playerIndex];
+
+            // サーバーサイドキャラクターではない場合、サーバーサイドキャラクターに一時的にする
+            if (!isSSC)
+            {
+                Main.ServerSideCharacter = true;
+                NetMessage.SendData((int)PacketTypes.WorldInfo, playerIndex, -1, null, 0, 0f, 0f, 0f, 0, 0, 0);
+                tsPlayer.IgnoreSSCPackets = true;
+            }
+
+            player.position += teleportOffset;
+
+            // プレイヤーがワールド端に行き過ぎないように補正
+            if (player.position.X &gt; Main.rightWorld - 992)
+            {
+                player.position.X = Main.rightWorld - 992;
+            }
+            if (player.position.X &lt; 992)
+            {
+                player.position.X = 992;
+            }
+            if (player.position.Y &gt; Main.bottomWorld - 992)
+            {
+                player.position.Y = Main.bottomWorld - 992;
+            }
+            if (player.position.Y &lt; 992)
+            {
+                player.position.Y = 992;
+            }
+
+            // クライアントにプレイヤー情報送信(事実上のテレポート)
+            NetMessage.SendData((int)PacketTypes.PlayerUpdate, playerIndex, -1, null, playerIndex);
+
+            // サーバーサイドキャラクターではなかった場合、元に戻す
+            if (!isSSC)
+            {
+                Main.ServerSideCharacter = false;
+                NetMessage.SendData((int)PacketTypes.WorldInfo, playerIndex, -1, null, 0, 0f, 0f, 0f, 0, 0, 0);
+                tsPlayer.IgnoreSSCPackets = false;
+            }
+        }
+    }
+}
+

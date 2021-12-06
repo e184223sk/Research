@@ -1,0 +1,204 @@
+More than 1 year has passed since last update.以前C#における最速の文字列結合を検証するという記事を書いてstringの結合は+演算子を用いた物とStringBuilderを用いた物のどちらが速いのかを検証した。
+同記事内での検証でStringBuilderの方が速いと結論付けたが、記事のコメントで以下のようなマサカリ指摘を頂いた。C#の仕様ではstr s = "a" + "b" + "c"のように定数を一度に複数連結するとコンパイルの時点でs = "abc"に置き換えられるよ
+だから定数を一度に複数結合する場合はStringBuilderでは勝負にならないよつまりこういう事らしい。しかし、この指摘が事実かどうかは分からない。そこで真偽を確かめるために今回、一度に複数の文字列を結合した場合の処理時間について検証することにした。以下のコードを使用する。なんだかすっごく頭が悪そうな検証コードになってしまった。横にすっごく長い。
+動作の内容は以下のような感じ。実際に動作させると以下のようなコンソールが表示される。
+上のコードを実行し、表示された結果を以下に表にしてまとめる。
+なお、数値は有効数字3桁とする。0(空処理)：0.000221ms結合数が1個の時は+演算子による結合が速かったが、それ以外ではStringBuilderの方が大体1.5～2倍処理が速かった。0(空処理)：0.000221ms結合する文字列の個数に限らず+演算子による結合の方が速かった。
+最終的に+演算子がStringBuilderの20倍近い処理速度になっていた。爆速レベルだ
++演算子による結合の方は文字列の個数に限らず処理時間は0.0002ms前後だった。やはりコンパイル時に右辺を纏めているようだ。
+一方、StringBuilderによる結合の処理時間は両方変数の時とほぼ変わっていない。StringBuilderによる結合では結合する文字列が変数か定数かは無関係のようだ。0(空処理)：0.000215mss0、s1、s2が全て変数の時とほぼ同じ結果になった。
+定数同士が間に入った変数に邪魔されてコンパイル時に結合されず、結果的に全て変数の時のような振る舞いをした為だと考えられる。0(空処理)：0.000220msStringBuilderの方は上3つと同じような結果になった。
++演算子の方も処理時間は増えてはいるが変数だけを結合する時、変数と定数を交互に結合する時に比べると増加割合がずっと少ない。結合数が8個まではStringBuilderと良い勝負をしており、それ以降はStringBuilderより処理時間が短くなっている。これらの事から次の事が言えるだろう。また、今回は定数同士が最も結合できるパターンで検証したにも関わらず、StringBuilderと比較した処理速度が定数の時だけの20倍から3倍程度に大幅に落ち込んでいる。(それでも十分速いが)
+このことから結合する文字列に1つでも変数が混ざる=処理が大幅に遅くなるという認識で良いだろう。
+定数同士が最も結合できないパターン=変数と定数が交互にある時が遅い事を考えると結合する文字列に定数と変数が混合している時、定数同士が一定以上結合可能で文字列が多い時以外はStringBuilderを使うべきだろう。C#で長編小説でも書かない限りは文字列結合は変数と定数の混在、それも交互に結合する形になると思うので文字列結合はやはりStringBuilderを使うべきだろう。Unity環境でも上のようなコードを作って文字列結合の速度を計測した。
+結論を言うとこの記事で検証した結果とほぼ同じ結果になった。違いを言うなら結合する文字列の数を増やすと処理が遅くなり、最終的に+演算子による結合もStringBuilderによる結合も上の結果の3倍ほど時間が掛かった。詳しい検証と結果は折り畳みの中にある
+
+まず、計測用のコードは以下の通り。
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Test : MonoBehaviour
+{
+    void Awake ()
+    {
+        string str = "";//こいつに文字を追加する
+        System.Text.StringBuilder Sb = new System.Text.StringBuilder ();//こいつに文字を追加する
+        string s0 = "あたいったら最強ね！";//最初に追加する文字
+        string s1 = "あたいったら最強ね！";//追加する文字
+        const string s2 = "あたいったら最強ね！";//追加する文字、混合の時はこっちを定数にする
+        string Result;//表示の時に使う
+        int i;
+        int p;//処理パターン
+        const int n = 100000;//試行回数
+        System.Diagnostics.Stopwatch Sw = new System.Diagnostics.Stopwatch ();//処理時間計測用ストップウォッチ
+        double TotalTime = 0;
+
+        for (p = 0; p &lt; 39; p++)
+        {
+            TotalTime = 0;
+            for (i = 0; i &lt; n; i++)
+            {
+                str = "";//文字列とストップウォッチをリセット
+                Sb.Clear ();
+                Sw.Reset ();
+                Sw.Start ();
+                switch (p)
+                {
+                case 0://何もしない
+                    break;
+                case 1://1
+                    str += s0;
+                    break;
+                case 2:
+                    Sb.Append (s0);
+                    break;
+                case 3://2
+                    str += s0 + s2;
+                    break;
+                case 4:
+                    Sb.Append (s0).Append (s2);
+                    break;
+                case 5://3
+                    str += s0 + s2 + s1;
+                    break;
+                case 6:
+                    Sb.Append (s0).Append (s2).Append (s1);
+                    break;
+                case 7://4
+                    str += s0 + s2 + s1 + s2;
+                    break;
+                case 8:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 9://5
+                    str += s0 + s2 + s1 + s2 + s1;
+                    break;
+                case 10:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1);
+                    break;
+                case 11://6
+                    str += s0 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 12:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 13://7
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1;
+                    break;
+                case 14:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1);
+                    break;
+                case 15://8
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 16:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 17://9
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1;
+                    break;
+                case 18:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1);
+                    break;
+                case 19://10
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 20:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 21://20
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 22:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 23://30
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 24:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 25://40
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 26:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 27://50
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 28:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 29://60
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 30:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 31://70
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 32:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 33://80
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 34:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 35://80
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 36:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                case 37://100
+                    str += s0 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2 + s1 + s2;
+                    break;
+                case 38:
+                    Sb.Append (s0).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2).Append (s1).Append (s2);
+                    break;
+                }
+                Sw.Stop ();
+                TotalTime += Sw.Elapsed.TotalMilliseconds;
+            }
+            //かかった時間を表示
+            if (p == 0)
+            {
+                Result = "空";
+            }
+            else
+            {
+                if (p % 2 == 1)
+                {
+                    Result = "str";
+                }
+                else
+                {
+                    Result = "Sb";
+                }
+                if (p &lt;= 20)
+                {
+                    Result += Mathf.Ceil (p / 2f).ToString ();
+                }
+                else
+                {
+                    Result += (Mathf.Ceil ((p - 18) / 2f) * 10).ToString ();
+                }
+            }
+            //かかった時間を表示
+            Debug.Log (Result + "：" + (TotalTime / n) + "ms");
+        }
+    }
+}
+
+
+これを適当なオブジェクトにアタッチして実行したらコンソールログがこんな感じになる。
+
+
+
+

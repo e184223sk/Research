@@ -1,0 +1,82 @@
+
+using Microsoft.Win32;
+using System.Reflection;
+using System.Runtime.InteropServices;
+
+public class Register
+{
+    [ComRegisterFunction]
+    public static void Regist(Type t)
+    {
+        try
+        {
+            if (t.GUID == Guid.Empty)
+            {
+                throw new ArgumentException("clsid must not be empty");
+            }
+            string clsid = t.GUID.ToString("B");
+            string path = Assembly.GetExecutingAssembly().Location;
+
+            using (RegistryKey key = Registry.LocalMachine.CreateSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ControlPanel\\NameSpace\\" + clsid))
+            {
+                if (key != null)
+                {
+                    key.SetValue(null, DisplayName);
+                }
+            }
+            using (RegistryKey key = Registry.ClassesRoot.CreateSubKey("CLSID\\" + clsid))
+            {
+                if (key != null)
+                {
+                    key.SetValue(null, DisplayName);
+                    key.SetValue("InfoTip", Description);
+                    key.SetValue("System.ApplicationName", ApplicationName);
+                    key.SetValue("System.ControlPanel.Category", Category);
+                }
+            }
+            using (RegistryKey key = Registry.ClassesRoot.CreateSubKey("CLSID\\" + clsid + "\\DefaultIcon"))
+            {
+                if (key != null)
+                {
+                    key.SetValue(null, path);
+                }
+            }
+            using (RegistryKey key = Registry.ClassesRoot.CreateSubKey("CLSID\\" + clsid + "\\Shell\\Open\\Command"))
+            {
+                if (key != null)
+                {
+                    key.SetValue(null, path, RegistryValueKind.ExpandString);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            throw ex;
+        }
+    }
+
+    [ComUnregisterFunction]
+    public static void Unregist(Type t)
+    {
+        try
+        {
+            if (t.GUID == Guid.Empty)
+            {
+                throw new ArgumentException("clsid must not be empty");
+            }
+            string clsid = t.GUID.ToString("B");
+            string path = Assembly.GetExecutingAssembly().Location;
+
+            Registry.LocalMachine.DeleteSubKeyTree("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ControlPanel\\NameSpace\\" + clsid, false);
+            Registry.ClassesRoot.DeleteSubKeyTree("CLSID\\" + clsid, false);
+            Registry.ClassesRoot.DeleteSubKeyTree("CLSID\\" + clsid + "\\DefaultIcon", false);
+            Registry.ClassesRoot.DeleteSubKeyTree("CLSID\\" + clsid + "\\Shell\\Open\\Command", false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            throw ex;
+        }
+    }
+

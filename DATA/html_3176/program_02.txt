@@ -1,0 +1,173 @@
+
+using System.Linq;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using Microsoft.CodeAnalysis;
+using System.IO;
+
+namespace Flow
+{
+    public class FlowGraph
+    {
+        private static int WORD_WRAP_LENGTH = 40;
+        private List&lt;GraphEdge&gt; EdgeList = new List&lt;GraphEdge&gt;();
+        private Dictionary&lt;SyntaxNode, GraphNode&gt; NodeMap = new System.Collections.Generic.Dictionary&lt;SyntaxNode, GraphNode&gt;();
+        private IEnumerable&lt;BaseMethodDeclarationSyntax&gt; memberDeclarations;
+        private string _sourceCode;
+        private int _seq = 0;
+
+        //args[0]:対象c#ソースファイル
+        //args[1]:dotファイル（静的フローチャート）出力先
+        //args[2]:変換後ソース（トレース用コード）出力先
+        static void Main(string[] args)
+        {
+            string sourceCode = File.ReadAllText(args[0]);
+            FlowGraph graph = new FlowGraph(sourceCode);
+            //静的フロー出力
+            graph.WriteDot(args[1]);
+            //ソースコード変換
+            graph.ConvSource(args[2]);
+        }
+
+        public FlowGraph(string sourceCode)
+        {
+            _sourceCode = sourceCode;
+            var tree = CSharpSyntaxTree.ParseText(_sourceCode);
+            memberDeclarations = tree.GetRoot().DescendantNodes().OfType&lt;BaseMethodDeclarationSyntax&gt;();
+            if(memberDeclarations.Count() == 0)
+            {
+                return;
+            }
+            foreach (var funcRoot in memberDeclarations)
+            {
+                SyntaxVisitor ast = new SyntaxVisitor(this);
+                if (funcRoot is MethodDeclarationSyntax || funcRoot is ConstructorDeclarationSyntax)
+                    ast.VisitRootSyntax(funcRoot);
+            }
+        }
+
+        //トレース用のソースコード出力
+        public void ConvSource(string outFile)
+        {
+            var result = _sourceCode;
+            var keys = new List&lt;SyntaxNode&gt;(NodeMap.Keys).OrderByDescending(x =&gt; x.Span.Start);
+            AddInitStatements(ref result, memberDeclarations.Last());
+            foreach (var sNode in keys)
+            {
+                AddTraceStatement(ref result, NodeMap[sNode], sNode);
+            }
+            using (System.IO.StreamWriter writer = new System.IO.StreamWriter(outFile, false))
+            {
+                writer.Write(result);
+            }
+        }
+
+        //ノード、エッジ登録関数部作成
+        private void AddInitStatements(ref string result, SyntaxNode lastMetod)
+        {
+            var clustermap = new Dictionary&lt;SyntaxNode, int&gt;();
+            int ipoint = lastMetod.FullSpan.End;
+            string spaces = new string(' ', lastMetod.GetLocation().GetLineSpan().StartLinePosition.Character);
+            var sb = new StringBuilder();
+            sb.Append("\r\n" + spaces + "public FlowTrace Trace = new FlowTrace();\r\n");
+            sb.Append(spaces + "public void InitGraph()\r\n");
+            sb.Append(spaces + "{\r\n");
+            //クラスタIDを追加する
+            string spaces2 = new string(' ', spaces.Length + 4);
+            int cluster = 0;
+            foreach (var funcRoot in memberDeclarations)
+            {
+                sb.Append(spaces2 + "Trace.AddFunc(" + cluster + ");\r\n");
+                foreach (SyntaxNode sNode in NodeMap.Keys)
+                {
+                    if (sNode == funcRoot || sNode.Ancestors(true).Contains(funcRoot))
+                    {
+                        var gNode = NodeMap[sNode];
+                        string isFunc = sNode == funcRoot ? "true" : "false";
+                        string label = gNode.LabelName.Replace("\r", "").Replace("\n", "\\n").Replace("\"", "\\\"");
+                        sb.Append(spaces2 + "Trace.AddNode(" + cluster + ", \"" + gNode.NodeId + "\", \"" + gNode.NodeShape + "\", \"" + label + "\"" + ");\r\n");
+                    }
+                }
+                cluster++;
+            }
+
+            foreach (GraphEdge gEdge in EdgeList)
+            {
+                string label = gEdge.CenterLabel.Replace("\r", "").Replace("\n", "\\n").Replace("\"", "\\\"");
+                sb.Append(spaces2 + "Trace.AddEdge(\"" + gEdge.TailNode.NodeId + "\", \"" + gEdge.HeadNode.NodeId + "\", \"" + label + "\");\r\n");
+            }
+
+            sb.Append(spaces + "}\r\n");
+            result = result.Insert(ipoint, sb.ToString());
+        }
+
+        //トレースコード埋め込み
+        private void AddTraceStatement(ref string result, GraphNode gNode, SyntaxNode sNode)
+        {
+            string traceStr = $"Trace.TraceNode(\"{gNode.NodeId}\");";
+            var parent = sNode.Parent;
+            if (sNode is BlockSyntax)
+            {
+                return;
+            }
+            else if (sNode is MethodDeclarationSyntax ||
+                sNode is ConstructorDeclarationSyntax ||
+                sNode is LocalFunctionStatementSyntax)
+            {
+                var property = sNode.GetType().GetProperty("Body");
+                var block = (BlockSyntax)property.GetValue(sNode);
+                string spaces = new string(' ', block.GetLocation().GetLineSpan().StartLinePosition.Character + 4);
+                result = result.Insert(block.Span.Start + 1, "\r\n" + spaces + $"Trace.TraceNode(\"{gNode.NodeId}\", true);");
+                return;
+            }
+            else if (parent is ElseClauseSyntax || parent is IfStatementSyntax)
+            {
+                var property = sNode.Parent.GetType().GetProperty("Statement");
+                var statement = property.GetValue(sNode.Parent);
+                string spaces = new string(' ', parent.GetLocation().GetLineSpan().StartLinePosition.Character);
+                result = result.Insert(sNode.Span.End, "\r\n" + spaces + "}");
+                string spaces2 = new string(' ', sNode.GetLocation().GetLineSpan().StartLinePosition.Character);
+                result = result.Insert(((StatementSyntax)statement).Span.Start, "{" + "\r\n" + spaces2 + traceStr + "\r\n" + spaces2);
+                return;
+            }
+            else if (sNode is ExpressionSyntax expr)
+            {
+                if (expr.Parent is DoStatementSyntax doSntax2)
+                {
+                    try
+                    {
+                        var lastStatement = doSntax2.Statement.ChildNodes().Last();
+                        string spaces = new string(' ', lastStatement.GetLocation().GetLineSpan().StartLinePosition.Character);
+                        result = result.Insert(lastStatement.Span.End, "\r\n" + spaces + traceStr);
+                    }
+                    catch { }
+                }
+                return;
+            }
+            else if (sNode is DoStatementSyntax ||
+                sNode is WhileStatementSyntax ||
+                sNode is ForEachStatementSyntax ||
+                sNode is ForStatementSyntax)
+            {
+                var property = sNode.GetType().GetProperty("Statement");
+                StatementSyntax statement = (StatementSyntax)property.GetValue(sNode);
+                try
+                {
+                    var firstStatement = statement.ChildNodes().First();
+                    string spaces = new string(' ', firstStatement.GetLocation().GetLineSpan().StartLinePosition.Character);
+                    result = result.Insert(firstStatement.Span.Start, traceStr + "\r\n" + spaces);
+                }
+                catch { }
+            }
+            string leftPadding = new string(' ', sNode.GetLocation().GetLineSpan().StartLinePosition.Character);
+            result = result.Insert(sNode.Span.Start, traceStr + "\r\n" + leftPadding);
+        }
+
+        public GraphNode CreateGraphNode(SyntaxNode astNode, string labelName, string nodeShape)
+        //以下省略
+    }
+}
+

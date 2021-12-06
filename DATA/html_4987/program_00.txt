@@ -1,0 +1,42 @@
+using UnityEngine.Networking;
+
+public class NiconicoAPI {
+    public const string NICONICO_LOGIN_URL = "https://secure.nicovideo.jp/secure/login?site=niconico";
+    public string userSession = null;
+
+    public IEnumerator Login() {    
+        string id = "your@mail.address";
+        string pass = "yourpassword";
+
+        WWW form = new WWWForm();
+        form.AddField("mail_tel", id);
+        form.AddField("password", pass);
+
+        UnityWebRequest www = UnityWebRequest.Post(NICONICO_LOGIN_URL, form);
+
+        //これがめっちゃ重要
+        www.redirectLimit = 0;
+
+        yield return www.SendWebRequest();
+
+        Dictionary&lt;string, string&gt; headers = www.GetResponseHeaders();
+
+        string setCookieHeader = null;
+        try {
+            setCookieHeader = www.GetResponseHeader()["set-cookie"];
+        } catch(KeyNotFoundException keyNotFoundException) {
+            //post情報が間違っててSet-Cookieすら含まれない状態
+            Debug.Log(keyNotFoundException.Message);
+        }
+
+        //Set-Cookieヘッダに含まれるuser_sessionは3つあって、そのうち必要なものはuser_sessionから始まる
+        //他は"deleted"とsecureなんたらとかいうの。いらない。（知らんけど)
+        foreach(string cookie in setCookieHeader.Split(new string[] {"user_session="}, StringSplitOptions.None)) {
+            if(cookie.StartsWith("user_session")) {
+                this.userSession = cookie.Split(';')[0];
+            }
+        }        
+        www.Dispose();
+    }
+}
+

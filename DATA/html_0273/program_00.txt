@@ -1,0 +1,99 @@
+using System;
+using System.Timers;
+
+namespace yourownnamespace
+{
+    /// &lt;summary&gt;
+    /// 繰り返し処理専用のTimerラッパー
+    /// Dispose後は実行中の処理が必ず無い状態となる
+    /// 開始後は破棄のみ可能
+    /// IDisposableのsnippestはほぼ、そのまま残してある
+    /// &lt;/summary&gt;
+    internal class SafelyDisposableTimer : IDisposable
+    {
+        private bool disposedValue;
+        // 定期的に実行したい処理
+        private Action callbackAction;
+        private Timer timer = new Timer();
+        private object lockObject = new object();
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="interlval"&gt;インターバル（ミリ秒）&lt;/param&gt;
+        /// &lt;param name="callbackAction"&gt;定期的に実行したい処理&lt;/param&gt;
+        internal SafelyDisposableTimer(int interlval, Action callbackAction)
+        {
+            this.callbackAction = callbackAction;
+            this.timer.Elapsed += this.TimerElapsedEventHandler;
+            this.timer.Interval = interlval;
+            // 繰り返し処理する
+            this.timer.AutoReset = true;
+        }
+
+        /// &lt;summary&gt;
+        /// タイマーを開始する
+        /// &lt;/summary&gt;
+        internal void Start()
+        {
+            this.timer.Start();
+        }
+
+        /// &lt;summary&gt;
+        /// 破棄
+        /// &lt;/summary&gt;
+        /// &lt;param name="disposing"&gt;&lt;/param&gt;
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    // TODO: マネージド状態を破棄します (マネージド オブジェクト)
+                    this.timer.Stop();
+                    this.timer.Dispose();
+                }
+
+                // TODO: アンマネージド リソース (アンマネージド オブジェクト) を解放し、ファイナライザーをオーバーライドします
+                // TODO: 大きなフィールドを null に設定します
+                lock (this.lockObject)
+                {
+                    disposedValue = true;
+                }
+            }
+        }
+
+        // // TODO: 'Dispose(bool disposing)' にアンマネージド リソースを解放するコードが含まれる場合にのみ、ファイナライザーをオーバーライドします
+        // ~SafelyDisposableTimer()
+        // {
+        //     // このコードを変更しないでください。クリーンアップ コードを 'Dispose(bool disposing)' メソッドに記述します
+        //     Dispose(disposing: false);
+        // }
+
+        /// &lt;summary&gt;
+        /// 破棄
+        /// &lt;/summary&gt;
+        public void Dispose()
+        {
+            // このコードを変更しないでください。クリーンアップ コードを 'Dispose(bool disposing)' メソッドに記述します
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
+        }
+
+        private void TimerElapsedEventHandler(object sender, ElapsedEventArgs args)
+        {
+            lock (this.lockObject)
+            {
+                if (this.disposedValue == true)
+                {
+                    return;
+                }
+
+                // 処理を実行
+                this.callbackAction();
+            }
+        }
+    }
+}
+
+

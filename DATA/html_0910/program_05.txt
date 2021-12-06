@@ -1,0 +1,123 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEditor;
+using System;
+
+[CustomEditor(typeof(LoadCSV_Pokedex))]
+public class CsvLoaderEditor_Pokedex : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        var LoadCSV = target as LoadCSV_Pokedex;
+        DrawDefaultInspector();
+
+        if (GUILayout.Button("ポケモン図鑑データの作成"))
+        {
+            SetCsvDataToScriptableObject(LoadCSV);
+        }
+    }
+
+    void SetCsvDataToScriptableObject(LoadCSV_Pokedex loadCSV)
+    {
+        string pokemonName = null;
+
+        // ボタンを押されたらパース実行
+        if (loadCSV.csvFile == null)
+        {
+            Debug.LogWarning(loadCSV.name + " : 読み込むCSVファイルがセットされていません。");
+            return;
+        }
+
+        // csvファイルをstring形式に変換
+        string csvText = loadCSV.csvFile.text;
+
+        // 改行ごとにパース
+        string[] afterParse = csvText.Split('\n');
+
+        // ヘッダー行を除いてインポート
+        for (int i = 1; i &lt; afterParse.Length; i++)
+        {
+            string[] parseByComma = afterParse[i].Split(',');
+
+            int column = 0;
+
+            // 先頭の列が空であればその行は読み込まない
+            if (parseByComma[column] == "")
+            {
+                continue;
+            }
+
+            // ファイルを作成
+            string fileName = parseByComma[column] + ".asset";
+
+            pokemonName = parseByComma[column];
+            column += 1;
+
+            //一応今回はResourcesに生成
+            string path = "Assets/Resources/" + fileName;
+
+            // PokeDexのインスタンスをメモリ上に作成
+            PokeDex pokedex = CreateInstance&lt;PokeDex&gt;();
+
+            pokedex.TypeList = new List&lt;PokeDex.Type&gt;();
+            pokedex.AbilityList = new List&lt;string&gt;();
+
+           //タイプ～図鑑Noまで取得(省略)
+
+            List&lt;Sprite&gt; SpriteList = NonResources.LoadAll&lt;Sprite&gt;("Assets/Image/PokeDex");
+
+            List&lt;AudioClip&gt; NakigoeList = NonResources.LoadAll&lt;AudioClip&gt;("Assets/Sound/Nakigoe");
+
+            foreach (Sprite sprite in SpriteList)
+            {
+                string spriteName = sprite.name;
+                string pokedexNo = String.Format("{0:D3}", pokedex.PokeDexNo);
+
+                if (spriteName == pokedexNo)
+                {
+                    pokedex.FrontImage = sprite;
+                }
+
+
+                else if (spriteName == pokedexNo + "_2")
+                {
+                    pokedex.BackImage = sprite;
+
+                }
+
+                else if (spriteName == pokedexNo + "_")
+                {
+                    pokedex.BenchImage = sprite;
+                }
+            }
+
+            foreach (AudioClip nakigoe in NakigoeList)
+            {
+                if (nakigoe.name == pokemonName)
+                {
+                    pokedex.Nakigoe = nakigoe;
+                }
+            }
+
+
+            // インスタンス化したものをアセットとして保存
+            var asset = (PokeDex)AssetDatabase.LoadAssetAtPath(path, typeof(PokeDex));
+            if (asset == null)
+            {
+                // 指定のパスにファイルが存在しない場合は新規作成
+                AssetDatabase.CreateAsset(pokedex, path);
+            }
+            else
+            {
+                // 指定のパスに既に同名のファイルが存在する場合は更新
+                EditorUtility.CopySerialized(pokedex, asset);
+                AssetDatabase.SaveAssets();
+            }
+
+            AssetDatabase.Refresh();
+        }
+        Debug.Log(loadCSV.name + " : ポケモン図鑑データの作成が完了しました。");
+    }
+

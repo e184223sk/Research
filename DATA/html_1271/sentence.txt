@@ -1,0 +1,39 @@
+More than 1 year has passed since last update.Tokyo AEC Industry Dev Group で発表したハンズオンの内容を文書でまとめたものです。Rhino+Grasshopper 上でポイントクラウドから補間曲面をNURBS曲面として生成するコンポーネントを作ることが目的です。gitlab レポジトリ
+ハンズオンのアーカイブ動画This is a hands-on archive of Tokyo AEC Industry Dev Group.The purpose of this article is to create a component on Rhino+Grasshopper that generates interpolated surfaces from point clouds as NURBS surfaces.gitlab repository
+Youtube archive of this handson3Dスキャンなどから取得したランダムな点群から元の形状を「Nurbs Surface」として復元する GH コンポーネントを実装します。We implement a GH component that restores the original shape as a "Nurbs Surface" from a random point cloud obtained from a 3D scan, etc.Wiki によると
+「内挿（ないそう、英: interpolation）や補間（ほかん）とは、ある既知の数値データ列を基にして、そのデータ列の各区間の範囲内を埋める数値を求めること、またはそのような関数を与えること。」
+となっています。既知の数値データ列からその間を埋められると、どういった利点があるのでしょうか？一番わかりやすい例は、今回実装する「点群から曲面生成をする」、といった幾何処理ができるということかと思います。もうちょっと高度な例だと、AEC の文脈で、例えばＧＨ上で定義したパラメトリックモデルに対して何かしらの構造計算や環境評価をした値のパラメータスタディをする、「幾何パラメータ　－＞　評価値」という対応関係が離散的に手に入ります。これら離散的な評価点群から間を滑らかな曲面で近似することで、重い計算が必要な構造計算や環境評価を毎回行わなくても、幾何パラメータを入力すると瞬時にそれなりに正しい評価値を算出することが可能になります。また、微分情報も取ることができるので、この対応関係を最適化計算に利用することもできます。画像出典：【はじめての最適化】最適化だけじゃない！応答曲面機能（その1）ここでは「内挿」について説明しましたが、データに無い未知の入力に対してもそれなりに正しい解を出力する「外挿」についてさらに知りたい方はここあたりを参考にすると面白いかもしれません。At Wiki, it is descrived like this "In the mathematical field of numerical analysis, interpolation is a type of estimation, a method of constructing new data points within the range of a discrete set of known data points. In engineering and science, one often has a number of data points, obtained by sampling or experimentation, which represent the values of a function for a limited number of values of the independent variable. It is often required to interpolate, i.e., estimate the value of that function for an intermediate value of the independent variable."What are the benefits of being able to fill in the gaps from a known sequence of numerical data?The most obvious example is the ability to perform geometric processing, such as "generating a surface from a point cloud".As a more advanced example, in the context of AEC, you can discretely obtain a correspondence of "geometric parameter - &gt; evaluation value", for example, a parameter study of some structural or environmental evaluation value for a parametric model defined on GH. By approximating the intervals between these discrete evaluation points with smooth surfaces, it is possible to instantly calculate a reasonably correct evaluation value when geometric parameters are entered, without having to perform heavy calculations each time for structural or environmental evaluation. Since it can also take differential information, this correspondence can be used for optimization calculations.In this section, I explained "interpolation", but if you want to know more about "extrapolation", which outputs a reasonably correct solution to an unknown input that is not in the data, this might be interesting to refer to this section.多項式を用いた補間方法で、「すべてのサンプル点を通る」ような補間が可能です。
+サンプル点がきれいに滑らかに分布している場合は優秀な手法です。
+しかし、すべてのサンプル点を通るように補間が行われる影響で、元データにノイズがのっているとたちまち補間曲面があばれてしまい、そのようなデータには不向きな手法です。It is a method of interpolation using polynomials, which allows the interpolation to "pass through all sample points".
+It is an excellent technique if the sample points are clean and smoothly distributed.
+However, this method is not suitable for such data because the interpolation is performed so that all sample points pass through the interpolation, and if noise is present in the original data, the interpolated surface is immediately overturned.スプライン曲線
+領域を区分的に分割し、接続部に何らかの連続性を仮定して各区間毎の補間を求める手法です。It is a method to divide the region into segments and to obtain the interpolation for each interval by assuming some continuity in the connection.この記事が非常に詳しいです。
+Flash Player が再生できるブラウザをお持ちの方はこちらのデモがわかりやすいです。Radial Basis Function を用いた「すべてのサンプル点を通る」補間方法です。
+大規模な散布点の補間に強く、点群から穴のないメッシュを生成する手法やシミュレーションデータの内挿によく用いられます。
+今回の実装ではこの RBF 補間を利用します。This is an interpolation method that uses the Radial Basis Function to "pass through all sample points".
+It is suitable for interpolation of large scatter points and is often used to generate holeless meshes from point clouds and to interpolate simulation data.
+In this implementation, this RBF interpolation is used.CAD で多く利用されている NURBS 曲面も、グリッド状に並んだ制御点間を滑らかに補間する曲面であるという意味では一種の補間手法です。NURBS surfaces, which are often used in CAD, are a kind of interpolation method in the sense that they smoothly interpolate between control points arranged in a grid.点群から曲面を復元する方法として、たとえば陰関数表現を用いた方法があります（Siggraph 論文）。
+この方法は
+- 任意の位相構造（球面だったりドーナッツ形状だったりも対応可能）に対応可能。
+- 補間されたジオメトリデータはメッシュかボリュームデータとして利用される。
+- 実空間をスキャン、メッシュ化してテクスチャを張るみたいな使い方に非常に適していて、SLAM との相性も良い。などの特徴があります。One way to recover surfaces from point clouds is, for example, to use an implicit function representation (Siggraph paper).
+This method is characterized by the following
+- Any phase structure (spherical or doughnut-shaped) can be used.
+- The interpolated geometry data is used as mesh or volume data.
+- It's very good for things like scanning real space, meshing and texturing, and it works well with SLAM.しかし、例えばスキャンデータから Nurbs Surface を作りたい場合は上記の方法では難しいです。
+そこで、任意の位相構造に対応することはあきらめて、あらかじめ基準となる座標系を決めることで、Nurbs Surface を構築することができるようになります。今回は XY 座標値 -&gt; Z 座標値という対応関係を用います。
+この座標系は例えば滑らかな地形データやあまり暴れない表面形状などに適しています。However, if you want to create a Nurbs Surface from scanned data, for example, the above method is not suitable.
+Therefore, it is possible to build a Nurbs Surface by giving up on supporting an arbitrary topological structure and deciding on a reference coordinate system in advance.In this case, we use the correspondence of XY-coordinate value -&gt; Z-coordinate value.
+This coordinate system is suitable, for example, for smooth terrain data and less unevenness surface features.人間の腕などの円筒状の自由形状を補間したい場合は円筒座標系を用います。
+座標系をもっと工夫することでさらに複雑な形状に対応可能です（一般のＵＶＷ空間を使ってもよい）。If you want to interpolate a cylindrical free-form shape such as a human arm, you can use the cylindrical coordinate system.
+It is possible to handle more complex shapes by devising the coordinate system (you can also use the general UVW space).座標系が決定されたら、そこ上で点群の X, Y, Z 座標値を計算し、その値を用いて、補間関数 f: [X, Y] -&gt; Zを作ります。この補間関数として今回は RBF 補間を使います。.NET で無料で RBF 補間が使えるライブラリ、ALGLIB を使って実装していきます。Once the coordinate system has been determined, the X, Y, and Z coordinate values of the point cloud are calculated on it, and the interpolation function f: [X, Y] -&gt; Zis created using those values. This time, RBF interpolation is used as the interpolation function. NET free RBF interpolation library, ALGLIB is used to implement it.RBF 補間関数から NURBS 曲面を生成します。
+安易に RBF 補間関数からグリッド点を作ってそれを NURBS 曲面 の制御点にそのまま使ってしまうとアウトです。
+NURBS 曲面は制御点を通らないその間を補間された形状となるため、RBF 補間関数との誤差が必ず生じてしまいます。Creates a NURBS surface from the RBF interpolation function.
+If you easily create a grid point from the RBF interpolation function and use it as a control point of a NURBS surface, you are out of the game.
+Since the NURBS surface is an interpolated shape that does not pass through the control points, there is always an error with the RBF interpolation function.この問題をクリアするために NurbsSurface.CreateNetworkSurface を用います。
+この API は UV方向それぞれの曲線群から、それらで構成されるグリッドになるべく近くなるような NURBS 曲面を生成することができます。
+RBF 補間関数から UV のグリッド曲線を簡単に作れるので、今回はこの方法を採用します。We use NurbsSurface.CreateNetworkSurface to clear this problem.
+The API can generate NURBS surfaces that are as close to the grid as possible to the curves in each UV direction.
+Since it is easy to create a UV grid curve from the RBF interpolation function, this method is adopted in this case.RBFInterpolation.csRBFComponent.csInterpolatedSurface.cs
+
+

@@ -1,0 +1,188 @@
+
+using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class MyFade : MonoBehaviour
+{
+    [SerializeField]
+    Color[] panelColor;
+
+    [SerializeField]
+    float[] fadeTime;
+
+    [SerializeField]
+    float[] alpha_Panel;
+
+    [SerializeField, Tooltip("リスト内のテストしたい要素数を入力")]
+    int debugElementNum;
+
+    [SerializeField, Tooltip("デバッグ時はTrueに(OでFadeOut、IでFadeIn)")]
+    bool debug;
+
+    const float FIXEDUPDATE_DELTATIME = 0.02f;
+
+    Image facePanel;
+
+    Coroutine coroutine;
+
+
+    void Awake()
+    {
+        //シーンをロードするたびに新しいカメラを生成
+        if (GameObject.Find("OnlyUIRenderingCamera"))
+        {
+            Destroy(GameObject.Find("OnlyUIRenderingCamera"));
+        }
+    }
+
+
+    void Start()
+    {
+        //カメラ自動生成
+        GameObject camera_G = new GameObject("OnlyUIRenderingCamera");
+        Camera faceCamera = camera_G.AddComponent&lt;Camera&gt;();
+        faceCamera.clearFlags = CameraClearFlags.Depth;
+        faceCamera.cullingMask = (1 &lt;&lt; LayerMask.NameToLayer("UI"));
+
+        //キャンバス生成＆設定
+        GameObject canvas_G = new GameObject("FaceCanvas");
+        Canvas faceCanvas = canvas_G.AddComponent&lt;Canvas&gt;();
+        canvas_G.AddComponent&lt;CanvasRenderer&gt;();
+
+
+        //キャンバスのポジションを調整
+        Vector3 canvasPosition = canvas_G.transform.position;
+        canvasPosition.x = 0;
+        canvasPosition.y = 0;
+        canvasPosition.z = 0.1f;
+        canvas_G.transform.localPosition = canvasPosition;
+
+        //レンダリングをfaceCameraに
+        faceCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+        faceCanvas.worldCamera = faceCamera;
+
+        //パネル生成＆設定
+        GameObject panel_G = new GameObject("FacePanel");
+        facePanel = panel_G.AddComponent&lt;Image&gt;();
+
+        Color tmpColor = facePanel.color;
+        tmpColor.a = 0f;
+        facePanel.color = tmpColor;
+
+        //パネルをキャンバスの子に設定
+        panel_G.transform.parent = canvas_G.transform;
+
+        //パネルのポジションを正面、スケールをいい感じに調整
+        Vector3 panelPosition = panel_G.transform.localPosition;
+        Vector3 panelScale = panel_G.transform.localScale;
+        panelPosition.x = 0;
+        panelPosition.y = 0;
+        panelPosition.z = 0;
+        panelScale = new Vector3(22, 24, 22);
+        panel_G.transform.localPosition = panelPosition;
+        panel_G.transform.localScale = panelScale;
+
+        //キャンバスをカメラの子に設定
+        canvas_G.transform.parent = faceCamera.transform;
+
+        //Layerを変更
+        canvas_G.layer = LayerMask.NameToLayer("UI");
+        panel_G.layer = LayerMask.NameToLayer("UI");
+
+    }
+
+    void Update()
+    {
+        //Fixed Timestepを固定
+        Time.fixedDeltaTime = FIXEDUPDATE_DELTATIME;
+
+    }
+
+    void FixedUpdate()
+    {
+        //キー押してない間はreturn
+        if (Input.anyKey == false)
+        {
+            return;
+        }
+
+        Test(debugElementNum);
+
+    }
+
+    void Test(int num)
+    {
+        if (coroutine == null &amp;&amp; debug)
+        {
+            //テスト用　フェードアウト
+            if (Input.GetKeyDown(KeyCode.O) &amp;&amp; panelColor[num].a == 0)
+            {
+                FadeOut(num);
+            }
+
+            if (Input.GetKeyDown(KeyCode.I) &amp;&amp; panelColor[num].a == alpha_Panel[num])
+            {
+                FadeIn(num);
+            }
+        }
+    }
+
+
+    public void FadeOut(int num)
+    {
+        if (panelColor[num].a == 0)
+        {
+            print("フェードアウト開始");
+
+            coroutine = StartCoroutine(FadeOutCoroutine(num));
+        }
+    }
+
+
+    public void FadeIn(int num)
+    {
+        if (panelColor[num].a == alpha_Panel[num])
+        {
+            print("フェードイン停止");
+
+            coroutine = StartCoroutine(FadeInCoroutine(num));
+        }
+    }
+
+    IEnumerator FadeOutCoroutine(int num)
+    {
+
+        yield return new WaitForFixedUpdate();
+        while (facePanel.color.a &lt; alpha_Panel[num] - 0.00005f)
+        {
+            yield return new WaitForFixedUpdate();
+            panelColor[num].a += alpha_Panel[num] / (fadeTime[num] * 50);
+            facePanel.color = panelColor[num];
+        }
+
+        panelColor[num].a = alpha_Panel[num];
+
+        StopCoroutine(coroutine);
+        coroutine = null;
+    }
+
+    IEnumerator FadeInCoroutine(int num)
+    {
+
+        yield return new WaitForFixedUpdate();
+        while (panelColor[num].a &gt; 0 + 0.00005f)
+        {
+            yield return new WaitForFixedUpdate();
+            panelColor[num].a -= alpha_Panel[num] / (fadeTime[num] * 50);
+            facePanel.color = panelColor[num];
+        }
+
+        panelColor[num].a = 0;
+
+        StopCoroutine(coroutine);
+        coroutine = null;
+    }
+}
+
+

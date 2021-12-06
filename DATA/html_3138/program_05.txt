@@ -1,0 +1,68 @@
+
+using Microsoft.Win32;
+using MvvmDialog.ViewModels;
+using ReactiveUI;
+using System.Reactive.Disposables;
+using System.Threading.Tasks;
+
+namespace MvvmDialog.Views
+{
+    /// &lt;summary&gt;
+    /// Interaction logic for MainWindow.xaml
+    /// &lt;/summary&gt;
+    public partial class MainWindow : ReactiveWindow&lt;MainViewModel&gt;
+    {
+
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            ViewModel = new MainViewModel();
+
+            this.WhenActivated(d =&gt;
+            {
+                HandleViewModelBound(d);
+            });
+        }
+
+        protected void HandleViewModelBound(CompositeDisposable d)
+        {
+            this.BindInteraction(
+                ViewModel,
+                vm =&gt; vm.SaveFileDialog,
+                async interaction =&gt;
+                {
+                    var result = await Task.Run(() =&gt;
+                    {
+                        var dialog = new SaveFileDialog()
+                        {
+                            FileName = interaction.Input,
+                            AddExtension = true,
+                            DefaultExt = "txt"
+                        };
+
+                        if(dialog.ShowDialog()?? false)
+                        {
+                            return dialog.FileName;
+                        }
+                        else
+                        {
+                            return null;
+                        }
+                    });
+
+                    interaction.SetOutput(result);
+                })
+                .DisposeWith(d);
+
+            this.OneWayBind(ViewModel, vm =&gt; vm.ResultMessage, v =&gt; v.ResultTextBlock.Text).DisposeWith(d);
+
+            this.Bind(ViewModel, vm =&gt; vm.FileName, v =&gt; v.FileNameTextBox.Text).DisposeWith(d);
+
+            this.Bind(ViewModel, vm =&gt; vm.InputText, v =&gt; v.InputTextBox.Text).DisposeWith(d);
+
+            this.BindCommand(ViewModel, vm =&gt; vm.SaveFileCommand, v =&gt; v.SaveFileButton).DisposeWith(d);
+        }
+    }
+}
+

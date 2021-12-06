@@ -1,0 +1,60 @@
+// リクエストデータ格納用
+private Hashtable _postData = new Hashtable();
+
+// リクエストイベント処理登録
+_webBrowser.RequestHandler = new RequestHandler(this);
+
+private void OnLoadingStateChanged(object sender, LoadingStateChangedEventArgs e)
+{
+    if (!e.IsLoading) {
+        //_webBrowser.Focus()
+        Invoke(new MethodInvoker(() =&gt; { SetFocus(_webBrowser.Handle); }));
+
+        // 読込完了処理を記述
+        string jsScript = null;
+        jsScript = string.Format("document.getElementById('var_身長').focus();");
+        _webBrowser.ExecuteScriptAsync(jsScript);
+
+        string anser = "";
+        if (_currentAddress.IndexOf("keisan") &gt;= 0) {
+            jsScript = "document.getElementById('ans1').innerText;";
+            _webBrowser.EvaluateScriptAsync(jsScript).ContinueWith(x =&gt;
+            {
+                dynamic response = x.Result;
+
+                if (response.Success &amp;&amp; response.Result != null) {
+                    anser = response.Result.ToString();
+                    if (string.IsNullOrEmpty(anser.Trim())) {
+                        jsScript = string.Format("document.getElementById('var_身長').value = '{0}';", 180);
+                        jsScript += string.Format("document.getElementById('var_体重').value = '{0}';", 54);
+                        jsScript += "document.getElementById('executebtn').click();";
+                        _webBrowser.ExecuteScriptAsync(jsScript);
+                    } else {
+                        MessageBox.Show(string.Format("身長={0} 体重={1} BMI={2}", _postData("var_身長"), _postData("var_体重"), anser));
+                    }
+                }
+            });
+        }
+    }
+}
+
+// リクエストのデータセット処理
+public bool SetRequestData(string url, string requestBody)
+{
+    string aaa = null;
+
+    if (url.IndexOf("/exec/system/1161228728") &gt;= 0) {
+        if (requestBody.IndexOf("=") != -1) {
+            string[] ary = requestBody.Split("&amp;");
+            for (int i = 0; i &lt;= ary.Length - 1; i++) {
+                string[] param = ary[i].Split("=");
+                _postData.Add(Web.HttpUtility.UrlDecode(param[0]), Web.HttpUtility.UrlDecode(param[1]));
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+

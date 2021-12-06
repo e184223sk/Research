@@ -1,0 +1,461 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using ComTypes = System.Runtime.InteropServices.ComTypes;
+
+
+public class MyParamDesc
+{
+    // どっちが正か不明
+    //  https://docs.microsoft.com/en-us/windows/win32/api/wtypes/ne-wtypes-varenum
+    //  https://docs.microsoft.com/en-us/previous-versions/windows/embedded/ms897140(v%3Dmsdn.10)
+
+    enum VARENUM {
+        VT_EMPTY,           VT_NULL,        VT_I2,          VT_I4,                  VT_R4,
+        VT_R8,              VT_CY,          VT_DATE,        VT_BSTR,                VT_DISPATCH,
+        VT_ERROR,           VT_BOOL,        VT_VARIANT,     VT_UNKNOWN,             VT_DECIMAL,
+        VT_I1,              VT_UI1,         VT_UI2,         VT_UI4,                 VT_I8,
+        VT_UI8,             VT_INT,         VT_UINT,        VT_VOID,                VT_HRESULT,
+        VT_PTR,             VT_SAFEARRAY,   VT_CARRAY,      VT_USERDEFINED,         VT_LPSTR,
+        VT_LPWSTR,          VT_RECORD,      VT_INT_PTR,     VT_UINT_PTR,            VT_FILETIME,
+        VT_BLOB,            VT_STREAM,      VT_STORAGE,     VT_STREAMED_OBJECT,     VT_STORED_OBJECT,
+        VT_BLOB_OBJECT,     VT_CF,          VT_CLSID,       VT_VERSIONED_STREAM,    VT_BSTR_BLOB,
+        VT_VECTOR,          VT_ARRAY,       VT_BYREF,       VT_RESERVED,            VT_ILLEGAL,
+        VT_ILLEGALMASKED,   VT_TYPEMASK
+    } ;
+
+
+    string varType;
+    string paramStr;
+
+    // https://docs.microsoft.com/ja-jp/windows/win32/api/oaidl/ns-oaidl-typedesc
+    // https://www.winehq.org/pipermail/wine-patches/2015-October/142759.html
+    public static MyParamDesc FromIndex(MyFuncDesc funcDesc, int index)
+    {
+        var ret = new MyParamDesc();
+        var refStr = "";
+
+        ComTypes.ELEMDESC e = funcDesc.elemdesc(index);
+        ComTypes.TYPEDESC t = e.tdesc;
+
+        ComTypes.PARAMDESC pa = e.desc.paramdesc;
+        ret.paramStr = Regex.Replace(pa.wParamFlags.ToString(), "PARAMFLAG_F", "").ToLowerInvariant(); // 雑
+        ret.varType = "";
+        //pa.wParamFlags.ToString();
+
+        while ((VARENUM)t.vt == VARENUM.VT_SAFEARRAY ||
+               (VARENUM)t.vt == VARENUM.VT_PTR) {
+            refStr += "*";
+            t = Marshal.PtrToStructure&lt;ComTypes.TYPEDESC&gt;(t.lpValue);
+        }
+
+        if ((VARENUM)t.vt == VARENUM.VT_LPSTR) {
+            using ( var myType2 = funcDesc.TypeInfo.FromTypeDesc(t) ) {
+                ret.varType += myType2.name;
+            }
+        }
+        else {
+            ret.varType += ((VARENUM)(t.vt)).ToString();
+        }
+        ret.varType += refStr;
+        return ret;
+    }
+
+    // default valueの取得(未実装): 下記が参考になりそう
+    //   https://csharp.hotexamples.com/examples/-/PARAMDESC/-/php-paramdesc-class-examples.html
+
+    public override string ToString()
+    {
+        return ("["+ paramStr + "] " + varType);
+    }
+}
+
+public class MyFuncDesc : IDisposable
+{
+    IntPtr _funcDescPtr;
+    ComTypes.FUNCDESC _funcDesc;
+    MyTypeInfo _myTypeInfo;
+
+    public int memid{get{return _funcDesc.memid;}}
+    public int cParams{get{return _funcDesc.cParams;}}
+    public ComTypes.FUNCKIND funckind{get{return _funcDesc.funckind;}}
+    public MyTypeInfo TypeInfo {get{return _myTypeInfo;}}
+
+    public ComTypes.ELEMDESC elemdesc(int index)
+    {
+        var elem = new ComTypes.ELEMDESC();
+        elem = Marshal.PtrToStructure&lt;ComTypes.ELEMDESC&gt;(_funcDesc.lprgelemdescParam + Marshal.SizeOf(elem)*index);
+        return elem;
+    }
+
+    public static MyFuncDesc FromIndex(MyTypeInfo typeInfo, int index)
+    {
+        if (typeInfo == null) {return null;}
+
+        IntPtr ptr = IntPtr.Zero;
+        try {
+            typeInfo.raw_ITypeInfo.GetFuncDesc(index, out ptr);
+        }
+        catch ( COMException ) { return null; }
+
+        if (ptr == IntPtr.Zero) { return null; }
+
+
+        ComTypes.FUNCDESC desc;
+        try {
+            desc = Marshal.PtrToStructure&lt;ComTypes.FUNCDESC&gt;(ptr);
+        }
+        catch ( Exception e ) {
+            typeInfo.ReleaseFuncDesc(ptr);
+            throw e;
+        }
+
+        var ret = new MyFuncDesc();
+        ret._myTypeInfo = typeInfo;
+        ret._funcDescPtr = ptr;
+        ret._funcDesc = desc;
+
+        return ret;
+    }
+
+    public string[] GetNames()
+    {
+        return _myTypeInfo.GetNames(memid);
+    }
+
+    public void Dispose()
+    {
+        if ( _funcDescPtr != IntPtr.Zero ) {
+            _myTypeInfo.ReleaseFuncDesc(_funcDescPtr);
+            _funcDescPtr = IntPtr.Zero;
+        }
+    }
+}
+
+public class MyVarDesc : IDisposable
+{
+    IntPtr _varDescPtr;
+    ComTypes.VARDESC _varDesc;
+    MyTypeInfo _myTypeInfo;
+
+    public int memid{get{return _varDesc.memid;}}
+
+    public static MyVarDesc FromIndex(MyTypeInfo typeInfo, int index)
+    {
+        if (typeInfo == null) {return null;}
+
+        IntPtr ptr = IntPtr.Zero;
+        try {
+            typeInfo.raw_ITypeInfo.GetVarDesc(index, out ptr);
+        }
+        catch ( COMException ) { return null; }
+
+        if (ptr == IntPtr.Zero) { return null; }
+
+
+        ComTypes.VARDESC desc;
+        try {
+            desc = Marshal.PtrToStructure&lt;ComTypes.VARDESC&gt;(ptr);
+        }
+        catch ( Exception e ) {
+            typeInfo.ReleaseVarDesc(ptr);
+            throw e;
+        }
+
+        var ret = new MyVarDesc();
+        ret._myTypeInfo = typeInfo;
+        ret._varDescPtr = ptr;
+        ret._varDesc = desc;
+
+        return ret;
+    }
+
+    public string[] GetNames()
+    {
+        return _myTypeInfo.GetNames(memid);
+    }
+
+    public void Dispose()
+    {
+        if ( _varDescPtr != IntPtr.Zero ) {
+            _myTypeInfo.ReleaseVarDesc(_varDescPtr);
+            _varDescPtr = IntPtr.Zero;
+        }
+    }
+}
+
+public class MyTypeInfo : IDisposable
+{
+    const int MAX_NAME_COUNT = 100;
+
+    IntPtr _typeInfoPtr;
+
+    ITypeInfo _typeInfo;
+    int _cFuncs;
+    int _cVars;
+    Guid _guid;
+    ComTypes.TYPEKIND _typekind;
+    ComTypes.IDLFLAG _idlFlags;
+    ComTypes.TYPEFLAGS _typeFlags;
+    string _name;
+    string _docString;
+
+    public int cFuncs{get{return _cFuncs;}}
+    public int cVars{get{return _cVars;}}
+    public Guid guid{get{return _guid;}}
+    public ComTypes.TYPEKIND  typekind{get{return _typekind;}}
+    public ComTypes.IDLFLAG   idlFlags{get{return _idlFlags;}}
+    public ComTypes.TYPEFLAGS typeFlags{get{return _typeFlags;}}
+    public string name{get{return _name;}}
+    public string docString{get{return _docString;}}
+
+    // publicにしたくないがMyFuncDescから使用したいためpublicにする。GetNamesをこっちに持ってくれば公開しなくて済みそう
+    public ITypeInfo raw_ITypeInfo{get{return _typeInfo;}}
+
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("B196B283-BAB4-101A-B69C-00AA00341D07")]
+    private interface IProvideClassInfo
+    {
+        [return: MarshalAs(UnmanagedType.Interface)]
+        System.Runtime.InteropServices.ComTypes.ITypeInfo GetClassInfo();
+    }
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("00020400-0000-0000-c000-000000000046")]
+    private interface IDispatch
+    {
+        [PreserveSig]
+        int GetTypeInfoCount(out int count);
+        [PreserveSig]
+        int GetTypeInfo([In] int itinfo, [In] int lcid, out IntPtr typeinfo);
+        [PreserveSig]
+        int GetIDsOfNames();//dummy. don't call this method
+        [PreserveSig]
+        int Invoke();//dummy. don't call this method
+    }
+
+    public static MyTypeInfo FromComObject(object obj)
+    {
+        ITypeInfo typeInfo = null;
+        IntPtr ptr = IntPtr.Zero; // これを使わずに生成する場合もあるので、Dispose()にてIntPtr.Zeroの場合はRelease(ptr)しない。
+
+//      if ( obj is IProvideClassInfo ) { // ie.document.getElementsByTagName("input")[0] とかで HTMLInputElement が取れる
+//          typeInfo = ((IProvideClassInfo)obj).GetClassInfo();
+//      }
+        //else
+        if ( obj is IDispatch ) {
+            var idisp = (IDispatch)obj;
+            int count;
+            int hResult = idisp.GetTypeInfoCount(out count);
+            if ( hResult &gt;= 0 ) { // Succeeded
+                if ( count &lt; 1 ) { // no type info
+                    return null;
+                }
+                //Console.WriteLine(count);
+
+                idisp.GetTypeInfo(0, 0, out ptr);
+                if ( ptr == IntPtr.Zero ) {
+                    return null;
+                }
+
+                typeInfo = (ITypeInfo)(Marshal.GetTypedObjectForIUnknown(ptr, typeof(ITypeInfo)));
+            }
+        }
+        else { // unknown type
+            return null;
+        }
+
+        var ret = FromTypeInfo(typeInfo);
+        if ( ret == null ) {
+            if ( ptr != IntPtr.Zero ) {
+                Marshal.Release(ptr);
+            }
+            return null;
+        }
+        ret._typeInfoPtr = ptr;
+
+        return ret;
+    }
+
+    public static MyTypeInfo FromTypeInfo(ITypeInfo argTypeInfo)
+    {
+        if ( argTypeInfo == null ) {return null;}
+        ComTypes.TYPEATTR typeAttr;
+        IntPtr ptr;
+        MyTypeInfo ret = null;
+
+        try {
+            argTypeInfo.GetTypeAttr(out ptr);
+        }
+        catch ( COMException ) { return null; }
+
+        try {
+            typeAttr = Marshal.PtrToStructure&lt;ComTypes.TYPEATTR&gt;(ptr);
+
+            ret = new MyTypeInfo();
+            ret._typeInfo = argTypeInfo;
+            ret._cFuncs  = typeAttr.cFuncs;
+            ret._cVars   = typeAttr.cVars;
+            ret._guid    = typeAttr.guid; // Guidは値型(ValueType)なので、typeattrがreleaseされた後に使用しても問題ない
+            ret._typekind = typeAttr.typekind;
+            ret._idlFlags = typeAttr.idldescType.wIDLFlags;
+            ret._typeFlags = typeAttr.wTypeFlags;
+
+            string strName;
+            string strDocString;
+            int dwHelpContext;
+            string strHelpFile;
+
+            argTypeInfo.GetDocumentation(-1, out strName, out strDocString, out dwHelpContext, out strHelpFile);
+
+            var tmp = new StringBuilder();
+            tmp.Append(strName);      ret._name      = tmp.ToString(); tmp.Clear();
+            tmp.Append(strDocString); ret._docString = tmp.ToString(); tmp.Clear();
+        }
+        finally {
+            argTypeInfo.ReleaseTypeAttr(ptr);
+        }
+
+        return ret;
+    }
+
+
+    public string[] GetNames(int memid)
+    {
+        string[] ret;
+        string[] buf = new string[MAX_NAME_COUNT];
+        int nbuf;
+        var tmp = new StringBuilder();
+
+        raw_ITypeInfo.GetNames(memid, buf, buf.Length, out nbuf); //
+
+        ret = new string[nbuf];
+        for ( int i=0 ; i&lt;nbuf ; i++ ) {
+            // typeInfoがreleaseされても残るようにコピーする
+            //   string.Copy()は値コピーを保証しない(Microsoft docsより)
+            tmp.Clear();
+            tmp.Append(buf[i]);
+            ret[i] = tmp.ToString();
+        }
+        return ret;
+    }
+
+    // t.vt must be VT_LPSTR
+    public MyTypeInfo FromTypeDesc(ComTypes.TYPEDESC t)
+    {
+        int hreftype = (int)t.lpValue;
+        ITypeInfo typeInfo2;
+
+        _typeInfo.GetRefTypeInfo(hreftype, out typeInfo2);
+
+        return MyTypeInfo.FromTypeInfo(typeInfo2);
+    }
+
+    public void ReleaseFuncDesc(IntPtr funcDescPtr)
+    {
+        _typeInfo.ReleaseFuncDesc(funcDescPtr);
+    }
+
+    public void ReleaseVarDesc(IntPtr varDescPtr)
+    {
+        _typeInfo.ReleaseVarDesc(varDescPtr);
+    }
+
+    public void Dispose()
+    {
+        if ( _typeInfoPtr != IntPtr.Zero ) {
+            Marshal.Release(_typeInfoPtr);
+            _typeInfoPtr = IntPtr.Zero;
+        }
+    }
+}
+
+public class MyDumpClass
+{
+    // rcw must be System.__ComObject type.
+    public static void ShowTypeInfoOfComObject(object rcw)
+    {
+        Console.WriteLine(rcw.GetType());
+        using ( var typeInfo = MyTypeInfo.FromComObject(rcw) ) {
+            if ( typeInfo != null ) {
+                Console.WriteLine("GUID: " + typeInfo.guid);
+                Console.WriteLine("Name: " + typeInfo.name);
+                Console.WriteLine("Documentation: " + typeInfo.docString);
+                Console.WriteLine(typeInfo.typekind);
+                Console.WriteLine(typeInfo.idlFlags);
+                Console.WriteLine(typeInfo.typeFlags);
+
+                int n;
+                n = typeInfo.cFuncs;
+                Console.Write(n);
+                Console.WriteLine(" functions:");
+                for ( int i=0; i&lt;n; i++ ) {
+                    using ( var funcDesc = MyFuncDesc.FromIndex(typeInfo, i)) {
+                        string[] names = funcDesc.GetNames();
+                        Console.Write(" ");
+                        Console.WriteLine((names.Length&gt;0)?names[0]:"&lt;No Name&gt;");
+                        for ( int k=0 ; k&lt;funcDesc.cParams ; k++ ) {
+                            Console.Write("  ");
+                            Console.WriteLine(MyParamDesc.FromIndex(funcDesc, k) +" "+ ((names.Length&gt;k+1)?names[k+1]:"&lt;No Name&gt;"));
+                        }
+                    }
+                }
+
+                n = typeInfo.cVars;
+                Console.Write(n);
+                Console.WriteLine(" variables:");
+                for ( int i=0; i&lt;n; i++ ) {
+                    using ( var varDesc = MyVarDesc.FromIndex(typeInfo, i)) {
+                        string[] names = varDesc.GetNames();
+                        Console.Write(" ");
+                        Console.WriteLine(names[0]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+class SampleTest
+{
+    [STAThread]
+    static void Main()
+    {
+        Type comType = Type.GetTypeFromProgID("Shell.Application");
+        Console.WriteLine("Creating Shell instance...");
+        dynamic shellApp = Activator.CreateInstance(comType);
+        Console.WriteLine("created.");
+
+        try {
+            dynamic windows = shellApp.Windows;
+            // MyDumpClass.ShowTypeInfoOfComObject(windows);
+
+            for (int i=0;i&lt;windows.Count;i++) {
+                dynamic w = windows[i];
+                MyDumpClass.ShowTypeInfoOfComObject(w);
+//              MyDumpClass.ShowTypeInfoOfComObject(w.Document);
+//              MyDumpClass.ShowTypeInfoOfComObject(w.Document.getElementsByTagName("input")[0]);
+                if(i==0){break;} // １個だけで終了させる
+            }
+        }
+        finally {
+            // リソースの解放
+            Marshal.ReleaseComObject(shellApp);
+        }
+    }
+}
+
+
+

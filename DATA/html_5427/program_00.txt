@@ -1,0 +1,55 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Threading.Tasks;
+
+namespace WpfApp1
+{
+    class ViewModel : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string propertyName)
+            =&gt; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+        // ボタン押された時のCommand
+        public UnRepeatableAsyncCommand VmMyCommand1 { get; private set; }
+        public UnRepeatableAsyncCommand VmMyCommand2 { get; private set; }
+
+        public bool MyCamExecuteFlag
+        {
+            get { return _myCamExecuteFlag; }
+            set { _myCamExecuteFlag = value; OnPropertyChanged(nameof(MyCamExecuteFlag)); }
+        }
+        private bool _myCamExecuteFlag = true;
+
+        public ViewModel()
+        {
+            // (ボタン1) 押したら2秒かかる処理を非同期で行って、その間は自動で無効になるボタン
+            VmMyCommand1 = new UnRepeatableAsyncCommand(MyAsyncFunc, MyCanExecute);
+            VmMyCommand1.CanExecuteChanged += ((sender, e) =&gt; Debug.WriteLine("CanExecuteChanged1"));
+
+            // (ボタン2) ボタン1の有効無効をViewModelから切り替えるボタン
+            VmMyCommand2 = new UnRepeatableAsyncCommand(async () =&gt;
+            {
+                MyCamExecuteFlag = !MyCamExecuteFlag;   // CanExecuteで見るフラグ
+                VmMyCommand1.RaiseCanExecuteChanged();  // ★CanExecuteが変化したことを使えないと、フラグ切り替えても有効無効変わらない！
+            });
+            VmMyCommand2.CanExecuteChanged += ((sender, e) =&gt; Debug.WriteLine("CanExecuteChanged2"));
+        }
+
+        // 実験用 押したときに2秒かかる処理実施
+        public async Task MyAsyncFunc()
+        {
+            Debug.WriteLine("押された");
+            await Task.Delay(2000);
+            Debug.WriteLine("処理完了");
+        }
+
+        // フラグのON/OFFでボタンの有効無効を切り替える
+        public bool MyCanExecute()
+        {
+            return MyCamExecuteFlag;
+        }
+    }
+}
+
+

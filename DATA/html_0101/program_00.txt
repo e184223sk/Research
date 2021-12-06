@@ -1,0 +1,95 @@
+public class TimeMeasure
+{
+    //Property
+    private Dictionary&lt;string, TimeRecordItem&gt; TimeRecordDic { get; set; }
+    private string ClassName { get; set; }
+    //Public Method
+    public void Record(string key = null, string suffix = "")
+    {
+        if (key == null) key = new System.Diagnostics.StackFrame(1).GetMethod().Name;
+        if (!string.IsNullOrEmpty(suffix)) key = string.Join("_", key, suffix);
+        if (!TimeRecordDic.ContainsKey(key)) TimeRecordDic.Add(key, new TimeRecordItem(key, DateTime.Now));
+        else if (TimeRecordDic[key].IsEnd) TimeRecordDic[key].AddTimeSets(DateTime.Now);
+        else TimeRecordDic[key].TimeSets.Last().SetEndTime(DateTime.Now);
+    }
+    public void OutputDebugWriteLine()
+    {
+        foreach(var content in GetOutputContents())
+        {
+            System.Diagnostics.Debug.WriteLine(content);
+        }
+    }
+    public void OutputConsoleWriteLine()
+    {
+        foreach(var content in GetOutputContents())
+        {
+            System.Console.WriteLine(content);
+        }
+    }
+    //Private Method
+    private IEnumerable&lt;string&gt; GetOutputContents()
+    {
+        var TimeSets = new List&lt;TimeSet&gt;();
+        foreach (var item in TimeRecordDic.Values)
+        {
+            TimeSets.AddRange(item.TimeSets);
+        }
+        foreach (var r in TimeSets.OrderBy(rr =&gt; rr.StartTime))
+        {
+            yield return string.Join(",", ClassName, r.Key, r.StartTime.ToString(), r.EndTime.ToString(), r.ExecutionTime.ToString());
+        }
+    }
+    //Constructor
+    public TimeMeasure()
+    {
+        TimeRecordDic = new Dictionary&lt;string, TimeRecordItem&gt;();
+        ClassName = new System.Diagnostics.StackFrame(1).GetMethod().ReflectedType.FullName;
+    }
+    //Private Class
+    private class TimeRecordItem
+    {
+        //Property
+        public string Key { get; private set; }
+        public List&lt;TimeSet&gt; TimeSets { get; private set; }
+        public bool IsEnd {  get { return TimeSets.Last().EndTime != null; } }
+        //Public Method
+        public void AddTimeSets(DateTime time)
+        {
+            TimeSets.Add(new TimeSet(Key, time));
+        }
+        //Constructor
+        public TimeRecordItem(string key, DateTime time)
+        {
+            Key = key;
+            TimeSets = new List&lt;TimeSet&gt; { new TimeSet(Key, time) };
+        }
+    }
+    private class TimeSet
+    {
+        //Property
+        public string Key { get; private set; }
+        public DateTime StartTime { get; private set; }
+        public DateTime? EndTime { get; private set; }
+        public decimal? ExecutionTime
+        {
+            get
+            {
+                if (EndTime == null) return null;
+                var diff = EndTime.Value - StartTime;
+                return (decimal)diff.TotalMilliseconds / 1000;
+            }
+        }
+        //Public Method
+        public void SetEndTime(DateTime time)
+        {
+            EndTime = time;
+        }
+        //Constructor
+        public TimeSet(string key, DateTime time)
+        {
+            Key = key;
+            StartTime = time;
+        }
+    }
+}
+

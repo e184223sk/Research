@@ -1,0 +1,124 @@
+using System;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+
+namespace WindowsFormsApp1
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            using (var sus = new RedrawSuspension(this.Handle))
+            {
+                // このなかでフォームの描画が抑制されます
+
+            }
+            this.Refresh(); // これを忘れると抑制解除したあとで描画が行われません
+        }
+
+        // ※2019/3/12 追加：こちらのほうがより安全
+        private void button2_Click(object sender, EventArgs e)
+        {
+            using (var sus = new FormRedrawSuspension(this))
+            {
+                // このなかでフォームの描画が抑制されます
+
+            }
+            // 抜けるとき（FormRedrawSuspensionオブジェクトがDisposeされるとき）に、フォームがRefreshされます。
+        }
+
+        /// &lt;summary&gt;
+        /// ※こちらは初代：FormRedrawSuspension のほうをおすすめします
+        /// コントロールの画面描画抑制を制御するオブジェクトを提供します。
+        /// &lt;/summary&gt;
+        private class RedrawSuspension : IDisposable
+        {
+            private IntPtr _hWnd;
+
+            /// &lt;summary&gt;
+            /// オブジェクトを構築し、画面描画を抑制します。オブジェクトを破棄すると画面描画抑制が解除されます。
+            /// &lt;/summary&gt;
+            /// &lt;param name="hWnd"&gt;ウインドウハンドル&lt;/param&gt;
+            public RedrawSuspension(IntPtr hWnd)
+            {
+                _hWnd = hWnd;
+                SendSetRedrawMessage(false);
+            }
+
+            /// &lt;summary&gt;
+            /// 画面描画抑制を解除して、オブジェクトを破棄します。
+            /// &lt;/summary&gt;
+            public void Dispose()
+            {
+                SendSetRedrawMessage(true);
+            }
+
+            private void SendSetRedrawMessage(bool enableRedraw)
+            {
+                NativeMethods.SendMessage(_hWnd, NativeMethods.WM_SETREDRAW, enableRedraw ? new IntPtr(1) : IntPtr.Zero, IntPtr.Zero);
+            }
+
+            private class NativeMethods
+            {
+                // https://docs.microsoft.com/ja-jp/visualstudio/code-quality/ca1060-move-p-invokes-to-nativemethods-class
+                private NativeMethods() { }
+
+                [DllImport("user32.dll")]
+                internal static extern IntPtr SendMessage(IntPtr hWnd, UInt32 dwMsg, IntPtr wParam, IntPtr lParam);
+
+                internal const UInt32 WM_SETREDRAW = 11;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// ※2019/3/12 追加
+        /// フォームの画面描画抑制を制御するオブジェクトを提供します。
+        /// &lt;/summary&gt;
+        internal class FormRedrawSuspension : IDisposable
+        {
+            private System.Windows.Forms.Form _form;
+
+            /// &lt;summary&gt;
+            /// オブジェクトを構築し、画面描画を抑制します。オブジェクトを破棄すると画面描画抑制が解除されます。
+            /// &lt;/summary&gt;
+            /// &lt;param name="form"&gt;制御するフォーム&lt;/param&gt;
+            public FormRedrawSuspension(System.Windows.Forms.Form form)
+            {
+                _form = form;
+                SendSetRedrawMessage(false);
+            }
+
+            /// &lt;summary&gt;
+            /// 画面描画抑制を解除してフォームを再描画させ、オブジェクトを破棄します。
+            /// &lt;/summary&gt;
+            public void Dispose()
+            {
+                SendSetRedrawMessage(true);
+                _form.Refresh();
+            }
+
+            private void SendSetRedrawMessage(bool enableRedraw)
+            {
+                NativeMethods.SendMessage(_form.Handle, NativeMethods.WM_SETREDRAW, enableRedraw ? new IntPtr(1) : IntPtr.Zero, IntPtr.Zero);
+            }
+
+            private class NativeMethods
+            {
+                // https://docs.microsoft.com/ja-jp/visualstudio/code-quality/ca1060-move-p-invokes-to-nativemethods-class
+                private NativeMethods() { }
+
+                [DllImport("user32.dll")]
+                internal static extern IntPtr SendMessage(IntPtr hWnd, UInt32 dwMsg, IntPtr wParam, IntPtr lParam);
+
+                internal const UInt32 WM_SETREDRAW = 11;
+            }
+        }
+    }
+}
+
+

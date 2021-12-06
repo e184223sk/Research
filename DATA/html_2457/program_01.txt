@@ -1,0 +1,65 @@
+
+// 接続準備
+using (var sqlConnection = new SqlConnection(NorthwindContext.GetConnectionString()))
+{
+    // あらかじめ接続を開いておく。
+    sqlConnection.Open();
+
+    // トランザクション開始
+    using (var transaction = sqlConnection.BeginTransaction())
+    {
+        // 1つ目のコンテキストで保存
+        using (var context = new NorthwindContext(sqlConnection, false))
+        {
+            context.Database.UseTransaction(transaction);
+
+            var product = await context.Products.SingleAsync(p =&gt; p.ProductID == 1).ConfigureAwait(false);
+            product.ProductName = "New Product Name";
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        // 2つ目のコンテキストで保存
+        using (var context = new NorthwindContext(sqlConnection, false))
+        {
+            context.Database.UseTransaction(transaction);
+
+            var employee = await context.Employees.SingleAsync(e =&gt; e.EmployeeID == 1).ConfigureAwait(false);
+            employee.Title = "New Title";
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        // まとめてコミット
+        transaction.Commit();
+    }
+}
+
+// コンテキストクラス
+public class NorthwindContext : DbContext
+{
+    :
+
+    /// &lt;summary&gt;
+    /// コンストラクタ。
+    /// &lt;/summary&gt;
+    /// &lt;param name="existingConnection"&gt;コンテキストで使用する接続。&lt;/param&gt;
+    /// &lt;param name="contextOwnsConnection"&gt;false を指定すると、コンテキストが Dispose されたときに接続を Dispose しない。&lt;/param&gt;
+    public NorthwindContext(DbConnection existingConnection, bool contextOwnsConnection)
+        : base(existingConnection, contextOwnsConnection)
+    {
+    }
+
+    /// &lt;summary&gt;
+    /// 接続文字列を取得する。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public static string GetConnectionString()
+    {
+        using (var context = new NorthwindContext())
+        {
+            return context.Database.Connection.ConnectionString;
+        }
+    }
+
+    :
+}
+

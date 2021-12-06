@@ -1,0 +1,38 @@
+
+void SetFire(Mat webcamMat)
+{
+    using(var hsvMat = new Mat()) 
+    using(var handMask = new Mat())
+    using(var centroids = new Mat())
+    using(var stats = new Mat())
+    {
+        //RGBAをHSVに変換
+        cvtColor(webcamMat, hsvMat, COLOR_RGBA2RGB);
+        cvtColor(hsvMat, hsvMat, COLOR_RGB2HSV);
+
+        //肌色領域を抽出
+        inRange(hsvMat, SKIN_LOWER, SKIN_UPPER, handMask);
+
+        //ラベリング
+        var nLabels = connectedComponentsWithStats(handMask, new Mat(), stats, centroids);
+
+        //最大の領域の重心を取得
+        var maxAreaLabel = 0;
+        var maxArea = 0.0;
+        for (int i = 1; i &lt; nLabels; i++) {           //0番目のラベルは背景のため飛ばす
+            var area = stats.get(i, CC_STAT_AREA)[0];
+            if (area &gt; maxArea) {
+                maxArea = area;
+                maxAreaLabel = i;
+            }
+        }
+
+        //画像上の重心位置をワールド座標に変換
+        var ctrdOnImg = new Point(centroids.get(maxAreaLabel, 0)[0], centroids.get(maxAreaLabel, 1)[0]);
+        var ctrdOnWorld = new Point((float)ctrdOnImg.x - webcamMat.width() / 2f, webcamMat.height() / 2f - (float)ctrdOnImg.y);
+
+        //炎を手の位置に移動
+        _fire.transform.position = new Vector3((float)ctrdOnWorld.x, (float)ctrdOnWorld.y, FIRE_Z_POS);
+    }
+}
+

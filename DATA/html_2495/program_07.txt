@@ -1,0 +1,97 @@
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using Zenject;
+using Random = UnityEngine.Random;
+
+namespace MemoryPoolsSample.Scripts.GameObjectMemoryPool
+{
+    public class Foo : MonoBehaviour, IPoolable&lt;Vector3, IMemoryPool&gt;, IDisposable
+    {
+        private Vector3 _velocity = default;
+        private IMemoryPool _pool = default;
+
+        public void Dispose()
+        {
+            _pool.Despawn(this);
+        }
+
+        public void Update()
+        {
+            transform.position += _velocity * Time.deltaTime;
+        }
+
+        public void OnDespawned()
+        {
+            _pool = null;
+            _velocity = Vector3.zero;
+        }
+
+        // Create()で渡された引数がここに渡される
+        public void OnSpawned(Vector3 velocity, IMemoryPool pool)
+        {
+            transform.position = Vector3.zero;
+            _pool = pool;
+            _velocity = velocity;
+        }
+
+        // Factoryになり派生クラスにResetを描く必要がなくなった
+        public class Factory : PlaceholderFactory&lt;Vector3, Foo&gt;
+        {
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Factory _fooFactory = default;
+        private readonly List&lt;Foo&gt; _foos = new List&lt;Foo&gt;();
+
+        public FooSpawner(Foo.Factory fooFactory)
+        {
+            _fooFactory = fooFactory;
+        }
+
+        public void AddFoo()
+        {
+            var maxSpeed = 10.0f;
+            var minSpeed = 1.0f;
+
+            //SpawnからCreateに
+            _foos.Add(_fooFactory.Create(
+                Random.onUnitSphere * Random.Range(minSpeed, maxSpeed)));
+        }
+
+        public void RemoveFoo()
+        {
+            var foo = _foos[0];
+            // DespawnからDisposeに
+            foo.Dispose();
+            _foos.Remove(foo);
+        }
+    }
+
+    public class TestInstaller : MonoInstaller&lt;DisposableMemoryPool.TestInstaller&gt;
+    {
+        public GameObject FooPrefab;
+
+        public override void InstallBindings()
+        {
+            Container.Bind&lt;FooSpawner&gt;().AsSingle();
+
+            Container.BindFactory&lt;Vector3, Foo, Foo.Factory&gt;()
+                // 本来ここではFromMonoPoolableMemoryPoolを用いますが、IL2CPPのAOTを回避するために
+                // Poolクラスを明示的に宣言してFromPoolableMemoryPoolを使用します。
+                .FromPoolableMemoryPool&lt;Vector3, Foo, FooPool&gt;(
+                    pool =&gt; pool.WithInitialSize(2)
+                        .FromComponentInNewPrefab(FooPrefab)
+                        .UnderTransformGroup("FooPool"));
+        }
+    }
+
+    // IL2CPP AOT エラーが発生する場合があるので、Poolクラスは明確に定義する必要がある。
+    public class FooPool : MonoPoolableMemoryPool&lt;Vector3, IMemoryPool, Foo&gt;
+    {
+    }
+}
+

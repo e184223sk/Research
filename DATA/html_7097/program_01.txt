@@ -1,0 +1,136 @@
+
+using UnityEngine;
+using UnityEditor;
+using System.Collections;
+using System.Reflection;
+using System.Linq;
+
+[CustomPropertyDrawer(typeof(EventHandler))]
+internal sealed class EventHandlerDrawer : PropertyDrawer {
+
+    // 現状、折りたたまれているかのフラグ
+    bool m_Unfoled = false;
+
+    // 定義されている条件にマッチしたメソッドリスト
+    string[] m_Methods = new string[]{};
+
+    // 設定されたオブジェクトからメソッドリストを生成
+    string[] CollectMethods(GameObject target)
+    {
+        if (target == null) {
+            return new string[] { };
+        }
+
+        // MonoBehaviourを継承したものをすべて取得
+        MonoBehaviour[] components = target.GetComponents&lt;MonoBehaviour&gt;();
+
+        ArrayList result = new ArrayList();
+        result.Add("None"); // 常に「指定しない」の意味で `None` を追加
+        foreach (var component in components) {
+            // 該当コンポーネントの名前を取得（階層構造のいわゆるディレクトリ的な扱いで使う）
+            string componentName = component.GetType().Name;
+
+            // 該当コンポーネントから「public」でかつ「引数 0」のメソッドを抜き出す
+            string[] methodNames = component.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                                    .Where(x =&gt; x.DeclaringType == component.GetType())
+                                    .Where(x =&gt; x.GetParameters().Length == 0)
+                                    .Select(x =&gt; componentName + "/" + x.Name)
+                                    .ToArray();
+            result.AddRange(methodNames);
+        }
+
+        // string[] に変換して返す
+        return (string[])result.ToArray(typeof(string));
+    }
+
+    // GUIのレンダリング
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        var rect = new Rect(position.x, position.y, position.width, EditorGUIUtility.singleLineHeight);
+
+        // 折りたたまれているかの状態を得る
+        m_Unfoled = EditorGUI.Foldout(rect, m_Unfoled, label);
+
+        // 折りたたまれている場合はGUIの更新をせずに終了
+        if (!m_Unfoled) {
+            return;
+        }
+
+        var backupIndent = EditorGUI.indentLevel;
+        EditorGUI.indentLevel = 0;
+
+        label = EditorGUI.BeginProperty(position, label, property);
+
+        // 表示に使うメソッドリストへの参照
+        string[] methods;
+
+        // レイアウトのスタート位置
+        float y = position.y;
+        {
+            // `Target` プロパティを取得
+            SerializedProperty targetProperty = property.FindPropertyRelative("Target");
+
+            // 指定したプロパティから、実際に設定されている値を取り出し
+            GameObject target = targetProperty.objectReferenceValue as GameObject;
+
+            // 設定されているターゲットを対象に、コンポーネントの条件に合うメソッドリストを収集
+            methods = CollectMethods(target);
+
+            // Yの位置を更新
+            y += EditorGUIUtility.singleLineHeight + 5f; ;
+
+            // インデントレベルを修正
+            EditorGUI.indentLevel++;
+
+            // ターゲットのラベルをレンダリング
+            var targetRect = new Rect(position.x, y, position.width, EditorGUIUtility.singleLineHeight);
+            EditorGUI.PropertyField(targetRect, targetProperty, new GUIContent("Target"));
+        }
+
+        {
+            if (methods.Length &gt; 0) {
+                // `HandleMethod` プロパティから値を取得
+                SerializedProperty handleMethodProperty = property.FindPropertyRelative("HandleMethod");
+                y += EditorGUIUtility.singleLineHeight + 5f; ;
+
+                // メソッドのラベルをレンダリング
+                var methodRect = new Rect(position.x, y, position.width, EditorGUIUtility.singleLineHeight);
+                EditorGUI.LabelField(methodRect, new GUIContent("Method"));
+
+                if (!methods.Contains(handleMethodProperty.stringValue)) {
+                    handleMethodProperty.stringValue = "";
+                }
+
+                string selected = handleMethodProperty.stringValue == "" ? "None" : handleMethodProperty.stringValue;
+                int index = methods
+                                .Select((Name, Index) =&gt; new { Name, Index })
+                                .First(x =&gt; x.Name == selected)
+                                .Index;
+                var padding = 105f;
+                methodRect.x += padding;
+                methodRect.width -= padding;
+                index = EditorGUI.Popup(methodRect, index, methods);
+
+                handleMethodProperty.stringValue = methods[index];
+            }
+        }
+
+        EditorGUI.EndProperty();
+
+        EditorGUI.indentLevel = backupIndent;
+    }
+
+    // プロパティのインスペクタ上で占める範囲の高さ
+    public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
+    {
+        // 折りたたまれている場合は1行分だけの高さ
+        if (!m_Unfoled) {
+            return EditorGUIUtility.singleLineHeight;
+        }
+
+        // それ以外の場合は3行（プロパティの数）＋マージン
+        var height = EditorGUIUtility.singleLineHeight * 3 + 5f + 5f;
+        return height;
+    }
+}
+

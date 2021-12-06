@@ -1,0 +1,38 @@
+More than 1 year has passed since last update.C# でバックエンド開発を行う場合、近年では、やはりWeb APIによる開発事例が多いかと思います。
+本記事では、C# における Web API 開発フレームワークの代表格である ASP.NET Core、及び ASP.NET API 2 Owin を題材とし、Azure DevOpsを使って自動テスト環境を整えるまでの流れを紹介します。サンプルコードを Github にアップしています。
+一部、今回の記事と無関係な実装も含まれていますが、ご了承ください。ASP.NET Core
+https://github.com/tYoshiyuki/dotnet-core-mediatr-sampleASP.NET Web API 2 Owin
+https://github.com/tYoshiyuki/dotnet-owin-webapi-sampleASP.NET で Web API を作成した場合、APIのエンドポイントとなる 「コントローラ」 と、業務ロジックを担当する 「ロジック」 のレイヤーを分ける事が多いかと思います。
+今回は、上記レイヤー分けに従って、ユニットテストを MsTest 及び xUnit を使って実装していきます。C# のテストフレームワークでユニットテストを実装する場合、テストの内容や種別によってカテゴリ分けをすることをお勧めします。カテゴリ分けをすることにより、Visual Studio のテストエクスプローラーで表示をフィルタリングしたり、テスト結果の分析を行うことが出来るようになります。ユニットテストの総ケース数が増えてきた場合でも、柔軟なテスト運用が可能となります。テストケース総数を勘案した上で、カテゴリ分けを設計すると良いかと思います。以下、カテゴリ分けの例になります。権限の名称テスト種別名処理時間業務ドメインの名称まずは、ASP.NET Web API 2 Owin / MsTest の実装例です。
+テストカテゴリは、アノテーションで指定します。MsTest v1 ではメソッド単位にしかカテゴリを付与できませんでしたが、
+MsTest v2 からクラス単位にカテゴリを付与出来るようになっています。前述した通りですが、テストエクスプローラーでカテゴリに従い、表示項目をフィルタリングすることが出来ます。
+テストケース数が膨大になった場合は、有効な機能になるため活用しましょう。
+テストパターンが類似しているテストケースについては、パラメタライズドテストを検討すると良いです。
+MsTest v2 はパラメタライズドテストに対応しています。実装例を以下に示します。
+インプットデータや期待値を纏めてパラメータとすることで、データパターンを網羅したテストを効率よく実装出来ます。上記は、DynamicData のパターンを紹介していますが、それ以外にも DataRow を利用したり、
+データソースをカスタマイズしたりと様々な例がありますので、興味のある方は公式ドキュメントを確認することをお勧めします。
+https://github.com/Microsoft/testfx-docs次は、ASP.NET Core / xUnit の実装例です。
+テストカテゴリは、Traitアノテーションで指定します。MsTestと異なり、キー(name)・バリュー(value)のような形で設定します。テストメソッドは Fact アノテーション で実装します。続いて、パラメタライズドテストの実装例です。パラメタライズドテストには Theory アノテーションを使用します。
+MsTest v2 とほぼ同じように記載が可能です。続いて、コントローラから一気通貫でテストを行うインテグレーションテストを実装します。
+Web API を呼び出すためには HTTPサーバ が必要になりますが、.NETのユニットテストでは専用の TestServer があるため、これを利用すると、いい感じにテストの実装が出来ます。
+以下、ASP.NET Web API 2 Owin の実装例です。ASP.NET Core の場合は、WebApplicationFactoryを利用します。
+WebApplicationFactory を継承したクラスを準備します。(尚、サンプルソースでは初期データの投入も行っています。)次に、WebApplicationFactory をユニットテストで利用した場合の実装例です。
+WebApplicationFactory を継承したクラスを、コンストラクタインジェクションで受け取り、そこから HTTP Client を取得し、HTTPリクエストを実行するような感じです。続いて、Azure DevOpsでビルドパイプラインを作成します。パイプラインの作成方法は、旧形式では GUI で作成する必要がありましたが、現在では YAML での作成が可能となっています。今回は、ビルドパイプラインでユニットテストの実行とカバレッジレポートを取得する方法を紹介します。まずは、GUIでの作成例です。ASP.NET Web API 2 Owin のプロジェクトをサンプルに作成しています。ポイントとしては、テストの実行・カバレッジの取得 (Test and output coverage) と レポートの出力 (Generate coverage report)です。カバレッジの取得には OpenCover を使用します。Nugetより取得しましょう。OpenCover より MsTest をコマンドラインで実行し、カバレッジの取得を行います。
+テスト対象となる DLL の指定や、カバレッジ取得対象とする 名前空間 をコマンドラインのパラメータで指定します。
+また、カバレッジの取得は デバッグビルド で実行する必要があるため注意が必要です。以下、設定内容の詳細 YAML になります。OpenCover の設定 (特にfilter) に関しては、若干クセがあるので、公式のドキュメントを読んでおくと良いです。
+https://github.com/opencover/opencover/wiki/Usage続いてカバレッジレポートの取得です。
+ReportGenerator を Visual Studio Marketplace から取得し、Azure DevOps に追加しましょう。上記拡張を追加すると、ReportGenerator のタスクを作成出来るようになります。パイプラインの実行後、Code Coverage のタブが追加され、カバレッジレポートが HTML で閲覧出来るようになります。
+Tests のタブと合わせて確認することで、効率的にテスト結果を可視化することが出来ます。次に、YAMLでの作成例です。
+ASP.NET Core のプロジェクトをサンプルに実装します。ASP.NET Core の場合、dotnet test のコマンドでカバレッジの取得が可能です。
+また、reportgeneratorもコマンドでインストール出来るため、ASP.NET Web API 2 Owinに比べてシンプルにパイプラインが作成出来ます。.NET Core のパイプラインに関しては、公式にもドキュメントがあります。導入の際には、合わせて確認いただくと良いかと思います。
+https://docs.microsoft.com/en-us/azure/devops/pipelines/ecosystems/dotnet-core?view=azure-devops最後に、Azure DevOps と Slack 連携し、ビルドパイプラインによるテスト結果を通知してみます。
+Azure DevOps と Slack は専用の連携アプリがあるため、これを利用します。
+詳細な手順は公式のドキュメントがあるため、本記事では割愛します。
+https://docs.microsoft.com/en-us/azure/devops/pipelines/integrations/slack?view=azure-devops設定が完了すると、画像の通りにビルド完了時にSlackへ通知が送付されます。しかし、上記通知内容からではテスト成功件数、失敗件数といった詳細な結果を知ることが出来ません。
+勿論、メッセージのリンクから Azure DevOps へ遷移する事は可能ですが、今回は通知内容を Incoming Webhooks を利用してカスタマイズしてみます。上記、ASP.NET Web API 2 Owinのパイプラインを用いて、Incoming Webhooksの送信を作成します。
+PowerShellを使って、ビルドパイプライン内でSlackへの通知を行いましょう。ポイントとして、テスト実行結果は .trx ファイル、カバレッジ取得結果は coverage.xml にそれぞれ存在するため、
+XMLパーサーを使用して値の読み取りを行っています。カバレッジ取得結果は、利用したツールによってフォーマットが異なっており、OpenCover以外の別のツールを用いた場合は適宜調整が必要なため、ご注意ください。また、同様に Microsoft Teams に対してもメッセージの送信が可能です。後半、C# というよりも Azure DevOps の記事が中心になってしまいました。。。
+C#でモダンな継続的開発を行う場合は、ユニットテストの実装とAzure DevOpsの運用がポイントになってくると思います。
+本記事が、少しでも皆様の参考情報となれば幸いです。
+
+

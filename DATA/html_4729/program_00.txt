@@ -1,0 +1,94 @@
+using System;
+using UnityEngine;
+using UnityEngine.Android;
+using UnityEngine.UI;
+
+// &lt;summary&gt;
+/// Androidのネイティブ音声認識機能呼び出し
+/// &lt;/summary&gt;
+public class AndroidNativeSpeech : MonoBehaviour
+{
+    [SerializeField] private Text recText;
+    [SerializeField] private Image microPhoneImage;
+
+    private void Start()
+    {
+#if UNITY_ANDROID
+        if (!Permission.HasUserAuthorizedPermission(Permission.Microphone))
+        {
+            Debug.Log("Request");
+            Permission.RequestUserPermission(Permission.Microphone);
+        }
+#endif
+    }
+
+    private void Update()
+    {
+        if (Input.touchCount &gt; 0)
+        {
+            Touch touch = Input.touches[0];
+            if (touch.phase == TouchPhase.Began)
+            {
+                StartSpeech();
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 認識開始
+    /// &lt;/summary&gt;
+    private void StartSpeech()
+    {
+#if UNITY_ANDROID
+            var nativeRecognizer = new AndroidJavaClass("com.kento.speechtest.Speech");
+            var unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+            var context = unityPlayer.GetStatic&lt;AndroidJavaObject&gt;("currentActivity");
+
+            context.Call("runOnUiThread", new AndroidJavaRunnable(() =&gt;
+            {
+                nativeRecognizer.CallStatic("StartRecognizer", context,gameObject.name, "CallbackMethod");
+            }));
+#endif
+    }
+
+    /// &lt;summary&gt;
+    /// 音声認識後のコールバックとして実行するメソッド
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;認識したメッセージ&lt;/param&gt;
+    private void CallbackMethod(string message)
+    {
+        var messages = message.Split('\n');
+
+        //ユーザーが話すのを開始した際のコールバック
+        if (messages[0] == "onBeginningOfSpeech")
+        {
+            microPhoneImage.enabled = true;
+        }
+
+        //認識した音量変化のコールバック
+        if (messages[0] == "onRmsChanged")
+        {
+            recText.text = "認識中...";
+        }
+
+        //ユーザーが話すのを終了した際のコールバック
+        if (messages[0] == "onEndOfSpeech")
+        {
+            microPhoneImage.enabled = false;
+        }
+
+        //認識結果の準備が完了したコールバック
+        if (messages[0] == "onResults")
+        {
+            var msg = "";
+            for (var i = 1; i &lt; messages.Length; i++)
+            {
+                msg += messages[i] + "\n";
+            }
+
+            Debug.Log(msg);
+            recText.text = msg;
+        }
+    }
+}
+

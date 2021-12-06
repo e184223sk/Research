@@ -1,0 +1,52 @@
+
+// BinaryUtils.csより引用 (★部分は追記部分)
+
+/// &lt;summary&gt;
+/// The value of the sybsystem field which indicates Windows GUI (Graphical UI)
+/// &lt;/summary&gt;
+private const UInt16 WindowsGUISubsystem = 0x2;
+
+
+/// &lt;summary&gt;
+/// This method will attempt to set the subsystem to GUI. The apphost file should be a windows PE file.
+/// &lt;/summary&gt;
+/// &lt;param name="accessor"&gt;The memory accessor which has the apphost file opened.&lt;/param&gt;
+internal static unsafe void SetWindowsGraphicalUserInterfaceBit(MemoryMappedViewAccessor accessor)
+{
+    byte* pointer = null;
+
+    try
+    {
+        accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
+        byte* bytes = pointer + accessor.PointerOffset;
+
+        // https://en.wikipedia.org/wiki/Portable_Executable
+        UInt32 peHeaderOffset = ((UInt32*)(bytes + PEHeaderPointerOffset))[0];
+
+        if (accessor.Capacity &lt; peHeaderOffset + SubsystemOffset + sizeof(UInt16))
+        {
+            throw new AppHostNotPEFileException();
+        }
+
+        UInt16* subsystem = ((UInt16*)(bytes + peHeaderOffset + SubsystemOffset));
+
+        // https://docs.microsoft.com/en-us/windows/desktop/Debug/pe-format#windows-subsystem
+        // The subsystem of the prebuilt apphost should be set to CUI
+        if (subsystem[0] != WindowsCUISubsystem)
+        {
+            throw new AppHostNotCUIException();
+        }
+
+        // ★WindowsGUISubsystem(2)の書き込み
+        // Set the subsystem to GUI
+        subsystem[0] = WindowsGUISubsystem;
+    }
+    finally
+    {
+        if (pointer != null)
+        {
+            accessor.SafeMemoryMappedViewHandle.ReleasePointer();
+        }
+    }
+}
+

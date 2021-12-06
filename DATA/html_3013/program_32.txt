@@ -1,0 +1,62 @@
+
+private static void WriteField(ModuleDefinition mainModuleDefinition, ILProcessor processor, TypeDefinition iSerializerDefinition, Encoding utf8, FieldDefinition resolverFieldDefinition, MethodDefinition getMethodDefinition, FieldDefinition fieldDefinition, Instruction jumpDestinationWhenFail, ref long initialNeedLength)
+{
+    byte[] nameBytes = utf8.GetBytes(fieldDefinition.Name);
+
+    WriteName(processor, nameBytes);
+    WriteChar(processor, ':');
+    processor.Append(Instruction.Create(OpCodes.Stloc_1));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.AppendRange(LoadConstantInt64(2L + nameBytes.LongLength));
+    processor.Append(Instruction.Create(OpCodes.Sub));
+    processor.Append(Instruction.Create(OpCodes.Starg_S, processor.Body.Method.Parameters[2]));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_0));
+    processor.Append(Instruction.Create(OpCodes.Ldfld, resolverFieldDefinition));
+    MethodReference getImportReference = mainModuleDefinition.ImportReference(new GenericInstanceMethod(getMethodDefinition)
+    {
+        GenericArguments = { fieldDefinition.FieldType }
+    });
+    processor.Append(Instruction.Create(OpCodes.Callvirt, getImportReference));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_1));
+    processor.Append(Instruction.Create(OpCodes.Ldfld, fieldDefinition));
+    processor.Append(Instruction.Create(OpCodes.Ldloc_1));
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    MethodReference tryWriteImportReference = mainModuleDefinition.ImportReference(MakeHostInstanceGeneric(iSerializerDefinition.Methods[0], fieldDefinition.FieldType));
+    processor.Append(Instruction.Create(OpCodes.Callvirt, tryWriteImportReference));
+
+    processor.Append(Instruction.Create(OpCodes.Dup));
+    processor.Append(Instruction.Create(OpCodes.Stloc_0));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+    processor.Append(Instruction.Create(OpCodes.Conv_I8));
+    processor.Append(Instruction.Create(OpCodes.Blt, jumpDestinationWhenFail));
+
+    processor.Append(Instruction.Create(OpCodes.Ldarg_3));
+    processor.Append(Instruction.Create(OpCodes.Ldloc_0));
+    processor.Append(Instruction.Create(OpCodes.Sub));
+    processor.Append(Instruction.Create(OpCodes.Dup));
+    processor.Append(Instruction.Create(OpCodes.Starg_S, processor.Body.Method.Parameters[2]));
+    initialNeedLength -= 3L + nameBytes.LongLength;
+    processor.AppendRange(LoadConstantInt64(initialNeedLength));
+    processor.Append(Instruction.Create(OpCodes.Blt, jumpDestinationWhenFail));
+}
+
+private static void WriteName(ILProcessor processor, byte[] nameBytes)
+{
+    for (var index = 0; index &lt; nameBytes.Length; index++)
+    {
+        WriteByte(processor, nameBytes[index]);
+    }
+}
+
+private static void WriteByte(ILProcessor processor, byte character)
+{
+    processor.Append(Instruction.Create(OpCodes.Dup));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I4_S, (sbyte)character));
+    processor.Append(Instruction.Create(OpCodes.Stind_I1));
+    processor.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+    processor.Append(Instruction.Create(OpCodes.Add));
+}
+

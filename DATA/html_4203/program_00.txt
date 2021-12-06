@@ -1,0 +1,67 @@
+//ONNXモデルデータのロード
+var model_data = MenohSharp.ModelData.MakeModelDataFromONNX("model.onnx");
+
+//VPT構築の事前設定をする
+var vpt_builder = new MenohSharp.VariableProfileTableBuilder();
+//モデルプロパティで確認した入力データ仕様を設定
+vpt_builder.AddInputProfile("data_0", MenohSharp.DType.Float, new[] { 1, 3, 224, 224});
+//モデルプロパティで確認した出力ノード名を設定（次元数は自動算出）
+vpt_builder.AddOutputName("prob_1");
+//モデルデータを渡してVPTを構築
+var vpt = vpt_builder.BuildVariableProfileTable(model_data);
+//計算された出力テンソルの次元を取得
+//(大抵は既知なのでわざわざ取得してなくて良いと思いますが、一つのテクニックとして）
+var outputDims = vpt.GetVariableProfile("prob_1").Dims;
+//VPTを使ってmodel_builderを作成
+var model_builder = new MenohSharp.ModelBuilder(vpt);
+
+//(unsafe)  ポインタを扱うため、ガーベージコレクタによるアドレス移動を抑制
+//image_dataは1次元配列(float[]型)
+fixed (float* p = image_data)
+{
+    //モデルに入力画像データのポインタを渡す
+    model_builder.AttachExternalBuffer(inputNode, (IntPtr)p);
+
+    //計算用のモデルを構築
+    var model = model_builder.BuildModel(model_data, "mkldnn");
+
+    //出力バッファのポインタを取得
+    float* softmax_output_buff = (float*)(model.GetVariable(outputNode).BufferHandle);
+
+    //推論を実施
+    model.Run();
+
+    //出力を取得
+    //出力データはポインタだけ与えられているので、
+    //事前に確認している変数型を頼りにデータへアクセスする
+    var top_k = 5;
+    var top_k_indices = ExtractTopKIndexList(
+        softmax_output_buff, softmax_output_buff + outputDims[1], top_k);  //出力から上位5つを取得
+    var categories = LoadCategoryList("CategoryList.txt");   //カテゴリのリスト(適当に準備する)
+    Console.WriteLine("top " + top_k + "  categories are");
+    foreach (var ki in top_k_indices)
+    {
+        Console.WriteLine(ki + " " + (*(softmax_output_buff + ki)).ToString() + 
+                     "  categories are" + categories[ki]);  //カテゴリを適当に表示する
+    }
+}
+
+//モデルデータの破棄
+model_data.Dispose();
+
+//-------------------------------------------------
+static unsafe int[] ExtractTopKIndexList(float* first, float* last, int k)
+{
+    var q = new List&lt;Tuple&lt;float, int&gt;&gt;();
+    for (var i = 0; first != last; first++, i++)
+    {
+        q.Add(Tuple.Create(*first, i));
+    }
+    return q.OrderByDescending(_ =&gt; _.Item1).Take(k).Select(_ =&gt; _.Item2).ToArray();
+}
+
+static unsafe string[] LoadCategoryList(string synset_words_path)
+{
+    return System.IO.File.ReadAllLines(synset_words_path);
+}
+

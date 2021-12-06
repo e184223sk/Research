@@ -1,0 +1,41 @@
+
+//using MongoDB.Bson;
+//using MongoDB.Bson.Serialization;
+//using MongoDB.Driver;
+//using lz4;
+//using MessagePack;
+
+
+public static void _Main(string[] args)
+{
+    var client = new MongoClient("mongodb://localhost:27017");
+    var db = client.GetDatabase("currency");
+    var collection = db.GetCollection&lt;BsonDocument&gt;("btcjpy");
+
+    var msgRootDir = @"C:\data\msglz4";
+    var lz4Files = Directory.EnumerateFiles(msgRootDir, "*.msg.lz4", SearchOption.AllDirectories);
+
+    var sw = new Stopwatch();
+    sw.Start();
+    foreach (var lz in lz4Files)
+    {
+        Console.WriteLine(lz);
+
+        byte[][] binaries;
+        using (var fs = new FileStream(lz, FileMode.Open, FileAccess.Read))
+        using (var lz4Stream = LZ4Stream.CreateDecompressor(fs, LZ4StreamMode.Read))
+        {
+            binaries = MessagePackSerializer.Deserialize&lt;byte[][]&gt;(lz4Stream);
+        }
+
+        //JsonBinary → BsonArray
+        var bsonArray = binaries
+            .Select(x =&gt; Encoding.UTF8.GetString(x))
+            .Select(rawjson =&gt; BsonSerializer.Deserialize&lt;BsonDocument&gt;(rawjson));
+        collection.InsertMany(bsonArray);
+    }
+    sw.Stop();
+
+    Console.WriteLine(sw.Elapsed);
+}
+

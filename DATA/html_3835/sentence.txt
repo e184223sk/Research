@@ -1,0 +1,2141 @@
+More than 1 year has passed since last update.大学生が有料スマホゲームを作った全てを公開するよ（３）ゲームの構造・パズルとアクションの仕組み（前編）
+の続き。今回は、使ったスクリプトとコンポーネントを全て公開しておく。
+前回の記事も参考にしながら見てくれると良いと思う。細かく触れると多すぎるので、
+今回は工夫した点を特記する程度になってしまい申し訳ない。もし需要があれば、掘り下げた記事も書くかもしれない。
+スクリプトは、クリックすると表示されるよ。プレイヤー、ブロック、敵、アイテム、その他のステージオブジェクトが継承する親クラス。
+SetStats関数では、int配列でオブジェクトの初期化情報を取得する。StageObject.cs
+
+
+StageObject.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class StageObject : MonoBehaviour
+{
+    public SOType sotype = SOType.Unknown;
+    public string SOstate = "";
+    protected GameObject GC;
+
+    public void Start()
+    {
+        Init();
+    }
+
+    /// &lt;summary&gt;
+    /// Sets the stats.
+    /// &lt;/summary&gt;
+    /// &lt;param name="stats"&gt;int配列ください&lt;/param&gt;
+    public virtual void SetStats(int[] stats)
+    {
+
+    }
+
+    protected virtual void Init()
+    {
+        //GameControllerのGameObjectを取得
+        GC = GameObject.FindGameObjectWithTag("GameController");
+    }
+
+    public virtual void OnShiftStart()
+    {
+
+    }
+
+    public virtual void OnShiftEnd()
+    {
+
+    }
+
+public virtual void Die(){
+        Destroy (gameObject);
+    }
+
+    //ゲッターの意味...
+    public SOType GetSOType(){
+        return sotype;
+    }
+}
+
+
+
+ステージオブジェクトは以下のコンポーネントを持っている。ただし、必要に応じて以下の場合もある。あまり重要ではないので、基本は同じだと考えてもらって良い。Character.csは親クラス。
+PlayerクラスとEnemyクラスはChracter.csを継承している。基本的にはRigidbodyとCircleColliderを使って物理挙動を制御している。入れ替わり時の時を止める処理は、timescaleを0にすることで実現してる。
+エフェクト関係はtimescaleの影響を受けないように、Unscaledの設定にしている。Character.cs
+
+
+Character.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Character : StageObject {
+    protected int HP;
+
+    public bool isDead(){
+        bool isdead = false;
+
+        if (HP &lt;= 0) 
+            isdead = true;
+
+        return isdead;
+    }
+
+    public virtual void TakeDamage(int damage){
+        HP -= damage;
+        if (isDead ()) {
+            Die ();
+        }
+    }
+
+    public virtual void Die(){
+        Destroy (gameObject);
+    }
+
+    public int GetHP(){
+        return HP;
+    }
+}
+
+
+
+Player.cs
+
+
+Player.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Player : Character {
+
+    //姿を消すときに消すオブジェクト
+    public GameObject[] objBodys; 
+
+    //パーティクルの親
+    private GameObject parParticle;
+    //Animator
+    private Animator thisAnim;
+    //Dieエフェクト
+    public GameObject preDieEffect;
+
+    //enable fire flag
+    public bool canFire = true;
+
+    //前回銃を打ってからの経過時間
+    private float TimeFromFire;
+    //前回エモートしてからの経過時間
+    private float TimeFromEmote;
+
+    //先行入力中か
+    bool duringTypeAhead;
+    Vector3 TypeAheadTapPos;
+    int TypeAheadCount;
+
+    //無敵フラグ（すりぬける）
+    public bool isInvulnerable = false;
+
+
+    protected override void Init(){
+        base.Init ();
+
+        HP = 1;
+        parParticle = GameObject.Find ("Particle");
+        thisAnim = GetComponent&lt;Animator&gt; ();
+    }
+
+    void Update () {
+
+        if (isInvulnerable)
+        {
+            GetComponent&lt;Rigidbody2D&gt;().simulated = false;
+        }
+
+        //タイマーを進める
+        TimeFromFire += Time.deltaTime;
+        TimeFromEmote += Time.deltaTime;
+
+        //待機アニメーション
+        IdlingAnimation();
+
+        //シフト中はシフト処理
+        if (isShifting)
+            Move ();
+    }
+
+    void IdlingAnimation(){
+        float TriggerTime = 10;
+        float EmoteTime = 2;
+
+        if ((TimeFromFire &gt; TriggerTime &amp;&amp; TimeFromFire &lt; TriggerTime + EmoteTime) 
+            || (TimeFromEmote &gt; TriggerTime &amp;&amp; TimeFromEmote &lt; TriggerTime + EmoteTime)) {
+            if (thisAnim.GetInteger ("Emote") == 0) {
+                int r = Random.Range (1, 3);
+                thisAnim.SetInteger ("Emote", r);
+            }
+        } else {
+            thisAnim.SetInteger ("Emote", 0);
+        }
+        if (TimeFromFire &lt; TriggerTime || TimeFromEmote &gt; TriggerTime + EmoteTime) {
+            TimeFromEmote = 0;
+        }
+    }
+
+
+    //指定された場所に敵がいるかを判定(posはscreenpoint)
+    //いればtransformを、いなければnullを返す
+    Transform EnemyExists(Vector3 pos){
+        pos.z = 10;
+        Vector2 wpos = Camera.main.ScreenToWorldPoint (pos);
+        Ray ray = Camera.main.ScreenPointToRay(pos);
+
+        RaycastHit2D hit;
+
+        if (hit = Physics2D.Raycast(wpos, -Vector2.up)) {
+            Transform objectHit = hit.transform;
+            return objectHit;
+        }
+        return null;
+    }
+
+    //シフトする相手
+    private GameObject objShiftTarget;
+    //シフト中かどうか
+    public bool isShifting = false;
+    //シフト前のプレイヤーの位置
+    private Vector2 FirstPlayerPos;
+    //シフト前の相手の位置
+    private Vector2 FirstTargetPos;
+
+    public GameObject preShiftingPlayer;
+    public GameObject preShiftingTarget;
+
+    private GameObject objShiftingPlayerParticle;
+    private GameObject objShiftingTargetParticle;
+
+    public GameObject GetTarget()
+    {
+        return objShiftTarget;
+    }
+
+    //シフトする
+    public void Shift(GameObject obj){
+        //シフト中はシフトしない
+        if(isShifting) return;
+
+        objShiftTarget = obj;
+        FirstPlayerPos = transform.position;
+        FirstTargetPos = obj.transform.position;
+
+        //対象オブジェクトのOnShiftを呼ぶ
+        StageObject objSO = obj.GetComponent&lt;StageObject&gt;();
+        objSO.OnShiftStart();
+
+        //particle生成
+        objShiftingPlayerParticle = Instantiate(preShiftingPlayer, Vector3.zero, Quaternion.identity, parParticle.transform);
+        objShiftingTargetParticle = Instantiate(preShiftingTarget, Vector3.zero, Quaternion.identity, parParticle.transform);
+
+        //rigidbodyのsimulatedをoffに（ぶつかったりしなくなる)
+        gameObject.GetComponent&lt;Rigidbody2D&gt; ().simulated = false;
+        objShiftTarget.GetComponent&lt;Rigidbody2D&gt; ().simulated = false;
+
+        //SetActiveでやってみる(Updateが呼ばれないのでだめ）
+        //gameObject.SetActive(false);
+        //objShiftTarget.SetActive (false);
+
+        //先行入力開始
+        StartCoroutine(TypeAheadCoroutine());
+
+        //時を止める
+        Time.timeScale = 0;
+
+        //SE
+        SEPlayer.PlaySE("shift");
+
+        //フラグ建築
+        isShifting = true;
+    }
+
+    //Shiftするスピード
+    private float SHIFTSPEED = 4;
+
+    //対象のGameObjectと入れ替わる演出(FixedUpdatで呼び続ける)
+    public void Move(){
+
+        Vector2 PlayerPos = gameObject.transform.position;
+        Vector2 TargetPos = objShiftTarget.transform.position;
+
+        //徐々に移動していくパターン
+        gameObject.transform.position += ((Vector3)FirstTargetPos - (Vector3)PlayerPos)*SHIFTSPEED*Time.unscaledDeltaTime;
+        objShiftTarget.transform.position += -((Vector3)FirstTargetPos - (Vector3)PlayerPos)*SHIFTSPEED*Time.unscaledDeltaTime;
+
+        Vector2 lError = new Vector2 (3f, 3f);
+        Vector2 Error = new Vector2(0.05f, 0.05f);
+
+        //入れ替わる時のパーティクル
+        objShiftingPlayerParticle.transform.position = PlayerPos;
+        objShiftingTargetParticle.transform.position = TargetPos;
+
+        //近づいた時
+        if (Mathf.Abs (PlayerPos.x - FirstTargetPos.x) &lt; lError.x &amp;&amp; Mathf.Abs (TargetPos.y - FirstPlayerPos.y) &lt; lError.y) {
+            //カメラ操作
+            MoveCamera mc = Camera.main.gameObject.GetComponent&lt;MoveCamera&gt; ();
+            if(mc != null){
+                mc.SetState (MoveCamera.CameraState.GoToTarget);
+            }
+        }
+
+        //シフト完了時
+        if (Mathf.Abs (PlayerPos.x - FirstTargetPos.x) &lt; Error.x &amp;&amp; Mathf.Abs (TargetPos.y - FirstPlayerPos.y) &lt; Error.y) {
+            //position最後の微調整
+            gameObject.transform.position = FirstTargetPos;
+            objShiftTarget.transform.position = FirstPlayerPos;
+
+            //simulatedをtrueに
+            gameObject.GetComponent&lt;Rigidbody2D&gt; ().simulated = true;
+            objShiftTarget.GetComponent&lt;Rigidbody2D&gt; ().simulated = true;
+
+            //SetActiveでやってみる(Updateが呼ばれなくなるのでだめ)
+            //gameObject.SetActive(false);
+            //objShiftTarget.SetActive (false);
+
+            //時を進める
+            Time.timeScale = 1;
+
+            //先行入力によるFire
+            if (TypeAheadCount &gt; 0) {
+                TypeAheadFire ();
+            }
+
+            //先行入力終了
+            duringTypeAhead = false;
+
+            //フラグ回収
+            isShifting = false;
+
+            //移動対象のオブジェクトのOnShiftEndを呼ぶ
+            objShiftTarget.GetComponent&lt;StageObject&gt;().OnShiftEnd();
+        }
+    }
+
+    void SetRendererEnabled(GameObject obj, bool enabled){
+        if (obj == gameObject) {
+            foreach (GameObject objBody in objBodys) {
+                objBody.GetComponent&lt;Renderer&gt; ().enabled = enabled;
+            }
+        }else{
+            Renderer[] objRenderers = obj.GetComponentsInChildren&lt;Renderer&gt; ();
+            foreach (Renderer objRenderer in objRenderers) {
+                objRenderer.enabled = enabled;
+            }
+        }
+    }
+
+    public override void Die(){
+        //SceneManager.LoadScene (SceneManager.GetActiveScene().name);
+        //SE
+        SEPlayer.PlaySE("gameover");
+        PlayerPrefs.SetInt ("DieCount", PlayerPrefs.GetInt ("DieCount", 0) + 1);
+        Debug.Log(PlayerPrefs.GetInt("DieCount"));
+        gameObject.SetActive(false);
+        Instantiate(preDieEffect, gameObject.transform.position, Quaternion.identity, transform.parent);
+    }
+
+    public GameObject preShiftBullet;
+
+    /// &lt;summary&gt;
+    /// Exists the UI.
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;c&gt;true&lt;/c&gt;, if UI was existed, &lt;c&gt;false&lt;/c&gt; otherwise.&lt;/returns&gt;
+    /// &lt;param name="pos"&gt;スクリーン座標を渡してください。また、UIのアンカーは左下にしてください&lt;/param&gt;
+    bool existUI(Vector3 pos){
+        bool exist = false;
+        GameObject[] objUIs = GameObject.FindGameObjectsWithTag ("UI");
+        GameObject objUICanvas = GameObject.FindGameObjectWithTag ("UICanvas");
+        if (objUICanvas == null)
+            return exist;
+        Vector2 UIscale = objUICanvas.GetComponent&lt;RectTransform&gt; ().localScale;
+        foreach (GameObject objUI in objUIs) {
+            RectTransform rectUI = objUI.GetComponent&lt;RectTransform&gt; ();
+            Vector3 UIpos = objUI.transform.position;
+            Vector3 dsize = rectUI.sizeDelta;
+            Vector3 lbUIpos = UIpos - dsize;
+            Vector3 ruUIpos = UIpos + dsize;
+            //UI座標からスクリーン座標に変換
+            Vector3 screenUIpos = RectTransformUtility.WorldToScreenPoint(Camera.main, UIpos);
+            Vector3 screenlbUIpos = screenUIpos - dsize*UIscale.x*40;
+            Vector3 screenruUIpos = screenUIpos + dsize*UIscale.y*40;
+            if (screenlbUIpos.x &lt; pos.x &amp;&amp; pos.x &lt; screenruUIpos.x &amp;&amp; screenlbUIpos.y &lt; pos.y &amp;&amp; pos.y &lt; screenruUIpos.y) {
+                exist = true;
+            }
+
+            Debug.Log ("lb " + screenlbUIpos);
+            Debug.Log ("ru " + screenruUIpos);
+            Debug.Log ("m " + pos);
+        }
+        return exist;
+    }
+
+    public void Fire(){
+        if (!canFire)
+            return;
+
+        if(ExistBullet())
+            return;
+
+        Vector3 pos = Input.mousePosition;
+        pos.z = 10;
+        Vector3 wpos = Camera.main.ScreenToWorldPoint (pos);
+        Vector3 velocity = (wpos - transform.position).normalized;
+
+        //先行入力
+        if (duringTypeAhead) {
+            TypeAheadTapPos = wpos;
+            if (TypeAheadCount &lt; 1) {
+                TypeAheadCount++;
+            }
+        }
+
+        //シフト中は打たない
+        if(isShifting) return;
+
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objBullet;
+        objBullet = Instantiate (preShiftBullet, transform.TransformPoint (0, 0, 0), Quaternion.identity, objItems.transform);
+
+        //弾に力を与える
+        objBullet.GetComponent&lt;ShiftBullet&gt; ().Fire(velocity);
+
+        //タイマーリセット
+        TimeFromFire = 0;
+
+        //SE
+        SEPlayer.PlaySE("bullet");
+    }
+
+    private Coroutine reloadCoroutine;
+    void TypeAheadFire(){
+        Vector3 pos = TypeAheadTapPos;
+        Vector3 velocity = (pos - transform.position).normalized;
+
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objBullet;
+        objBullet = Instantiate (preShiftBullet, transform.TransformPoint (0, 0, 0), Quaternion.identity, objItems.transform);
+
+        //弾に力を与える
+        objBullet.GetComponent&lt;ShiftBullet&gt; ().Fire(velocity);
+
+        //タイマーリセット
+        TimeFromFire = 0;
+
+        //SE
+        SEPlayer.PlaySE("bullet");
+
+
+        //先行入力数を減らす
+        TypeAheadCount--;
+    }
+
+    public override void TakeDamage (int damage)
+    {
+        if (isShifting) {
+        } else {
+            HP -= damage;
+            if (isDead ()) {
+                Die ();
+                GC.GetComponent&lt;Main&gt; ().Reset (0.5f);
+            }
+        }
+    }
+
+    //何もしなくなる
+    public void Sleep(){
+        isShifting = true;
+    }
+
+    float startTime = 0f; //シフト開始から先行入力開始までの時間
+    float endTime = 0.3f;   //シフト開始から先行入力終了までの時間
+    IEnumerator TypeAheadCoroutine(){
+        yield return new WaitForSeconds (startTime);
+        duringTypeAhead = true;
+        yield return new WaitForSeconds (endTime - startTime);
+        duringTypeAhead = false;
+    }
+
+
+    //弾がステージ内に存在するか
+    private bool ExistBullet()
+    {
+        bool existbullet = false;
+        GameObject objItems = GameObject.Find ("Items");
+        GameObject objShiftBullet = SOManager.FindStageObject(objItems, SOType.ShiftBullet);
+        if (objShiftBullet == null)
+        {
+            existbullet = false;
+        }
+        else
+        {
+            existbullet = true;
+        }
+
+        return existbullet;
+    }
+}
+
+
+
+
+全てBlockクラスを継承しているが、今のところ処理はなくBlockクラスは意味がなくなってしまった。SwitchWallに関しては見た目をパーティクルに頼っているため、SetActiveの切り替えは違和感があった。(一瞬でパーティクルが消えるため）
+スイッチ壁の切り替えの時は、ParticleSystemをPlayしたりStopして対応している。Wall.cs
+
+
+Wall.cs
+public class Wall : Block {
+
+    public GameObject CollideEffect;
+
+    protected override void Init(){
+        base.Init ();
+        sotype = SOType.Wall;
+    }
+
+    void OnCollisionEnter2D(Collision2D coll){
+        foreach (ContactPoint2D contact in coll.contacts) {
+            Instantiate (CollideEffect, (Vector3)contact.point, Quaternion.identity);
+        }
+    }
+}
+
+
+
+ReflectionWall.cs
+
+
+ReflectionWall.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ReflectionWall : Block {
+
+    protected override void Init(){
+        base.Init ();
+        sotype = SOType.ReflectionWall;
+    }
+
+    void OnCollisionEnter2D(Collision2D coll){
+        if (coll.gameObject.tag == "UnshiftableItem") {
+            if (coll.gameObject.GetComponent&lt;StageObject&gt; ().sotype == SOType.ShiftBullet) {
+                SEPlayer.PlaySE ("reflection");
+            }
+        }
+    }
+    //反射処理はbulletに任せている
+}
+
+
+
+SwitchWall.cs
+
+
+SwitchWall.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SwitchWall : Block
+{
+
+    public bool EnabledStart;
+    public ParticleSystem[] WallMovers;
+    public GameObject BreakEffect;
+
+    private bool isEnabled = true;
+
+    public ParticleSystem EnergyBall;
+    private Vector3 oldPos;
+
+    protected override void Init()
+    {
+        base.Init();
+
+        sotype = SOType.SwitchWall;
+
+        if (EnabledStart == true)
+            SetEnabled(true);
+        else
+            SetEnabled(false);
+
+        isEnabled = EnabledStart;
+    }
+
+    public void ClearLineEffect()
+    {
+        EnergyBall.gameObject.SetActive(false);
+        if (isEnabled)
+        {
+            EnergyBall.gameObject.SetActive(true);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Sets the stats.
+    /// &lt;/summary&gt;
+    /// &lt;param name="stats"&gt;[0] (0:非表示, 1:表示)状態からスタート&lt;/param&gt;
+    public override void SetStats(int[] stats)
+    {
+        base.SetStats(stats);
+
+        if (stats.Length == 0)
+        {
+            return;
+        }
+
+        switch (stats[0])
+        {
+            case 0:
+                EnabledStart = false;
+                break;
+            case 1:
+                EnabledStart = true;
+                break;
+            default:
+                Debug.Log("Invalid number");
+                break;
+        }
+    }
+
+    private GameObject break_effect;
+
+    //壁を消したり現れたりします
+    public void SwitchEnabled()
+    {
+        isEnabled = !isEnabled;
+        if (isEnabled)
+        {
+            gameObject.GetComponent&lt;BoxCollider2D&gt;().enabled = true;
+            gameObject.GetComponent&lt;ParticleSystem&gt;().Play();
+
+            for (int i = 0; i &lt; transform.childCount; i++)
+                transform.GetChild(i).gameObject.SetActive(true);
+            //destroy effect
+            Destroy(break_effect);
+        }
+        else
+        {
+            gameObject.GetComponent&lt;BoxCollider2D&gt;().enabled = false;
+            gameObject.GetComponent&lt;ParticleSystem&gt;().Stop();
+            for (int i = 0; i &lt; transform.childCount; i++)
+                transform.GetChild(i).gameObject.SetActive(false);
+
+            //Effect
+            break_effect = Instantiate(BreakEffect, transform.position, Quaternion.identity, transform);
+            break_effect.GetComponent&lt;particleAttractorMove&gt;().target = SOManager
+                .FindStageObject(transform.parent.gameObject, SOType.SwitchWallButton).transform;
+        }
+    }
+
+    //壁を出現させます
+    public void SetEnabled(bool state)
+    {
+        gameObject.GetComponent&lt;BoxCollider2D&gt;().enabled = state;
+        for (int i = 0; i &lt; transform.childCount; i++)
+            transform.GetChild(i).gameObject.SetActive(state);
+        switch (state)
+        {
+            case true:
+                gameObject.GetComponent&lt;ParticleSystem&gt;().Play();
+                break;
+            case false:
+                gameObject.GetComponent&lt;ParticleSystem&gt;().Stop();
+                break;
+        }
+    }
+
+    public bool GetEnabled()
+    {
+        return isEnabled;
+    }
+}
+
+
+
+Enemyクラスを親クラスとしている。
+元々、HPを設けるつもりだったが今は必要ないので名残で使ってしまっている。壁にぶつかった時の反射に関しては、Rigidbodyを使っている。
+Physics2Dの設定でVelocity Thresholdを0にしないと低速の跳ね返りが無視されてしまい、変な跳ね返り方をするので要注意。Character.cs
+
+
+Character.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Character : StageObject {
+    protected int HP;
+
+    public bool isDead(){
+        bool isdead = false;
+
+        if (HP &lt;= 0) 
+            isdead = true;
+
+        return isdead;
+    }
+
+    public virtual void TakeDamage(int damage){
+        HP -= damage;
+        if (isDead ()) {
+            Die ();
+        }
+    }
+
+    public virtual void Die(){
+        Destroy (gameObject);
+    }
+
+    public int GetHP(){
+        return HP;
+    }
+}
+
+
+
+Enemy.cs
+
+
+Enemy.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Enemy : Character {
+    protected int direction; //左-1 右1
+    protected float speed;  //移動速度
+
+    protected GameObject objPlayer;
+    protected Player cmpPlayer;
+
+    private Coroutine corAttackCoroutine;
+
+    protected override void Init(){
+        base.Init ();
+
+        direction = -1;
+        speed = 2;
+        HP = 1;
+        objPlayer = GameObject.FindGameObjectWithTag ("Player");
+        cmpPlayer = objPlayer.GetComponent&lt;Player&gt; ();
+
+        corAttackCoroutine = StartCoroutine(AttackCoroutine ());
+    }
+
+    void Update(){
+        Move ();
+        Attack ();
+    }
+
+    //進む方向を変更します
+    protected void ChangeDirection(){
+        direction = -direction;
+    }
+
+    //プレイヤーとぶつかった時の処理
+    protected void OnCollideWithPlayer(){
+        cmpPlayer.TakeDamage (10000);
+    }
+
+    //updateで呼ばれるmove関数です。ご自由に。
+    public virtual void Move(){
+
+    }
+
+    //updateで呼ばれるattack関数です。ご自由に。
+    public virtual void Attack(){
+
+    }
+
+    //最初に一度だけ呼ばれるattackコルーチンです。ご自由に。
+    public virtual IEnumerator AttackCoroutine(){
+        yield return new WaitForSeconds(0f);
+    }
+}
+
+
+
+Dog.cs
+
+
+Dog.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Dog : Enemy {
+
+    Rigidbody2D R2D;
+
+    protected override void Init(){
+        base.Init ();
+        R2D = gameObject.GetComponent&lt;Rigidbody2D&gt; ();
+        R2D.velocity = transform.rotation * Vector2.up * speed;
+    }
+
+
+
+    /// &lt;summary&gt;
+    /// Sets the stats.
+    /// &lt;/summary&gt;
+    /// &lt;param name="stats"&gt;[0] 向き&lt;/param&gt;
+    public override void SetStats (int[] stats)
+    {
+        base.SetStats (stats);
+        if (stats.Length == 0) {
+            transform.rotation = Quaternion.AngleAxis (90, Vector3.forward);
+        } else {
+            transform.rotation = Quaternion.AngleAxis (stats [0] * 45, Vector3.forward);
+        }
+
+
+        if (stats.Length == 0) {
+            GetComponent&lt;Rigidbody2D&gt; ().constraints = RigidbodyConstraints2D.FreezePositionY;
+        }else{
+            if (stats [0] == 0 || stats [0] == 4) {
+                GetComponent&lt;Rigidbody2D&gt; ().constraints = RigidbodyConstraints2D.FreezePositionX;
+            } else if (stats [0] == 2 || stats [0] == 6) {
+                GetComponent&lt;Rigidbody2D&gt; ().constraints = RigidbodyConstraints2D.FreezePositionY;
+            } else {
+                Debug.Log ("Invalid Rotation");
+            }
+        }
+    }
+
+    protected virtual void Update(){
+        //速度が0だったら強制的に動かします
+        if (GetComponent&lt;Rigidbody2D&gt; ().velocity == Vector2.zero) {
+            if (R2D != null)
+            {
+                R2D.velocity = transform.rotation * Vector2.up * speed;
+            }
+        }
+
+        //斜め移動の場合、xとyの値を揃えます
+        if (R2D.velocity.x != 0 &amp;&amp; R2D.velocity.y != 0) {
+            R2D.velocity = new Vector2 (R2D.velocity.x / Mathf.Abs (R2D.velocity.x), R2D.velocity.y / Mathf.Abs (R2D.velocity.y));
+        }
+
+        //速度を正規化します
+        if (GetComponent&lt;Rigidbody2D&gt;().velocity.magnitude != 1)
+        {
+            if (R2D != null)
+            {
+                R2D.velocity = R2D.velocity.normalized * speed;
+            }
+        }
+    }
+
+    void OnCollisionEnter2D(Collision2D coll){
+        R2D.velocity = R2D.velocity.normalized * speed;
+        //プレイヤーとぶつかったら何かします
+        if (coll.gameObject.tag == "Player") {
+            cmpPlayer.TakeDamage (10000);
+        }
+    }
+}
+
+
+
+Pig.cs
+
+
+Pig.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Pig : Dog{
+    public GameObject prePigLazer;
+    public bool host;
+
+    LineRenderer[] LRs;
+    EdgeCollider2D[] EC2Ds;
+    GameObject[] PigLazers;
+
+    List&lt;GameObject&gt; Pigs;
+
+    protected override void Init ()
+    {
+        base.Init ();
+        Pigs = SOManager.FindStageObjects (transform.parent.gameObject, SOType.Pig);
+        host = true;
+        foreach (GameObject Pig in Pigs) {
+            if (Pig.GetComponent&lt;Pig&gt; ().host &amp;&amp; Pig != gameObject) {
+                host = false;
+            }
+        }
+        LRs = new LineRenderer[Pigs.Count];
+        EC2Ds = new EdgeCollider2D[Pigs.Count];
+        PigLazers = new GameObject[Pigs.Count];
+        if (host) {
+            for (int i = 0; i &lt; Pigs.Count; i++) {
+                PigLazers[i] = Instantiate (prePigLazer, transform.parent);
+                LRs[i] = PigLazers[i].GetComponentInChildren&lt;LineRenderer&gt; ();
+                EC2Ds[i] = PigLazers[i].GetComponentInChildren&lt;EdgeCollider2D&gt; ();
+            }
+            SetLinePosition ();
+        }
+    }
+
+    protected override void Update(){
+        base.Update ();
+        if (host) {
+            SetLinePosition ();
+        }
+    }
+
+    void SetLinePosition(){
+        Vector3[] poses3 = new Vector3[Pigs.Count + 1];
+        Vector2[] poses2 = new Vector2[Pigs.Count + 1];
+        for(int i=0; i &lt; Pigs.Count; i++){
+            poses3 [i] = Pigs [i].transform.position;
+            poses2 [i] = Pigs [i].transform.position;
+        }
+        poses3 [poses3.Length - 1] = poses3 [0];
+        poses2 [poses2.Length - 1] = poses2 [0];
+        for (int i = 0; i &lt; Pigs.Count; i++) {
+            LRs [i].SetPosition (0, poses3 [i]);
+            LRs [i].SetPosition (1, poses3 [i + 1]);
+            Vector2[] ecpos = { poses2 [i], poses2 [i + 1] };
+            EC2Ds[i].points = ecpos;
+        }
+    }
+}
+
+
+
+
+親クラスとしてItem.csを使っている。
+Cubeは元々Rockという名前だったのでスクリプトの名前がRock.csになってしまっている。ShiftBulletでは、衝突時にDie関数を呼ぶかどうかで反射するかを決めている。Item.cs
+
+
+Item.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Item : StageObject {
+
+    protected GameObject objPlayer;
+    protected Player cmpPlayer;
+
+    protected override void Init(){
+        base.Init ();
+        objPlayer = GameObject.FindGameObjectWithTag ("Player");
+        cmpPlayer = objPlayer.GetComponent&lt;Player&gt; ();
+    }
+
+    public override void Die (){
+        Destroy (gameObject);
+    }
+}
+
+
+
+Cube.cs
+
+
+Rock.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Rock : Item {
+    protected override void Init ()
+    {
+        base.Init ();
+        sotype = SOType.Rock;
+    }
+}
+
+
+
+ClearHole.cs
+
+
+ClearHole.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class ClearHole : Item {
+    bool hasEnter;
+
+    float RotateSpeed = 50;
+    float MoveSceneDelay = 1;
+    public string LoadSceneName = "Clear";
+
+    private GameObject ScreenPanel;
+
+    protected override void Init ()
+    {
+        base.Init ();
+        ScreenPanel = GC.GetComponent&lt;Main&gt;().ScreenPanel;
+    }
+
+    void OnTriggerEnter2D(Collider2D coll){
+        //trialTagがあったらクリアしません
+        if (GameObject.FindGameObjectWithTag ("trialTag") != null) {
+            if (coll.gameObject.tag == "Player") {
+                //プレイヤーを無敵にします
+                coll.GetComponent&lt;Player&gt;().isInvulnerable = true;
+                Debug.Log ("Clear!!!!!!!!!");
+            }
+            return;
+        }
+
+        if (coll.gameObject.tag == "Player") {
+            if (hasEnter == false) {
+                //プレイヤーを回転させます
+                coll.GetComponent&lt;Rigidbody2D&gt; ().angularVelocity = Mathf.PI * RotateSpeed;
+                hasEnter = true;
+                //プレイヤーを無敵にします
+                coll.GetComponent&lt;Player&gt;().isInvulnerable = true;
+                //もしもEndステージを初めてクリアしたらMessageシーンに飛びます
+                if (DataManager.GetPlayStageData() == 71 &amp;&amp; DataManager.LoadProgress() == 71) {
+                    LoadSceneName = "Message";
+                }
+                //Fadeinします
+                ScreenPanel.GetComponent&lt;Animator&gt;().SetBool("FadeIn",true);
+                //Progressをセーブします
+                DataManager.SaveProgress();
+                //BGMをFadeoutします
+                BGMPlayer.FadeoutBGM();
+                //数秒後シーンを移動します
+                StartCoroutine (MoveSceneCoroutine ());
+            }
+        }
+    }
+
+    IEnumerator MoveSceneCoroutine(){
+        Time.timeScale = 0.5f;
+        yield return new WaitForSeconds (MoveSceneDelay);
+        Time.timeScale = 1;
+        SceneManager.LoadScene (LoadSceneName);
+    }
+}
+
+
+
+SwitchWallButton.cs
+
+
+SwitchWallButton.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SwitchWallButton : Item {
+
+    List&lt;GameObject&gt; SwitchWalls;
+
+    void Start(){
+        sotype = SOType.SwitchWallButton;
+        SwitchWalls = SOManager.FindStageObjects(transform.parent.gameObject, SOType.SwitchWall);
+    }
+
+    public override void OnShiftStart()
+    {
+        base.OnShiftStart();
+        foreach (GameObject switchWall in SwitchWalls)
+        {
+            switchWall.GetComponent&lt;SwitchWall&gt;().ClearLineEffect();
+        }
+    }
+
+    public override void OnShiftEnd()
+    {
+        base.OnShiftEnd();
+        foreach (GameObject switchWall in SwitchWalls)
+        {
+            switchWall.GetComponent&lt;SwitchWall&gt;().PlayLineEffect();
+        }
+    }
+
+    //同列のオブジェクトをswitchする
+    void Switch(){
+        Transform parent = gameObject.transform.parent;
+        GetComponent&lt;Animator&gt; ().SetTrigger ("ChangeColor");
+        foreach (Transform child in parent) {
+            if (child.GetComponent&lt;StageObject&gt;().GetSOType() == SOType.SwitchWall) {
+                child.GetComponent&lt;SwitchWall&gt; ().SwitchEnabled ();
+            }
+        }
+        //SE
+        SEPlayer.PlaySE("switch");
+    }
+
+    //同列のオブジェクトのswitchwallをenabledをtrueに
+    void SwitchTrue(){
+        Transform parent = gameObject.transform.parent;
+        foreach (Transform child in parent) {
+            if (child.GetComponent&lt;StageObject&gt;().GetSOType() == SOType.SwitchWall) {
+                child.GetComponent&lt;SwitchWall&gt; ().SetEnabled (true);
+            }
+        }
+    }
+
+    //同列のオブジェクトのswitchwallをenabledをfalseに
+    void SwitchFalse(){
+    Transform parent = gameObject.transform.parent;
+        foreach (Transform child in parent) {
+            if (child.GetComponent&lt;StageObject&gt; ().GetSOType () == SOType.SwitchWall) {
+                child.GetComponent&lt;SwitchWall&gt; ().SetEnabled (false);
+            }
+        }
+    }
+
+    //ぶつかったら状態を変更
+    void OnCollisionEnter2D(Collision2D coll){
+        StageObject cmpSO = coll.gameObject.GetComponent&lt;StageObject&gt; ();
+        //例外
+        if(cmpSO.GetSOType() == SOType.ShiftBullet) return;
+        if (coll.gameObject.tag == "Block") return;
+        Switch ();
+    }
+}
+
+
+
+DimensionCrack.cs
+
+
+CimensionCrack.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class DimentionCrack : Item {
+
+    public bool entered = false;
+    public GameObject enteredObject;
+
+    private List&lt;GameObject&gt; DCs;
+    public GameObject PairDimentionCrack;
+    private DimentionCrack PairDC;
+
+    public Vector3 viewPos;
+    public bool isVisible;
+
+    [SerializeField]
+    GameObject EnableEffect;
+
+    protected override void Init(){
+        base.Init ();
+        GameObject objItem = GameObject.Find ("Items");
+        DCs = SOManager.FindStageObjects (objItem, SOType.DimentionCrack);
+        sotype = SOType.DimentionCrack;
+        PairDimentionCrack = SOManager.FindStageObject (transform.parent.gameObject, SOType.DimentionCrack, gameObject);
+        PairDC = PairDimentionCrack.GetComponent&lt;DimentionCrack&gt; ();
+    }
+
+    void OnTriggerEnter2D(Collider2D coll){
+        if (SetPairDC() != 1)
+            return;
+        SOType colltype = coll.GetComponent&lt;StageObject&gt; ().sotype;
+        if (PairDC.isVisible == false || isVisible == false)
+            return;
+        if (coll.tag == "ShiftableItem" || coll.tag == "ShiftableEnemy" || coll.tag == "UnshiftableItem"){
+            if (!PairDC.entered) {
+                Vector3 TelePoint = new Vector3 (0, 0, 0);
+                coll.gameObject.transform.position = PairDimentionCrack.transform.TransformPoint (TelePoint);
+                entered = true;
+                enteredObject = coll.gameObject;
+                EnableEffect.GetComponent&lt;ParticleSystem&gt; ().Emit (30);
+                SEPlayer.PlaySE ("warp");
+            } else {
+                PairDC.entered = false;
+            }
+        }
+    }
+
+    void OnTriggerExit2D(Collider2D coll){
+        if (coll.gameObject == PairDC.enteredObject &amp;&amp; PairDC.entered) {
+            PairDC.entered = false;
+            entered = false;
+            EnableEffect.GetComponent&lt;ParticleSystem&gt; ().Emit (30);
+        }
+    }
+
+    void Update(){
+        viewPos = Camera.main.WorldToViewportPoint (transform.position);
+        SetVisible (viewPos);
+
+        if (SetPairDC() == 1 &amp;&amp; isVisible &amp;&amp; PairDC.isVisible) {
+            EnableEffect.SetActive (true);
+            transform.localScale = new Vector3(1,1,1) * 1f;
+        } else {
+            EnableEffect.SetActive (false);
+            transform.localScale = new Vector3(1,1,1) * 0.4f;
+        }
+        if (enteredObject == null &amp;&amp; PairDC.enteredObject == null) {
+            entered = false;
+        }
+    }
+
+    void SetVisible(Vector3 viewpos){
+        bool isvisible = false;
+        if (0f &lt; viewpos.x &amp;&amp; viewpos.x &lt; 1f &amp;&amp; 0f &lt; viewpos.y &amp;&amp; viewpos.y &lt; 1f) {
+            isvisible = true;
+        }
+        isVisible = isvisible;
+    }
+
+    int SetPairDC(){
+        int visibleCount = 0;
+        foreach(GameObject DC in DCs){
+            DimentionCrack cmpDC = DC.GetComponent&lt;DimentionCrack&gt; ();
+            if (cmpDC.isVisible &amp;&amp; DC != gameObject) {
+                PairDimentionCrack = DC;
+                PairDC = cmpDC;
+                visibleCount++;
+            }
+        }
+        return visibleCount;
+    }
+}
+
+
+
+ShiftBullet.cs
+
+
+ShiftBullet.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+
+public class ShiftBullet : Item {
+
+
+    public float LIFESPAN;
+    public float BULLETSPEED;
+
+    public GameObject DieEffect;
+
+
+    private SOType[] DontDieTypes = new SOType[]{SOType.ReflectionWall,SOType.TeleportWall};
+
+    protected override void Init(){
+        base.Init ();
+        StartCoroutine (DieCoroutine());
+        sotype = SOType.ShiftBullet;
+    }
+
+    void Update(){
+        //when out of camera
+        Vector3 vpos = Camera.main.WorldToViewportPoint (transform.position);
+        Vector3 limitpos = new Vector3 (0f, 0f, 0f);
+        if (vpos.x &lt; limitpos.x || 1 - limitpos.x &lt; vpos.x || vpos.y &lt; limitpos.y || 1 - limitpos.y &lt; vpos.y) {
+            Destroy(gameObject);
+        }
+    }
+
+
+    //colliderがぶつかった時の処理
+    void OnCollisionEnter2D(Collision2D coll){
+        //入れ替われる相手とぶつかったら何かします
+        if (coll.gameObject.tag == "ShiftableEnemy" || coll.gameObject.tag == "ShiftableItem") {
+            cmpPlayer.Shift (coll.gameObject);
+        } else {
+            //入れ替われない相手とぶつかったら何かします（ただし、isTriggerがfalseの奴とはぶつかれないのでそっちでやって
+            //SE
+            SEPlayer.PlaySE("disapear");
+        }
+
+        //当たっても消えないやつ
+        if ( 0 &lt;= Array.IndexOf(DontDieTypes, coll.gameObject.GetComponent&lt;StageObject&gt; ().GetSOType ()))
+            return;
+
+        Die ();
+    }
+
+    //発射します
+    public void Fire(Vector2 velocity){
+        gameObject.GetComponent&lt;Rigidbody2D&gt; ().velocity = velocity * BULLETSPEED;
+    }
+
+    IEnumerator DieCoroutine(){
+        yield return new WaitForSeconds (LIFESPAN);
+        Destroy (gameObject);
+    }
+
+    public override void Die ()
+    {
+        Instantiate (DieEffect, transform.position, Quaternion.identity);
+        base.Die ();
+    }
+}
+
+
+
+PredictionLine(予測線)は、LineRendererをコンポーネントに持つ。
+プレイヤーからレイを飛ばしてぶつかった位置をLineRendererに設定する事で実現している。PigLazerは、LineRendererとEdgeCollider2Dをコンポーネントに持つ。
+レーザーはプレイヤーとの当たり判定のみ行い、レーザーの端点の設定はPig.csで行う。PredictionLine.cs
+
+
+PredictionLine.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class PredictionLine : MonoBehaviour {
+    GameObject player;
+    LineRenderer line;
+
+    void Start(){
+        player = GameObject.FindGameObjectWithTag ("Player");
+        line = GetComponent&lt;LineRenderer&gt; ();
+    }
+
+    void Update(){
+        if (Input.GetMouseButton (0)) {
+            line.enabled = true;
+            Vector3 tappos = Input.mousePosition;
+            tappos.z = 10;
+            Vector3 wtappos = Camera.main.ScreenToWorldPoint (tappos);
+
+            Vector3 direction = (wtappos - player.transform.position).normalized;
+
+            int layerMask = Physics2D.DefaultRaycastLayers &amp; ~(1 &lt;&lt; 8);
+            RaycastHit2D hit = Physics2D.Raycast (player.transform.position, direction, 12, layerMask);
+            if (hit) {
+                line.SetPosition (0, player.transform.position);
+                line.SetPosition (1, hit.point);
+            } else {
+                line.SetPosition (0, player.transform.position);
+                line.SetPosition (1, player.transform.position + direction * 12);
+            }
+
+        } else {
+            line.enabled = false;
+        }
+    }
+}
+
+
+
+PigLazer.cs
+
+
+PigLazer.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class PigLazer : StageObject {
+
+    void OnTriggerEnter2D(Collider2D coll){
+        if (coll.tag == "Player") {
+            GameObject player = GameObject.FindGameObjectWithTag ("Player");
+            //Why am i using HP?
+            if (player != null) {
+                player.GetComponent&lt;Player&gt; ().TakeDamage (10000);
+            }
+        }
+
+        if (coll.GetComponent&lt;StageObject&gt; ().sotype == SOType.ShiftBullet) {
+            coll.GetComponent&lt;ShiftBullet&gt; ().Die ();
+        }
+    }
+}
+
+
+
+このゲーム(pertica)のカメラはかなり特殊だ。
+まず１つのシーンにカメラが３つある。ほとんどはMainCameraの映像を利用する。
+2Dの為、MainCameraはProjectionをOrthographicに設定する。
+でもそれだと背景の星の立体感が無くなった。そこで、背景専用のStarCameraを用意しMainCameraの子オブジェクトにした。また、perticaは画面のアスペクト比が変わるとゲームが成り立たない。
+全ての端末でアスペクト比を揃える必要があった。でもそれだとスマホの画面に余白が出来てしまう。
+余白部分をタップしても反応させるためにScreenCameraを用意したんだ。MoveCamera.cs
+
+
+MoveCamera.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class MoveCamera : MonoBehaviour {
+
+    //どうやって作ればいいのかわかんねー教えてー
+
+    public enum CameraState{
+        Stay,LookClearHole, TracePlayer, GoToTarget, LookTitle, LookTitleMove
+    }
+
+    private GameObject objPlayer;
+    private GameObject objCamera;
+    private CameraState cstate = CameraState.TracePlayer;
+    private GameObject objClearHole;
+
+    private Player cmpPlayer;
+
+    Vector3 sPivot; //pivot for smabro camera
+    float sX = 10 * Mathf.Sqrt(3); //camera length of x for smabro camera
+    float sD = 1; //rate of camera move
+
+    void Start(){
+        Init ();
+    }
+
+    void Init(){
+        if (SceneManager.GetActiveScene ().name == "Title" &amp;&amp; TitleManager.firstTitleScene) {
+            cstate = CameraState.LookTitle;
+            TitleManager.firstTitleScene = false;
+        }
+        //object initialize
+        objCamera = GameObject.FindGameObjectWithTag ("MainCamera");
+        objPlayer = GameObject.FindGameObjectWithTag ("Player");
+        cmpPlayer = objPlayer.GetComponent&lt;Player&gt; ();
+        GameObject[] objUsIs = GameObject.FindGameObjectsWithTag ("UnshiftableItem");
+        foreach(GameObject objUsI in objUsIs){
+            StageObject SO = objUsI.GetComponent&lt;StageObject&gt; ();
+            if(SO != null &amp;&amp; SO.sotype == SOType.ClearHole){
+                objClearHole = objUsI;
+            }
+        }
+        if (objClearHole != null) {
+            Vector3 CorrectClearHolePos = new Vector3 (objClearHole.transform.position.x, objClearHole.transform.position.y, -10f);
+            transform.position = CorrectClearHolePos;
+        }
+    }
+
+    void Update(){
+        switch(cstate){
+        case CameraState.Stay:
+            break;
+        case CameraState.TracePlayer:
+            if (CorrectPosz (objPlayer.transform.position).x == transform.position.x)
+                SetState (CameraState.Stay);
+            TracePlayer_Move ();
+            break;
+        case CameraState.LookClearHole:
+            LookClearHole_Move ();
+            break;
+        case CameraState.LookTitle:
+            StartCoroutine (LookTitleCoroutine ());
+            break;
+        case CameraState.LookTitleMove:
+            GoToTarget_Move (objPlayer, 1);
+            break;
+        case CameraState.GoToTarget:
+            GoToTarget_Move (objPlayer, 3);
+            break;
+        }
+    }
+
+    public void SetState(CameraState state){
+        //外部からstateを変えるためのやつ
+        switch (state) {
+        case CameraState.LookClearHole:
+            cstate = CameraState.Stay;
+            StartCoroutine (SetStateCoroutine (0.3f, CameraState.LookClearHole));
+            break;
+        case CameraState.TracePlayer:
+            cstate = CameraState.TracePlayer;
+            Debug.Log ((objPlayer.transform.position).x - transform.position.x);
+            if ((objPlayer.transform.position).x &lt; transform.position.x) {
+                sPivot = transform.position + Vector3.forward * 10 + new Vector3 (sX, 0, 0);
+            } else {
+                sPivot = transform.position + Vector3.forward * 10 - new Vector3 (sX, 0, 0);
+            }
+            break;
+        case CameraState.GoToTarget:
+            cstate = CameraState.GoToTarget;
+            break;
+        case CameraState.Stay:
+            cstate = CameraState.Stay;
+            break;
+        }
+    }
+
+    public CameraState GetStats()
+    {
+        return cstate;
+    }
+
+    //Change State to some state after some seconds
+    IEnumerator SetStateCoroutine(float time, CameraState state){
+        yield return new WaitForSeconds (time);
+        //球を打てなくする
+        cmpPlayer.canFire = false;
+        cstate = state;
+    }
+
+    void TracePlayer_Move(){
+        transform.position = new Vector3 (objPlayer.transform.position.x, objPlayer.transform.position.y, -10f);
+    }
+
+    //move camera per frame
+    void LookClearHole_Move(){
+        float MoveSpeed = 5 + (objClearHole.transform.position - objPlayer.transform.position).magnitude * (1f/10f);
+        float Error = 0.2f;
+        objCamera.transform.position += (CorrectPosz(objPlayer.transform.position) - objCamera.transform.position).normalized * Time.unscaledDeltaTime * MoveSpeed;
+        //移動完了時
+        if ((CorrectPosz (objPlayer.transform.position) - objCamera.transform.position).magnitude &lt; Error) {
+            cmpPlayer.canFire = true;
+            SetState (CameraState.Stay);
+        }
+    }
+
+    //correct position.z for camera
+    Vector3 CorrectPosz(Vector3 pos){
+        Vector3 CorrectPos = new Vector3 (pos.x, pos.y, -10f);
+        return CorrectPos;
+    }
+
+    void GoToTarget_Move(GameObject objTarget, float speed){
+        Vector3 TargetPos = objTarget.transform.position;
+        transform.position += (CorrectPosz(TargetPos) - transform.position) * Time.unscaledDeltaTime * speed;
+        float Error = 0.1f;
+
+        if ((CorrectPosz (TargetPos).x + Error &gt; transform.position.x) &amp;&amp;
+            (CorrectPosz (TargetPos).x - Error &lt; transform.position.x) &amp;&amp;
+            (CorrectPosz (TargetPos).y + Error &gt; transform.position.y) &amp;&amp;
+            (CorrectPosz (TargetPos).y - Error &lt; transform.position.y)) {
+            SetState (CameraState.Stay);
+        }
+    }
+
+    IEnumerator LookTitleCoroutine(float time = 1f){
+        yield return new WaitForSeconds (time);
+        cstate = CameraState.LookTitleMove;
+    }
+}
+
+
+
+FixCameraSize.cs
+
+
+FixCameraSize.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class FixCameraSize : MonoBehaviour {
+    public float x_aspect = 16.0f;
+    public float y_aspect = 9.0f;
+
+    private void Awake()
+    {
+        Camera camera = GetComponent&lt;Camera&gt;();
+        Rect rect = calcRect(x_aspect, y_aspect);
+        camera.rect = rect;
+    }
+
+    private Rect calcRect(float width, float height)
+    {
+        float target_aspect = width / height;
+        float window_aspect = Screen.width / (float)Screen.height;
+        float scale_height = window_aspect / target_aspect;
+        Rect rect = new Rect(0.0f, 0.0f, 1.0f, 1.0f);
+
+        if(1.0f &gt; scale_height)
+        {
+            rect.x = 0;
+            rect.y = (1.0f - scale_height) / 2.0f;
+            rect.width = 1.0f;
+            rect.height = scale_height;
+        }
+        else
+        {
+            float scale_width = 1.0f / scale_height;
+            rect.x = (1.0f - scale_width) / 2.0f;
+            rect.y = 0.0f;
+            rect.width = scale_width;
+            rect.height = 1.0f;
+        }
+
+        return rect;
+    }
+}
+
+
+
+SpawnObject関数は画面をタップした位置(Input.mousePosition)を想定している。
+その為、スクリーン座標からワールド座標への変換を行い、カメラのz座標を引くことで生成位置を調整している。Main.cs
+
+
+Main.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class Main : MonoBehaviour {
+
+    public GameObject[] Objects;
+    public GameObject EnemiesParent;
+
+    public GameObject ScreenPanel;
+
+    public GameObject preLoadMenuHole;
+
+    private GameObject objPlayer;
+    private Player cmpPlayer;
+
+
+    void Start(){
+        Init ();
+    }
+
+    void Init(){
+        objPlayer = GameObject.FindGameObjectWithTag ("Player");
+        cmpPlayer = objPlayer.GetComponent&lt;Player&gt; ();
+    }
+
+    /// &lt;summary&gt;
+    /// Reset the specified WaitTime.
+    /// &lt;/summary&gt;
+    /// &lt;param name="WaitTime"&gt;Wait time.&lt;/param&gt;
+    public void Reset(float WaitTime = 1){
+        //ShiftBulletを消す
+        GameObject[] objs = GameObject.FindGameObjectsWithTag ("UnshiftableItem");
+        foreach (GameObject obj in objs) {
+            if (obj.GetComponent&lt;StageObject&gt; ().sotype == SOType.ShiftBullet) {
+                obj.GetComponent&lt;StageObject&gt; ().Die ();
+            }
+        }
+        StartCoroutine (ResetCoroutine (WaitTime));
+        FadeIn ();
+    }
+
+    public void LoadMenu(){
+        //ShiftBulletを消す
+        GameObject[] objs = GameObject.FindGameObjectsWithTag ("UnshiftableItem");
+        foreach (GameObject obj in objs) {
+            if (obj.GetComponent&lt;StageObject&gt; ().sotype == SOType.ShiftBullet) {
+                obj.GetComponent&lt;StageObject&gt; ().Die ();
+            }
+        }
+        Instantiate (preLoadMenuHole, objPlayer.transform.position, Quaternion.identity);
+        StartCoroutine (LoadMenuCoroutine ());
+    }
+
+    IEnumerator ResetCoroutine(float WaitTime){
+        Time.timeScale = 0.35f;
+        BGMPlayer.FadeoutBGM ();
+        yield return new WaitForSeconds (WaitTime);
+        Time.timeScale = 1f;
+        SceneManager.LoadScene (SceneManager.GetActiveScene().name);
+    }
+
+    float LoadMenuDelay = 2;
+    string LoadSceneName = "Title";
+    IEnumerator LoadMenuCoroutine(){
+        yield return new WaitForSeconds (LoadMenuDelay);
+
+        SceneManager.LoadScene (LoadSceneName);
+    }
+
+    void Update () {
+        Vector3 MousePos = Input.mousePosition;
+        if(Input.GetKeyDown(KeyCode.Alpha0))
+            SpawnObject(Objects[0], EnemiesParent, MousePos);
+
+        if(Input.GetKeyDown(KeyCode.Alpha1))
+            SpawnObject(Objects[1], EnemiesParent, MousePos);
+
+        if(Input.GetKeyDown(KeyCode.Alpha2))
+            SpawnObject(Objects[2], EnemiesParent, MousePos);
+
+        if(Input.GetKeyDown(KeyCode.Alpha3))
+            SpawnObject(Objects[3], EnemiesParent, MousePos);
+
+        if(Input.GetKeyDown(KeyCode.Alpha4))
+            SpawnObject(Objects[4], EnemiesParent, MousePos);
+
+        if(Input.GetKeyDown(KeyCode.Alpha5))
+            SpawnObject(Objects[4], EnemiesParent, MousePos);
+    }
+
+    //オブジェクトをステージに生成します。
+    //ひとまずposはscreenpoint
+    void SpawnObject(GameObject obj, GameObject parent, Vector3 pos){
+        pos.z = 10;
+        Vector3 wpos = Camera.main.ScreenToWorldPoint (pos);
+        Instantiate (obj, wpos, Quaternion.identity, EnemiesParent.transform);
+    }
+
+    //フェードイン
+    public void FadeIn(){
+        ScreenPanel.GetComponent&lt;Animator&gt; ().SetBool ("FadeIn", true);
+    }
+}
+
+
+
+PlayStageController.cs
+
+
+PlayStageController.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+
+public class PlayStageController : MonoBehaviour {
+
+    MoveCamera MC;
+    public GameObject tutorialHighlight;
+
+    void Start(){
+        //BGM
+        BGMPlayer.FadeinBGM ("game");
+        //BGMPlayer.PlayBGM("game");
+        //initialize
+        MC = GameObject.FindGameObjectWithTag("MainCamera").GetComponent&lt;MoveCamera&gt;();
+        MC.SetState (MoveCamera.CameraState.LookClearHole);
+        if (DataManager.LoadProgress() == 11)
+        {
+            Tutorial tutotiate = gameObject.AddComponent&lt;Tutorial&gt;();
+            Transform[] touchlist = GameObject.Find("Items").GetComponentsInChildren&lt;Transform&gt;();
+            touchlist = touchlist.Where(c =&gt; c.name != "Items" &amp;&amp; c.parent.name == "Items").ToArray();
+            tutotiate.TouchList = touchlist.Select(c =&gt; c.gameObject).ToList();
+            tutotiate.playerComp = GameObject.FindGameObjectWithTag("Player").GetComponent&lt;Player&gt;();
+            tutotiate.cameraComp = GameObject.FindGameObjectWithTag("MainCamera").GetComponent&lt;MoveCamera&gt;();
+            tutotiate.highlightPrefab = tutorialHighlight;
+        }
+    }
+}
+
+
+
+事前に作成したテキストファイルをもとにステージを生成する。Composit Collider 2Dのついたオブジェクトを親に指定する事で、
+壁と壁の間をすり抜けないように工夫したりしている。DecodeStageScript.cs
+
+
+DecodeStageScript.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+
+public class DecodeStageScript : MonoBehaviour {
+    public StageObjectData stageObjectData;
+
+    // Use this for initialization
+    void Awake () {
+        string text;
+        GameObject[] trials = GameObject.FindGameObjectsWithTag("trialTag");
+        if (trials.Length == 0)
+        {
+            TextAsset textAsset = DataManager.GetPlayStagecodeText();
+            if(textAsset == null)
+            {
+                textAsset = (Resources.Load("Data/StageCode_Data") as StageCodeData).stagecodeText[0][0];
+            }
+            text = textAsset.text;
+
+        }
+        else
+        {
+            GameObject trialObject = trials[0];
+            text = trialObject.GetComponent&lt;EncodeStage.TrialCode&gt;().encodetext;
+        }
+
+        string[] textline = text.Split('\n');
+
+        foreach(string stageobjectText in textline.OrderBy(c=&gt; int.Parse(c.Split(' ')[0])).ToList())
+        {
+            string[] indexString = stageobjectText.Split(' ');
+            int objectID = int.Parse(indexString[0]);
+            float objectx = float.Parse(indexString[1]);
+            float objecty = float.Parse(indexString[2]);
+            int groupID = int.Parse(indexString[3]);
+            int[] abilityIDList = indexString.Skip(4).Select(x =&gt; int.Parse(x)).ToArray();
+            //Debug.Log(abilityIDList.Count);
+            var objectData = stageObjectData.objectList[objectID];
+            GameObject objectPrefab = objectData.Prefab;
+            GameObject instance;
+            if (objectData.NoParent)
+                instance = Instantiate(objectPrefab);
+            else
+            {
+                if (objectData.haveID)
+                {
+                    if (GameObject.Find(objectData.parentName.ToString() + groupID) == null)
+                    {
+                        GameObject oldparent = Resources.Load&lt;GameObject&gt;("Prefab/" + objectData.parentName.ToString());
+                        GameObject newParent = Instantiate(oldparent, GameObject.Find(oldparent.tag).transform);
+                        newParent.name = objectData.parentName.ToString() + groupID;
+                        /*if(objectData.Prefab.tag == "Block")
+                        {
+                            newParent = newParent.transform.Find("Walls").gameObject;
+                        }*/
+                        instance = Instantiate(objectPrefab, newParent.transform);
+                    }
+                    else
+                    {
+                        instance = Instantiate(objectPrefab, GameObject.Find(objectData.parentName.ToString()+groupID).transform);
+                    }
+                }
+                else
+                {
+                    GameObject parent;
+                    if((parent = GameObject.Find(objectData.parentName.ToString())) == null)
+                    {
+                        GameObject parentPrefab = Resources.Load&lt;GameObject&gt;("Prefab/" + objectData.parentName.ToString());
+                        parent = Instantiate(parentPrefab, GameObject.Find(parentPrefab.tag).transform);
+                        parent.name = objectData.parentName.ToString();
+                    }
+                    instance = Instantiate(objectPrefab, parent.transform);
+                }
+
+            }
+
+            instance.transform.position = new Vector2(objectx, objecty);
+
+            if(abilityIDList != null)
+            {
+                instance.GetComponent&lt;StageObject&gt;().SetStats(abilityIDList);
+            }
+        }
+
+    }    
+}
+
+
+
+UIは特にスクリプトを作っていない。
+uGUIのButtonのOnClickをインスペクター上で設定するだけで済ませている。
+大抵GameManagerの関数を呼び出す事が多い。BGM、SEはstaticなクラスを作る事で簡単に音を流せるように工夫している。BGMSourceScriptを持つゲームオブジェクトを作成。
+BGM_Dataという名前のスクリプタブルオブジェクトを作る。BGM_Dataにファイルとkeyを設定する。
+BGMPlayer.PlayBGM(key)で簡単に再生が可能。
+SEも同様の手順で使える。BGMSourceScript.cs
+
+
+BGMSourceScript.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class BGMSourceScript : MonoBehaviour {
+
+
+    void Awake()
+    {
+        if (GameObject.FindGameObjectsWithTag("BGMSource").Length &gt; 1)
+        {
+            Destroy(gameObject);
+        }
+        else
+        {
+            DontDestroyOnLoad(gameObject);
+            BGMPlayer.SetAudioSource(gameObject.GetComponent&lt;AudioSource&gt;());
+            BGMPlayer.SetBGM(Resources.Load("Data/BGM_Data") as BGMData);
+        }
+    }
+
+
+    void Update()
+    {
+        if (BGMPlayer.IsFadeoutBGM())
+        {
+            if (BGMPlayer.GetBGMVolume() &lt;= 0)
+            {
+                BGMPlayer.SetBGMVolume(0);
+                BGMPlayer.StopBGM();
+                BGMPlayer.SetFadeoutBGM(false);
+                BGMPlayer.ResetBGM();
+            }
+            else
+            {
+                BGMPlayer.SetBGMVolume(BGMPlayer.GetBGMVolume() - BGMPlayer.GetFadeoutBGMtime());
+            }
+        }
+        if (BGMPlayer.IsFadeinBGM())
+        {
+            if (BGMPlayer.GetBGMVolume() &gt;= BGMPlayer.GetMaxVolume())
+            {
+                BGMPlayer.SetBGMVolume(BGMPlayer.GetMaxVolume());
+                BGMPlayer.SetFadeinBGM(false);
+            }
+            else
+            {
+                BGMPlayer.SetBGMVolume(BGMPlayer.GetBGMVolume() + BGMPlayer.GetFadeinBGMtime());
+            }
+        }
+    }
+}
+
+
+
+SESourceScript.cs
+
+
+SESourceScript.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SEPlayer{
+    static GameObject audioObject;
+    static SEData SE_Data;
+    //AudioSource audioSource=null;
+
+    /*public SEPlayer(string keyname)
+    {
+        audioSource = audioObject.AddComponent&lt;AudioSource&gt;();
+        audioSource.clip = SE_Data.SEList[keyname];
+        audioSource.volume = SE_Data.SEVolumeList[keyname] * PlayerPrefs.GetFloat("SEVolume", 1);
+    }*/
+
+    public static void SetAudioSourceObject(GameObject source)
+    {
+        audioObject = source;
+    }
+
+    public static void SetSE(SEData data)
+    {
+        SE_Data = data;
+    }
+
+    public static void PlaySE(string keyname)
+    {
+        /*if (IsPlaying() == true)
+        {
+            StopSE();
+        }*/
+        AudioSource audioSource = audioObject.AddComponent&lt;AudioSource&gt;();
+        audioSource.clip = SE_Data.SEList[keyname];
+        audioSource.volume = SE_Data.SEVolumeList[keyname] * PlayerPrefs.GetFloat("SEVolume", 1);
+        audioSource.Play();
+    }
+
+    /*public void StopSE(string keyname)
+    {
+        audioSource.Stop();
+    }*/
+
+    /*public bool IsPlaying()
+    {
+        return audioSource.isPlaying;
+    }*/
+}
+
+
+
+BGMPlayer.cs
+
+
+BGMPlayer.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class BGMPlayer{
+    static AudioSource audioSource;
+    static BGMData BGM_Data;
+    static bool Fadeoutflag = false;
+    static bool Fadeinflag = false;
+    static float maxVolume;
+    static float fadeouttime;
+    static float fadeintime;
+
+    public static void SetAudioSource(AudioSource source)
+    {
+        audioSource = source;
+    }
+
+    public static void SetBGM(BGMData data)
+    {
+        BGM_Data = data;
+    }
+
+    //BGM再生(音量設定なし)
+    public static void PlayBGM(string keyname)
+    {
+        if (IsPlaying() == false)//シーン再読み込みのために消さない
+        {
+            audioSource.clip = BGM_Data.BGMList[keyname];
+            audioSource.Play();
+            audioSource.volume = BGM_Data.BGMVolumeList[keyname] * PlayerPrefs.GetFloat("BGMVolume", 1);
+            maxVolume = audioSource.volume;
+        }
+    }
+
+    // volumeの変更
+    public static void ChangeVolume(float volume){
+        if (volume &lt; 0) volume = 0;
+        else if (volume &gt; 1) volume = 1;
+
+        audioSource.volume = BGM_Data.BGMVolumeList[audioSource.clip.name] * PlayerPrefs.GetFloat("BGMVolume", 1);
+    }
+
+    public static float GetMaxVolume()
+    {
+        return maxVolume;
+    }
+
+    //BGM停止
+    public static void StopBGM()
+    {
+        audioSource.Stop();
+    }
+
+    //フェードアウト
+    public static void FadeoutBGM(float pertime=0.009f)
+    {
+        Fadeinflag = false;
+        Fadeoutflag = true;
+        fadeouttime = pertime;
+    }
+
+    public static float GetFadeoutBGMtime()
+    {
+        return fadeouttime;
+    }
+
+    //フェードイン
+    public static void FadeinBGM(string keyname,float pertime=0.008f)
+    {
+        if (IsPlaying() == false &amp;&amp; audioSource.clip != BGM_Data.BGMList[keyname])//シーン再読み込みのために消さない
+        {
+            StopBGM();
+        }
+        if (audioSource.clip != BGM_Data.BGMList[keyname])
+        {
+            audioSource.clip = BGM_Data.BGMList[keyname];
+            audioSource.Play();
+        }
+        maxVolume = BGM_Data.BGMVolumeList[keyname] * PlayerPrefs.GetFloat("BGMVolume", 1);
+        Fadeoutflag = false;
+        audioSource.volume = 0;
+        Fadeinflag = true;
+        fadeintime = pertime;
+    }
+
+    public static float GetFadeinBGMtime()
+    {
+        return fadeintime;
+    }
+
+    public static void ResetBGM()
+    {
+        audioSource.clip = null;
+    }
+
+    public static bool IsFadeinBGM()
+    {
+        return Fadeinflag;
+    }
+
+    public static void SetFadeinBGM(bool flag)
+    {
+        Fadeinflag = flag;
+    }
+
+    public static bool IsFadeoutBGM()
+    {
+        return Fadeoutflag;
+    }
+
+    public static void SetFadeoutBGM(bool flag)
+    {
+        Fadeoutflag = flag;
+    }
+
+    public static void SetBGMVolume(float volume)
+    {
+        audioSource.volume = volume;
+    }
+
+    public static float GetBGMVolume()
+    {
+        return audioSource.volume;
+    }
+
+    public static bool IsPlaying()
+    {
+        return audioSource.isPlaying;
+    }
+}
+
+
+
+SEPlayer.cs
+
+
+SEPlayer.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SEPlayer{
+    static GameObject audioObject;
+    static SEData SE_Data;
+    //AudioSource audioSource=null;
+
+    /*public SEPlayer(string keyname)
+    {
+        audioSource = audioObject.AddComponent&lt;AudioSource&gt;();
+        audioSource.clip = SE_Data.SEList[keyname];
+        audioSource.volume = SE_Data.SEVolumeList[keyname] * PlayerPrefs.GetFloat("SEVolume", 1);
+    }*/
+
+    public static void SetAudioSourceObject(GameObject source)
+    {
+        audioObject = source;
+    }
+
+    public static void SetSE(SEData data)
+    {
+        SE_Data = data;
+    }
+
+    public static void PlaySE(string keyname)
+    {
+        /*if (IsPlaying() == true)
+        {
+            StopSE();
+        }*/
+        AudioSource audioSource = audioObject.AddComponent&lt;AudioSource&gt;();
+        audioSource.clip = SE_Data.SEList[keyname];
+        audioSource.volume = SE_Data.SEVolumeList[keyname] * PlayerPrefs.GetFloat("SEVolume", 1);
+        audioSource.Play();
+    }
+
+    /*public void StopSE(string keyname)
+    {
+        audioSource.Stop();
+    }*/
+
+    /*public bool IsPlaying()
+    {
+        return audioSource.isPlaying;
+    }*/
+}
+
+
+
+需要があるか謎だが、スクリプトを全文公開してみた。結構冗長な書き方をしてたり、コメント文が少ない。
+実はいくつかバグも見つかってる...。読むのが大変だと思うけど、実際に動いているコードだから信用はして良い。このコードでどんな事が出来るかは、ゲームを見た方が早いかもしれない。このゲームperticaは以下のリンクからインストールできるよ。さて、次回はゲームのデザインの話でも書こうかな。大学生が有料スマホゲームを作った全てを公開するよ（１）イントロダクション
+大学生が有料スマホゲームを作った全てを公開するよ（２）開発環境とゲームの構成
+大学生が有料スマホゲームを作った全てを公開するよ（３）ゲームの構造・パズルとアクションの仕組み（前編）
+大学生が有料スマホゲームを作った全てを公開するよ（４）ゲームの成り立ち・パズルとアクションの仕組み（後編）
+
+

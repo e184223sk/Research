@@ -1,0 +1,73 @@
+
+using NativeStringCollections;
+
+public class TextData : ITextFileParser
+{
+    public NativeList&lt;DataElement&gt; Data;
+
+    private NativeStringList mark_list;
+    private StringEntity check_mark;
+
+    // パース中に string を使いたい場合は
+    // Init() 内で NativeStringList や NativeList&lt;char&gt; に格納しておく
+    public void Init()
+    {
+        Data = new NativeList&lt;DataElement&gt;(Allocator.Persistent);
+        mark_list = new NativeStringList(Allocator.Persistent);
+
+        mark_list.Add("STRONG");
+        mark_list.Add("Normal")
+
+        // NativeStringList から StringEntity を取り出すのは値を全て格納してから
+        // あるいは全ての文字列を格納しきれるようあらかじめ大きな Capacity を設定しておく
+        // (StringEntity を取り出した後にバッファが再確保されると不正メモリ参照でクラッシュ)
+        check_mark = mark_list[0];
+    }
+
+    // 改行コードはあらかじめ解析されて NativeStringList に格納される
+    // List&lt;string&gt; のような感覚で使う
+    public bool ParseLines(NativeStringList lines)
+    {
+        bool continueRead = true;
+        for(int i=0; i&lt;lines.Length; i++)
+        {
+            var line = lines[i];
+            continueRead = this.ParseLineImpl(line);
+        }
+        return true;
+    }
+    private bool ParseLineImpl(ReadOnlyStringEntity line)
+    {
+        // StringEntity.Split() の結果を受け取るリスト
+        var str_list = new NativeList&lt;ReadOnlyStringEntity&gt;(Allocator.Temp);
+
+        // カンマ区切りで "CharaName_STRONG,11,64,15.7,1.295e+3" みたいなデータだったなら
+        line.split(',', str_list);
+
+        // こんな風に
+        var name = str_list[0];
+
+        bool success = true;
+        success = success &amp;&amp; str_list[1].TryParse(out long ID);
+        success = success &amp;&amp; str_list[2].TryParse(out int HP);
+        success = success &amp;&amp; str_list[3].TryParse(out float Attack);
+        success = success &amp;&amp; str_list[4].TryParse(out double Speed);
+
+        // こんなことも
+        int mark_index = name.IndexOf(check_mark);  // "STRONG" を検索
+        if(mark_index &gt;= 0)
+        {
+            /* このキャラ特有の何か */
+        }
+
+        str_list.Dispose()
+
+        // 正しいフォーマットとして解析できたか
+        if(!success)
+            return false;  // 解釈できなかったのでパース中止
+
+        Data.Add(new DataElement(ID, HP, Attack, Speed));
+        return true;  // 解釈できたので次の行に進む
+    }
+}
+

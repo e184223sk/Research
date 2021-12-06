@@ -1,0 +1,244 @@
+
+
+/*
+Angle.cs
+
+Copyright (c) 2021 yutorisan
+
+This software is released under the MIT License.
+http://opensource.org/licenses/mit-license.php
+*/
+
+using System;
+using UnityEngine;
+
+namespace UnityUtility
+{
+    /// &lt;summary&gt;
+    /// 角度
+    /// &lt;/summary&gt;
+    public readonly struct Angle : IEquatable&lt;Angle&gt;, IComparable&lt;Angle&gt;
+    {
+        /// &lt;summary&gt;
+        /// 正規化していない角度の累積値
+        /// &lt;/summary&gt;
+        private readonly float m_totalDegree;
+
+        /// &lt;summary&gt;
+        /// 角度を度数法で指定して、新規インスタンスを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="angle"&gt;度数法の角度&lt;/param&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        private Angle(float angle) =&gt; m_totalDegree = ArithmeticCheck(() =&gt; angle);
+        /// &lt;summary&gt;
+        /// 周回数と角度を指定して、新規インスタンスを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="lap"&gt;周回数&lt;/param&gt;
+        /// &lt;param name="angle"&gt;度数法の角度&lt;/param&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        /// &lt;exception cref="OverflowException"/&gt;
+        private Angle(int lap, float angle) =&gt; m_totalDegree = ArithmeticCheck(() =&gt; checked(360 * lap + angle));
+
+        /// &lt;summary&gt;
+        /// 度数法の値を使用して新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="degree"&gt;度数法の角度(°)&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle FromDegree(float degree) =&gt; new Angle(degree);
+        /// &lt;summary&gt;
+        /// 周回数と角度を指定して、新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="lap"&gt;周回数&lt;/param&gt;
+        /// &lt;param name="degree"&gt;度数法の角度(°)&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle FromDegree(int lap, float degree) =&gt; new Angle(lap, degree);
+        /// &lt;summary&gt;
+        /// 弧度法の値を使用して新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="radian"&gt;弧度法の角度(rad)&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle FromRadian(float radian) =&gt; new Angle(RadToDeg(radian));
+        /// &lt;summary&gt;
+        /// 周回数と角度を指定して、新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="lap"&gt;周回数&lt;/param&gt;
+        /// &lt;param name="radian"&gt;弧度法の角度(rad)&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle FromRadian(int lap, float radian) =&gt; new Angle(lap, RadToDeg(radian));
+        /// &lt;summary&gt;
+        /// 角度0°の新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        public static Angle Zero =&gt; new Angle(0);
+        /// &lt;summary&gt;
+        /// 角度360°の新規インスタンスを取得します。
+        /// &lt;/summary&gt;
+        public static Angle Round =&gt; new Angle(360);
+
+        public bool Equals(Angle other) =&gt; m_totalDegree == other.m_totalDegree;
+
+        public override int GetHashCode() =&gt; -1748791360 + m_totalDegree.GetHashCode();
+
+        public override string ToString() =&gt; $"{Lap}x + {m_totalDegree - Lap * 360}°";
+
+        public override bool Equals(object obj)
+        {
+            if (obj is Angle angle) return Equals(angle);
+            else return false;
+        }
+
+        public int CompareTo(Angle other) =&gt; m_totalDegree.CompareTo(other.m_totalDegree);
+
+        /// &lt;summary&gt;
+        /// 正規化された角度(-180° &amp;lt; degree &amp;lt;= 180°)を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public Angle Normalize() =&gt; new Angle(NormalizedDegree);
+
+        /// &lt;summary&gt;
+        /// 正の値で正規化された角度(0° &amp;lt;= degree &amp;lt; 360°)を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public Angle PositiveNormalize() =&gt; new Angle(PositiveNormalizedDegree);
+
+        /// &lt;summary&gt;
+        /// 方向を反転させた角度を取得します。
+        /// 例：90°→-270°, -450°→630°
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public Angle Reverse()
+        {
+            //ゼロならゼロ
+            if (this == Zero) return Zero;
+            //真円の場合は真逆にする
+            if (IsTrueCircle) return new Angle(-Lap, 0);
+            if (IsCircled)
+            { //1周以上している
+                if (IsPositive)
+                { //360~
+                    return new Angle(-Lap, NormalizedDegree - 360);
+                }
+                else
+                { //~-360
+                    return new Angle(-Lap, NormalizedDegree + 360);
+                }
+            }
+            else
+            { //1周していない
+                if (IsPositive)
+                { //0~360
+                    return new Angle(m_totalDegree - 360);
+                }
+                else
+                { //-360~0
+                    return new Angle(m_totalDegree + 360);
+                }
+            }
+        }
+        /// &lt;summary&gt;
+        /// 符号を反転させた角度を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public Angle SignReverse() =&gt; new Angle(-m_totalDegree);
+        /// &lt;summary&gt;
+        /// 角度の絶対値を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public Angle Absolute() =&gt; IsPositive ? this : SignReverse();
+
+        /// &lt;summary&gt;
+        /// 正規化していない角度値を取得します。
+        /// &lt;/summary&gt;
+        public float TotalDegree =&gt; m_totalDegree;
+        /// &lt;summary&gt;
+        /// 正規化していない角度値をラジアンで取得します。
+        /// &lt;/summary&gt;
+        public float TotalRadian =&gt; DegToRad(TotalDegree);
+        /// &lt;summary&gt;
+        /// 正規化された角度値(-180 &amp;lt; angle &amp;lt;= 180)を取得します。
+        /// &lt;/summary&gt;
+        public float NormalizedDegree
+        {
+            get
+            {
+                float lapExcludedDegree = m_totalDegree - (Lap * 360);
+                if (lapExcludedDegree &gt; 180) return lapExcludedDegree - 360;
+                if (lapExcludedDegree &lt;= -180) return lapExcludedDegree + 360;
+                return lapExcludedDegree;
+            }
+        }
+        /// &lt;summary&gt;
+        /// 正規化された角度値をラジアン(-π &amp;lt; rad &amp;lt; π)で取得します。
+        /// &lt;/summary&gt;
+        public float NormalizedRadian =&gt; DegToRad(NormalizedDegree);
+        /// &lt;summary&gt;
+        /// 正規化された角度値(0 &amp;lt;= angle &amp;lt; 360)を取得します。
+        /// &lt;/summary&gt;
+        public float PositiveNormalizedDegree
+        {
+            get
+            {
+                var normalized = NormalizedDegree;
+                return normalized &gt;= 0 ? normalized : normalized + 360;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 正規化された角度値をラジアン(0 &amp;lt;= rad &amp;lt; 2π)で取得します。
+        /// &lt;/summary&gt;
+        public float PositiveNormalizedRadian =&gt; DegToRad(PositiveNormalizedDegree);
+        /// &lt;summary&gt;
+        /// 角度が何周しているかを取得します。
+        /// 例：370°→1周, -1085°→-3周
+        /// &lt;/summary&gt;
+        public int Lap =&gt; ((int)m_totalDegree) / 360;
+        /// &lt;summary&gt;
+        /// 1周以上しているかどうか(360°以上、もしくは-360°以下かどうか)を取得します。
+        /// &lt;/summary&gt;
+        public bool IsCircled =&gt; Lap != 0;
+        /// &lt;summary&gt;
+        /// 360の倍数の角度であるかどうかを取得します。
+        /// &lt;/summary&gt;
+        public bool IsTrueCircle =&gt; IsCircled &amp;&amp; m_totalDegree % 360 == 0;
+        /// &lt;summary&gt;
+        /// 正の角度かどうかを取得します。
+        /// &lt;/summary&gt;
+        public bool IsPositive =&gt; m_totalDegree &gt;= 0;
+
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle operator +(Angle left, Angle right) =&gt; new Angle(ArithmeticCheck(() =&gt; left.m_totalDegree + right.m_totalDegree));
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle operator -(Angle left, Angle right) =&gt; new Angle(ArithmeticCheck(() =&gt; left.m_totalDegree - right.m_totalDegree));
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle operator *(Angle left, float right) =&gt; new Angle(ArithmeticCheck(() =&gt; left.m_totalDegree * right));
+        /// &lt;exception cref="NotFiniteNumberException"/&gt;
+        public static Angle operator /(Angle left, float right) =&gt; new Angle(ArithmeticCheck(() =&gt; left.m_totalDegree / right));
+        public static bool operator ==(Angle left, Angle right) =&gt; left.m_totalDegree == right.m_totalDegree;
+        public static bool operator !=(Angle left, Angle right) =&gt; left.m_totalDegree != right.m_totalDegree;
+        public static bool operator &gt;(Angle left, Angle right) =&gt; left.m_totalDegree &gt; right.m_totalDegree;
+        public static bool operator &lt;(Angle left, Angle right) =&gt; left.m_totalDegree &lt; right.m_totalDegree;
+        public static bool operator &gt;=(Angle left, Angle right) =&gt; left.m_totalDegree &gt;= right.m_totalDegree;
+        public static bool operator &lt;=(Angle left, Angle right) =&gt; left.m_totalDegree &lt;= right.m_totalDegree;
+
+        /// &lt;summary&gt;
+        /// 演算結果が数値であることを確かめる
+        /// &lt;/summary&gt;
+        /// &lt;param name="func"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static float ArithmeticCheck(Func&lt;float&gt; func)
+        {
+            var ans = func();
+            if (float.IsInfinity(ans)) throw new NotFiniteNumberException("演算の結果、角度が正の無限大または負の無限大になりました");
+            if (float.IsNaN(ans)) throw new NotFiniteNumberException("演算の結果、角度がNaNになりました");
+            return ans;
+        }
+        private static float RadToDeg(float rad) =&gt; rad * 180 / Mathf.PI;
+        private static float DegToRad(float deg) =&gt; deg * (Mathf.PI / 180);
+    }
+}
+
+
+

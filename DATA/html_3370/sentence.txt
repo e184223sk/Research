@@ -1,0 +1,67 @@
+More than 1 year has passed since last update.LDAPの勉強をしたまとめです。
+Azure上の仮想マシンにUbuntuを構築して、OpenLDAPをインストールしてから、
+Windows10からOpenLDAPにアクセスするC#プログラムサンプルプログラムを作成するところまでです。以下のことが書いてあります   以下のことは書いていません   ※細かいことは考えずとりあえずやってみた系です作業はWindows10のPC1台でやってますが、Azureに仮想マシン作るのでマシン的には2台です。以下の手順でやっていきます。
+各項目は Windowsでやる／Azureでやる／Ubuntuでやる のいずれかです。※Windowsでの作業です※操作するWindowsPCにTeraTermを入れてSSH接続用のキーペア(秘密鍵、公開鍵)を作成します。以下のサイトからTeraTermをダウンロードしてインストールします。
+- Tera Term (テラターム) プロジェクト日本語トップページUbuntuにはSSH-公開鍵認証方式で接続します。
+キーペア（秘密鍵を公開鍵）を生成してUbuntu側に公開鍵を設定、TeraTerm側に秘密鍵を設定する必要があります。
+今回はTeraTermでキーペアを生成します。TeraTermを起動してメニューから[鍵生成]を実行
+パラメータを設定して[生成]次はAzure上に仮想マシンを構築します。※Azureでの作業です※Azureへの登録、ログインは完了していて、リソースがまだ作成されていない状態から始めます。
+Azureの左メニュの[リソース グループ]からリソースを作成します。TESTという名前でリソースグループを作成します。
+（リージョンは東日本にしました）
+Azureの左メニュの[Virtual Machines]から仮想マシンを作成します。
+選択項目がたくさんあります。
+今回は以下の設定で作成しています。
+記載のない項目はデフォルトのママ、変更していないということです。※SSH公開キー
+SSH公開キーはテキストです、先ほどTeraTermで作成した公開鍵を指定します。
+- 公開鍵をメモ帳で開きます。
+- ssh-rsa、半角スペースの後にAAAAB3N...といった意味不明のデータが書いてありますが、最後の半角スペースの後のユーザー情報みたいなもの(下例ではgebo@WINDOWS10PC)は不要ですので、そこを除いたデータを[SSH公開キー]の入力欄にコピペします。※私の環境では2分ほどでデプロイが完了しました、速い・・・
+デプロイが完了すると仮想マシンはそのまま起動していますので、IPアドレスを確認しておきましょう。
+Azureのホーム&gt;Virtual Machines&gt;[マシン名]から[パブリック IP アドレス]で確認することができます。
+この後、Windowsから仮想マシンに接続してUbuntuの初期設定を行います。※Windowsでの作業です※操作しているWindowsPCからAzure上に構築したUbuntuへの接続にはTeraTermを使います。
+（Windowsに標準で入っているリモートデスクトップでは接続できません)接続ができたらUbuntuの初期設定をしていきましょう。※Ubuntuでの作業です※TeraTermでUbuntuに接続して以下のコマンドを実行します。sudo apt-get update
+(環境のアップデート、と思われる)sudo apt install slapd ldap-utils
+(OpenLDAPのインストール)OpenLDAPの管理者パスワードの入力の画面が出てくるので、パスワードを入力します。slapd -V
+(正常にインストールされたかどうか確認)sudo slapcat
+(slapcatはLDAPのディレクトリデータを出力するコマンドです)実行すると、ダラダラと出てきます。slapcatの結果をよく見ると、2つのレコードがあるっぽいです。①ルートDN（と言っていいかどうかわからないが、LDAPデータの頂点になるレコード)
+dn: dc=etnxy3denhdednurc4eny0pxja,dc=lx,dc=internal,dc=cloudapp,dc=net②アドミンCN（と言っていいかどうかわからないが、OpenLDAPをインストールするときに作ったAdminのレコード)
+dn: cn=admin,dc=etnxy3denhdednurc4eny0pxja,dc=lx,dc=internal,dc=cloudapp,dc=netこの①ルートDN、②アドミンCNの値をメモっておきましょう。
+外部からLDAPに接続する際に必要な情報です。OpenLDAPのセットアップが完了したら、外部から接続するための設定をしていきます。※Azureでの作業です※LDAPは389番ポートを使うのがデフォルトです。
+Ubuntu側はまだポートを開けていないのでAzureでポートを開けてやります。1)Azureにログイン
+2)ホーム&gt;Virtual Machines&gt;Ubuntu(仮想マシン名) - ネットワーク
+3)受信ポートの規則を追加する
+4)[受信セキュリティ規則の追加]で宛先ポート範囲：389とする
+5)名前：Port_389とする
+6)それ以外はそのままで作成これでポート389が解放され、外部から接続できるようになります。※Windowsでの作業です※操作しているWindowsPCからAzure上のUbuntuで動作しているOpenLDAPに接続します。
+LDAPに接続するクライアントツールはいろいろありますが、今回はLDAP Adminを使います。
+LDAPに接続するために必要な情報
+- UbuntuのIPアドレス
+- ポート情報＝LDAPはデフォルトで389ポートで接続します。
+- LDAPのDN＝LDAPの接続情報をGETで①ルートDNとしてメモっておいたものです。
+- LDAPユーザー名＝LDAPの接続情報をGETで②アドミンCNとしてメモっておいたものです。
+- パスワード＝4. OpenLDAPのセットアップで登録したAdministrator passwordです。LDAPAdmin 日本語情報トップページからダウンロードします。※インストールは不要です。LdapAdmin.exeをクリックで起動します。※Ubuntuでの作業です※①ルートDNとしてメモっておいたもの
+dc=etnxy3denhdednurc4eny0pxja,dc=lx,dc=internal,dc=cloudapp,dc=net
+なんだか長くて嫌なので
+dc=gebogebo,dc=com
+に変更してみます。ルートDNの設定変更はdpkgコマンドで行います。
+このコマンドはOpenLDAPの設定全般の設定変更をするコマンドです。以降の手順はルートDN以外の設定変更はしません。以下のコマンドを実行します。そうするとこんな画面が出てきます。
+Noで先に進む、Yesでキャンセルです。
+この画面のDNS dmain nameでルートDNを変更します。
+gebogebo.comと入力してOK
+Organization name。組織名でしょうか、gebogeboと入れてOK
+Administrator password。変えるつもりはないので同じものを入力。
+パスワードの再入力。
+BDB、HDB、MDBの選択。LDAPのDB形式の指定のようです、最初から選択されているMDBのままでOK。
+databese removeとかナントカ...Noにします。
+Move old database?よくわからないのでデフォルトで選択されているYesを選択。
+以上で設定は終了です。doneとログが出て終了です。slapcatしてみてみましょう。
+（ちゃんと変わっています）LDAP Adminで接続するときのBaseとUsernameも変えて接続確認をしておきましょう。※Windowsでの作業です※C#でLDAPにアクセスするプログラムを作成します。DirectoryEntryクラスを生成し、NativeObjectを取得することで接続を確認することができますが、DirectoryEntryクラスのコンストラクタに指定する引数がわかりずらいので注意です。接続するDNをURL形式で指定します。OpenLDAPに登録されているユーザー名をDN形式で指定します。usernameで指定したユーザーのパスワードをそのまま指定します。この引数が今一つわからないのですが、以下で接続できます。
+AuthenticationTypes.None接続確認と同様の方法でDirectoryEntryを生成した後に、Children.Add()します。
+Add()の結果で得られたオブジェクトでCommitChanges()しないといけないところが注意です。
+以下サンプルではtestouというOUを作成しています。
+実行後にLDAPAdminで実際に生成されていることを確認してみましょう。DirectoryEntryを生成した後に、Children.Add()するのですが、DirectoryEntryのコンストラクタに指定するpahは先ほどのサンプルで指定したtestouを指定します。
+こうすることで、testouの下にCNを作成することになります。
+Add()の結果で得られたオブジェクトでCommitChanges()しないといけないところが注意です。このサンプルではtestcnというinetOrgPerson型のCNを作成し、uid,sn,displayName,homePhone,homePostalAddress属性を設定しています。Find()で削除対象のオブジェクトを取得してから、Remove()で削除します。
+Remove()の場合はCommitChanges()がいらないようです（いちいちわかりにくいんだよなぁ)以下サンプルはtestouを削除します。Find()で削除対象のオブジェクトを取得してから、Remove()で削除します。以下サンプルはtestcnを削除します。これらのソースはGitHubにもアップしています。
+LDAPConnectorLDAP以外と情報少ない。
+
+

@@ -1,0 +1,866 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using Android.App;
+using Android.Content;
+using Android.Graphics;
+using Android.OS;
+using Android.Support.V7.App;
+using Android.Widget;
+
+namespace App1
+{
+    [Activity(Label = "@string/app_name", Theme = "@style/AppTheme.NoActionBar", MainLauncher = true)]
+    public class MainActivity : AppCompatActivity
+    {
+        readonly string Output_DirName = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDcim).ToString();
+        Bitmap BaseImage = null;
+        const string vbCrLf = "\r\n"; //改行用
+
+        //基礎側のバイト配列の現在位置を格納
+        int base_cnt = 0;
+        StringBuilder debug_test_sb;
+
+        //画像はRGB565で扱う
+        Android.Graphics.Bitmap.Config bitmapConfig = Android.Graphics.Bitmap.Config.Rgb565;
+
+        public async System.Threading.Tasks.Task Output_Sukashi_Bitmap_Making(Android.Net.Uri fileUris)
+        {   //★指定ファイルを画像に埋めて暗号化するところ
+            //出力画像を組み立てるところ
+            string err_str = "0"; //どこでエラーになったかを把握するための文字列
+
+            try
+            {   //基礎となる画像のロード
+                if (BaseImage == null)
+                {
+                    err_str = "WebClient";
+                    using (System.Net.WebClient webClient = new System.Net.WebClient())
+                    {   //今回は、ネット空間からDLする。
+                        err_str = "DownloadDataTaskAsync";
+                        byte[] imageBytes = await webClient.DownloadDataTaskAsync(new Uri("https://blog-imgs-110.fc2.com/o/y/k/oyk3865b/2017_05_03_290.jpg"));
+
+                        err_str = "imageBytes : " + (imageBytes == null);
+                        if (imageBytes != null &amp;&amp; imageBytes.Length &gt; 0)
+                        {
+                            err_str = "DecodeByteArrayAsync";
+                            BaseImage = await BitmapFactory.DecodeByteArrayAsync(imageBytes, 0, imageBytes.Length);
+                            Array.Clear(imageBytes, 0, imageBytes.Length);
+                        }
+                    }
+                }
+
+
+                //色設定をRGB556に統一する。
+                //https://stackoverflow.com/questions/7320392/how-to-draw-text-on-image
+                BaseImage = BaseImage.Copy(bitmapConfig, true);
+
+                //Bitmapのバイナリ置き換えの準備
+                //https://qiita.com/aymikmts/items/7139fa6c4da3b57cb4fc
+                err_str = "byteBuffer";
+                Java.Nio.ByteBuffer byteBuffer = Java.Nio.ByteBuffer.Allocate(BaseImage.ByteCount);
+                err_str = "CopyPixelsToBuffer";
+                BaseImage.CopyPixelsToBuffer(byteBuffer);
+                err_str = "Flip";
+                byteBuffer.Flip();
+                err_str = "bmparr";
+
+                //基礎Bitmapのバイナリへの置き換え
+                byte[] bmparr = new byte[byteBuffer.Capacity()];
+                err_str = "Get";
+                byteBuffer.Duplicate().Get(bmparr);
+                err_str = "Clear";
+                byteBuffer.Clear();
+
+
+                //埋め込むファイルの名前の取得
+                string filename = Get_FileName_From_Uri(fileUris);
+                //埋め込むファイルのバイナリ格納
+                List&lt;byte&gt; bs = new List&lt;byte&gt;();
+
+                //埋め込むファイルのバイナリを格納
+                //https://stackoverflow.com/questions/2436385/android-getting-from-a-uri-to-an-inputstream-to-a-byte-array/2436413
+                err_str = "Err_3 " + filename;
+                using (Stream inputStream = ContentResolver.OpenInputStream(fileUris))
+                {
+                    err_str = "Err_4 " + filename;
+                    int bufferSize = 1024;
+                    using (Java.IO.BufferedInputStream stream = new Java.IO.BufferedInputStream(inputStream, bufferSize))
+                    {
+                        //ファイルを開く
+                        int len = 0;
+
+                        //読み込み用バッファの準備
+                        //https://stackoverflow.com/questions/2436385/android-getting-from-a-uri-to-an-inputstream-to-a-byte-array/2436413
+                        byte[] buffer = new byte[bufferSize];
+
+                        //ファイルを読み込む
+                        //http://d.hatena.ne.jp/curest/20090829/1251532479
+                        err_str = "Err_5 " + filename;
+                        while ((len = stream.Read(buffer, 0, buffer.Length)) != -1)
+                        {
+                            if (len &lt;= 0) { break; }//終端で出る  
+                            else if (len == bufferSize)
+                            {   //1024満願の場合
+                                bs.AddRange(buffer); //埋め込むデータのバイナリをそのまま全てリストに読み込む
+                            }
+                            else
+                            {   //終端手前の場合
+                                byte[] temp_buf = new byte[len];
+                                Array.Copy(buffer, 0, temp_buf, 0, len);
+                                bs.AddRange(temp_buf); //埋め込むデータのバイナリを必要分だけリストに読み込む
+                                Array.Clear(temp_buf, 0, temp_buf.Length);
+                            }
+                        }
+
+                        //閉じる
+                        err_str = "Err_6 " + filename;
+                        stream.Close();
+                    }
+                    err_str = "Err_7 " + filename;
+                    inputStream.Close();
+                }
+
+                //冒頭には、埋め込んだファイル情報を入れる
+                byte[] name_data = Encoding.UTF8.GetBytes(filename);
+
+                //名前のサイズ4バイト
+                byte[] size_data = BitConverter.GetBytes((Int32)name_data.Length);
+
+                //基礎の埋め込み開始位置の初期化
+                base_cnt = 0;
+
+                //※※※今回は、下位ビットに埋め込んでいくとする。※※※
+                //→つまり、1バイト埋めるのには、2倍の2バイト領域が必要
+                //→ちょうど、RGB565の1ドットに相当する領域に1バイト入れる。
+                err_str = "埋め込んでいく";
+                debug_test_sb = new StringBuilder(); //デバッグ用
+
+                for (int i = 0; i &lt; (size_data.Length); i++)
+                {
+                    data_umekomi(ref bmparr[base_cnt], ref bmparr[base_cnt + 1], size_data[i]);
+                }
+                //続いて、名前バイナリを埋め込む
+                err_str = "name_data";
+                for (int i = 0; i &lt; (name_data.Length); i++)
+                {
+                    data_umekomi(ref bmparr[base_cnt], ref bmparr[base_cnt + 1], name_data[i]);
+                }
+
+                //いったん初期化
+                err_str = "Array.Clear";
+                Array.Clear(size_data, 0, size_data.Length);
+
+                //次に、埋め込むファイル本体のサイズ
+                err_str = "BitConverter.GetBytes";
+                size_data = BitConverter.GetBytes((Int32)bs.Count);
+                err_str = "size_data";
+                for (int i = 0; i &lt; (size_data.Length); i++)
+                {
+                    data_umekomi(ref bmparr[base_cnt], ref bmparr[base_cnt + 1], size_data[i]);
+                }
+
+
+                //埋め込み側のバイナリ本体を埋め込む
+                err_str = "byteary.Length" + bmparr.Length.ToString();
+
+                for (int i = 0; i &lt; (bs.Count); i++)
+                {   //安全装置
+                    if (base_cnt + 1 &gt; bmparr.Length - 1)
+                    {
+                        Toast.MakeText(Application.Context, "埋め込められる容量 " + i.ToString() + "B を超えました。", ToastLength.Long).Show();
+                        break;
+                    }
+                    data_umekomi(ref bmparr[base_cnt], ref bmparr[base_cnt + 1], bs[i]);
+                }
+
+                //デバッグ用ログ出力
+                string check_filepath = System.IO.Path.Combine(Output_DirName, "check1.txt");
+                await System.IO.File.WriteAllTextAsync(check_filepath, debug_test_sb.ToString()); // bs.Count.ToString() + "-&gt;" + (bmparr.Length / 2).ToString());
+                debug_test_sb.Clear();
+                //await System.IO.File.WriteAllBytesAsync(check_filepath, bs.ToArray());
+                set_SendBroadcast_state(check_filepath);
+                //Toast.MakeText(Application.Context, bs.Count.ToString() + "-&gt;" + (base_cnt + 1).ToString(), ToastLength.Long).Show();
+                bs.Clear();
+
+
+                //最後に適当に乱数を埋める
+                err_str = "System.Random()";
+                System.Random rnd = new System.Random();
+                //乱数を配列に埋め込む
+                Array.Clear(size_data, 0, size_data.Length);
+                size_data = new byte[bmparr.Length - base_cnt];
+                rnd.NextBytes(size_data);
+                for (int i = 0; i &lt; (size_data.Length); i++)
+                {   //安全装置       
+                    if (base_cnt + 1 &gt; bmparr.Length - 1) { break; }
+                    data_umekomi(ref bmparr[base_cnt], ref bmparr[base_cnt + 1], size_data[i]);
+                }
+
+
+                //埋め込んだバイナリを再びBitmapに戻す準備
+                err_str = "CreateBitmap";
+                Bitmap bitmap = Bitmap.CreateBitmap(BaseImage.Width, BaseImage.Height, bitmapConfig);
+
+                //埋め込んだバイナリを再びBitmapに戻す
+                err_str = "Wrap";
+                byteBuffer = Java.Nio.ByteBuffer.Wrap(bmparr);
+                err_str = "CopyPixelsFromBuffer";
+                bitmap.CopyPixelsFromBuffer(byteBuffer);
+                byteBuffer.Clear();
+
+                //埋め込み前画像の解放
+                BaseImage.Recycle();
+                BaseImage.Dispose();
+                BaseImage = null;
+
+                //解放
+                byteBuffer.Clear();
+                byteBuffer.Dispose();
+
+                //出来上がった画像の保存パスの作成
+                err_str = "bitmap_save " + (bitmap == null) + " " + bmparr.Length; //+ " " + byteBuffer.Capacity();
+                string filepath = System.IO.Path.Combine(Output_DirName, "kikikanri.png");
+
+                //出来上がった画像の保存出力
+                err_str = "bitmap_save";
+                bitmap_save(bitmap, filepath, true, this);
+
+                //出来上がった画像を開く
+                err_str = "open_start_file";
+                open_start_file(filepath, this);
+
+                //できた画像の解放
+                bitmap.Recycle();
+                bitmap.Dispose();
+                Array.Clear(bmparr, 0, bmparr.Length);
+
+            }
+            catch
+            {   //エラー時の表示
+                Toast.MakeText(Application.Context, err_str, ToastLength.Long).Show();
+            }
+
+        }
+        //残せるログの最大サイズ
+        int max_log_size = 10000;
+        private void data_umekomi(ref byte base1, ref byte base2, byte umekomi_byte)
+        {   //指定されたバイト数値にデータを埋め込む所 
+
+            //基礎画像の下位4ビットをカットする。
+            string base1_str = Convert.ToString(base1, 2).PadLeft(8, '0'); //8桁の二進数にする。
+            string base2_str = Convert.ToString(base2, 2).PadLeft(8, '0'); //8桁の二進数にする。
+
+            //RGB565なので、各色のビットに分ける
+            //→リトルエンディアンとする。
+            //https://www.argocorp.com/software/sdk/ICImagingControl/users_guide_c++/tutorial/pixformat/PixelformatRGB565.htm
+            string color_bits_str = base2_str + base1_str;
+            string color_r = color_bits_str.Substring(0, 5);
+            if (debug_test_sb.Length &lt; max_log_size)
+            {   //5000バイトまで許す
+                debug_test_sb.Append("0x" + Convert.ToString(base_cnt, 16).PadLeft(4, '0') + " bR " + color_r);
+            }
+            string color_g = color_bits_str.Substring(5, 6);
+            if (debug_test_sb.Length &lt; max_log_size)
+            {   //5000バイトまで許す
+                debug_test_sb.Append(" bG " + color_g);
+            }
+            string color_b = color_bits_str.Substring(11, 5);
+            if (debug_test_sb.Length &lt; max_log_size)
+            {   //5000バイトまで許す
+                debug_test_sb.Append(" bB " + color_b + " -&gt;");
+            }
+
+            //空いた下位4ビットにデータを埋め込む
+            string umekomi_str = Convert.ToString(umekomi_byte, 2).PadLeft(8, '0'); //8桁の二進数にする。
+            color_r = color_r.Substring(0, 3) + umekomi_str.Substring(0, 2); //R下位2ビットに埋め込む
+            color_g = color_g.Substring(0, 3) + umekomi_str.Substring(2, 3); //G下位3ビットに埋め込む
+            color_b = color_b.Substring(0, 2) + umekomi_str.Substring(5, 3); //B下位3ビットに埋め込む
+
+            if (debug_test_sb.Length &lt; max_log_size)
+            {   //5000バイトまで許す
+                debug_test_sb.Append(" aR " + color_r);
+                debug_test_sb.Append(" aG " + color_g);
+                debug_test_sb.Append(" aB " + color_b + vbCrLf + " | ");
+                debug_test_sb.Append(" base1 " + base1_str);
+                debug_test_sb.Append("/ base2 " + base2_str);
+                debug_test_sb.Append("= umekomi" + umekomi_str + vbCrLf);
+            }
+
+            //元のビット文字列に戻す
+            color_bits_str = color_r + color_g + color_b;
+
+            ////デバッグ用
+            //color_bits_str = "1000 0000 0000 0000";
+            //color_bits_str = color_bits_str.Replace(" ", "");
+
+            //2進数からbyteに変換
+            base1 = Convert.ToByte(color_bits_str.Substring(8, 8), 2);
+            base2 = Convert.ToByte(color_bits_str.Substring(0, 8), 2);
+
+            //基礎側のバイナリは2つ進む
+            base_cnt += 2;
+        }
+
+        public async System.Threading.Tasks.Task Input_Sukashi_Bitmap_Making_ARGB8888(Android.Net.Uri filePath)
+        {   //★埋めたファイルを復号するところ
+            string err_str = "Input_Sukashi_Bitmap_Making";
+            try
+            {
+                ////ARGB8888バイナリの最低限での発色テスト
+                //for (int i = 0; i &lt;= 3; i++)
+                //{
+                //    //埋め込んだバイナリを再びBitmapに戻す準備
+                //    err_str = "CreateBitmap";
+                //    Bitmap bitmap333 = Bitmap.CreateBitmap(1, 1, Android.Graphics.Bitmap.Config.Argb8888);
+                //    byte[] bmparr22 = new byte[4] { 0, 255, 255, 255 }; //水色[Rなし]
+                //    switch (i) {
+                //        case 1:
+                //            bmparr22 = new byte[4] { 255, 0, 255, 255 }; //ピンクじゃないマゼンタだ[Gなし]
+                //            break;
+
+                //        case 2:
+                //            bmparr22 = new byte[4] { 255, 255, 0, 255 }; //黄色[Bなし]
+                //            break;
+
+                //        case 3:
+                //            bmparr22 = new byte[4] { 255, 255, 255, 0 }; //全透明[黒]
+                //            break;
+                //    }
+                //    //埋め込んだバイナリを再びBitmapに戻す
+                //    Java.Nio.ByteBuffer byteBuffer55 = Java.Nio.ByteBuffer.Wrap(bmparr22);
+                //    byteBuffer55.Rewind();
+                //    bitmap333.CopyPixelsFromBuffer(byteBuffer55);
+                //    byteBuffer55.Clear();
+                //    string filepath = System.IO.Path.Combine(Output_DirName, "color_test_" + i.ToString() + ".png");
+
+                //    //出来上がった画像の保存出力
+                //    bitmap_save(bitmap333, filepath, true, this);
+                //}
+
+
+                //指定した画像を開く
+                err_str = "DecodeStream";
+                Bitmap bitmap = null;
+                using (BitmapFactory.Options options = new BitmapFactory.Options())
+                {   //RGB565に統一
+                    options.InPreferredConfig = Android.Graphics.Bitmap.Config.Argb8888;
+                    using (var inputStream = ContentResolver.OpenInputStream(filePath))
+                    {   // URI指定の場合
+                        //http://www.united-bears.co.jp/blog/archives/909
+                        bitmap = BitmapFactory.DecodeStream(inputStream, null, options);
+                        inputStream.Close();
+                    }
+                }
+
+
+                //Bitmapのバイナリ置き場の準備
+                //https://qiita.com/aymikmts/items/7139fa6c4da3b57cb4fc
+                err_str = "byteBuffer3";
+                Java.Nio.ByteBuffer byteBuffer = Java.Nio.ByteBuffer.Allocate(bitmap.ByteCount);
+
+                err_str = "CopyPixelsToBuffer3 " + (bitmap == null) + " " + bitmap.ByteCount;
+                bitmap.CopyPixelsToBuffer(byteBuffer);
+                err_str = "Flip3";
+                byteBuffer.Flip();
+                err_str = "bmparr3";
+
+                //基礎Bitmapのバイナリの格納
+                byte[] bmparr = new byte[byteBuffer.Capacity()];
+                err_str = "Get3";
+                byteBuffer.Duplicate().Get(bmparr);
+                err_str = "Clear3";
+                byteBuffer.Clear();
+                bitmap.Recycle();
+                bitmap.Dispose();
+
+
+                //埋め込むファイルのバイナリ格納用リスト
+                err_str = "List&lt;byte&gt;";
+                List&lt;byte&gt; bs = new List&lt;byte&gt;(); //各初期化
+                bs.Clear();
+                base_cnt = 0;
+
+                err_str = "名前のサイズを取得";
+                do
+                {   //まずは、埋め込んだファイルの名前のサイズを取得[Int32 = 4バイト固定]
+                    bs.Add(data_toridashi_ARGB8888(bmparr[base_cnt], bmparr[base_cnt + 1], bmparr[base_cnt + 2], bmparr[base_cnt + 3]));
+                } while (bs.Count &lt; 4); //4バイト貯まるまでループ
+
+                Int32 data_size = BitConverter.ToInt32(bs.ToArray());
+                err_str = "名前領域の取り出し L:" + bmparr.Length.ToString() + " D:" + data_size.ToString();
+                bs.Clear();
+                do
+                {   //埋め込んだファイルの名前を取得
+                    bs.Add(data_toridashi_ARGB8888(bmparr[base_cnt], bmparr[base_cnt + 1], bmparr[base_cnt + 2], bmparr[base_cnt + 3]));
+                } while (bs.Count &lt; data_size); //先に取得したサイズまでループ
+
+                //UTF8にてバイナリを文字列に戻す
+                err_str = "出力先パスの完成 C:" + bs.Count .ToString();
+                string load_filepath = System.Text.Encoding.UTF8.GetString(bs.ToArray());
+                err_str = "出力先パスの完成 P:" + load_filepath;
+                load_filepath = System.IO.Path.Combine(Output_DirName, load_filepath);
+                load_filepath = System.IO.Path.Combine(Output_DirName, System.IO.Path.GetFileNameWithoutExtension(load_filepath) + "[t]" + System.IO.Path.GetExtension(load_filepath));
+
+                err_str = "本体バイナリのサイズを取得";
+                bs.Clear();
+                do
+                {   //埋め込んだファイルのサイズの取得[4バイト固定]
+                    bs.Add(data_toridashi_ARGB8888(bmparr[base_cnt], bmparr[base_cnt + 1], bmparr[base_cnt + 2], bmparr[base_cnt + 3]));
+                } while (bs.Count &lt; 4);
+                data_size = BitConverter.ToInt32(bs.ToArray());
+
+
+                err_str = "本体バイナリの取得";
+                bs.Clear();
+                do
+                {   //埋め込んだファイルのバイナリの取得
+                    bs.Add(data_toridashi_ARGB8888(bmparr[base_cnt], bmparr[base_cnt + 1], bmparr[base_cnt + 2], bmparr[base_cnt + 3]));
+                    if (bs.Count == data_size) { break; }
+                } while (bs.Count &lt; data_size); //先に取得したファイルサイズが貯まるまで周回
+                //string check_filepath = System.IO.Path.Combine(Output_DirName, "check2.txt");
+                //await System.IO.File.WriteAllBytesAsync(check_filepath, bs.ToArray());
+                //set_SendBroadcast_state(check_filepath);
+
+                err_str = "ファイルに書き出す";
+                await System.IO.File.WriteAllBytesAsync(load_filepath, bs.ToArray());
+                bs.Clear();
+
+                //復号したファイルを開く
+                err_str = "open_start_file3";
+                open_start_file(load_filepath, this);
+
+                //復号したファイルをPCからも見えるようにする。
+                err_str = "set_SendBroadcast_state3";
+                set_SendBroadcast_state(load_filepath);
+
+            }
+            catch
+            {
+                //エラー時の表示
+                Toast.MakeText(Application.Context, err_str, ToastLength.Long).Show();
+            }
+        }
+        private byte data_toridashi_ARGB8888(byte base0, byte base1, byte base2, byte base3)
+        {   //指定されたバイト数値からデータを取り出す所 
+
+            //ARGB8888では、RGBAの順に入っている
+            //https://stackoverflow.com/questions/47970384/why-is-copypixelsfrombuffer-giving-incorrect-color-setpixels-is-correct-but-slo
+
+            //基礎画像のビットデータの取り出し
+            string umekomi_mode_str = Convert.ToString(base0, 2).PadLeft(8, '0').Substring(0, 5);
+            umekomi_mode_str += Convert.ToString(base1, 2).PadLeft(8, '0').Substring(0, 6);
+            umekomi_mode_str += Convert.ToString(base2, 2).PadLeft(8, '0').Substring(0, 5);
+
+            string color_r = umekomi_mode_str.Substring(0, 5);
+            string color_g = umekomi_mode_str.Substring(5, 6);
+            string color_b = umekomi_mode_str.Substring(11, 5);
+
+            //下位ビットを取り出す
+            string color_bits_str = color_r.Substring(3, 2) + color_g.Substring(3, 3) + color_b.Substring(2, 3);
+
+            //基礎側のバイナリは2つ進む
+            base_cnt += 4;
+
+            return Convert.ToByte(color_bits_str, 2); //2進数からbyteに変換
+        }
+
+        public string Get_FileName_From_Uri(Android.Net.Uri uri)
+        {   //Uriから、ファイルバスを取得する。
+            //https://qiita.com/CUTBOSS/items/3476e164b86a63b02b2e
+
+            //安全装置
+            if (null == uri)
+            {
+                return null;
+            }
+
+            //スキームの取得
+            string scheme = uri.Scheme;
+
+            //スキームによる分岐
+            string fileName = null;
+            switch (scheme)
+            {
+                case "content":
+                    String[] projection = { Android.Provider.MediaStore.MediaColumns.DisplayName };
+                    Android.Database.ICursor cursor = this.ContentResolver.Query(uri, projection, null, null, null);
+                    if (cursor != null)
+                    {
+                        if (cursor.MoveToFirst())
+                        {
+                            fileName = cursor.GetString(
+                                    cursor.GetColumnIndexOrThrow(Android.Provider.MediaStore.MediaColumns.DisplayName));
+                        }
+                        cursor.Close();
+                    }
+                    break;
+
+                case "file":
+                    fileName = new Java.IO.File(uri.Path).Name;
+                    break;
+
+                default:
+                    break;
+            }
+            return fileName;
+        }
+
+
+
+        public void bitmap_save(Bitmap bitmap, string filePath, bool SendBroadcast_flg, Activity ac)
+        {   //指定場所に画像の保存
+            try
+            {
+                if (!System.IO.Directory.Exists(System.IO.Path.GetDirectoryName(filePath)))
+                {
+                    //保存先フォルダがない場合
+                    //作る
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(filePath));
+                }
+
+                if (bitmap.Width &lt;= 0 || bitmap.Height &lt;= 0)
+                {   //大きさのない画像の場合
+                    return; //出る
+                }
+
+
+                //ファイル書き込み
+                using (System.IO.FileStream fos = System.IO.File.Create(filePath))
+                {
+                    if (System.IO.Path.GetExtension(filePath).ToLower() == ".jpg" || System.IO.Path.GetExtension(filePath).ToLower() == ".tmp")
+                    {   //JPEG保存の場合
+                        bitmap.Compress(Bitmap.CompressFormat.Jpeg, 100, fos);
+                    }
+                    else if (System.IO.Path.GetExtension(filePath).ToLower() == ".png")
+                    {   //PNG保存の場合
+                        bitmap.Compress(Bitmap.CompressFormat.Png, 100, fos);
+                    }
+                    else
+                    {
+                        bitmap.Compress(Bitmap.CompressFormat.Webp, 100, fos);
+                    }
+                    fos.Close();
+                };
+
+
+                //PCからも見られるように設定する場合。
+                if (SendBroadcast_flg &amp;&amp; (System.IO.Path.GetExtension(filePath).ToLower() != ".tmp"))
+                {
+                    //一時ファイルでない場合
+                    set_SendBroadcast_state(filePath);
+                }
+
+                //↓★ここで解放してはならない
+                //bitmap.Dispose();
+            }
+            catch { }
+        }
+
+        public void set_SendBroadcast_state(string Output_Path)
+        {   //PCからも見られるように設定する。
+            //https://qiita.com/wasnot/items/ae1e6282d2c33626b604
+            //https://developer.xamarin.com/api/member/Android.Content.Context.SendBroadcast/p/Android.Content.Intent/
+            //https://bluefish.orz.hm/sdoc/android_file.html#%E6%96%B0%E8%A6%8F%E3%83%95%E3%82%A9%E3%83%AB%E3%83%80%E4%BD%9C%E6%88%90
+
+            try
+            {
+                if (System.IO.File.Exists(Output_Path))
+                { //安全措置
+                    using (Java.IO.File j_file = new Java.IO.File(Output_Path))
+                    {
+                        Android.Net.Uri uri = Android.Net.Uri.FromFile(j_file);
+                        Intent mediaScanIntent = new Intent(Intent.ActionMediaScannerScanFile, uri);
+                        Application.Context.SendBroadcast(mediaScanIntent);
+                        mediaScanIntent.Dispose();
+                        uri.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        public void open_start_file(string filepath, Activity ac)
+        {   //指定のファイルを開く
+
+            int err_flg = 0;
+            try
+            {
+                //ファイルが存在するかの確認
+                if (System.IO.File.Exists(filepath))
+                {
+                    err_flg = 100;
+                    string application = "image/jpeg"; //初期は画像
+                    Android.Net.Uri uri;
+
+                    using (Java.IO.File file = new Java.IO.File(filepath))
+                    {
+                        file.SetReadable(true);
+
+                        err_flg = 103;
+                        if (System.IO.Path.GetExtension(filepath).ToLower().Contains(".pdf"))
+                        {   //PDFの場合
+                            application = "application/pdf";
+                        }
+                        else if (System.IO.Path.GetExtension(filepath).ToLower().Contains(".zip"))
+                        {   //zipの場合
+                            application = "application/zip";
+                        }
+                        else if (System.IO.Path.GetExtension(filepath).ToLower().Contains(".xlsx"))
+                        {   //xlsxの場合
+                            //https://developer.mozilla.org/ja/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Complete_list_of_MIME_types
+                            application = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                        }
+                        else if (System.IO.Path.GetExtension(filepath).ToLower().Contains(".ods"))
+                        {   //odsの場合
+                            application = "application/vnd.oasis.opendocument.spreadsheet";
+                        }
+                        else if (System.IO.Path.GetExtension(filepath).ToLower().Contains(".png"))
+                        {   //pngの場合
+                            application = "image/png";
+                        }
+                        err_flg = 1;
+
+
+                        // ストレージとカメラの権限の確認
+                        if (Build.VERSION.SdkInt &gt;= BuildVersionCodes.M)
+                        {   //Android6.0以上の場合
+
+                            //作ったファイルを開きたい
+                            //https://www.petitmonte.com/java/android_fileprovider.html
+                            //https://stackoverflow.com/questions/40462245/fileprovider-xamarin-not-displaying-file
+                            //https://stackoverflow.com/questions/50072057/android-proper-way-to-share-public-files-between-apps
+                            err_flg = 100;
+                            uri = Android.Support.V4.Content.FileProvider.GetUriForFile(
+                                    Application.Context, Application.Context.PackageName + ".provider",
+                                    file);
+
+
+
+                            err_flg = 101;
+                            Intent intent = new Intent(Intent.ActionView);
+
+                            intent.SetDataAndType(uri, application);
+                            intent.SetFlags(ActivityFlags.NoHistory);
+                            intent.SetFlags(ActivityFlags.GrantReadUriPermission);
+
+                            err_flg = 102;
+                            Intent intent2 = Intent.CreateChooser(intent, "Open File");
+                            if (intent2.ResolveActivity(ac.PackageManager) != null)
+                            {
+                                err_flg = 103;
+                                Application.Context.StartActivity(intent2);
+                            }
+                            else
+                            {   //開けるファイルがない場合
+                                Toast.MakeText(Application.Context, "この環境には、" +
+                                    System.IO.Path.GetExtension(filepath).ToLower() + "形式ファイルを開けるアプリがありません。" + Convert.ToChar(13) + Convert.ToChar(10) +
+                                    "アプリをインストールするか、他の環境で開いてください。", ToastLength.Long).Show();
+                            }
+                        }
+                        else
+                        {   //Android6.0未満の場合
+                            uri = Android.Net.Uri.FromFile(file);
+
+                            Intent intent = new Intent(Intent.ActionView);
+                            err_flg = 2;
+
+                            intent.SetDataAndType(uri, application);
+                            intent.SetFlags(ActivityFlags.NoHistory);
+                            intent.SetFlags(ActivityFlags.ClearWhenTaskReset | ActivityFlags.NewTask);
+                            err_flg = 4;
+
+                            //ちゃんと開けるアプリがあるのかを確認
+                            //https://developer.android.com/guide/components/intents-filters?hl=ja
+                            if (intent.ResolveActivity(ac.PackageManager) != null)
+                            {
+                                err_flg = 5;
+                                //実行
+
+                                Application.Context.StartActivity(intent);
+                            }
+                            else
+                            {   //開けるファイルがない場合
+                                Toast.MakeText(Application.Context, "この環境には、" +
+                                    System.IO.Path.GetExtension(filepath).ToLower() + "形式ファイルを開けるアプリがありません。" + Convert.ToChar(13) + Convert.ToChar(10) +
+                                    "アプリをインストールするか、他の環境で開いてください。", ToastLength.Long).Show();
+                            }
+
+                        }
+                    }
+                }
+            }
+            catch
+            {   //エラー時は無視
+                Toast.MakeText(Application.Context, "エラー発生:" + err_flg.ToString(), ToastLength.Long).Show();
+            }
+        }
+
+
+        //権限がなければ上がる
+        bool no_Permission_flg = false;
+
+        protected override void OnCreate(Bundle savedInstanceState)
+        {
+            base.OnCreate(savedInstanceState);
+
+            // Set our view from the "main" layout resource
+            SetContentView(Resource.Layout.activity_main);
+
+            // ストレージ権限の確認
+            try
+            {
+                if (Build.VERSION.SdkInt &gt;= BuildVersionCodes.M)
+                {   //Android6.0以上の場合のみ
+                    string[] Manifest_Permissions = { Android.Manifest.Permission.WriteExternalStorage, Android.Manifest.Permission.ReadExternalStorage, Android.Manifest.Permission.Internet };
+
+                    //各権限をループ
+                    foreach (System.String Permission_str in Manifest_Permissions)
+                    {
+                        //https://docs.microsoft.com/ja-jp/xamarin/android/app-fundamentals/permissions?tabs=windows
+                        //https://www.petitmonte.com/java/android_fileprovider.html
+                        if (ApplicationContext.CheckCallingOrSelfPermission(Permission_str) !=
+                            Android.Content.PM.Permission.Granted)
+                        {   //許可されていない場合
+                            no_Permission_flg = true;
+                            // ストレージの権限の許可を求めるダイアログを表示する
+                            if (Android.Support.V4.App.ActivityCompat.ShouldShowRequestPermissionRationale(this,
+                                    Permission_str))
+                            {
+                                //Android.Support.V4.App.ActivityCompat.RequestPermissions(this,
+                                //        new string[] { Permission_str }, (int)Android.Content.PM.RequestedPermission.Required);
+                                Android.Support.V4.App.ActivityCompat.RequestPermissions(this,
+                                        Manifest_Permissions, (int)Android.Content.PM.RequestedPermission.Required);
+
+                            }
+                            else
+                            {
+                                Toast toast =
+                                        Toast.MakeText(ApplicationContext, "アプリ実行の権限が必要です", ToastLength.Long);
+                                toast.Show();
+
+                                Android.Support.V4.App.ActivityCompat.RequestPermissions(this,
+                                        Manifest_Permissions,
+                                        (int)Android.Content.PM.RequestedPermission.Required);
+
+                            }
+                        }
+
+                    }
+                }
+
+
+                Button btn1 = FindViewById&lt;Button&gt;(Resource.Id.btn1);
+                btn1.Text = "ファイル埋め込み";
+                btn1.Click += delegate
+                {
+                    if (!no_Permission_flg)
+                    {   //権限がなければ無効
+                        //https://developer.xamarin.com/recipes/android/data/files/selecting_a_gallery_image/
+                        using (Intent imageIntent = new Intent(Intent.ActionGetContent))
+                        {
+                            //埋め込みファイル選択
+                            imageIntent.SetType("*/*");
+
+                            //複数画像選択可能で固定
+                            //https://stackoverflow.com/questions/19585815/select-multiple-images-from-android-gallery
+                            imageIntent.PutExtra(Intent.ExtraAllowMultiple, false);
+                            imageIntent.SetAction(Intent.ActionGetContent);
+
+                            StartActivityForResult(
+                                Intent.CreateChooser(imageIntent, "画像に埋め込むファイルを選択してください。"), 0);
+                        }
+                    }
+                };
+
+                Button btn2 = FindViewById&lt;Button&gt;(Resource.Id.btn2);
+                btn2.Text = "ファイル取り出し";
+                btn2.Click += delegate {
+                    if (!no_Permission_flg)
+                    {   //権限がなければ無効
+                        //https://developer.xamarin.com/recipes/android/data/files/selecting_a_gallery_image/
+                        using (Intent imageIntent = new Intent(Intent.ActionGetContent))
+                        {
+                            //埋め込みファイル選択
+                            imageIntent.SetType("image/png");
+
+                            //複数画像選択可能で固定
+                            //https://stackoverflow.com/questions/19585815/select-multiple-images-from-android-gallery
+                            imageIntent.PutExtra(Intent.ExtraAllowMultiple, false);
+                            imageIntent.SetAction(Intent.ActionGetContent);
+
+                            StartActivityForResult(
+                                Intent.CreateChooser(imageIntent, "埋め込んだ画像ファイルを選択してください。"), 1);
+                        }
+                    }
+                };
+
+            }
+            catch { }
+        }
+
+        protected override async void OnActivityResult(int requestCode, Result resultCode, Intent data)
+        {
+            base.OnActivityResult(requestCode, resultCode, data);
+
+            string err_str = "0";
+            LinearLayout back1 = FindViewById&lt;LinearLayout&gt;(Resource.Id.back1);
+
+            try
+            {
+                if (requestCode == 0 || requestCode == 1)
+                {   //◆◆◆以下、画像選択時のイベント◆◆◆
+                    if (resultCode == Result.Ok)
+                    {    //OK(ズドン)
+                         //複数画像を選択した場合。
+                        back1.SetBackgroundColor(Color.Indigo);
+                        await System.Threading.Tasks.Task.Delay(5);
+
+                        //URIの記憶
+                        //サムネイルにしたい画像のURIの格納
+                        Android.Net.Uri selected_fileuri = null; //初期化
+                        err_str = "selected_fileuris.Clear";
+
+                        if (data.ClipData != null)
+                        {   //複数選択された場合
+                            if (data.ClipData.ItemCount &gt; 0)
+                            {
+                                selected_fileuri = data.ClipData.GetItemAt(0).Uri;
+                            }
+                        }
+                        else if (data.Data != null)
+                        {   //1つだけの選択時
+                            selected_fileuri = data.Data;
+                        }
+                        err_str = "selected_fileuri";
+
+
+                        //ポジフィルムの作成時
+                        if (requestCode == 0)
+                        {
+                            //URI指定の場合
+                            await Output_Sukashi_Bitmap_Making(selected_fileuri);
+                        }
+                        else
+                        {
+                            //今度は、埋め込んだファイルを復号する。
+                            await Input_Sukashi_Bitmap_Making_ARGB8888(selected_fileuri);
+                        }
+                        back1.SetBackgroundColor(Color.Ivory);
+                        await System.Threading.Tasks.Task.Delay(5);
+
+                    }
+                }
+            }
+            catch
+            {
+                //全体を通しての、エラー時
+                Android.Widget.Toast.MakeText(Application.Context, err_str, Android.Widget.ToastLength.Long).Show();
+            }
+        }
+    }
+}
+
+

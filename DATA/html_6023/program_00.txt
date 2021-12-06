@@ -1,0 +1,408 @@
+
+using System;
+using System.Drawing;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+
+class TextReplacer:Form
+{
+    SplitContainer spl;
+
+    TextBox txtPtrn; // for search
+    TextBox txtReplace;
+    Button btnFind;
+    Button btnReplace;
+    Button btnReplaceAll;
+    CheckBox chkRegex;
+    CheckBox chkSenseCase;
+
+    MyRichTextBox rtxt;
+
+    ToolStripStatusLabel statusLabel;
+
+    static readonly Color defaultBackColor = Color.White;
+    Font baseFont;
+
+    string curFilePath;
+    Encoding curEnc;
+    bool editFlag;
+
+
+    TextReplacer(string[] args)
+    {
+        curEnc = Encoding.UTF8;
+
+        ClientSize = new Size(500, 400);
+
+        var menuStrip1 = new MenuStrip();
+
+
+        SuspendLayout();
+        menuStrip1.SuspendLayout();
+
+        var fileMenuItem = new ToolStripMenuItem(){ Text = "&amp;File"};
+        //var editMenuItem = new ToolStripMenuItem(){ Text = "&amp;Edit"};
+        menuStrip1.Items.Add(fileMenuItem);
+        //menuStrip1.Items.Add(editMenuItem);
+
+        fileMenuItem.DropDownItems.Add( new ToolStripMenuItem("&amp;Open...", null, (s,e)=&gt;{OpenFileDialogWithEditingCheck();}, Keys.Control | Keys.O) );
+        var fileMenuItemReopenEnc = new ToolStripMenuItem("Reopen with encoding");
+        fileMenuItem.DropDownItems.Add( fileMenuItemReopenEnc );
+        fileMenuItemReopenEnc.DropDownItems.Add( new ToolStripMenuItem("UTF8"     , null, (s,e)=&gt;{ReopenWithEnc(Encoding.UTF8);}, null) );
+        fileMenuItemReopenEnc.DropDownItems.Add( new ToolStripMenuItem("Shift_JIS", null, (s,e)=&gt;{ReopenWithEnc(Encoding.GetEncoding("Shift_JIS"));}, null) );
+
+        //editMenuItem.DropDownItems.Add( new ToolStripMenuItem("&amp;Find...", null, (s,e)=&gt;{ShowFindDialog();}, Keys.Control | Keys.F) );
+
+
+
+        Controls.Add(spl = new SplitContainer(){
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            IsSplitterFixed = true,
+        });
+
+        Label lblSearch;
+        spl.Panel1.Controls.AddRange(
+            new Control[]{
+                lblSearch = new Label(){
+                    Text = "Find",
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Location = new Point(0, 0),
+                    Size = new Size(50, 25),
+                },
+                txtPtrn = new TextBox(){
+                    Multiline = false,
+                    Location = new Point(50, 0),
+                    Size = new Size(200, 25),
+                },
+                btnFind = new Button(){
+                    Text = "Find",
+                    Top = 0,
+                    Size = new Size(100, 25),
+                },
+                lblSearch = new Label(){
+                    Text = "Replace",
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Location = new Point(0, 25),
+                    Size = new Size(50, 25),
+                },
+                txtReplace = new TextBox(){
+                    Multiline = false,
+                    Location = new Point(50, 25),
+                    Size = new Size(200, 25),
+                },
+                btnReplace = new Button(){
+                    Text = "Replace",
+                    Top = 25,
+                    Size = new Size(100, 25),
+                },
+                btnReplaceAll = new Button(){
+                    Text = "ReplaceAll",
+                    Top = 55,
+                    Size = new Size(100, 25),
+                },
+                chkSenseCase = new CheckBox(){
+                    Text = "大文字小文字を区別",
+                    Location = new Point(50, 50),
+                    Size = new Size(140, 25),
+                },
+                chkRegex = new CheckBox(){
+                    Text = "正規表現",
+                    Location = new Point(50, 75),
+                    Size = new Size(80, 25),
+                },
+            }
+        );
+
+        txtPtrn.TextChanged += TxtPtrn_TextChanged;
+        txtPtrn.KeyDown += TxtPtrn_KeyDown;
+
+        chkRegex.Click += (s,e)=&gt;{ReflectRegexValidityToControl();};
+
+        btnFind.Click += BtnFind_Click;
+        btnReplace.Click += BtnReplace_Click;
+        btnReplaceAll.Click += BtnReplaceAll_Click;
+
+        spl.Panel2.Controls.Add(rtxt = new MyRichTextBox(){
+            Multiline = true,
+            WordWrap = false,
+            AcceptsTab = true,
+            ScrollBars = RichTextBoxScrollBars.Both,
+            Dock = DockStyle.Fill,
+            AllowDrop = true,
+            HideSelection = false,
+        });
+
+        rtxt.DragEnter += Rtxt_DragEnter;
+        rtxt.DragDrop  += Rtxt_DragDrop;
+
+
+        baseFont = new Font("ＭＳ ゴシック", 10); // rtxt.Font.Size);
+        rtxt.Font = baseFont;
+
+        //rtxt.BackColor = Color.FromArgb(240,240,240);
+        rtxt.TextChanged += Rtxt_TextChanged;
+        rtxt.SelectionChanged += Rtxt_SelectionChanged;
+
+        var statusStrip = new StatusStrip();
+        Controls.Add(statusStrip);
+
+        statusStrip.Items.Add(statusLabel = new ToolStripStatusLabel(){
+            Text = "",
+        });
+
+
+        // spl.IsSplitterFixed = true; はユーザがつかめないようにするだけで、固定してくれないっぽい。
+        Load      += (sender,e)=&gt;{MyResizeHandler();};
+        Resize    += (sender,e)=&gt;{MyResizeHandler();};
+        ResizeEnd += (sender,e)=&gt;{MyResizeHandler();};
+
+
+        Controls.Add(menuStrip1);
+        MainMenuStrip = menuStrip1;
+        menuStrip1.ResumeLayout(false);
+        menuStrip1.PerformLayout();
+        ResumeLayout(false);
+        PerformLayout();
+
+        if ( args.Length == 1 ) {
+            OpenFile(args[0], curEnc);
+        }
+        UpdateWindowTitle();
+    }
+
+    void Rtxt_SelectionChanged(object sender, EventArgs e)
+    {
+        statusLabel.Text = "L:"+(rtxt.GetLineFromCharIndex(rtxt.SelectionStart)+1).ToString();
+    }
+
+    void MyResizeHandler()
+    {
+        int w = ClientSize.Width - txtPtrn.Left - btnFind.Width;
+        if(w&lt;10){w=10;}
+        int splDistanceTarget = chkRegex.Bottom;
+        try {
+            spl.SplitterDistance = splDistanceTarget;
+        }
+        catch ( InvalidOperationException ) {
+            // ignore
+        }
+        txtPtrn.Width = w;
+        txtReplace.Width = w;
+        btnFind.Left = txtPtrn.Right;
+        btnReplace.Left = txtReplace.Right;
+        btnReplaceAll.Left = txtReplace.Right;
+    }
+
+    void TxtPtrn_TextChanged(object sender, EventArgs e)
+    {
+        ReflectRegexValidityToControl();
+    }
+
+    void TxtPtrn_KeyDown(object sender, KeyEventArgs e)
+    {
+        if ( e.KeyData == Keys.Enter ) {
+            FindNext();
+        }
+    }
+
+    void BtnReplaceAll_Click(object sender, EventArgs e)
+    {
+        Regex r = TryNewRegex();
+
+        if ( r != null ) {
+            string s = rtxt.Text;
+            string afterS = txtReplace.Text;
+            string s2 = r.Replace(s, afterS);
+            rtxt.Text = s2;
+        }
+    }
+
+    void BtnReplace_Click(object sender, EventArgs e)
+    {
+        ReplaceCurrent();
+        FindNext();
+    }
+
+    void BtnFind_Click(object sender, EventArgs e)
+    {
+        FindNext();
+    }
+
+    void FindNext()
+    {
+        Regex r = TryNewRegex();
+
+        if ( r != null ) {
+            string s = rtxt.Text;
+            int searchStartI;
+
+            if ( rtxt.SelectionLength == s.Length ) {
+                searchStartI = 0;
+            }
+            else if ( rtxt.SelectionLength == 0 ) {
+                    searchStartI = rtxt.SelectionStart + 1;
+            }
+            else {
+                searchStartI = rtxt.SelectionStart + rtxt.SelectionLength;
+            }
+
+            if ( searchStartI &lt;= s.Length ) {
+                Match m = r.Match(s, searchStartI);
+                if ( m.Success ) {
+                    rtxt.Select(m.Index, m.Length);
+                }
+                else {
+                    statusLabel.Text = "Not found.";
+                }
+            }
+        }
+    }
+
+    void ReplaceCurrent()
+    {
+        string s = rtxt.Text;
+        if ( rtxt.SelectionLength != s.Length ) {
+            int i = rtxt.SelectionStart;
+            int len = rtxt.SelectionLength;
+            rtxt.SelectedText = txtReplace.Text;
+        }
+    }
+
+    void Rtxt_TextChanged(object sender, EventArgs e)
+    {
+        editFlag = true;
+        UpdateWindowTitle();
+    }
+
+    void ReflectRegexValidityToControl()
+    {
+        if ( TryNewRegex() != null ) {
+            txtPtrn.BackColor = defaultBackColor;
+        }
+        else {
+            txtPtrn.BackColor = Color.FromArgb(0xFF,0xDD,0xDD);
+        }
+    }
+
+    Regex TryNewRegex()
+    {
+        RegexOptions ropt = (chkSenseCase.Checked)?RegexOptions.None:RegexOptions.IgnoreCase;
+        try {
+            if ( chkRegex.Checked ) {
+                return new Regex(txtPtrn.Text, ropt);
+            }
+            else {
+                return new Regex(Regex.Escape(txtPtrn.Text), ropt);
+            }
+        }
+        catch ( ArgumentException ) {
+        }
+        return null;
+    }
+
+    void UpdateWindowTitle()
+    {
+        string s = curFilePath??"Untitled";
+        string dirtyMark = editFlag?" (*)":"";
+        Text = s + dirtyMark + " - Replacer";
+    }
+
+
+    void Rtxt_DragEnter(object sender, DragEventArgs e)
+    {
+        if ( e.Data.GetDataPresent(DataFormats.FileDrop) ) {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    void Rtxt_DragDrop(object sender, DragEventArgs e)
+    {
+        if ( e.Data.GetDataPresent(DataFormats.FileDrop) ) {
+            string[] fileNames;
+            fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+            if ( fileNames.Length == 1 ) {
+                OpenFileWithEditingCheck(fileNames[0], curEnc);
+            }
+        }
+    }
+
+    bool GetDiscurdDialogResultWhenEditing()
+    {
+        if ( editFlag ) {
+            DialogResult ret = MessageBox.Show("Are you O.K. to discard current text.", "Confirmation", MessageBoxButtons.OKCancel);
+            if ( ret != DialogResult.OK ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool OpenFileWithEditingCheck(string fileName, Encoding enc)
+    {
+        if ( !GetDiscurdDialogResultWhenEditing() ){
+            return false;
+        }
+        return OpenFile(fileName, enc);
+    }
+
+    bool OpenFile(string fileName, Encoding enc)
+    {
+        string tmpPath = Path.GetFullPath(fileName);
+        Text = Path.GetFileName(tmpPath);
+        try {
+            rtxt.Text = File.ReadAllText(tmpPath, enc);
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+        editFlag = false;
+        curFilePath = tmpPath;
+        UpdateWindowTitle();
+        return true;
+    }
+
+    bool ReopenWithEnc(Encoding enc)
+    {
+        if ( curFilePath != null ) {
+            curEnc = enc;
+            return OpenFileWithEditingCheck(curFilePath, enc);
+        }
+        else {
+            curEnc = enc;
+            return false;
+        }
+    }
+
+    bool OpenFileDialogWithEditingCheck()
+    {
+        if ( !GetDiscurdDialogResultWhenEditing() ) {
+            return false;
+        }
+        OpenFileDialog ofd = new OpenFileDialog();
+        ofd.FileName = "テンプレート.xml";
+        ofd.Filter = "Text file|*.txt;*.log;*.csv;*.xml;*.htm;*.html;*.adoc;*.bat;*.ps;*.c;*.h;*.asm;*.ld;*.map;*.mot;*.js;*.cs;*.bas;*.java;*.rb;*.py|All file(*.*)|*.*";
+        ofd.RestoreDirectory = true;
+
+        if ( ofd.ShowDialog() == DialogResult.OK ) {
+            return OpenFile(ofd.FileName, curEnc);
+        }
+        return false;
+    }
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        Application.Run(new TextReplacer(args));
+    }
+}
+

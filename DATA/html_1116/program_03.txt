@@ -1,0 +1,50 @@
+
+private async UniTask&lt;int&gt; GetIntAsync()
+{
+    AutoResetUniTaskCompletionSource&lt;int&gt; completionSource = AutoResetUniTaskCompletionSource&lt;int&gt;.Create();
+
+    var cancellationTokenSource = new CancellationTokenSource();
+
+    // 別スレッドで1秒待ってから結果として1をセット
+    UniTask.Create(async () =&gt;
+    {
+        await UniTask.Delay(TimeSpan.FromSeconds(1), cancellationToken:cancellationTokenSource.Token);
+        lock (cancellationTokenSource)
+        {
+            if (cancellationTokenSource.IsCancellationRequested)
+            {
+                return;
+            }
+            cancellationTokenSource.Cancel();
+        }
+        completionSource.TrySetResult(1);
+    });
+
+    // 別スレッドで2秒待ってから結果として2をセット
+    UniTask.Create(async () =&gt;
+    {
+        await UniTask.Delay(TimeSpan.FromSeconds(2), cancellationToken:cancellationTokenSource.Token);
+        lock (cancellationTokenSource)
+        {
+            if (cancellationTokenSource.IsCancellationRequested)
+            {
+                return;
+            }
+            cancellationTokenSource.Cancel();
+        }
+        completionSource.TrySetResult(2);
+    });
+
+    var result = await completionSource.Task;
+    return result;
+}
+
+// GetIntAsyncの結果を出力する
+public async UniTaskVoid Start()
+{
+    var int1 = await GetIntAsync();
+    await UniTask.Delay(TimeSpan.FromSeconds(3));
+    var int2 = await GetIntAsync();
+    Debug.Log($"{int1}, {int2}"); // 「1, 1」が出力される
+}
+

@@ -1,0 +1,120 @@
+
+using ClosedXML.Excel;
+// NuGetパッケージから「ClosedXML」をインストールしておく。
+
+using System.Collections.Generic;
+using System.Data;
+
+class AllDbDataToExcel
+{
+    static void Main(string[] args)
+    {
+        // ワークブックを作成する
+        var wb = new XLWorkbook();
+
+        // ここで全テーブルのデータを "Dictionary&lt;テーブル名, テーブルのデータ&gt;" で取得
+        // "getAllTablesメソッド" はMainメソッドは下記参照
+        Dictionary&lt;string, DataTable&gt; data = getAllTables();
+
+        // 全テーブルデータdata をすべてループさせる
+        foreach(KeyValuePair&lt;string, DataTable&gt; pair in data)
+        {
+            // DictionaryのKey(ここではテーブル名)を取得
+            string tableName = pair.Key;
+            // DictionaryのValue(ここではテーブルデータ)を取得
+            DataTable dt = pair.Value;
+            // ワークシートを作成する
+            // 先ほど作ったワークブックwbに"Worksheets.Add(テーブルデータ)"で作れてしまう
+            var ws = wb.Worksheets.Add(dt);
+            // シート名をテーブル名に設定
+            ws.Name = tableName;
+            // 表全体をまとめて列幅を自動調整する(必要に応じて)
+            ws.ColumnsUsed().AdjustToContents();
+        }
+        // ワークブックを任意のパスで保存
+        wb.SaveAs(@"C:\Users\user\Desktop\AllDbData.xlsx");
+    }
+
+    /// &lt;summary&gt; 
+    /// DBからすべてのテーブルを取得する
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;テーブル名とDataTableを紐づけた辞書&lt;/returns&gt;
+    private static Dictionary&lt;string, DataTable&gt; getAllTables()
+    {
+        // DBに接続する接続文字列の取得
+        // ちなみに、.mdfファイルに接続する場合は★に囲まれている部分を下記のように設定してください。
+        // ★
+        var builder = new SqlConnectionStringBuilder()
+        {
+            DataSource = "(サーバー名/IPアドレス)",
+            IntegratedSecurity = false,
+            UserID = "(ユーザー名)",
+            Password = "(パスワード)"
+        };
+        // ★
+
+        // mdfファイルの場合の例(上の★で囲まれた部分を削除して、これを入れてください。)
+        // var connectionString = string.Empty;
+        // connectionString += @"data source=.\sqlexpress;";
+        // connectionString += @"attachdbfilename=";
+        // connectionString += "(mdfファイルパス名)";
+        // connectionString += @";";
+        // connectionString += @"integrated security=true;";
+        // connectionString += @"user instance=true;";
+
+
+        using (SqlConnection connection = new SqlConnection(connectionString))
+        {
+            // DBに接続する
+            connection.Open();
+
+            List&lt;string&gt; tableList = new List&lt;string&gt;();
+
+            // 全てのテーブル名を取得する
+            // 下記のSQLは全テーブル名を取得するsql
+            string sql = "SELECT * FROM sys.objects WHERE TYPE = 'U';"
+            // データベースとデータを結ぶSqlDataAdapterを生成
+            SqlDataAdapter adapter = new SqlDataAdapter(sql, connection);
+            // データを格納するDatasetを生成
+            DataSet ds = new DataSet();
+            // SqlDataAdapter のFillメソッドの引数に Dataset(ds)を渡すことで、
+            // sqlで実行したデータがDatasetに格納される
+            adapter.Fill(ds);
+            // dsはTableを持っているので最初のテーブルをds.Tables[0]として取得し、
+            // かつ、そのテーブルはDataRow(テーブルの行)を持っているので、その行の分
+            // だけループを回してデータを取り出す。
+            foreach(DataRow row in ds.Tables[0].Rows)
+            {
+                // DataRowの最初(row[0])にテーブル名がある。
+                // row[0]はObject型なので、指定の型でのキャストが必要。
+                // ここではテーブル名なのでstringでキャスト。
+                tableList.Add((string)row[0]);
+            }
+
+            // 取得したすべてのテーブルのデータを格納する辞書
+            Dictionary&lt;string, DataTable&gt; allData = new Dictionary&lt;string, DataTable&gt;();
+
+            // 先ほど作成した全テーブル名のリストからテーブル名の分だけループを回し、
+            // sqlにテーブル名を入れて、テーブルのデータを取得する。
+            foreach (string table in tableList)
+            {
+                // DBとDataSetをつなぐSqlDataAdapterを生成する
+                adapter = new SqlDataAdapter($"SELECT * FROM {table}", connection);
+
+                DataSet d = new DataSet();
+                // 読み込んだデータをdsにセットする
+                adapter.Fill(d, table);
+
+                // DataSetからテーブルを取得
+                // "DataTable dt = d.Tables[0]"とするとエラーになるので、
+                // .Copy()をつける。
+                DataTable dt = d.Tables[0].Copy();
+
+                // Dictionaryに格納する
+                allData[table] = dt;
+            }
+            return allData;
+        }
+    }
+}
+

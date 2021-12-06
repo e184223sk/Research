@@ -1,0 +1,100 @@
+
+using System.Text;
+using System.Reflection;
+
+/// &lt;summary&gt;
+/// 指定されたオブジェクトの内部構造の文字列表現を返却する。
+/// &lt;/summary&gt;
+/// &lt;param name="targetObject"&gt;内部構造の文字列表現を取得する対象のオブジェクト&lt;/param&gt;
+/// &lt;returns&gt;オブジェクトの内部構造の文字列表現&lt;/returns&gt;
+public string ObjectToString(object targetObject)
+{
+    var buf = new StringBuilder();
+    _ObjectToString("", targetObject, buf, "");
+    return buf.ToString();
+}
+
+/// &lt;summary&gt;
+/// 指定されたオブジェクトの内部構造の文字列表現を返却する。
+/// 内部呼び出し用なので、ObjectToString以外から直接呼び出さない。
+/// &lt;/summary&gt;
+/// &lt;param name="targetFieldName"&gt;解析するオブジェクトのフィールド名&lt;/param&gt;
+/// &lt;param name="targetObject"&gt;内部構造の文字列表現を取得する対象のオブジェクト&lt;/param&gt;
+/// &lt;param name="buf"&gt;オブジェクトの内部構造の文字列表現の出力先バッファ&lt;/param&gt;
+/// &lt;param name="nestString"&gt;オブジェクトの入れ子構造を表現するための文字列&lt;/param&gt;
+private void _ObjectToString(string targetFieldName, object targetObject, StringBuilder buf, string nestString)
+{
+    try
+    {
+        if (nestString.Length &gt;= 200)
+        {
+            throw new Exception("階層が深すぎるので解析を打ち切ります");
+        }
+
+        if (targetObject == null)
+        {
+            buf.AppendLine(nestString + targetFieldName + " = Nothing");
+        }
+        else if (targetObject.GetType() == typeof(byte) ||
+            targetObject.GetType() == typeof(short) ||
+            targetObject.GetType() == typeof(int) ||
+            targetObject.GetType() == typeof(long) ||
+            targetObject.GetType() == typeof(float) ||
+            targetObject.GetType() == typeof(double) || 
+            targetObject.GetType() == typeof(decimal) ||
+            targetObject.GetType() == typeof(char) ||
+            targetObject.GetType() == typeof(bool) ||
+            targetObject.GetType() == typeof(DateTime))
+        {
+            buf.AppendLine(nestString + targetFieldName + "(" + targetObject.GetType().ToString() + ") = " + targetObject.ToString());
+        }
+        else if (targetObject.GetType() == typeof(string))
+        {
+            buf.AppendLine(nestString + targetFieldName + "(" + targetObject.GetType().ToString() + ") = \"" + targetObject.ToString().Replace("\r\n", "\r\n" + nestString + "    ") + "\"");
+        }
+        else if (targetObject.GetType().ToString().IndexOf("System.Collections.Generic.List") == 0)
+        {
+            // 型：List(Of ...) への対応
+            // リストの内部情報はType.GetFieldsから解析する事ができないので、自前で解析する。
+            buf.AppendLine(nestString + "▽" + targetFieldName + "(" + targetObject.GetType().ToString() + ")-------------------------------");
+            foreach (var field in targetObject.GetType().GetFields(BindingFlags.FlattenHierarchy | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            {
+                _ObjectToString(field.Name, field.GetValue(targetObject), buf, nestString + "|       ");
+            }
+
+            var count = (int)targetObject.GetType().GetProperty("Count").GetValue(targetObject, null);
+            for (var index = 0; index &lt;= count - 1; index++)
+            {
+                var param = new object[] { index };
+                var item = targetObject.GetType().GetProperty("Item").GetValue(targetObject, param);
+                _ObjectToString(targetFieldName + "[" + index.ToString() + "]", item, buf, nestString + "|       ");
+            }
+
+            buf.AppendLine(nestString + "|");
+            buf.AppendLine(nestString + "△" + targetFieldName + "(" + targetObject.GetType().ToString() + ")-------------------------------");
+            buf.AppendLine(nestString);
+        }
+        else
+        {
+            buf.AppendLine(nestString + "▽" + targetFieldName + "(" + targetObject.GetType().ToString() + ")-------------------------------");
+            foreach (var field in targetObject.GetType().GetFields(BindingFlags.FlattenHierarchy | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+            {
+                _ObjectToString(field.Name, field.GetValue(targetObject), buf, nestString + "|       ");
+            }
+
+            buf.AppendLine(nestString + "|");
+            buf.AppendLine(nestString + "△" + targetFieldName + "(" + targetObject.GetType().ToString() + ")-------------------------------");
+            buf.AppendLine(nestString);
+        }
+    }
+    catch (Exception ex)
+    {
+        buf.AppendLine(nestString + "▽" + "(解析中に例外発生)-------------------------------");
+        buf.AppendLine(nestString + "|       " + ex.ToString());
+        buf.AppendLine(nestString + "|       " + ex.Message);
+        buf.AppendLine(nestString + "|       " + ex.StackTrace);
+        buf.AppendLine(nestString + "|");
+        buf.AppendLine(nestString + "△" + "(解析中に例外発生)-------------------------------");
+    }
+}
+

@@ -1,0 +1,32 @@
+
+using UnityEngine;
+using System.Reflection;
+
+public class Test : MonoBehaviour {
+    // 定義が面倒ならSystem.Action&lt;Plane[], Matrix4x4&gt;でもいい
+    private delegate void FrustmCallback(Plane[] planes, Matrix4x4 worldToProjectMatrix);
+    private FrustmCallback CalculateFrustumPlanes = null;
+
+    private Plane[] planes = new Plane[6]; // Plane配列を使いまわして余計なヒープ確保をさせない
+
+    void Awake () {
+        // MEMO: 自前でやってもいいのだがInternalはネイティブコードを呼び出すのでこっちの方が早い･･･と思うのだけれど
+        var meth = typeof(GeometryUtility).GetMethod("Internal_ExtractPlanes",
+                                                     BindingFlags.Static | BindingFlags.NonPublic,
+                                                     null,
+                                                     new System.Type[] { typeof(Plane[]), typeof(Matrix4x4) },
+                                                     null);
+        this.CalculateFrustumPlanes = System.Delegate.CreateDelegate(typeof(FrustmCallback), meth) as FrustmCallback;
+    }
+
+    void Update () {
+        // カメラの視錘台を取得
+        this.CalculateFrustumPlanes(this.planes, Camera.main.projectionMatrix * Camera.main.worldToCameraMatrix);
+        // Boundsサイズは任意
+        Bounds bound = new Bounds(this.transform.position, Vector3.one);
+        // 視錘台判定はそのまま使う
+        if (!GeometryUtility.TestPlanesAABB(this.planes, bound))
+            Debug.LogWarning("Out of Camera");
+    }
+}
+

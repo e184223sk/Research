@@ -1,0 +1,167 @@
+
+using System;
+using System.Text;
+
+using System.Collections.Concurrent;
+using System.Threading;
+using System.IO;
+using System.IO.Compression;
+using WebSocket4Net;
+
+namespace CryptoCurrencyDataMiner
+{
+    public static class Sockets
+    {
+        private static WebSocket[] _sockets;
+        private static Timer _autoReconnectTimer = null;
+        private static int _autoRecconectInterval = 60 * 1000;//自動再接続の間隔（ミリ秒）
+
+        private static ConcurrentQueue&lt;ReceivedData&gt;[] _messageQueue;//一時的にメッセージを格納しておくキュー
+
+        private static int _zipCreateInterval = 300;//Zipを生成する間隔（秒）
+        private static string[] _tickers = new string[] { "btc_jpy", "mona_jpy" };//ティッカー一覧
+
+        static Sockets()
+        {
+            var n = _tickers.Length;
+
+            _sockets = new WebSocket[n];
+            _messageQueue = new ConcurrentQueue&lt;ReceivedData&gt;[n];
+            for(var i=0; i&lt;n; i++)
+            {
+                _sockets[i] = new WebSocket("wss://ws.fcce.jp:8888/stream?currency_pair=" + _tickers[i]);
+                _messageQueue[i] = new ConcurrentQueue&lt;ReceivedData&gt;();
+                //同一スレッドから呼ばれる保証がないのでスレッドセーフなコレクションを使うこと
+
+                //イベントハンドラ
+                _sockets[i].Opened += OnOpened(_tickers[i]);
+                _sockets[i].MessageReceived += OnMessageReceived(i, _tickers[i]);
+                _sockets[i].Error += OnError(_tickers[i]);
+            }
+        }
+
+        //サーバー接続完了時
+        private static EventHandler OnOpened(string ticker)
+        {
+            return delegate (object s, EventArgs e)
+            {
+                var str = string.Format("({0})Succeed to connect server", ticker);
+                ErrorLog(str);
+            };
+        }
+
+        //メッセージ受信時
+        private static EventHandler&lt;MessageReceivedEventArgs&gt; OnMessageReceived(int index, string ticker)
+        {
+            var queue = _messageQueue[index];
+            var previousTime = DateTime.Now;
+
+            return delegate (object s, MessageReceivedEventArgs e)
+            {
+                var item = new ReceivedData(e.Message);
+                queue.Enqueue(item);
+                Console.WriteLine("{0}:[{1}]MessageReceived ({2}KB)", item.LocalTime, ticker, item.Data.Length / 1024.0);
+                Console.WriteLine(e.Message);//長ったらしかったらここを消す
+
+                //一定間隔で保存
+                if ((DateTime.Now - previousTime).TotalSeconds &gt;= _zipCreateInterval)
+                {
+                    var dir = Environment.CurrentDirectory + "\\" + ticker;
+                    if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    if (queue.Count == 0) return;
+
+                    //Zip作成
+                    var zippath = "[" + ticker + "]" + DateTime.Now.ToString("o").Replace(":", "_") + ".zip";
+                    using (var zipToOpen = new FileStream(dir + "\\" + zippath, FileMode.Create))
+                    using (var archive = new ZipArchive(zipToOpen, ZipArchiveMode.Update))
+                    {
+                        while (queue.Count != 0)
+                        {
+                            ReceivedData data;
+                            if (!queue.TryDequeue(out data))
+                            {
+                                Thread.Sleep(500);//成功するまでTry
+                                continue;
+                            }
+
+                            var txtEntry = archive.CreateEntry(data.Filename);
+                            using (var writer = new StreamWriter(txtEntry.Open()))
+                            {
+                                writer.WriteLine(data.Data);
+                            }
+                        }
+                    }
+
+                    //前回記録時間の更新
+                    previousTime = DateTime.Now;
+                }
+            };
+        }
+
+        //エラー時
+        private static EventHandler&lt;SuperSocket.ClientEngine.ErrorEventArgs&gt; OnError(string ticker)
+        {
+            return delegate (object s, SuperSocket.ClientEngine.ErrorEventArgs e)
+            {
+                var errorStr = string.Format("({0}){1}", ticker, e.Exception.ToString());
+                ErrorLog(errorStr);
+            };
+        }
+
+        //エラーログメソッド
+        static object _errorLogLock = new Object();
+        private static void ErrorLog(string errorStr)
+        {
+            var str = string.Format("[{0}]{1}", DateTime.Now.ToString(), errorStr);
+            Console.WriteLine(str);
+
+            //TextWriter.Synchronizedだけだとエラー発生するっぽいので自前ロック
+            lock (_errorLogLock)
+            {
+                using (var sw = new StreamWriter(Environment.CurrentDirectory + "\\error.log", true, Encoding.UTF8))
+                using (var writerSync = TextWriter.Synchronized(sw))
+                {
+                    sw.WriteLine(str);
+                }
+            }
+        }
+
+        //再接続（テスト版）
+        private static void AutoReconnectCallBack(object args)
+        {
+            var i = 0;
+            foreach (var ws in _sockets)
+            {
+                if (ws.State == WebSocketState.Closed)
+                {
+                    //再接続
+                    var str = string.Format("({0})Try to reconnect", _tickers[i]);
+                    ErrorLog(str);
+
+                    ws.Open();
+                }
+                i++;
+            }
+        }
+
+        //一括接続
+        public static void OpenAll()
+        {
+            foreach (var ws in _sockets) ws.Open();
+
+            //自動再接続をオン
+            _autoReconnectTimer = new Timer(AutoReconnectCallBack);
+            _autoReconnectTimer.Change(_autoRecconectInterval, _autoRecconectInterval);
+        }
+
+        //一括切断
+        public static void CloseAll()
+        {
+            foreach (var ws in _sockets) ws.Close();
+
+            //自動再接続をオフ
+            if (_autoReconnectTimer != null) _autoReconnectTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+}
+

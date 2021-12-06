@@ -1,0 +1,40 @@
+
+[ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(AL0002Fix)), Shared]
+public class AL0002Fix : CodeFixProvider
+{
+    private static LocalizableString FixMessage { get; } =
+        new LocalizableResourceString(nameof(CodeFixResources.AL0002FixTitle), CodeFixResources.ResourceManager,
+            typeof(CodeFixResources));
+
+    public override ImmutableArray&lt;string&gt; FixableDiagnosticIds =&gt; ImmutableArray.Create(AL0002.DiagnosticId);
+
+    public override FixAllProvider GetFixAllProvider()
+    {
+        return WellKnownFixAllProviders.BatchFixer;
+    }
+
+    public override async Task RegisterCodeFixesAsync(CodeFixContext context)
+    {
+        var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken);
+        var diagnostic = context.Diagnostics.First();
+        var diagnosticSpan = diagnostic.Location.SourceSpan;
+
+        var token = root.FindToken(diagnosticSpan.Start).Parent.AncestorsAndSelf()
+            .OfType&lt;MemberAccessExpressionSyntax&gt;()
+            .First();
+
+        context.RegisterCodeFix(
+            CodeAction.Create(FixMessage.ToString(),
+                c =&gt; FixStringEmptyToLiteral(context.Document, root, token)), diagnostic);
+    }
+
+    private Task&lt;Document&gt; FixStringEmptyToLiteral(Document document, SyntaxNode root, MemberAccessExpressionSyntax token)
+    {
+        var newToken = SyntaxFactory.ParseExpression("\"\"");
+        var newRoot = root.ReplaceNode(token, newToken);
+        var newDocument = document.WithSyntaxRoot(newRoot);
+
+        return Task.FromResult(newDocument);
+    }
+}
+

@@ -1,0 +1,132 @@
+
+using System;
+using System.Diagnostics;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+using Excel = Microsoft.Office.Interop.Excel;
+
+class ExcelSample
+{
+    static void DumpElapsSec(string mark, Stopwatch sw)
+    {
+        double sec = (double)sw.ElapsedTicks / (double)Stopwatch.Frequency;
+        Console.Write(mark+"\t");
+        Console.WriteLine(sec);
+
+    }
+
+
+    //[MethodImpl(MethodImplOptions.NoInlining)]
+    [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)] // 最適化抑制
+    static void OverwriteActiveSheet()
+    {
+        Excel.Application oExcelApp = null;
+        Excel.Worksheet oSheet = null;
+
+        try {
+            oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+        }
+        catch ( System.Runtime.InteropServices.COMException ) {
+            Console.WriteLine("Failed to get Excel.Application.");
+            return;
+        }
+
+        try {
+            var oBook = (Excel.Workbook)oExcelApp.ActiveWorkbook;
+            if ( oBook != null ) {
+                oSheet = (Excel.Worksheet)oBook.ActiveSheet;
+            }
+        }
+        catch ( System.Runtime.InteropServices.COMException ) {
+        }
+        if ( oSheet == null ) {
+            Console.WriteLine("Failed to get ActiveWorkbook or ActiveSheet.");
+            return;
+        }
+
+
+        var sw = new Stopwatch();
+        bool screenUpdatingBackup = oExcelApp.ScreenUpdating;
+
+        Excel.XlCalculation calcModeBackup = oExcelApp.Calculation;
+        try {
+            oExcelApp.ScreenUpdating = false; // 画面更新の停止
+            oExcelApp.Calculation = Excel.XlCalculation.xlCalculationManual; // 再計算の停止
+
+
+            // セルの読み込み
+            Excel.Range oCells = oSheet.Cells;
+
+
+            for ( int row=1;row&lt;=10000;row++ ){
+                sw.Restart();
+                var oRange = oCells[row, 2] as Excel.Range; // B列row行セル
+                sw.Stop();
+                DumpElapsSec("1", sw);
+
+                sw.Restart();
+                object a = oRange.Value;
+                sw.Stop();
+                DumpElapsSec("2", sw);
+
+                sw.Restart();
+                object b = oRange.Value2;
+                sw.Stop();
+                DumpElapsSec("3", sw);
+
+                sw.Restart();
+                object c = oRange.Text;
+                sw.Stop();
+                DumpElapsSec("4", sw);
+                //Console.Error.WriteLine(a);
+                //Console.Error.WriteLine(b);
+                //Console.Error.WriteLine(c);
+
+                // セルへの書き込み
+                oRange = oCells[row, 3] as Microsoft.Office.Interop.Excel.Range;
+                sw.Restart();
+                oRange.Value = "hoge";
+                sw.Stop();
+                DumpElapsSec("5", sw);
+
+                // 罫線を引く
+                Excel.Borders oBorders;
+                Excel.Border oBorder;
+                sw.Restart();
+                oRange = oSheet.Range[oSheet.Cells[row, 2], oSheet.Cells[row+2, 4]];
+                sw.Stop();
+                DumpElapsSec("6", sw);
+
+                sw.Restart();
+                oBorders = oRange.Borders;
+                sw.Stop();
+                DumpElapsSec("7", sw);
+
+                sw.Restart();
+                oBorder = oBorders[Excel.XlBordersIndex.xlEdgeBottom];// xlEdgeLeft xlEdgeRight xlEdgeTop
+                sw.Stop();
+                DumpElapsSec("8", sw);
+
+                sw.Restart();
+                oBorder.LineStyle = Excel.XlLineStyle.xlContinuous;
+                sw.Stop();
+                DumpElapsSec("9", sw);
+            }
+        }
+        finally {
+            if ( oExcelApp.Calculation != calcModeBackup ) {
+                oExcelApp.Calculation = calcModeBackup;
+            }
+            if ( oExcelApp.ScreenUpdating != screenUpdatingBackup ) {
+                oExcelApp.ScreenUpdating = screenUpdatingBackup;
+            }
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        OverwriteActiveSheet();
+    }
+}
+

@@ -1,0 +1,41 @@
+
+using GraphTutorial.Options;
+using Microsoft.Extensions.Options;
+using Microsoft.Graph;
+using Microsoft.Identity.Client;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace GraphTutorial.Authentication
+{
+    public class ClientCredentialsAuthenticationProvider : IAuthenticationProvider
+    {
+        private readonly string[] scopes;
+        private readonly IConfidentialClientApplication confidentialClientApplication;
+
+        public ClientCredentialsAuthenticationProvider(IOptions&lt;AzureAdAppSettingsOptions&gt; options)
+        {
+            this.scopes = new[] { "https://graph.microsoft.com/.default" };
+
+            this.confidentialClientApplication = ConfidentialClientApplicationBuilder
+                .Create(options.Value.ApplicationId)
+                .WithTenantId(options.Value.TenantId)
+                .WithClientSecret(options.Value.ClientSecret)
+                .Build();
+        }
+
+        public async Task&lt;string&gt; GetAccessToken()
+        {
+            var result = await confidentialClientApplication.AcquireTokenForClient(scopes).ExecuteAsync();
+            return result.AccessToken;
+        }
+
+        public async Task AuthenticateRequestAsync(HttpRequestMessage requestMessage)
+        {
+            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("bearer", await GetAccessToken());
+        }
+    }
+}
+
+

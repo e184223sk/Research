@@ -1,0 +1,67 @@
+
+using Mirror;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+/// &lt;summary&gt;
+/// 接続にまつわるいろいろ
+/// &lt;/summary&gt;
+public class CustomNetworkManager : NetworkManager
+{
+    [SerializeField,Scene] private string _titleScene;
+    [SerializeField,Scene] private string _mainScene;
+
+    private Transform _playerTransform;
+    private Material _playerMaterial;
+
+    /// &lt;summary&gt;
+    /// プレイヤー入室時にサーバー側が実行
+    /// &lt;/summary&gt;
+    /// &lt;param name="conn"&gt;接続されたプレイヤーのコネクション&lt;/param&gt;
+    public override void OnServerAddPlayer(NetworkConnection conn)
+    {
+        Debug.Log("Add Player");
+
+        //タイトルシーンでのみ実行
+        if (_titleScene.Contains(SceneManager.GetActiveScene().name))
+        {
+            //接続中の人数表記を変える
+            SendPlayerCountData sendData = new SendPlayerCountData() {PlayerCount = NetworkServer.connections.Count};
+            NetworkServer.SendToAll(sendData);
+        }
+
+        //メインシーンでのみ実行
+        if (_mainScene.Contains(SceneManager.GetActiveScene().name))
+        {
+            Debug.Log("Spawn Player");
+            //プレイヤー生成
+            GameObject player = Instantiate(playerPrefab);
+            //今立ち上げているサーバーにプレイヤーを追加登録
+            NetworkServer.AddPlayerForConnection(conn, player);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 各プレイヤー退室時にサーバー側が実行
+    /// &lt;/summary&gt;
+    /// &lt;param name="conn"&gt;切れたコネクション&lt;/param&gt;
+    public override void OnServerDisconnect(NetworkConnection conn)
+    {
+        //接続中の人数表記を変える
+        SendPlayerCountData sendData = new SendPlayerCountData() {PlayerCount = NetworkServer.connections.Count};
+        NetworkServer.SendToAll(sendData);
+        Debug.Log("Anyone Disconnect");
+        base.OnServerDisconnect(conn);
+    }
+
+    /// &lt;summary&gt;
+    /// サーバーとの接続が切れた時にクライアント側で呼ばれる
+    /// &lt;/summary&gt;
+    public override void OnStopClient()
+    {
+        SceneManager.LoadScene(_titleScene);
+        Debug.Log("Disconnect");
+        base.OnStopClient();
+    }
+}
+

@@ -1,0 +1,566 @@
+この記事では、サーバレスの勉強がてらAzure Functionsを使って実装したことをまとめました。やったことはQiita APIから自分が投稿した記事のView数を取得し、DBに保存するということです。実現方法としては、Azure FunctionsのTimmer Trigger関数を使って、定期的に情報を取得し、Azure SQL Databaseに保存します。また、DBへの接続文字列などの情報はAzure KeyVaultに保存し、プログラムから参照するような構成とします。ローカルマシン（Mac:MacOS Catalina v10.15.4）で開発したものをAzureへデプロイする形で開発を行います。VS Codeの拡張機能であるAzure Functions for Visual Studio Codeを使用します。はじめにデータを保存するためのSQL Databaseを作成しておきます。詳細な手順は省略しますがMicrosoft公式ドキュメントを参考に作成してください。できるだけお金がかからないように最小スペックで作成します。Microsoft公式ドキュメント（クイック スタート:Visual Studio Code を使用して Azure で関数を作成する）の通りにローカル環境にプロジェクトを作成します。テンプレート選択のところはTimer Triggerを選択してください。今回はC#を使用して開発していきます。また、この記事では順を追ってプログラムを作成していきますが最終的なプログラムはGitHubで公開しています。テンプレートを生成できたところで、まずはQiita APIで記事のView数を取得する処理を書いていきます。テンプレートのファイルに指定したURIにAPIリクエストを送る関数GetJsonを定義します。指定するURIはQiitaの公式ドキュメントを参考に決定します。今回は自分が投稿した記事の一覧を取得するAPIを使用します。https://qiita.com/api/v2/users/[Qiitaのユーザー名]/itemsしかし、このAPIをただ使用するだけでは情報は取得できません。一般に公開されていない情報（ユーザーに関する情報や記事のview数など）はアクセストークンを付与したリクエストを送る必要があります。なのでQiita APIで情報を取得するために必要なアクセストークンを格納するクラスも別ファイルとして作成しておきます。アクセストークンを発行していない場合はユーザー設定から発行しておきます。
+Qiita APIで記事の情報を取得するプログラム
+
+
+get_qiita_views.cs
+using System;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace kanazawa.Function
+{
+    public static class get_qiita_views
+    {
+        [FunctionName("get_qiita_views")]
+        public static async void Run([TimerTrigger("0 0 * * * *")]TimerInfo myTimer, ILogger log)
+        {
+            TimeZoneInfo jstTimeZone = TZConvert.GetTimeZoneInfo("Tokyo Standard Time");
+            DateTime utcTime = DateTime.UtcNow;
+            DateTime jstTime = TimeZoneInfo.ConvertTimeFromUtc(utcTime, jstTimeZone);
+            log.LogInformation($"C# Timer trigger function executed at: {jstTime}");
+
+            // Qiita APIのURL
+            string url = "https://qiita.com/api/v2/users/" + Parameter.getQiitaUserName() + "/items";
+            // 投稿記事情報取得
+            string json = await GetJson(url);
+        }
+
+        private static async Task&lt;string&gt; GetJson(string url)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+            // OAuth 2.0 Authorization Headerの設定
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Parameter.getQiitaAccessToken());
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+            string result = await response.Content.ReadAsStringAsync();
+
+            return result;
+        }
+    }
+}
+
+
+
+
+Parameter.cs
+using System;
+
+namespace kanazawa.Function
+{
+    public class Parameter
+    {
+        public static string getQiitaAccessToken(){
+            return "******";
+        }
+
+        public static string getQiitaUserName(){
+            return "******";
+        }
+    }
+}
+
+
+
+取得結果はJson形式なので、これをデシリアライズ（C#のオブジェクトに変換）する必要があります。デシリアライズするためにはデータを格納するモデルクラスが必要となりますが、手動で作成するのはかなり面倒です。そのため以下のサイトで自動でモデルクラスを作成してもらいます。quicktypecurlコマンド等で別途Jsonを取得し、上記サイトでモデルクラスを作成しましょう。ここで1点注意点があります。上記サイトで生成されたモデルクラスには一部問題があり、私の場合は余計なフィールドがenum型で宣言されていました。この後実際にデシリアライズする際にエラーが出るので、その時でも良いですが
+自分で確認して修正しましょう。
+Jsonをデシリアライズする際に使用するモデルクラス
+
+
+QiitaInformationModel.cs
+// &lt;auto-generated /&gt;
+//
+// To parse this JSON data, add NuGet 'Newtonsoft.Json' then do:
+//
+//    using kanazawa.Function;
+//
+//    var qiitaInformation = QiitaInformation.FromJson(jsonString);
+using System;
+using System.Collections.Generic;
+
+using System.Globalization;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+
+namespace kanazawa.Function
+{
+    public partial class QiitaInformationModel
+    {
+        [JsonProperty("rendered_body")]
+        public string RenderedBody { get; set; }
+
+        [JsonProperty("body")]
+        public string Body { get; set; }
+
+        [JsonProperty("coediting")]
+        public bool Coediting { get; set; }
+
+        [JsonProperty("comments_count")]
+        public long CommentsCount { get; set; }
+
+        [JsonProperty("created_at")]
+        public DateTimeOffset CreatedAt { get; set; }
+
+        [JsonProperty("group")]
+        public object Group { get; set; }
+
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("likes_count")]
+        public long LikesCount { get; set; }
+
+        [JsonProperty("private")]
+        public bool Private { get; set; }
+
+        [JsonProperty("reactions_count")]
+        public long ReactionsCount { get; set; }
+
+        [JsonProperty("tags")]
+        public Tag[] Tags { get; set; }
+
+        [JsonProperty("title")]
+        public string Title { get; set; }
+
+        [JsonProperty("updated_at")]
+        public DateTimeOffset UpdatedAt { get; set; }
+
+        [JsonProperty("url")]
+        public Uri Url { get; set; }
+
+        [JsonProperty("user")]
+        public User User { get; set; }
+
+        [JsonProperty("page_views_count")]
+        public int PageViewsCount { get; set; }
+    }
+
+    public partial class Tag
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("versions")]
+        public object[] Versions { get; set; }
+    }
+
+    public partial class User
+    {
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("facebook_id")]
+        public string FacebookId { get; set; }
+
+        [JsonProperty("followees_count")]
+        public long FolloweesCount { get; set; }
+
+        [JsonProperty("followers_count")]
+        public long FollowersCount { get; set; }
+
+        [JsonProperty("github_login_name")]
+        public string GithubLoginName { get; set; }
+
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("items_count")]
+        public long ItemsCount { get; set; }
+
+        [JsonProperty("linkedin_id")]
+        public string LinkedinId { get; set; }
+
+        [JsonProperty("location")]
+        public string Location { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("organization")]
+        public string Organization { get; set; }
+
+        [JsonProperty("permanent_id")]
+        public long PermanentId { get; set; }
+
+        [JsonProperty("profile_image_url")]
+        public Uri ProfileImageUrl { get; set; }
+
+        [JsonProperty("team_only")]
+        public bool TeamOnly { get; set; }
+
+        [JsonProperty("twitter_screen_name")]
+        public object TwitterScreenName { get; set; }
+
+        [JsonProperty("website_url")]
+        public string WebsiteUrl { get; set; }
+    }
+
+    public partial class QiitaInformation
+    {
+        public static QiitaInformation[] FromJson(string json) =&gt; JsonConvert.DeserializeObject&lt;QiitaInformation[]&gt;(json, kanazawa.Function.Converter.Settings);
+    }
+
+    public static class Serialize
+    {
+        public static string ToJson(this QiitaInformation[] self) =&gt; JsonConvert.SerializeObject(self, kanazawa.Function.Converter.Settings);
+    }
+
+    internal static class Converter
+    {
+        public static readonly JsonSerializerSettings Settings = new JsonSerializerSettings
+        {
+            MetadataPropertyHandling = MetadataPropertyHandling.Ignore,
+            DateParseHandling = DateParseHandling.None,
+            Converters =
+            {
+                new IsoDateTimeConverter { DateTimeStyles = DateTimeStyles.AssumeUniversal }
+            },
+        };
+    }
+}
+
+
+
+モデルクラスが完成したらデシリアライズの処理を追記していきます。また、記事のview数は記事の一覧取得のAPIからは取得できないので、記事ごとの詳細を取得するAPIを発行する処理も追記します。https://qiita.com/api/v2/items/[記事のID]
+デシリアライズとView数取得処理を追記
+
+
+get_qiita_views.cs
+using System;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace kanazawa.Function
+{
+    public static class get_qiita_views
+    {
+        [FunctionName("get_qiita_views")]
+        public static async void Run([TimerTrigger("0 0 * * * *")]TimerInfo myTimer, ILogger log)
+        {
+            log.LogInformation($"C# Timer trigger function executed at: {jstTime}");
+            // Qiita APIのURL
+            string url = "https://qiita.com/api/v2/users/" + Parameter.getQiitaUserName() + "/items";
+            // 投稿記事情報取得
+            string json = await GetJson(url);
+
+            // デシリアライズ時の設定
+            var settings = new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                MissingMemberHandling = MissingMemberHandling.Ignore
+            };
+
+            // デシリアライズ
+            List&lt;QiitaInformationModel&gt; models = JsonConvert.DeserializeObject&lt;List&lt;QiitaInformationModel&gt;&gt;(json, settings);
+
+            // 各投稿記事のView数を取得
+            string getViewsCountUrl;
+            foreach (var model in models)
+            {
+                getViewsCountUrl = "https://qiita.com/api/v2/items/" + model.Id;
+                model.PageViewsCount = JsonConvert.DeserializeObject&lt;QiitaInformationModel&gt;(await GetJson(getViewsCountUrl)).PageViewsCount;
+                log.LogInformation($"title: {model.Title}");
+                log.LogInformation($"views: {model.PageViewsCount}");
+            }
+        }
+
+        private static async Task&lt;string&gt; GetJson(string url)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+            // OAuth 2.0 Authorization Headerの設定
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Parameter.getQiitaAccessToken());
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+            string result = await response.Content.ReadAsStringAsync();
+
+            return result;
+        }
+    }
+}
+
+
+
+最初に作成したAzure SQL Databaseにデータを保存します。今回は予め以下のテーブルをDBに作成しておきました。記事の情報を格納するマスタテーブル記事の時間ごとのview数を格納するトランザクションテーブルアクセストークンを格納したクラスにDBへの接続文字列を格納します。また、メインのクラスにDBへの接続・保存処理も記述していきます。
+DBへの接続・保存処理を追記
+
+
+get_qiita_views.cs
+using System;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace kanazawa.Function
+{
+    public static class get_qiita_views
+    {
+        [FunctionName("get_qiita_views")]
+        public static async void Run([TimerTrigger("0 0 * * * *")]TimerInfo myTimer, ILogger log)
+        {
+            TimeZoneInfo jstTimeZone = TZConvert.GetTimeZoneInfo("Tokyo Standard Time");
+            DateTime utcTime = DateTime.UtcNow;
+            DateTime jstTime = TimeZoneInfo.ConvertTimeFromUtc(utcTime, jstTimeZone);
+            log.LogInformation($"C# Timer trigger function executed at: {jstTime}");
+
+　　　　　　　// Qiita APIのURL
+            string url = "https://qiita.com/api/v2/users/" + Parameter.getQiitaUserName() + "/items";
+            // 投稿記事情報取得
+            string json = await GetJson(url);
+
+            // デシリアライズ時の設定
+            var settings = new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore,
+                MissingMemberHandling = MissingMemberHandling.Ignore
+            };
+
+            // デシリアライズ
+            List&lt;QiitaInformationModel&gt; models = JsonConvert.DeserializeObject&lt;List&lt;QiitaInformationModel&gt;&gt;(json, settings);
+
+            // 各投稿記事のView数を取得
+            string getViewsCountUrl;
+            foreach (var model in models)
+            {
+                getViewsCountUrl = "https://qiita.com/api/v2/items/" + model.Id;
+                model.PageViewsCount = JsonConvert.DeserializeObject&lt;QiitaInformationModel&gt;(await GetJson(getViewsCountUrl)).PageViewsCount;
+                log.LogInformation($"title: {model.Title}");
+                log.LogInformation($"views: {model.PageViewsCount}");
+            }
+
+            // DB接続文字列の取得
+            var connectionString = Parameter.getConnectionString();
+
+            // データ保存
+            using (var connection = new SqlConnection(connectionString))
+            {
+                // データベースの接続開始
+                connection.Open();
+
+                try
+                {
+                    // マスタテーブルの更新チェック
+                    Database.checkMasterData(models, log, connection);
+
+                    // データを保存
+                    Database.saveData(models, jstTime, log, connection);
+                }
+                catch (Exception exception)
+                {
+                    log.LogInformation(exception.Message);
+                    throw;
+                }
+                finally
+                {
+                    // データベースの接続終了
+                    connection.Close();
+                }
+            }
+        }
+
+        private static async Task&lt;string&gt; GetJson(string url)
+        {
+            var httpClient = new System.Net.Http.HttpClient();
+            // OAuth 2.0 Authorization Headerの設定
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Parameter.getQiitaAccessToken());
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+            string result = await response.Content.ReadAsStringAsync();
+
+            return result;
+        }
+    }
+}
+
+
+
+
+Database.cs
+using System;
+using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Data;
+
+namespace kanazawa.Function
+{
+    public class Database
+    {
+        // 新たに記事が投稿された場合はマスタテーブルを更新
+        public static void checkMasterData(List&lt;QiitaInformationModel&gt; models, ILogger log, SqlConnection connection)
+        {
+            using (var transaction = connection.BeginTransaction())
+            {
+                try
+                {
+                    using (var selectCommand = new SqlCommand() { Connection = connection, Transaction = transaction })
+                    {
+                        // SQLの準備
+                        selectCommand.CommandText = @"SELECT id FROM qiita_items";
+
+                        // SQLの実行
+                        var table = new DataTable();
+                        var adapter = new SqlDataAdapter(selectCommand);
+                        adapter.Fill(table);
+
+                        // 存在フラグ
+                        bool flg = false;
+
+                        foreach (var model in models)
+                        {
+                            flg = false;
+                            for (int i = 0; i &lt; table.Rows.Count; i++)
+                            {
+                                if (table.Rows[i]["id"].ToString().Equals(model.Id))
+                                {
+                                    flg = true;
+                                    break;
+                                }
+                            }
+
+                            if (flg == false)
+                            {
+                                using (var insertCommand = new SqlCommand() { Connection = connection, Transaction = transaction })
+                                {
+                                    // SQLの準備
+                                    insertCommand.CommandText = @"INSERT INTO qiita_items VALUES (@ID, @TITLE, @CREATED_AT)";
+                                    insertCommand.Parameters.Add(new SqlParameter("@ID", model.Id));
+                                    insertCommand.Parameters.Add(new SqlParameter("@TITLE", model.Title));
+                                    insertCommand.Parameters.Add(new SqlParameter("@CREATED_AT", model.CreatedAt));
+
+                                    // SQLの実行
+                                    insertCommand.ExecuteNonQuery();
+
+                                    log.LogInformation($"succeeded to insert master data: {model.Title}");
+                                }
+                            }
+                        }
+                    }
+
+                    // コミット
+                    transaction.Commit();
+                    log.LogInformation("Committed");
+                }
+                catch
+                {
+                    // ロールバック
+                    transaction.Rollback();
+                    log.LogInformation("Rollbacked");
+                    throw;
+                }
+            }
+        }
+
+        // 各記事のview数を保存
+        public static void saveData(List&lt;QiitaInformationModel&gt; models, DateTime jstTime, ILogger log, SqlConnection connection)
+        {
+            using (var transaction = connection.BeginTransaction())
+            {
+                try
+                {
+                    foreach (var model in models)
+                    {
+                        using (var command = new SqlCommand() { Connection = connection, Transaction = transaction })
+                        {
+                            // SQLの準備
+                            command.CommandText = @"INSERT INTO page_views_count VALUES (@ID, @COUNTED_AT, @PAGE_VIEWS_COUNT)";
+                            command.Parameters.Add(new SqlParameter("@ID", model.Id));
+                            command.Parameters.Add(new SqlParameter("@COUNTED_AT", jstTime.ToString("yyyy/MM/dd HH")));
+                            command.Parameters.Add(new SqlParameter("@PAGE_VIEWS_COUNT", model.PageViewsCount));
+
+                            // SQLの実行
+                            command.ExecuteNonQuery();
+
+                            log.LogInformation($"succeeded to insert data: {model.Title}");
+                        }
+                    }
+
+                    // コミット
+                    transaction.Commit();
+                    log.LogInformation("Committed");
+                }
+                catch
+                {
+                    // ロールバック
+                    transaction.Rollback();
+                    log.LogInformation("Rollbacked");
+                    throw;
+                }
+            }
+        }
+    }
+}
+
+
+
+
+Parameter.cs
+using System;
+
+namespace kanazawa.Function
+{
+    public class Parameter
+    {
+        public static string getQiitaAccessToken(){
+            return "******";
+        }
+
+        public static string getQiitaUserName(){
+            return "******";
+        }
+
+        public static string getConnectionString(){
+            return "******";
+        }
+    }
+}
+
+
+
+ここで一度ローカルでテスト実行してみましょう。SQL Databaseの方で接続元IPアドレスを制限している場合は、ローカルPCからアクセスできるように設定した上でテスト実行します。うまくいったら一度Azureへデプロイしましょう。デプロイ時にAzure Functionsのリソースを作成できるので合わせて作成します。テスト実行
+Azureへのデプロイ
+ここまでの実装でQiitaからデータを取得して、DBに保存することができます。しかし、DBへの接続情報などをソースコードの中に記述してしまっているため、セキュリティー的によろしくありません。ここではAzure KeyVaultにシークレットとして保存し、Azure Functionsから参照できるようにソースコードの改善とAzureの設定を入れていきます。Microsoft公式ドキュメント（チュートリアル:Linux VM と Python アプリを使用してシークレットを Azure Key Vault に格納する）を参考にAzure KeyVaultの作成とシークレットの格納を行います。今回は以下の３つのシークレットを格納します。Azure KeyVaultの作成とシークレットの格納が完了したら、作成したAzure Functionsからシークレットを参照できるように権限を付与します。まずはAzure FunctionsのマネージドIDを有効化し、権限を付与する対象を作成します。作成後、Azure KeyVaultのアクセスポリシー設定画面からAzure FunctionsのマネージドIDに対してシークレットの取得権限を付与します。詳しいやり方はMicrosoft公式ドキュメント（App Service と Azure Functions の Key Vault 参照を使用する）を参照してください。参照先の設定が終わったので、Azure Functions側にシークレットを参照するように設定とソースコードの修正を入れていきます。Azure Functionsのアプリケーション設定を入れるとAzure Functionsの実行環境の環境変数にその値が反映されるのでソースコードから参照できるようになります。Microsoft公式ドキュメント（App Service と Azure Functions の Key Vault 参照を使用する）を参考にAzure Functionsに以下のアプリケーション設定を追加します。上記ドキュメントにも記載されていますが、値にはAzure KeyVaultへの参照構文を入力します。参照構文は以下の形式です。シークレット識別子はAzure KeyVaultの該当シークレットの設定変更画面から取得できます。ここまで準備ができたら後はソースコードを修正するだけです。各種秘匿情報を格納していたクラスを環境変数を参照するように修正します。
+環境変数を参照するように修正
+
+
+Parameter.cs
+using System;
+
+namespace kanazawa.Function
+{
+    public class Parameter
+    {
+        public static string getQiitaAccessToken(){
+            return Environment.GetEnvironmentVariable("Qiita-Access-Token");
+        }
+
+        public static string getQiitaUserName(){
+            return Environment.GetEnvironmentVariable("Qiita-User-Name");
+        }
+
+        public static string getConnectionString(){
+            return Environment.GetEnvironmentVariable("ConnectionString");
+        }
+    }
+}
+
+
+
+これでソースコード内に秘匿すべき情報を記述せずにQiitaからのデータ取得とDBへの保存ができるようになりました。しかし、設定した環境変数が参照できるのはAzure Functionsの実行環境のみであるため、ローカルでテスト実行する場合には参照できません。コードを書き換えずにローカルでもテストできるようにするためにlocal.settings.jsonというファイルに参照したい環境変数とその値を記述します。そうすることでローカルで実行した際にはlocal.settings.jsonで記述した値が参照されるので、そのままのコードでテストすることができます。local.settings.jsonはプロジェクトを作成した際に、同時に作成されているので、この記事の手順で進めた場合は既に作成されているはずです。テストがうまくいったら、実際にデプロイしてみて試してみましょう。今回の例では一時間に一回プログラムが実行されるようにスケジューリングしているので、DBには一時間ごとの各記事のview数が保存されるはずです。実行のスケジューリングを変更したい場合はソースコードの以下の部分を変更して再デプロイしてください。TimerTrigger("0 0 * * * *")の引数で定義されているスケジューリング設定は左から秒、分、時間、日、月、曜日を表しています。*と記述することで毎秒、毎分といった意味となります。他にも表現方法はあるので興味のある方はMicrosoft公式ドキュメント（Azure Functions のタイマー トリガー）を参照してください。
+
+

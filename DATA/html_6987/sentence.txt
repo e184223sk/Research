@@ -1,0 +1,22 @@
+More than 3 years have passed since last update.Salesforce の取引先データを Dynamics CRM に同期するサンプルアプリケーションの開発手順を見ていきます。このサンプルアプリケーションのソースコードはこちらからどうぞ。まずは CData Software をインストールします。今回必要になるのは、次の2つです。Visual Studio を起動し、新しいWindowsフォームアプリケーションのプロジェクトを作成します。インストールした CData Software の2製品には、いくつかのADO.NETアセンブリが含まれています。
+今回必要になるのは次の2つのDLLですので、これらをプロジェクトの参照設定で追加します。このサンプルアプリケーションに登場するクラスの構造は下図の通りです。まずは、CData が提供するクラス群を生成するファクトリクラスを設けます。上記をベースとして、Salesforce 用と DynamicsCRM 用の2つを設けます。次に、ADO.NET へのアクセス部分をラップするクラスを設けます。
+このクラスは、上で作成したファクトリクラスおよび ADO.NET のクラス/インターフェイスを使用することにより、
+接続先が Salesforce であるか Dynamics CRM であるかを意識することなく、それぞれのシステムへの接続、および DataTable の生成処理と更新処理を行います。当然のことながら、Salesforce の取引先オブジェクトと Dynamics CRM の取引先企業エンティティでは、データ項目が異なります。
+そこで、そのマッピングを行うクラスを設けます。
+Salesforce のデータも Dynamics CRM のデータもデータベースのテーブルデータとして扱えるので、
+このクラスが行うことは、Salesforce 側の項目名を Dynamics CRM 側の項目名に翻訳して、項目の値をセットするだけです。上記のクラスのオブジェクトを "Account" などの文字列から取得できるようにするためのクラスも設けておきます。ここまでで、Salesforce および Dynamics CRM にアクセスする部分が出来ました。次に、フォームにとりかかります。  取引先データの読み込みやインポートには時間がかかるかもしれないので、処理状況をメッセージ表示するフォームを追加します。
+このフォームは、時間のかかる処理の実行中に自分自身を表示して、状況をメッセージ表示したり、処理が完了したら閉じられるようにします。次にメインのフォームを追加します。
+このフォームには、次のコンポーネントを追加します。インポート対象の種類を選ぶコンボボックスは、今回は単に "Account" という文字列を選択できるものにします。データ読み込みの処理では、先に作成した DbWrapper を使用して DataTable を生成し、
+それをデータグリッドビューにバインドします。アプリケーションの設定に記載された Salesforce および Dynamics CRM の接続情報を使用して、それぞれのシステムへ接続します。DataTable を生成します。生成した DataTable をデータグリッドビューへバインドします。これで、2つのデータグリッドビューに Salesforce および Dynamics CRM それぞれの取引先データが表示されるはずです。最後に、インポート処理を記述します。選択されている行を取得して、それを DataRow のリストに変換します。ここではLINQを使用して、
+* 行選択されているもののみ抽出 .Where(o =&gt; o.Selected)
+* DataRowView に変換 .Select(o =&gt; (DataRowView)o.DataBoundItem)
+* 取引先番号(AccountNumber)が設定されているもののみ抽出 .Where(o =&gt; !string.IsNullOrWhiteSpace(o["AccountNumber"].ToString()))ということを行っています。  同じように、インポート先のデータも DataRowView として取得しますが、取引先番号で引けるように、Dictionaryに変換します。選択されている行の DataRow をループして、Salesforce 側の取引先番号と対応する DataRow が Dynamics CRM 側にあればそれを取得し、なければ新しい DataRow を生成します。
+そして上で作成した AccountMapper を使用して、Salesforce 側のデータを Dynamics CRM 側にセットします。仕上げに、Dynamics CRM 側の DataTable を Update します。
+これにより、DataRow に加えられた変更から、それに対応する UPDATE/INSERT 文が生成され、Dynamics CRM へのデータ更新が実行されます。接続情報をアプリケーションの設定に記述します。
+プロジェクトを右クリック → プロパティ からプロジェクトのプロパティを開き、「設定」で
+"SalesforceConnectionString" と "DynamicsCRMConnectionString" の2つを追加します。Salesforce の接続文字列は、以下の形式になります。
+User=&lt;ユーザ名&gt;;Password=&lt;パスワード&gt;;Security Token=&lt;セキュリティトークン&gt;;Dynamics CRM の接続文字列は、以下の形式になります。
+User=&lt;アカウント名&gt;;Password=&lt;パスワード&gt;;URL=&lt;サーバー組織ルート&gt;;CRM Version=CRM Online;左上のコンボボックスで「Account」を選び、選択ボタンをクリックすると、Salesforce および Dynamics CRM のデータが
+それぞれに対応するデータグリッドビューに読み込まれます。データが読み込まれた状態で、左側のデータグリッドビューでインポートしたいデータを選択し、インポートボタンをクリックすると、選択したデータが Dynamics CRM に反映されます。
+
+

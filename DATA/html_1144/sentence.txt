@@ -1,0 +1,221 @@
+こんな感じの普通のText Mesh Proで描画されたテキストを
+こんな感じに曲げられるスクリプトを作りました
+開く角度も変えられます
+内側に曲げることもできます
+テキストの装飾もそのまま反映されます（下線と取り消し線のみTextMeshProの実装の都合上未対応です）
+奥行方向ではなく，ワードアートみたいなあくまでも２次元平面上で曲げたい，という場合はText Mesh Proのサンプルに動作するスクリプトが存在します．TextMeshProをアセットストア（or Package Manager）からインポートし，Winodow -&gt; TextMeshPro -&gt; Import TMP Examples and Extrasからサンプルプロジェクトをダウンロードします．
+Assets/TextMesh Pro/Examples &amp; Extras/Scenes/25 - Sunny Days Example.unityがそのサンプルで，開くと↓のようにテキストが曲がっている様子が見られると思います．
+TextMeshProオブジェクトにアタッチされているWarpText.csというスクリプトが文字のメッシュを変形しています．今回の奥行方向へ曲げる実装は，このスクリプトをベースに改造を行って作成したものです（大分変ってますが）．利用したいプロジェクトにおいて，次のスクリプトをBendText.csという名前で保存します．
+それを曲げたいTextMeshProのオブジェクトにアタッチするだけです．スクリプト（長いので折り畳み）
+
+
+BendText.cs
+using System;
+using System.Linq;
+using TMPro;
+using UnityEngine;
+
+namespace TweenableObject
+{
+    [DefaultExecutionOrder(100)]
+    [ExecuteInEditMode]
+    [RequireComponent(typeof(TextMeshPro))]
+    public class BendText : MonoBehaviour
+    {
+        [SerializeField] private bool isActive;
+        [SerializeField] private bool flip;
+        [SerializeField] private float radius;
+        [SerializeField, Range(0, 360)] private float spread;
+
+        private RectTransform _rectTransform;
+        private TextMeshPro _textMeshPro;
+        private bool _isActive;
+        private bool _flip;
+        private float _lastRadius;
+        private float _lastSpread;
+        private Rect _lastRect;
+
+        private float _maxY;
+        private float _minY;
+
+        private void Awake()
+        {
+            _rectTransform = GetComponent&lt;RectTransform&gt;();
+            _textMeshPro = GetComponent&lt;TextMeshPro&gt;();
+        }
+
+        private void OnEnable()
+        {
+            ReCalculate();
+        }
+
+        private void OnDisable()
+        {
+            _textMeshPro.ForceMeshUpdate();
+        }
+
+        private void Update()
+        {
+            // EditModeでも動作するようUpdateで更新を検出
+            ReCalculate();
+        }
+
+        // パラメータやTextMeshProの変更を監視し，変更があればメッシュの再変形を行う
+        public void ReCalculate()
+        {
+            if (!_textMeshPro.havePropertiesChanged &amp;&amp; _isActive == isActive &amp;&amp; _flip == flip &amp;&amp;
+                _lastRadius == radius &amp;&amp; _lastSpread == spread &amp;&amp; _rectTransform.rect == _lastRect) return;
+
+            _isActive = isActive;
+            _flip = flip;
+            _lastRadius = radius;
+            _lastSpread = spread;
+            _lastRect = _rectTransform.rect;
+
+            if(isActive) SetCurve();
+            else _textMeshPro.ForceMeshUpdate();
+
+            var enu = _textMeshPro.textInfo.meshInfo.SelectMany(m =&gt; m.vertices).Select(v =&gt; v.y).ToArray();
+            _minY = enu.Min();
+            _maxY = enu.Max();
+        }
+
+        // Textに対しメッシュの変形を実行
+        private void SetCurve()
+        {
+            _textMeshPro.ForceMeshUpdate();
+
+            var textInfo = _textMeshPro.textInfo;
+            var characterCount = textInfo.characterCount;
+
+            var rect = _rectTransform.rect;
+            var minX = rect.xMin + _textMeshPro.margin.x;
+            var maxX = rect.xMax - _textMeshPro.margin.y;
+
+            for (var i = 0; i &lt; characterCount; i++)
+            {
+                if (!textInfo.characterInfo[i].isVisible) continue;
+
+                var vertexIndex = textInfo.characterInfo[i].vertexIndex;
+                var materialIndex = textInfo.characterInfo[i].materialReferenceIndex;
+                var vertices = textInfo.meshInfo[materialIndex].vertices;
+
+                // 文字の中点座標を計算
+                Vector3 offsetToMidBaseline =
+                    new Vector2((vertices[vertexIndex + 0].x + vertices[vertexIndex + 2].x) / 2,
+                        textInfo.characterInfo[i].baseLine);
+
+                // 変形後の文字の中心位置を計算
+                var val = (offsetToMidBaseline.x - minX) / (maxX - minX);
+                var pos0 = CalcPositionFromCircle(val);
+                var pos1 = CalcPositionFromCircle(val + 0.0001f);
+
+                var rotation = Quaternion.FromToRotation(Vector3.right, (pos1 - pos0).normalized);
+
+                // 各文字の4頂点への処理
+                for (var j = 0; j &lt; 4; ++j)
+                {
+                    var point = vertices[vertexIndex + j];
+
+                    // 中点からの相対ベクトルを算出
+                    point -= offsetToMidBaseline;
+
+                    // 移動と回転を適用
+                    point = rotation * point + new Vector3(pos0.x, offsetToMidBaseline.y, pos0.z);
+
+                    vertices[vertexIndex + j] = point;
+                }
+            }
+
+            _textMeshPro.UpdateVertexData();
+        }
+
+        // 0~1のvalueに対し，円周上の位置を返す
+        private Vector3 CalcPositionFromCircle(float val)
+        {
+            var angle = (float) (1.5 * Math.PI + (val - 0.5f) * spread * Mathf.Deg2Rad);
+            var x = radius * Mathf.Cos(angle);
+            var z = (flip ? -1 : 1) * radius * (1 + Mathf.Sin(angle));
+            return new Vector3(x, 0, z);
+        }
+
+        private readonly Color _rectColor = new Color(0.98f, 0.498f, 0.196f);
+        private readonly Color _circleColor = new Color(0.176f, 0.784f, 1);
+
+        private void OnDrawGizmosSelected()
+        {
+            var old = Gizmos.matrix;
+            var transform1 = transform;
+
+            var lossyScale = transform1.lossyScale;
+            Gizmos.matrix = Matrix4x4.TRS(transform1.position + (flip ? -1 : 1) * transform1.forward * radius * lossyScale.z, transform1.rotation, lossyScale);
+
+            const int step = 5;
+            var rangeMin = (flip ? 0 : 180) - spread / 2;
+            var rangeMax = (flip ? 0 : 180) + spread / 2;
+
+            var from = new Vector3(radius * Mathf.Sin(rangeMin * Mathf.Deg2Rad), 0, radius * Mathf.Cos(rangeMin * Mathf.Deg2Rad));
+
+            for (var i = rangeMin; i &lt;= 360 + rangeMin; i += step)
+            {
+                // 境界部での丸め込み
+                var deg = i;
+                if (deg - rangeMin &gt; 0 &amp;&amp; deg - rangeMin &lt;= step) deg = rangeMin;
+                else if (deg - rangeMax &gt; 0 &amp;&amp; deg - rangeMax &lt;= step) deg = rangeMax;
+
+                var to = new Vector3(radius * Mathf.Sin(deg * Mathf.Deg2Rad), 0, radius * Mathf.Cos(deg * Mathf.Deg2Rad));
+
+                if (deg == rangeMin || deg == rangeMax)
+                {
+                    Gizmos.color = _rectColor;
+                    Gizmos.DrawLine(new Vector3(to.x, _minY, to.z), new Vector3(to.x, _maxY, to.z));
+                    Gizmos.DrawLine(new Vector3(to.x, _minY, to.z), new Vector3(to.x, _maxY, to.z));
+                }
+
+                if (from != to &amp;&amp; rangeMin &lt;= deg &amp;&amp; deg &lt;= rangeMax)
+                {
+                    Gizmos.color = _rectColor;
+                    Gizmos.DrawLine(new Vector3(from.x, _minY, from.z), new Vector3(to.x, _minY, to.z));
+                    Gizmos.DrawLine(new Vector3(from.x, _maxY, from.z), new Vector3(to.x, _maxY, to.z));
+                }
+                else
+                {
+                    Gizmos.color = _circleColor;
+                    Gizmos.DrawLine(from, to);
+                }
+                from = to;
+            }
+
+            Gizmos.matrix = old;
+        }
+    }
+}
+
+
+
+オブジェクトにアタッチすると，Inspectorに↓のような項目があります．
+を表します．
+Spreadパラメータなど，広がったときの文字の位置はTextMeshProのPadding等を考慮した位置になります．
+つまり，Sceneビューで表示される黄色い枠の端から端までを範囲として，それを"Spread度"曲げた描画が得られます．例えば，↓のような場合（左詰め），
+このように曲がります．
+基本的なテキストの装飾はそのまま適用できますが，下線や取り消し線は↓のように曲げることができません．
+これはTextMeshProのメッシュの仕様（下線を4頂点で表現している）ことによるもので，Shaderの自作やTextMeshPro自体の修正で対処できそうではありますが，大掛かりになりすぎるので今回は未対応にしました．実装は次のような発想によるものです．
+まず，TextMeshProの文字は，それぞれが下のように4つの頂点で位置を指定しています．
+その，一つの文字につき4つの頂点は，TextMeshProコンポーネントのtextInfo.meshInfo[materialIndex].verticesにVector3配列として格納されています．
+そのmaterialIndexはi番目の文字ならtextInfo.characterInfo[i].materialReferenceIndexで取得できます．この頂点位置を修正し，TextMeshProコンポーネントのUpdateVertexData()メソッドを呼んであげることで，メッシュを動的に書き換えることができます．各文字を円周上に配置する方法ですが，これは文字の中心座標の移動ベクトルと回転ベクトルを求め，それを適用することで行います．
+↓のように，任意の場所への移動は座標の移動と回転により表すことができます．
+それでこの2つのベクトルの求め方ですが，以下の様に行います（詳細はコードを見てください（投げやり））
+SetCurve()メソッドで行っている処理です．次の処理を各文字に対し適用しています．SceneビューでのGizmoの描画は別の方法で計算していますが，そっちのほうはコードを読んでください（端点座標だけわかればいいのですごく簡便な方法をとっています）Text Mesh Proの実装上の仕様から，起きる問題が一部あります．これを回避するためのText Mesh Pro用のシェーダを書きました．（TextMeshProの標準シェーダの描画順をTransparentCutoutしただけです）半透明オブジェクトとの描画順をいい感じにするシェーダー
+
+```TMP_SDF Cutout.shader
+Shader "TextMeshPro/Distance Field (Cutout)" {Properties {
+    _FaceTex            ("Face Texture", 2D) = "white" {}
+    _FaceUVSpeedX       ("Face UV Speed X", Range(-5, 5)) = 0.0
+    _FaceUVSpeedY       ("Face UV Speed Y", Range(-5, 5)) = 0.0
+    [HDR]_FaceColor     ("Face Color", Color) = (1,1,1,1)
+    _FaceDilate         ("Face Dilate", Range(-1,1)) = 0}SubShader {}Fallback "TextMeshPro/Mobile/Distance Field"
+CustomEditor "TMPro.EditorUtilities.TMP_SDFShaderGUI"
+}
+```↑のファイルを保存し，Assets以下の適当な場所に配置し，マテリアルの選択からTextMeshPro/Distance Field (Cutout)を選択します．これで↓のように正しい描画が得られます．
+
+

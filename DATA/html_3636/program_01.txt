@@ -1,0 +1,43 @@
+
+public class TaskManager
+{
+    // 実行中のタスクをキャンセルするためのキャンセルトークン
+    private readonly ConcurrentDictionary&lt;Guid, CancellationTokenSource&gt; m_CurrentCancellations
+        = new ConcurrentDictionary&lt;Guid, CancellationTokenSource&gt;();
+
+    /// &lt;summary&gt;
+    /// 指定された非同期メソッドを実行します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="taskId"&gt;タスクを一意に識別するID&lt;/param&gt;
+    /// &lt;param name="function"&gt;実行する非同期メソッド&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private async Task RunWithCancellation(Guid taskId, Func&lt;CancellationToken, Task&gt; function)
+    {
+        using CancellationTokenSource cancellation = new CancellationTokenSource();
+        try
+        {
+            if (!m_CurrentCancellations.TryAdd(taskId, cancellation))
+            {
+                throw new ArgumentException("指定されたタスクIDは既に登録されています。");
+            }
+            await ExecuteAsync(cancellation.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            m_CurrentCancellations.Remove(taskId, out _);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 指定されたタスクをキャンセルします。
+    /// &lt;/summary&gt;
+    /// &lt;param name="taskId"&gt;タスクを一意に識別するID&lt;/param&gt;
+    public void Cancel(Guid taskId)
+    {
+        if (m_CurrentCancellations.TryGetValue(taskId, out var cancellation)
+        {
+             cancellation.Cancel();
+        }
+    }
+}
+

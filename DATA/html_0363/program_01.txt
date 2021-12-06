@@ -1,0 +1,113 @@
+
+
+using System;
+using System.Linq;
+using System.Reflection;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Firefox;
+
+namespace UnitTestProject1
+{
+    [TestClass]
+    public class UnitTest1
+    {
+        protected IWebDriver driver;
+        public TestContext TestContext { get; set; }
+
+        [TestInitialize]
+        public void CreateDriver()
+        {
+            BrowserAttribute browser = (BrowserAttribute)GetCustomAttribute&lt;BrowserAttribute&gt;(TestContext.FullyQualifiedTestClassName, TestContext.TestName);
+
+            if (browser == null)
+            {
+                throw new InvalidOperationException("Browser属性が指定されていません。 ");
+            }
+
+            switch (browser.Browser)
+            {
+                case "Chrome":
+                    driver = new ChromeDriver();
+                    break;
+                case "Firefox":
+                    driver = new FirefoxDriver();
+                    break;
+                default:
+                    throw new InvalidOperationException("Browser " + browser.Browser + " not found!");
+            }
+
+            PageAttribute page = (PageAttribute)GetCustomAttribute&lt;PageAttribute&gt;(TestContext.FullyQualifiedTestClassName, TestContext.TestName);
+            if (page == null)
+            {
+                throw new InvalidOperationException("No Page attribute is specified. ");
+            }
+
+            driver.Navigate().GoToUrl(page.Url);
+
+        }
+        [TestMethod]
+        [Browser(Browser = "Firefox")]
+        [Page(Url = "http://www.selenium.academy/Examples/Interaction.html")]
+        public void Clickテスト()
+        {
+            Console.WriteLine();
+            IWebElement button = driver.FindElement(By.Id("button"));
+            button.Click();
+        }
+
+        [TestCleanup]
+        public void QuitDriver()
+        {
+            if (driver != null)
+                driver.Quit();
+        }
+
+        private Attribute GetCustomAttribute&lt;T&gt;(string className, string testName)
+        {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var currentType = assembly.GetTypes().FirstOrDefault(f =&gt; f.FullName == className);
+
+                if (currentType == null)
+                    continue;
+
+                Attribute classAttribute = currentType.GetCustomAttribute(typeof(T));
+                if (classAttribute != null)
+                {
+                    return classAttribute;
+                }
+
+                var currentMethod = currentType.GetMethod(testName);
+
+                Attribute methodAttribute = currentMethod.GetCustomAttribute(typeof(T));
+                if (methodAttribute != null)
+                {
+                    return methodAttribute;
+                }
+            }
+
+            return null;
+        }
+
+        [AttributeUsage(validOn: AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+        public class BrowserAttribute : Attribute
+        {
+            public string Browser { get; set; }
+            public string Version { get; set; }
+            public string Url { get; set; }
+        }
+
+    }
+
+    [AttributeUsage(validOn: AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+    public class PageAttribute : Attribute
+    {
+        public string Url { get; set; }
+
+    }
+}
+
+
+

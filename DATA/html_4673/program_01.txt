@@ -1,0 +1,51 @@
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+
+namespace SqlLogging {
+  class BooksDbContext : DbContext {
+    public DbSet&lt;Book&gt; Books { get; set; }
+
+    // ロガーファクトリに ConsoleLoggerProvider を登録する。
+    // 出力先を変えたい時は登録するロガー変えたり、追加する
+    static readonly ILoggerFactory loggerFactory = new LoggerFactory(new[] {
+          new ConsoleLoggerProvider((category, level) =&gt;
+            category == DbLoggerCategory.Database.Command.Name
+                &amp;&amp; level == LogLevel.Information, true) });
+
+    // UseLoggerFactory で上記のロガーファクトリを登録する。
+    // Insert 文の値をロギングするために EnableSensitiveDataLogging を許可する。
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =&gt;
+      optionsBuilder
+        .EnableSensitiveDataLogging()
+        .UseLoggerFactory(loggerFactory)
+        .UseSqlServer(@"Server=(localdb)\mssqllocaldb;Database=SampleDb;Trusted_Connection=True;");
+
+    // データベースに初期値をシーディングする。
+    // ※データベースに値がない場合のみ Insert 文が走るので２重に登録される心配はない
+    protected override void OnModelCreating(ModelBuilder modelBuilder) =&gt;
+      modelBuilder.Entity&lt;Book&gt;().HasData(
+        new Book {
+          ID = 1,
+          Title = "アンドロイドは電気羊の夢を見るか?",
+          AuthorName = "フィリップ・K・ディック"
+        },
+        new Book {
+          ID = 2,
+          Title = "夏への扉",
+          AuthorName = "ロバート・A・ハインライン"
+        },
+        new Book {
+          ID = 3,
+          Title = "1984年",
+          AuthorName = "ジョージ・オーウェル"
+        },
+        new Book {
+          ID = 4,
+          Title = "幼年期の終り",
+          AuthorName = "アーサー・C・クラーク"
+        });
+  }
+}
+

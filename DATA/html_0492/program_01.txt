@@ -1,0 +1,48 @@
+
+using Microsoft.Win32;
+using System;
+using System.Runtime.InteropServices;
+
+public class ExcelUtility2
+{
+    /// &lt;summary&gt;
+    /// インストールされているExcelが32bitかどうかを取得する。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;true:32bit false:64bit null:インストールされていない等で確認不能。&lt;/returns&gt;
+    public static bool? IsExcel32Bit()
+    {
+        try
+        {
+            //ProgIDからOfficeアプリのCOMのTypeを取得する。
+            //EXCEL:"Excel.Application"
+            //ACCESS:"Access.Application"
+            //Word:"Word.Application"
+            var appType = Type.GetTypeFromProgID("Excel.Application");
+            if (appType == null)
+            {
+                return null;
+            }
+
+            //64bitOSじゃない場合は無条件で32bit
+            if (!Environment.Is64BitOperatingSystem)
+            {
+                return true;
+            }
+
+#pragma warning disable CA1416
+            //TypeのGUIDから64bit用のレジストリを検索する。
+            string keyPath = $@"CLSID\{appType.GUID:B}\ProgID";
+            using (var regRoot = RegistryKey.OpenBaseKey(RegistryHive.ClassesRoot, RegistryView.Registry64))
+            using (var reg = regRoot.OpenSubKey(keyPath))
+            {
+                return (reg == null);
+            }
+#pragma warning restore CA1634
+        }
+        catch (COMException)
+        {
+            return null;
+        }
+    }
+}
+

@@ -1,0 +1,83 @@
+
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+namespace SampleWebView2Form
+{
+    public partial class Form1 : Form
+    {
+        /// &lt;summary&gt;webviewのコントロール（わかりやすい様に、デザイナーを使わずにコード側で実装します。）&lt;/summary&gt;
+        private WebView2 WebView = new WebView2
+        {
+            //個人の環境に合わせて下さい
+            Source = new Uri("file:///C:/Users/name/Desktop/sample.html"),
+        };
+
+        /// &lt;summary&gt;JavaScriptで呼ぶ関数を保持するオブジェクト&lt;/summary&gt;
+        private JsToCs CsClass = new JsToCs();
+
+        public Form1()
+        {
+            this.Controls.Add(WebView);
+            InitializeComponent();
+
+            //WebView2のサイズをフォームのサイズに合わせる
+            WebView.Size = this.Size;
+            this.SizeChanged += Form1_SizeChanged;
+
+            //WebView2のロード完了時のイベント
+            WebView.NavigationCompleted += WebView_NavigationCompleted;
+        }
+
+        /// &lt;summary&gt;WebView2のロード完了時&lt;/summary&gt;
+        private void WebView_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            try
+            {
+                if (WebView.CoreWebView2 != null)
+                {
+                    //JavaScriptからC#のメソッドが実行できる様に仕込む
+                    WebView.CoreWebView2.AddHostObjectToScript("class", CsClass);
+
+                    //JavaScriptの関数を実行
+                    CsToJs();
+                }
+                else MessageBox.Show("CoreWebView2==null");
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show(ex.ToString());
+            }
+        }
+
+        /// &lt;summary&gt;Jsのメソッドを実行&lt;/summary&gt;
+        private async void CsToJs()
+        {
+            //WebView.ExecuteScriptAsync("func1()").ResultをするとWebView2がフリーズする
+            string str1 = await WebView.ExecuteScriptAsync("func1(\"C#からの呼び出し\")");
+            MessageBox.Show("Jsからの戻り値＞" + str1);
+        }
+
+        /// &lt;summary&gt;サイズ変更時のイベントでWebView2のサイズをフォームに合わせる&lt;/summary&gt;
+        private void Form1_SizeChanged(object sender, EventArgs e)
+        {
+            WebView.Size = this.Size;
+        }
+    }
+
+    //↓属性設定が無いとエラーになります
+    /// &lt;summary&gt;WebView2に読み込ませるためのJsで実行する関数を保持させたクラス&lt;/summary&gt;
+    [ClassInterface(ClassInterfaceType.AutoDual)]
+    [ComVisible(true)]
+    public class JsToCs
+    {
+        public void MessageShow(string strText)
+        {
+            MessageBox.Show("Jsからの呼び出し&gt;" + strText);
+        }
+    }
+}
+

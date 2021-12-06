@@ -1,0 +1,52 @@
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using FireSharp;
+using FireSharp.Config;
+using FireSharp.Interfaces;
+using FireSharp.Response;
+using Xamarin.Forms;
+using XamarinChatSample.Models;
+
+namespace XamarinChatSample.Views
+{
+    public partial class ChatPage : ContentPage
+    {
+        private IFirebaseClient firebaseClient = new FirebaseClient(new FirebaseConfig {
+            AuthSecret = "(先ほど取得したデータベースへのアクセスキーをここに入力します)",
+            BasePath = "https://xamarin-chat-sample.firebaseio.com"
+        });
+
+        private ObservableCollection&lt;string&gt; messages = new ObservableCollection&lt;string&gt;();
+
+        public ChatPage()
+        {
+            InitializeComponent();
+            Title = "Message";
+            messagesView.ItemsSource = messages;
+            ListenChatStream();
+        }
+
+        void OnSendTapped(object sender, EventArgs args)
+        {
+            AddMessage();
+        }
+
+        async void AddMessage()
+        {
+            var message = new Message { body = content.Text };
+            await firebaseClient.PushAsync("messages/push", message);
+            content.Text = "";
+        }
+
+        async void ListenChatStream()
+        {
+            await firebaseClient.OnAsync("messages", (sender, args, context) =&gt;
+            {
+                messages.Add(args.Data);
+            });
+        }
+    }
+}
+

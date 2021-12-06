@@ -1,0 +1,93 @@
+
+using UnityEngine;
+
+public class TpsLockOnCamera : MonoBehaviour
+{
+    /// &lt;summary&gt;
+    /// 取りつくキャラクター
+    /// &lt;/summary&gt;
+    [SerializeField]
+    private Transform _attachTarget = null;
+
+    /// &lt;summary&gt;
+    /// 取りつくキャラクターからのカメラオフセット位置
+    /// &lt;/summary&gt;
+    [SerializeField]
+    private Vector3 _attachOffset = new Vector3(0f, 2f, -5f);
+
+    /// &lt;summary&gt;
+    /// 注視ターゲット
+    /// &lt;/summary&gt;
+    [SerializeField]
+    private Transform _lookTarget = null;
+
+    /// &lt;summary&gt;
+    /// ターゲットがいないときの注視点
+    /// &lt;/summary&gt;
+    [SerializeField]
+    private Vector3 _defaultLookPosition = Vector3.zero;
+
+    /// &lt;summary&gt;
+    /// ロック切り替え時間
+    /// &lt;/summary&gt;
+    [SerializeField]
+    private float _changeDuration = 0.1f;
+
+    /// &lt;summary&gt;
+    /// ロック切り替えタイマー
+    /// &lt;/summary&gt;
+    private float _timer = 0f;
+
+    /// &lt;summary&gt;
+    /// 現在の注視点
+    /// &lt;/summary&gt;
+    private Vector3 _lookTargetPosition = Vector3.zero;
+
+    /// &lt;summary&gt;
+    /// ロックを移すときの最後の注視点
+    /// &lt;/summary&gt;
+    private Vector3 _latestTargetPosition = Vector3.zero;
+
+
+    /// &lt;summary&gt;
+    /// ターゲット切り替え
+    /// &lt;/summary&gt;
+    /// &lt;param name="target"&gt;&lt;/param&gt;
+    public void ChangeTarget(Transform target)
+    {
+        _latestTargetPosition = _lookTargetPosition;
+        _lookTarget = target;
+
+        _timer = 0f;
+    }
+
+
+    private void LateUpdate()
+    {
+        var targetPosition = _lookTarget != null ? _lookTarget.position : _defaultLookPosition;
+
+        // 現在の注視点を更新
+        if (_timer &lt; _changeDuration)
+        {
+            _timer += Time.deltaTime;
+            _lookTargetPosition = Vector3.Lerp(_latestTargetPosition, targetPosition, _timer / _changeDuration);
+        }
+        else
+        {
+            _lookTargetPosition = targetPosition;
+        }
+
+        // ターゲットへのベクトル
+        Vector3 targetVector = _lookTargetPosition - _attachTarget.position;
+
+        // ターゲットへのベクトルを前方とするクォータニオン
+        Quaternion targetRotation = targetVector != Vector3.zero ? Quaternion.LookRotation(targetVector) : transform.rotation;
+
+        // 位置と向き
+        Vector3 position = _attachTarget.position + targetRotation * _attachOffset;
+        Quaternion rotation = Quaternion.LookRotation(_lookTargetPosition - position);
+
+        transform.SetPositionAndRotation(position, rotation);
+    }
+}
+

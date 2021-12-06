@@ -1,0 +1,129 @@
+T4はText Template Transformation Toolkitの略。
+端的に言えば「Visual Studioでテキストファイルを自動生成するシステム」。例えば「テーブル定義ファイルからEntityクラスを自動生成する」のに便利。.NET ローカル ツールについては個別記事も書いておりますので、そちらも参考にしてください。TableInfoとColumnInfoの定義
+
+
+TableInfo.cs
+using System.Collections.Generic;
+
+namespace T4Sample
+{
+    /// &lt;summary&gt;
+    /// テーブル情報
+    /// &lt;/summary&gt;
+    public class TableInfo
+    {
+        /// &lt;summary&gt;
+        /// テーブル名
+        /// &lt;/summary&gt;
+        public string Name { get; set; }
+
+        /// &lt;summary&gt;
+        /// 列
+        /// &lt;/summary&gt;
+        public IEnumerable&lt;ColumnInfo&gt; Columns { get; set; }
+
+        /// &lt;summary&gt;
+        /// コメント
+        /// &lt;/summary&gt;
+        public string Description { get; set; }
+    }
+}
+
+
+
+
+ColumnInfo.cs
+using System.Collections.Generic;
+
+namespace T4Sample
+{
+    /// &lt;summary&gt;
+    /// 列情報
+    /// &lt;/summary&gt;
+    public class ColumnInfo
+    {
+        /// &lt;summary&gt;
+        /// 列名
+        /// &lt;/summary&gt;
+        public string Name { get; set; }
+
+        /// &lt;summary&gt;
+        /// 列のデータベース上での型
+        /// &lt;/summary&gt;
+        public string Type { get; set; }
+
+        /// &lt;summary&gt;
+        /// 主キーか
+        /// &lt;/summary&gt;
+        public bool IsPrimary { get; set; }
+
+        /// &lt;summary&gt;
+        /// nullを許可しないか
+        /// &lt;/summary&gt;
+        public bool NotNull { get; set; }
+
+        /// &lt;summary&gt;
+        /// コメント
+        /// &lt;/summary&gt;
+        public string Description { get; set; }
+    }
+}
+
+
+
+Mono.TextTemplatingを使います。テンプレート ファイルの生成するプログラムコードが、このパッケージに依存するため入れておく。TextTemplateとGenaratedを定義します。ビルド前にdotnet t4コマンドを呼び出すよう追記します。クリーンアップ(dotnet clean)後に、上記で生成した*.Generated.csを削除する。下記テンプレートで使用しているToPascalCase()とToCamelCase()は、別の静的クラスで定義した"snake_case"を"camelCase"や"PascalCase"に変換する拡張メソッドです。
+実装は割愛。TextTemplate.tt
+
+
+&lt;#@ template language="C#" #&gt;
+&lt;#@ assembly name="System.Core" #&gt;
+&lt;#@ import namespace="System.Linq" #&gt;
+&lt;#@ output extension=".cs" #&gt;
+using System;
+using System.Collections.Generic;
+
+namespace &lt;#= NameSpace #&gt;
+{
+&lt;# if (!string.IsNullOrEmpty(Table.Description)) { #&gt;
+    /// &lt;summery&gt;
+    /// &lt;#= Table.Description #&gt;
+    /// &lt;/summery&gt;
+&lt;# } #&gt;
+    public class &lt;#= Table.Name.ToPascalCase() #&gt;
+    {
+&lt;# foreach (var x in Table.Columns) { #&gt;
+&lt;# if (!string.IsNullOrEmpty(x.Description)) { #&gt;
+        /// &lt;summery&gt;
+        /// &lt;#= x.Description #&gt;
+        /// &lt;/summery&gt;
+&lt;# } // End if #&gt;
+        public &lt;#= GetColumnType(x) #&gt; &lt;#= x.Name.ToPascalCase() #&gt; { get; &lt;#= x.IsPrimary ? "" : "set; " #&gt;}
+
+&lt;# } // End foreach #&gt;
+        public &lt;#= Table.Name.ToPascalCase() #&gt;(
+            &lt;#= string.Join(",\n            ", Table.Columns.Where(x =&gt; x.IsPrimary).Select(d =&gt; $"{GetColumnType(d)} {d.Name.ToCamelCase()}")) #&gt;
+        )
+        {
+&lt;# foreach (var x in Table.Columns.Where(x =&gt; x.IsPrimary)) { #&gt;
+            &lt;#= x.Name.ToPascalCase() #&gt; = &lt;#= x.Name.ToCamelCase() #&gt;;
+&lt;# } #&gt;
+        }
+
+        public &lt;#= Table.Name.ToPascalCase() #&gt;(
+            &lt;#= string.Join(",\n            ", Table.Columns.Select(d =&gt; $"{GetColumnType(d)} {d.Name.ToCamelCase()}")) #&gt;
+        )
+        {
+&lt;# foreach (var x in Table.Columns) { #&gt;
+            &lt;#= x.Name.ToPascalCase() #&gt; = &lt;#= x.Name.ToCamelCase() #&gt;;
+&lt;# } #&gt;
+        }
+    }
+}
+
+
+TransFormText()の定義は、ビルド前にt4が生成する、TextTemplate.Generated.csに書かれる。
+そのため、ビルド実行前には定義が存在しないので、コンパイル エラーとなってしまう。
+このままではビルド前のコード生成も実行できないため、「インターフェースのデフォルト実装」を利用してごまかす。テキスト テンプレートで利用するデータとメソッドを定義する。TextTemplate.Generated.csが生成され、それも含めてビルドされる。ちなみに横着してdotnet buildせずにdotnet runすると以下のようになります。
+dotnet runコマンド時のビルドプロセス時にはBeforeBuild設定のジョブが動かない？
+
+

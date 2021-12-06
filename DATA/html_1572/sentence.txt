@@ -1,0 +1,85 @@
+More than 1 year has passed since last update.テキストアセット ドキュメント上記によるとTextAssetはをサポートしているそうで今回xLuaというUnityでluaを扱うライブラリのサンプルをみているとluaのファイルの拡張子を.txtにしていた。テキストエディターで開いた際に設定をしなければハイライトなどが適応されないので.luaのままで設定できた方が楽じゃね？と思ったので作ってみましたLuaTextAsset.csそこで今回作ったのが.luaを許容するEditor拡張で上のgistで公開していますxLuaのExample/02_U3DScriptingを変えてに変更させていますが正しく動いているのがわかります(実行が遅いのは低スペックmacなのでご愛嬌)
+LuaTextAsset.cs
+
+
+LuaTextAsset.cs
+using System;
+using System.IO;
+using System.Text;
+using UnityEngine;
+using Object = UnityEngine.Object;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+[Serializable]
+public class LuaTextAsset
+{
+
+    public const string Extension = ".lua";
+
+    [SerializeField] private string path;
+
+    [SerializeField] private string textString;
+
+    [SerializeField] private string byteString;
+
+    public string text =&gt; textString;
+
+    public byte[] bytes =&gt; Encoding.ASCII.GetBytes(byteString);
+
+    public static implicit operator TextAsset(LuaTextAsset textAsset)
+    {
+        return new TextAsset(textAsset.textString);
+    }
+
+    public static implicit operator LuaTextAsset(TextAsset textAsset)
+    {
+        return new LuaTextAsset { textString = textAsset.text };
+    }
+}
+
+#if UNITY_EDITOR
+[CustomPropertyDrawer(typeof(LuaTextAsset))]
+public class LuaInspectorEditor : PropertyDrawer
+{
+
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        var path = property.FindPropertyRelative("path").stringValue;
+        var loaded = AssetDatabase.LoadAssetAtPath(path, typeof(Object));
+        var field = EditorGUI.ObjectField(position, label, loaded, typeof(Object), false);
+        var loadPath = AssetDatabase.GetAssetPath(field);
+        var fileExtension = Path.GetExtension(loadPath);
+        if (field == null || fileExtension != LuaTextAsset.Extension)
+        {
+            property.Set("path", "");
+            property.Set("textString", "");
+            property.Set("byteString", "");
+        }
+        else
+        {
+            var pathProperty = property.FindPropertyRelative("path");
+            property.Set("path", loadPath.Substring(loadPath.IndexOf("Assets", StringComparison.Ordinal)));
+            property.Set("textString", File.ReadAllText(pathProperty.stringValue));
+            property.Set("byteString", Encoding.ASCII.GetString(File.ReadAllBytes(pathProperty.stringValue)));
+        }
+    }
+}
+
+public static class SerializedPropertyExtension
+{
+    public static void Set(this SerializedProperty property, string name, string value)
+    {
+        var pathProperty = property.FindPropertyRelative(name);
+        pathProperty.stringValue = value;
+    }
+}
+
+#endif
+
+
+
+基本的にTextAssetと互換を保ちつつ、TextAssetと同じ変数名で扱えるように設定をしています。今回はluaに限定していますが少し変えれば好きな拡張子で設定が可能になると思います。
+
+

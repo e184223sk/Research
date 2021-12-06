@@ -1,0 +1,276 @@
+
+using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
+using System;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditorInternal;
+#endif
+
+public class CustomFade : MonoBehaviour
+{
+    //パラメータをひとまとめにしたクラス
+    [Serializable]
+    public class FadeParameter
+    {
+        [SerializeField]
+        public Color panelColor;
+
+        [SerializeField]
+        public float fadeTime;
+
+        [SerializeField]
+        public float alpha_Panel;
+    }
+
+    [SerializeField, HideInInspector]
+    FadeParameter[] fadeParameters;
+
+    [SerializeField, Tooltip("リスト内のテストしたい要素数を入力")]
+    int debugElementNum;
+
+    [SerializeField, Tooltip("デバッグ時はTrueに(OでFadeOut、IでFadeIn)")]
+    bool debug;
+
+    const float FIXEDUPDATE_DELTATIME = 0.02f;
+
+     Image facePanel;
+
+    Coroutine coroutine;
+
+
+    void Awake()
+    {
+        //シーンをロードするたびに新しいカメラを生成
+        if (GameObject.Find("OnlyUIRenderingCamera"))
+        {
+            Destroy(GameObject.Find("OnlyUIRenderingCamera"));
+        }
+    }
+
+
+    void Start()
+    {
+        //カメラ自動生成
+        GameObject camera_G = new GameObject("OnlyUIRenderingCamera");
+        Camera faceCamera = camera_G.AddComponent&lt;Camera&gt;();
+        faceCamera.clearFlags = CameraClearFlags.Depth;
+        faceCamera.cullingMask = (1 &lt;&lt; LayerMask.NameToLayer("UI"));
+
+        //キャンバス生成＆設定
+        GameObject canvas_G = new GameObject("FaceCanvas");
+        Canvas faceCanvas = canvas_G.AddComponent&lt;Canvas&gt;();
+        canvas_G.AddComponent&lt;CanvasRenderer&gt;();
+
+
+        //キャンバスのポジションを調整
+        Vector3 canvasPosition = canvas_G.transform.position;
+        canvasPosition.x = 0;
+        canvasPosition.y = 0;
+        canvasPosition.z = 0.1f;
+        canvas_G.transform.localPosition = canvasPosition;
+
+        //レンダリングをfaceCameraに
+        faceCanvas.renderMode = RenderMode.ScreenSpaceCamera;
+        faceCanvas.worldCamera = faceCamera;
+
+        //パネル生成＆設定
+        GameObject panel_G = new GameObject("FacePanel");
+        facePanel = panel_G.AddComponent&lt;Image&gt;();
+
+        Color tmpColor = facePanel.color;
+        tmpColor.a = 0f;
+        facePanel.color = tmpColor;
+
+        //パネルをキャンバスの子に設定
+        panel_G.transform.SetParent(canvas_G.transform);
+
+        //パネルのポジションを正面、スケールをいい感じに調整
+        Vector3 panelPosition = panel_G.transform.localPosition;
+        Vector3 panelScale = panel_G.transform.localScale;
+        panelPosition.x = 0;
+        panelPosition.y = 0;
+        panelPosition.z = 0;
+        panelScale = new Vector3(22, 24, 22);
+        panel_G.transform.localPosition = panelPosition;
+        panel_G.transform.localScale = panelScale;
+
+        //キャンバスをカメラの子に設定
+        canvas_G.transform.SetParent(faceCamera.transform);
+
+        //Layerを変更
+        canvas_G.layer = LayerMask.NameToLayer("UI");
+        panel_G.layer = LayerMask.NameToLayer("UI");
+
+    }
+
+    void Update()
+    {
+        //Fixed Timestepを固定
+        Time.fixedDeltaTime = FIXEDUPDATE_DELTATIME;
+
+    }
+
+    void FixedUpdate()
+    {
+        //キー押してない間はreturn
+        if (Input.anyKey == false)
+        {
+            return;
+        }
+
+        Test(debugElementNum);
+
+    }
+
+    void Test(int num)
+    {
+        if (coroutine == null &amp;&amp; debug)
+        {
+            //テスト用　フェードアウト
+            if (Input.GetKeyDown(KeyCode.O) &amp;&amp; fadeParameters[num].panelColor.a == 0)
+            {
+                FadeOut(num);
+            }
+
+            if (Input.GetKeyDown(KeyCode.I) &amp;&amp; fadeParameters[num].panelColor.a == fadeParameters[num].alpha_Panel)
+            {
+                FadeIn(num);
+            }
+        }
+    }
+
+
+    public void FadeOut(int num)
+    {
+        if (fadeParameters[num].panelColor.a == 0)
+        {
+            coroutine = StartCoroutine(FadeOutCoroutine(num));
+        }
+    }
+
+
+    public void FadeIn(int num)
+    {
+        if (fadeParameters[num].panelColor.a == fadeParameters[num].alpha_Panel)
+        {
+            coroutine = StartCoroutine(FadeInCoroutine(num));
+        }
+    }
+
+    IEnumerator FadeOutCoroutine(int num)
+    {
+
+        yield return new WaitForFixedUpdate();
+        while (facePanel.color.a &lt; fadeParameters[num].alpha_Panel - 0.00005f)
+        {
+            yield return new WaitForFixedUpdate();
+            fadeParameters[num].panelColor.a += fadeParameters[num].alpha_Panel / (fadeParameters[num].fadeTime * 50);
+            facePanel.color = fadeParameters[num].panelColor;
+
+        }
+
+        fadeParameters[num].panelColor.a = fadeParameters[num].alpha_Panel;
+
+        StopCoroutine(coroutine);
+        coroutine = null;
+    }
+
+
+    IEnumerator FadeInCoroutine(int num)
+    {
+
+        yield return new WaitForFixedUpdate();
+        while (fadeParameters[num].panelColor.a &gt; 0 + 0.00005f)
+        {
+            yield return new WaitForFixedUpdate();
+            fadeParameters[num].panelColor.a -= fadeParameters[num].alpha_Panel / (fadeParameters[num].fadeTime * 50);
+            facePanel.color = fadeParameters[num].panelColor;
+
+        }
+
+        fadeParameters[num].panelColor.a = 0;
+
+        StopCoroutine(coroutine);
+        coroutine = null;
+    }
+
+#if UNITY_EDITOR
+    [CustomEditor(typeof(CustomFade))]
+    public class CustomFadeEditor : Editor
+    {
+        ReorderableList reorderableList;
+
+        void OnEnable()
+        {
+            SerializedProperty prop = serializedObject.FindProperty("fadeParameters");
+
+            reorderableList = new ReorderableList(serializedObject, prop);
+            reorderableList.elementHeight = 78;
+            reorderableList.drawHeaderCallback = (rect) =&gt; EditorGUI.LabelField(rect, "フェードのリスト");
+            reorderableList.drawElementCallback = (rect, index, isActive, isFocused) =&gt;
+            {
+                SerializedProperty element = prop.GetArrayElementAtIndex(index);
+                rect.height -= 4;
+                rect.y += 2;
+                EditorGUI.PropertyField(rect, element);
+            };
+        }
+
+        public override void OnInspectorGUI()
+        {
+            base.OnInspectorGUI();
+
+            serializedObject.Update();
+            reorderableList.DoLayoutList();
+            serializedObject.ApplyModifiedProperties();
+        }
+    }
+#endif
+
+#if UNITY_EDITOR
+    [CustomPropertyDrawer(typeof(FadeParameter))]
+    public class CharacterDrawer : PropertyDrawer
+    {
+        public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+        {
+            //元は 1 つのプロパティーであることを示すために PropertyScope で囲む
+            using (new EditorGUI.PropertyScope(position, label, property))
+            {
+                //ラベル領域の幅を調整
+                EditorGUIUtility.labelWidth = 100;
+
+                position.height = EditorGUIUtility.singleLineHeight;
+
+                //各プロパティーの Rect を求める
+                Rect panelColorRect = new Rect(position)
+                {
+                    y = position.y + EditorGUIUtility.singleLineHeight + 1
+                };
+
+                Rect fadeTimeRect = new Rect(panelColorRect)
+                {
+                    y = panelColorRect.y + EditorGUIUtility.singleLineHeight + 2
+                };
+
+                Rect alpha_PanelRect = new Rect(fadeTimeRect)
+                {
+                    y = fadeTimeRect.y + EditorGUIUtility.singleLineHeight + 2
+                };
+
+                //各プロパティーの SerializedProperty を求める
+                SerializedProperty panelColorProperty = property.FindPropertyRelative("panelColor");
+                SerializedProperty fadeTimeProperty = property.FindPropertyRelative("fadeTime");
+                SerializedProperty alpha_PanelProperty = property.FindPropertyRelative("alpha_Panel");
+
+                //各プロパティーの GUI を描画
+                panelColorProperty.colorValue = EditorGUI.ColorField(panelColorRect, "フェードの色", panelColorProperty.colorValue);
+                fadeTimeProperty.floatValue = EditorGUI.FloatField(fadeTimeRect, "フェードの時間", fadeTimeProperty.floatValue);
+                alpha_PanelProperty.floatValue = EditorGUI.Slider(alpha_PanelRect, "透明度", alpha_PanelProperty.floatValue, 0, 1);
+            }
+        }
+    }
+#endif
+}
+

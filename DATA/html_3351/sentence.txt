@@ -1,0 +1,52 @@
+More than 1 year has passed since last update.比較元の画像（base）に写っている人が、比較先の画像（target）に写っている人とどれだけ似ているかを表示してくれるコンソールアプリ。書いてる内に妙に長くなってしまったので、①ではそれぞれの画像の顔の検出までを実装していきます。以下の画像を使用して、比較元画像の男性に対する、比較先画像の男女の類似度を判定させます。↓比較元画像↓
+↓比較先画像↓
+アプリを実行すると、以下のように検出箇所と割り振られたFaceIDを確認できます。
+
+また、比較元画像のFaceIDとの類似度をコンソール上で表示します。この場合、ちゃんと男性との類似度が高めに、女性との類似度が低めになっていますね。
+（高めにとは言ってもそんなに数値高くないですが…）これは完全に体感ですが、48％（APIからの戻り値が0.48）以上あれば、同一人物と判断してもよさそうです。
+ちなみに、もし比較元画像から2人以上の顔が検出されれば、それぞれとの類似度が表示されることになります。今回はCognitive ServicesのFace APIから、Face FindSimilarという機能をアプリのメインとします。
+Cognitive Servicesは、Microsoft Azureの提供するAIや機械学習に関するサービス群のことです。
+Face FindSimilarは比較元となるFaceID（検出した顔情報に一意に割り振られるID）と、比較先となるFaceIDの配列や事前に作成した顔グループを渡すことで、比較先の顔が比較元とどれだけ似ているのかを返してくれる機能です。ちなみにFaceIDを取得するにはFace Detect機能を使用する必要があるので、そちらも同時に実装していきます。
+というか①ではそっちの実装がメインになります…※Face Detect機能のみの単純な実装は、前回の【10分でできる】AzureのFace APIを使って画像から顔を検出するで紹介しています。
+とりあえずFace APIを使ってみたいという方や、画像に写っている人の性別、年齢、特徴、感情などが検出できればいいという方はそちらを参照されることをお勧めします。
+今回は画像の加工などもあるため、さすがに10分でとはいきませんでした( ;∀;)Face DetectFace FindSimilar参考：
+Face Detect APIリファレンス
+Face FindSimilar APIリファレンス以下、この手順で実装を進めていきます。作りましょう。
+名前はとりあえず「FindSimilar」とします。
+
+ついでに「Program.cs」ファイルの名前も変えちゃいます。
+ソリューションエクスプローラー上で「Program.cs」のファイル名を「FaceFindSimilar.cs」と変更すると、class名も「Program」から「FaceFindSimilar」となったかと思います。
+APIキーと、APIにアクセスする為のエンドポイントをApp.configに持たせます。
+appSettingsタグとその中身が追加した部分です。"subscriptionKey"のvalueにAPIキーを、"requestUrl"のvalueにFace APIキー取得時に表示されたエンドポイントを記載してください。OpenCVSharp、Face FindSimilarを使う上で必要な情報を、Face Detectから取得しましょう。すべての処理をFaceFindSimilar.csファイルに書くと読みにくいので、FaceDetect.csファイルを作成し、Face Detect機能による顔の検出処理はすべてそこに記述することにします。「Ctrl」＋「Shift」＋「A」で「新しい項目の追加」ウィンドウを開きましょう。
+
+「クラス」を選択し、名前は「FaceDetect.cs」とします。
+作成できたら、以下のようになると思います。
+メインメソッドからFaceDetectクラスのメソッド（Detectメソッドとします）を呼び出して、検出した顔のIDやOpenCVSharpで枠を描画する為の座標を取得するわけですが、まずはその時Detectメソッドに渡す引数と、Detectメソッドから欲しい情報を整理してみます。Face DetectはAPIに対してURLだけ渡せばいいので、比較元画像のURLと比較先画像のURLを渡してあげようと思います。
+ただし、URLをただの文字列や配列として渡すと比較元と比較先の区別がつかなくなるので、今回はdictionary型にして以下のように渡したいと思います。顔情報の検出後、FaceFindSimilarクラス側で必要な情報は以下になります。
+検出箇所の座標は、OpenCVSharpで検出箇所を描画する為に必要になります。戻り値が多いので、今回は上記を含む「FaceInfo」クラス型を作成し、そのリストを返してあげることにしました。
+namespace FaceFindSimilarの中に、以下のようにクラスとプロパティを追加します。次に、実際にFindSimilarメソッドから呼び出されるDetectメソッドを、FaceDetectクラスの中に記述していきます。Detectメソッドは戻り値となる顔情報を返すだけです。
+実際にFace API Detectから顔情報を取得してくる処理は、Try~Catchの中で現在コメントアウトされているImageAnalysisRequestメソッドで行います。FaceDetectクラスの中に、Face API Detectの呼び出し処理を追加します。
+また、APIに渡す画像はバイナリデータにする為、そのためのGetImageAsByteArrayメソッドも追加しています。これだけだと色々参照エラーが出ると思うので、参照に以下System.Configurationを追加して、
+
+以下のusingも追加します。何をやっているかというと、引数として受け取った画像ファイルのdictionaryを一つずつ取り出して、Face API Detectに渡したその実行結果、つまりFaceIDや検出箇所の座標を取得しています。
+リクエストパラメータにもっと色々指定することで、検出した顔の推定年齢、感情や髪色その他までわかるのですが、今回は必要ないので必要最低限"returnFaceId=true&amp;returnFaceLandmarks=false"だけ指定しています。この時点ではまだアプリケーションを実行できませんが、もし比較先画像のファイルパスがitem.Valueに入っていた場合、以下のようなJSON文字列がcontentStringから取得できるはずです。faceIdが、検出できた顔に割り振られた一意のID。
+faceRectangleの配列が、検出された位置の座標です。
+この時点では2人分の顔が検出され、配列として返ってきています。今はただのJSONなので、今度はこれを戻り値の型である独自クラスFaceInfo型のListに整形する必用があります。
+整形するにあたってはJSONをstring型の配列として扱いたいので、ここではJSONをC#で扱う為のライブラリ「Json.NET」を使って整形したいと思います。まず、Json.NETをNuGetから取得しましょう。
+VisualStudioの「プロジェクト」メニューから「NuGetパッケージの管理」を選択します。
+
+NuGetの管理画面が開くので、「参照」を選択し、検索窓に「Newtonsoft.Json」と入力。ロケットのアイコンのライブラリが表示されるので選択して、インストールボタンをクリックします。
+現時点でのバージョンは12.0.2でした。
+
+インストールが正常に完了すれば、ソリューションエクスプローラーの参照先に「Newtonsoft.Json」が追加されているはずです。
+
+無事参照追加できていたら、FaceDetect.csファイルに処理を追加します。
+「追加箇所 From(～To)」となっている箇所が新たに追記した部分です。
+※このファイルの修正はここまでなので、全文を載せます。追加箇所ではFace Detectの結果JSONを入れていたcontentStringを、JArray型というJson.NET独自の配列にパースしています。
+その後foreachで配列の数だけCreateFaceInfoメソッドを呼んでFaceInfo型に整形した後、faceInfoListというListにAddしていきます。本当は上記のような方法ではなく、faceInfoList = JsonConvert.DeserializeObject&lt;List&lt;FaceInfo&gt;&gt;(contentString);として一文で書ければよかったのですが、今回は戻り値にどの画像から取得してきたのかという情報を付加したかったので、最終的にこの形に落ち着きました。
+戻り値の型をList&lt;FaceInfo&gt;ではなくDictionary&lt;string, List&lt;FaceInfo&gt;&gt;としてKeyに"base" または "target"を指定してあげればよかったような気もしますが、そうすると受け取り側の処理がまた煩雑になりそうだったので、とりあえず今回はこれで。ここまででFace Detect側の処理は終了です。
+（長かった…）最後に、FaceFindSimilar.cs側で値を受け取れるか確認して、①は終了したいと思います。
+もう少しだけお付き合いくださいませ。FaceFindSimilar.csファイルのFaceFindSimilarクラス内部を以下のように記述します。定数URL_BASEとURL_TARGETに対してローカル画像のパス（今回は冒頭の画像を指定しています）を指定して実行すると、以下のような値が取れるかと思います。Face Detectを使用して、その戻り値を取得できました。
+次回②で、本題のFace FindSimilarを使用して類似度の判定を行いたいと思います。
+
+

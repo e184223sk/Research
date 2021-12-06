@@ -1,0 +1,91 @@
+using System;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
+
+using DatabaseFacade facade = new();
+using Logger logger = new(facade);
+
+logger.WriteLine("My message");
+await Task.Delay(100);
+
+await facade.SaveAsync("Another string");
+Util.Print("The string is saved");
+
+public static class Util
+{
+    public static void Print(string msg)
+    {
+        Console.WriteLine($"[{Thread.CurrentThread.ManagedThreadId}] {msg}");
+    }
+}
+
+public class DatabaseFacade : IDisposable
+{
+    private readonly BlockingCollection&lt;(string item, TaskCompletionSource&lt;string&gt; result)&gt; _queue;
+    private readonly Task _processItemsTask;
+
+    public DatabaseFacade()
+    {
+        _queue = new();
+        _processItemsTask = Task.Run(ProcessItems);
+    }
+
+    public void Dispose() =&gt; _queue.CompleteAdding();
+
+    public async Task SaveAsync(string command)
+    {
+        Util.Print($"Saving: {command}");
+
+        // ここで TaskCreationOptions.RunContinuationsAsynchronously を指定するとデッドロックしない
+        TaskCompletionSource&lt;string&gt; tcs = new();
+        _queue.Add((item: command, result: tcs));
+        string result = await tcs.Task;
+        Util.Print($"Saved: {result}");
+    }
+
+    private async Task ProcessItems()
+    {
+        foreach ((string item, TaskCompletionSource&lt;string&gt; result) in _queue.GetConsumingEnumerable())
+        {
+            Util.Print($"DatabaseFacade: executing '{item}'...");
+
+            // Waiting a bit to emulate some IO-bound operation
+            await Task.Delay(100);
+            result.SetResult($"OK ({item})");
+
+            Util.Print("DatabaseFacade: done.");
+        }
+    }
+}
+
+public class Logger : IDisposable
+{
+    private readonly DatabaseFacade _facade;
+    private readonly BlockingCollection&lt;string&gt; _queue = new();
+
+    private readonly Task _saveMessageTask;
+
+    public Logger(DatabaseFacade facade)
+    {
+        _facade = facade;
+        _saveMessageTask = Task.Run(SaveMessage);
+    }
+
+    public void Dispose() =&gt; _queue.CompleteAdding();
+
+    public void WriteLine(string message) =&gt; _queue.Add(message);
+
+    private async Task SaveMessage()
+    {
+        foreach (string message in _queue.GetConsumingEnumerable())
+        {
+            // "Saving" message to the file
+            Util.Print($"Logging: {message}");
+
+            // And to our database through the facade
+            await _facade.SaveAsync(message);
+        }
+    }
+}
+

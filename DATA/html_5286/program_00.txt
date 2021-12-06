@@ -1,0 +1,146 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+namespace ConvertStravaactivity2Gpx
+{
+    class Program
+    {
+        static void Main()
+        {
+            process();
+        }
+        private static void process()
+        {
+            try
+            {
+
+                double startTime = new double();
+                List&lt;loopPram&gt; gpxInfoList = new List&lt;loopPram&gt;();
+                // csvファイルを開く
+                using (var sr = new StreamReader(@"C:\XXXX\XXXXXXXXX.stravactivity"))
+                {
+                    // ストリームの末尾まで繰り返す
+                    while (!sr.EndOfStream)
+                    {
+                        // ファイルから一行読み込む
+                        var line = sr.ReadLine();
+                        if (line.StartsWith("strt"))
+                        {
+                            var splitval = line.Split(':');
+                            double.TryParse(splitval[2], out startTime);
+                        }
+                        else if (line.StartsWith("wp: "))
+                        {
+                            var excepttrashchar = line.Replace("wp:", "").Replace(" ", "").Split(';');
+                            double parmlat = new double();
+                            double parmlong = new double();
+                            double parmalt = new double();
+                            double paramt = new double();
+                            foreach (var itemlist in excepttrashchar)
+                            {
+                                var val = itemlist.Split(':')[1];
+                                if (!string.IsNullOrEmpty(val)) { 
+                                if (itemlist.StartsWith("lat:"))
+                                {
+                                    parmlat = double.Parse(val);
+                                }
+                                else if (itemlist.StartsWith("long:"))
+                                {
+                                    parmlong = double.Parse(val);
+                                }
+                                else if (itemlist.StartsWith("alt:"))
+                                {
+                                    parmalt = double.Parse(val);
+                                }
+                                else if (itemlist.StartsWith("t:"))
+                                {
+                                    paramt = double.Parse(val);
+                                }
+                                }
+                            }
+                            gpxInfoList.Add(new loopPram()
+                            {
+                                ele = EleInFormat(parmalt),
+                                lat = LatLongInFormat(parmlat),
+                                lon = LatLongInFormat(parmlong),
+                                time = DateInFormat(TimeInFormat(paramt))
+                            });
+                        }
+                    }
+                }
+
+                //ファイル書き込み
+                using (StreamWriter sw = File.CreateText(@"C:\XXXXX\\GenericGpxScript.gpx"))
+                {
+                    sw.WriteLine("&lt;?xml version=\"1.0\" encoding=\"UTF-8\"?&gt;");
+                    sw.WriteLine("&lt;gpx creator=\"GenericScript\" version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\"&gt;");
+                    sw.WriteLine("&lt;metadata&gt;");
+                    sw.Write("&lt;time&gt;");
+                    //starttime
+                    sw.Write(DateInFormat(TimeInFormat(startTime)));
+                    //
+                    sw.WriteLine("&lt;/time&gt;");
+                    sw.WriteLine("&lt;/metadata&gt;");
+                    sw.WriteLine("&lt;trk&gt;");
+                    sw.WriteLine("&lt;name&gt; Generated GPX &lt;/name&gt;");
+                    sw.WriteLine("&lt;trkseg&gt;");
+
+                    //Loop Process
+                    for (int i = 0; i &lt; gpxInfoList.Count; i++)
+                    {
+                        sw.Write("&lt;trkpt lat=\"");
+                        sw.Write(gpxInfoList[i].lat);
+                        sw.Write("\" lon=\"");
+                        sw.Write(gpxInfoList[i].lon);
+                        sw.WriteLine("\"&gt; ");
+                        sw.Write("&lt;ele&gt;");
+                        sw.Write(gpxInfoList[i].ele);
+                        sw.WriteLine("&lt;/ele&gt;");
+                        sw.Write("&lt;time&gt;");
+                        sw.Write(gpxInfoList[i].time);
+                        sw.WriteLine("&lt;/time&gt;");
+                        sw.WriteLine("&lt;/trkpt&gt;");
+                    }
+                    sw.WriteLine("&lt;/trkseg&gt;");
+                    sw.WriteLine("&lt;/trk&gt;");
+                    sw.WriteLine("&lt;/gpx &gt;");
+
+                    sw.Close();
+                }
+            }
+            catch (Exception e)
+                {
+                Console.WriteLine(e.ToString());
+            }
+
+        }
+        private static string DateInFormat(double timestamp)
+        {
+            var dt = DateTimeOffset.FromUnixTimeSeconds((long)timestamp).UtcDateTime;
+            return dt.ToString("yyyy-MM-ddTHH:mm:ssZ");
+        }
+        private static double LatLongInFormat(double reference)
+        {
+            return Math.Round(reference, 6, MidpointRounding.AwayFromZero);
+        }
+        private static double EleInFormat(double reference)
+        {
+            return Math.Round(reference, 1, MidpointRounding.AwayFromZero);
+        }
+        private static double TimeInFormat(double reference)
+        {
+            return Math.Floor(reference);
+        }
+
+    }
+    class loopPram
+    {
+        public double lat { get; set; }
+        public double lon { get; set; }
+        public double ele { get; set; }
+        public string time { get; set; }
+    }
+}
+
+

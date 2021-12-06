@@ -1,0 +1,101 @@
+
+using System.IO;
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// &lt;summary&gt;
+/// 構造体を保存、読み込み
+/// &lt;/summary&gt;
+public class UseStructData : MonoBehaviour
+{
+    [SerializeField] private Button _saveButton;
+    [SerializeField] private Button _loadButton;
+    [SerializeField] private Button _resetButton;
+    [SerializeField] private InputField _inputField;
+    [SerializeField] private Text _inputText;
+    [SerializeField] private Text _loadText;
+    [SerializeField] private Image _paintImage;
+    [SerializeField] private Image _loadImage;
+    [SerializeField] private Painter _painter;
+
+    private const string IMAGE_SAVE_FOLDER = "Image";
+    private const string IMAGE_DATA_SAVE_FOLDER = "ImageData";
+    private const string PNG = ".png";
+    private const string JSON = ".json";
+
+    ///  /// &lt;summary&gt;
+    /// 保存先のパス取得
+    /// &lt;/summary&gt;
+    /// &lt;param name="folderName"&gt;区切りのフォルダ名&lt;/param&gt;
+    /// &lt;returns&gt;保存先のパス&lt;/returns&gt;
+    private string GetSavePath(string folderName,string fileName,string type)
+    {
+        string directoryPath = Application.persistentDataPath + "/" + folderName + "/";
+
+        if (!Directory.Exists(directoryPath))
+        {
+            //まだ存在してなかったら作成
+            Directory.CreateDirectory(directoryPath);
+            return directoryPath + fileName + type;
+        }
+
+        return directoryPath + fileName + type;
+    }
+
+    private void Start()
+    {
+        //セーブボタン
+        _saveButton.OnPointerClickAsObservable().Subscribe(_ =&gt;
+            {
+                SaveImageData("SoftCream");
+
+                //リセット
+                _painter.ResetTexture();
+                _inputField.text = "";
+            })
+            .AddTo(this);
+        //ロードボタン
+        _loadButton.OnPointerClickAsObservable().Subscribe(_ =&gt; LoadImageData("SoftCream")).AddTo(this);
+        //リセットボタン
+        _resetButton.OnPointerClickAsObservable().Subscribe(_ =&gt; _painter.ResetTexture()).AddTo(this);;
+    }
+
+    /// &lt;summary&gt;
+    /// 構造体をシリアライズ
+    /// &lt;/summary&gt;
+    private void SaveImageData(string fileName)
+    {
+        string pngPath = GetSavePath(IMAGE_SAVE_FOLDER, fileName, PNG);
+        string jsonPath = GetSavePath(IMAGE_DATA_SAVE_FOLDER, fileName, JSON);
+
+        //構造体にパス、名前を入れる　これでひとつの塊
+        ImageData imageData =new ImageData(pngPath,_inputText.text);
+        //Pngに変換
+        byte[] bytes = _paintImage.sprite.texture.EncodeToPNG();
+        //保存
+        File.WriteAllBytes(pngPath, bytes);
+        //構造体をJsonに変換
+        JsonDataUtility.Save(imageData,jsonPath);
+    }
+
+    /// &lt;summary&gt;
+    /// テクスチャに変換＆読み込み
+    /// &lt;/summary&gt;
+    private void LoadImageData(string fileName)
+    {
+        string jsonPath = GetSavePath(IMAGE_DATA_SAVE_FOLDER, fileName, JSON);
+        ImageData imageData = JsonDataUtility.Load(jsonPath);
+        //読み込み
+        byte[] bytes = File.ReadAllBytes(imageData.ImageSavePath);
+        //画像をテクスチャに変換
+        Texture2D loadTexture = new Texture2D(2, 2);
+        loadTexture.LoadImage(bytes);
+        //テクスチャをスプライトに変換
+        _loadImage.sprite = Sprite.Create(loadTexture, new Rect(0, 0, loadTexture.width, loadTexture.height), Vector2.zero);
+        //画像の名前を表示
+        _loadText.text = imageData.ImageName;
+    }
+}
+

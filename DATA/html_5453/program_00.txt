@@ -1,0 +1,71 @@
+using UnityEngine;
+
+public class RecordManager : MonoBehaviour
+{
+    //公開変数
+    public int maxDuration;                  //最大の録音時間（20秒とか）
+    public AudioClip audioClip;              //音声データ
+
+    //非公開変数
+    private const int sampleRate = 16000;    //録音のサンプリングレート
+    private string mic;                      //マイクのデバイス名
+
+    ///-----------------------------------------------------------
+    /// &lt;summary&gt;録音開始&lt;/summary&gt;
+    ///-----------------------------------------------------------
+    public void StartRecord()
+    {
+        //マイク存在確認
+        if (Microphone.devices.Length == 0)
+        {
+            Debug.Log("マイクが見つかりません");
+            return;
+        }
+
+        //マイク名
+        mic = Microphone.devices[0];
+
+        //録音開始。audioClipに音声データを格納。
+        audioClip = Microphone.Start(mic, false, maxDuration, sampleRate);
+    }
+
+    ///-----------------------------------------------------------
+    /// &lt;summary&gt;録音終了&lt;/summary&gt;
+    ///-----------------------------------------------------------
+    public void StopRecord()
+    {
+        //マイクの録音位置を取得
+        int position = Microphone.GetPosition(mic);
+
+        //マイクの録音を強制的に終了
+        Microphone.End(mic);
+
+        //再生時間を確認すると、停止した時間に関わらず、maxDurationの値になっている。これは無音を含んでいる？
+        Debug.Log("修正前の録音時間: " + audioClip.length);
+
+        //音声データ一時退避用の領域を確保し、audioClipからのデータを格納
+        float[] soundData = new float[audioClip.samples * audioClip.channels];
+        audioClip.GetData(soundData, 0);
+
+        //新しい音声データ領域を確保し、positonの分だけ格納できるサイズにする。
+        float[] newData = new float[position * audioClip.channels];
+
+        //positionの分だけデータをコピー
+        for (int i = 0; i &lt; newData.Length; i++)
+        {
+            newData[i] = soundData[i];
+        }
+
+        //新しいAudioClipのインスタンスを生成し、音声データをセット
+        AudioClip newClip = AudioClip.Create(audioClip.name, position, audioClip.channels, audioClip.frequency, false);
+        newClip.SetData(newData, 0);
+
+        //audioClipを新しいものに差し替え
+        AudioClip.Destroy(audioClip);
+        audioClip = newClip;
+
+        //再生時間
+        Debug.Log("修正後の録音時間: " + newClip.length);
+    }
+}
+

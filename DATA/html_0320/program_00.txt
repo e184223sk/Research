@@ -1,0 +1,49 @@
+using KyoshinMonitorLib;
+using KyoshinMonitorLib.Images;
+using System;
+using System.Threading.Tasks;
+
+namespace KyoshinMonitorLibTutorial
+{
+    internal class Program
+    {
+        // awaitが使えるようにasync Taskに
+        static async Task Main()
+        {
+            // 出力ディレクトリにコピーした観測点情報を読み込む
+            var points = ObservationPoint.LoadFromMpk("ShindoObsPoints.mpk.lz4", true);
+            // しっかりメモリを開放するためにusingをつけてAPIのクライアントを作成する
+            using var webApi = new WebApi();
+
+            // 現時刻から1分前の時刻を取得する
+            var targetTime = DateTime.Now.AddMinutes(-1);
+
+            // もとにする観測点情報と取得したい時間を添えて震度を取得する
+            var result = await webApi.ParseIntensityFromParameterAsync(points, targetTime);
+
+            // Dataがnullの場合は取得に失敗している
+            if (result.Data == null)
+            {
+                Console.WriteLine("取得に失敗しました");
+                return;
+            }
+
+            // とりあえず観測点情報を出力してみる
+            foreach (var point in result.Data)
+            {
+                // AnalysisResultがnullの場合は取得できていない観測点のため表示しない
+                if (point.AnalysisResult == null)
+                    continue;
+
+                // 地域名 観測点名 震度 の形で出力してみる
+                Console.WriteLine(point.ObservationPoint.Region + " " + point.ObservationPoint.Name + " " + point.AnalysisResult);
+
+                // point.Color で解析に使用された色
+                // point.ObservationPoint.Location で地理座標
+                // とかいろいろできるので活用しよう！
+            }
+        }
+    }
+}
+
+

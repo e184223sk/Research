@@ -1,0 +1,178 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace soukoban3
+{
+    public static class Map
+    {
+        public static MapObject[] map;
+        public static int mapWidth;
+        public static int mapHeight;
+        public static List&lt;MapObject&gt; objectList = new List&lt;MapObject&gt;();
+
+         //初期化するメソッド
+         public static void InitializeMap(string filePath){
+             int index = 0;
+              string[] lines = File.ReadAllLines(filePath);
+              //mapの高さは行数で設定します
+              mapHeight = lines.Length;
+              //mapの幅は一行の文字数にします
+              foreach (var val in lines[0])
+                  mapWidth++;
+             //高さと幅を使って配列の要素数を決定します
+            map = new MapObject[mapWidth * mapHeight];
+
+
+            MapObject mapobject;
+                using (var reader = new StreamReader(filePath, Encoding.UTF8))
+                {
+                      while (reader.Peek() &gt; -1)
+                     {
+                          char c = Convert.ToChar(reader.Read());
+                            //改行コードを無視して配列の要素数を超えないようにする
+                           if (c != Convert.ToChar(Environment.NewLine))
+                          {
+                              //c の内容によって生成するオブジェクトのTYPEを決定する
+                              mapobject = getObject(c);
+                              map[index] = mapobject;
+                              index += 1;
+                          }   
+                     }
+                 }
+                    DrawMap();
+            }
+
+
+        //オブジェクトのOBJ_TYPEを見てコンソールに出力する
+        public static void DrawMap()
+        {
+            for (int i = 0; i &lt; map.Length; i++)
+            {
+                switch (map[i].objType)
+                {
+                    case MapObject.OBJ_TYPE.PLAYER: Console.Write('P'); break;
+                    case MapObject.OBJ_TYPE.NIMOTU: Console.Write('N'); break;
+                    case MapObject.OBJ_TYPE.WALL: Console.Write('■'); break;
+                    case MapObject.OBJ_TYPE.GOAL: Console.Write('G'); break;
+                    case MapObject.OBJ_TYPE.FLOOR: Console.Write('□'); break;
+                    case MapObject.OBJ_TYPE.GOAL_ON_NIMOTU: Console.Write('D'); break;
+                }
+                //幅の数だけ表示したら改行させます
+                if ((i + 1) % mapWidth == 0)
+                {
+                    Console.Write(Environment.NewLine);
+                }
+            }
+        }
+
+        //文字を元に生成するタイプを指定して返却する
+        private static MapObject getObject(char type){
+            if (type == 'P')
+                return new MapObject(MapObject.OBJ_TYPE.PLAYER);
+            else if (type == 'N')
+                return new MapObject(MapObject.OBJ_TYPE.NIMOTU);
+            else if (type == 'G')
+                return new MapObject(MapObject.OBJ_TYPE.GOAL);
+            else if (type == '■')
+                return new MapObject(MapObject.OBJ_TYPE.WALL);
+            else
+                return new MapObject(MapObject.OBJ_TYPE.FLOOR);
+        }
+
+
+        public static void RunSystem(){
+
+            while(true){              
+                string key = Console.ReadLine();
+                int dirction = 0;
+                //入力したキーに応じてプレイヤーの移動先を決定します。
+                switch (key)
+                {
+                    case "a":
+                        dirction = -1;
+                        break;
+                    case "d":
+                        dirction = 1;
+                        break;
+                    case "w":
+                        dirction = Map.mapWidth * (-1);
+                        break;
+                    case "s":
+                        dirction = Map.mapWidth;
+                        break;
+                    default:
+                        Console.Write("ゲームを終了します");
+                        return;
+                }
+
+                //ここでプレイヤーの移動先を調べて、移動できるかどうかを判断して実際に移動させます。
+                for (int i = 0; i &lt; map.Length; i++)
+                {
+                    //プレイヤーの特定をする
+                    if (map[i].objType == MapObject.OBJ_TYPE.PLAYER){
+                        //プレイヤーの移動先の特定
+                        var nextObject = map[i + dirction].objType;
+                        //移動先が壁だった場合の処理
+                        if (nextObject == MapObject.OBJ_TYPE.WALL){
+                            break;
+                        //荷物だった場合の処理（ここが特に汚い）
+                        }else if(nextObject == MapObject.OBJ_TYPE.NIMOTU){
+                            //荷物の移動先のオブジェクト特定する
+                            var NimotuNextObject = map[(i + dirction) + dirction].objType;
+                            //荷物の移動先が壁と荷物と荷物が乗ったゴール以外だったら
+                            if (NimotuNextObject != MapObject.OBJ_TYPE.WALL &amp;&amp; 
+                                NimotuNextObject != MapObject.OBJ_TYPE.NIMOTU &amp;&amp;
+                                NimotuNextObject != MapObject.OBJ_TYPE.GOAL_ON_NIMOTU)
+                            {
+                                //荷物の移動先がゴールだった場合
+                                if(NimotuNextObject == MapObject.OBJ_TYPE.GOAL) {
+                                    map[(i + dirction) + dirction].objType = MapObject.OBJ_TYPE.GOAL_ON_NIMOTU;
+                                    map[i + dirction].objType = MapObject.OBJ_TYPE.PLAYER;
+                                    map[i].objType = MapObject.OBJ_TYPE.FLOOR;
+                                    CheckGoal();
+                                    break;
+                                }
+                                //荷物の移動
+                                map[(i + dirction) + dirction].objType = MapObject.OBJ_TYPE.NIMOTU;
+                                //プレイヤーの移動
+                                map[i + dirction].objType = MapObject.OBJ_TYPE.PLAYER;
+                                //プレイヤー移動後お床にする
+                                map[i].objType = MapObject.OBJ_TYPE.FLOOR;
+                                break;
+                            }
+                        //移動先が床だった場合の処理
+                        }else if (nextObject == MapObject.OBJ_TYPE.FLOOR){
+                            map[i + dirction].objType = MapObject.OBJ_TYPE.PLAYER;
+                            map[i].objType = MapObject.OBJ_TYPE.FLOOR;
+                            break;
+                        }
+                     }
+                  }
+                Map.DrawMap();
+                }//end while
+            }
+
+
+        private static void CheckGoal(){
+            //まず描画します
+            Map.DrawMap();
+            //配列の内容をListに入ます。
+            List&lt;MapObject&gt; mapObjects = new List&lt;MapObject&gt;();
+            mapObjects.AddRange(map);
+            //ゴールの数が0以下ならばゲームクリアです。
+            var goalcount = mapObjects.Count(s =&gt; s.objType == MapObject.OBJ_TYPE.GOAL);
+            if(goalcount &lt;= 0){
+                Console.WriteLine("ゲームクリア！¥nゲームを終了します");
+                //コンソールの終了
+                Environment.Exit(0);
+            }
+        }
+    }
+ }
+
+
+

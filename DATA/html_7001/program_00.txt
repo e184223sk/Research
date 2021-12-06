@@ -1,0 +1,99 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+
+//クラス（ホットキー登録・解除用フォーム）
+public class HotKeyForm : Form
+{
+    [DllImport("user32.dll")]
+    extern static int RegisterHotKey(IntPtr HWnd, int ID, int MOD_KEY, Keys KEY);
+
+    [DllImport("user32.dll")]
+    extern static int UnregisterHotKey(IntPtr HWnd, int ID);
+
+    const int WM_HOTKEY = 0x0312;
+    public readonly int modKey;
+    public readonly Keys key;
+    public readonly int id;
+    public readonly ThreadStart proc;
+
+    //ホットキー登録
+    public HotKeyForm(int modKey, Keys key, ThreadStart proc)
+    {
+        for (int i = 0x0000; i &lt;= 0xbfff; i++)
+        {
+            if (RegisterHotKey(this.Handle, i, modKey, key) != 0)
+            {
+                this.modKey = modKey;
+                this.key = key;
+                this.id = i;
+                this.proc = proc;
+                break;
+            }
+        }
+    }
+
+    //ウィンドウメッセージ監視
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+
+        //ホットキーが押された時の処理
+        if (m.Msg == WM_HOTKEY)
+        {
+            if ((int)m.WParam == this.id)
+            {
+                this.proc();
+            }
+        }
+    }
+
+    //ホットキー解除
+    protected override void Dispose(bool disposing)
+    {
+        UnregisterHotKey(this.Handle, this.id);
+        base.Dispose(disposing);
+    }
+}
+
+//クラス（ホットキー制御用フォーム）
+public class HotKeyController : Form
+{
+    public List&lt;HotKeyForm&gt; HotKeyFormList;
+
+    //ホットキー登録・解除用フォームを表示すると、ウィンドウメッセージの監視が開始される
+    private void HotKeyController_Load(object sender,EventArgs e)
+    {
+        foreach (HotKeyForm hotKeyForm in this.HotKeyFormList)
+        {
+            hotKeyForm.WindowState = System.Windows.Forms.FormWindowState.Minimized;
+            hotKeyForm.Show();
+            hotKeyForm.Hide();
+        }
+    }
+
+    private void HotKeyController_FormClosing(object sender,EventArgs e)
+    {
+        foreach (HotKeyForm hotKeyForm in this.HotKeyFormList)
+        {
+            if (!hotKeyForm.IsDisposed)
+            {
+                hotKeyForm.Close();
+            }
+        }
+    }
+
+    public HotKeyController()
+    {
+        this.HotKeyFormList = new List&lt;HotKeyForm&gt;();
+
+        this.WindowState = System.Windows.Forms.FormWindowState.Minimized;
+        this.ShowInTaskbar = false;
+
+        this.Load += HotKeyController_Load;
+        this.FormClosing += HotKeyController_FormClosing;
+    }
+}
+

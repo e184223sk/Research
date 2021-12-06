@@ -1,0 +1,76 @@
+
+
+using System.IO;
+using System.Runtime.Serialization;
+using System;
+using System.Collections;
+using System.Runtime.Serialization.Formatters.Binary;
+
+
+namespace KelpNet
+{
+    public class ModelIO
+    {
+        public static void Save(FunctionStack functionStack, string fileName)
+        {
+
+            FileStream fs = new FileStream(fileName, FileMode.Create);
+            BinaryFormatter formatter = new BinaryFormatter();
+            try
+            {
+                formatter.Serialize(fs, functionStack);
+            }
+            catch (SerializationException e)
+            {
+                Console.WriteLine("Failed to serialize. Reason: " + e.Message);
+                throw;
+            }
+            finally
+            {
+                fs.Close();
+            }
+
+        }
+
+        public static FunctionStack Load(string fileName)
+        {
+
+            FunctionStack result;
+            FileStream fs = new FileStream(fileName, FileMode.Open);
+
+            try
+            {
+                BinaryFormatter formatter = new BinaryFormatter();
+                result = (FunctionStack)formatter.Deserialize(fs);
+            }
+            catch (SerializationException e)
+            {
+                Console.WriteLine("Failed to deserialize. Reason: " + e.Message);
+                throw;
+            }
+            finally
+            {
+                fs.Close();
+            }
+
+            foreach (Function function in result.Functions)
+            {
+                function.ResetState();
+
+                for (int i = 0; i &lt; function.Optimizers.Length; i++)
+                {
+                    function.Optimizers[i].ResetParams();
+                }
+
+                if (function is IParallelizable)
+                {
+                    ((IParallelizable)function).CreateKernel();
+                }
+            }
+
+            return result;
+        }
+
+    }
+}
+

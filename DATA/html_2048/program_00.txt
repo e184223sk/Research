@@ -1,0 +1,34 @@
+// using Microsoft.Extensions.Hosting;
+// using Microsoft.Extensions.Options;
+
+var builder = Host.CreateDefaultBuilder(args)
+    // サービスの構成
+    .ConfigureServices((HostBuilderContext context, IServiceCollection services) =&gt;
+    {
+        // コンフィグを登録
+        services.Configure&lt;SampleOption&gt;(context.Configuration);
+
+        // JSONパーサーによってバインドできない内容の場合は独自の後処理を実装します。
+        services.Configure&lt;SampleOption&gt;((SampleOption option) =&gt;
+        {
+            // 独自の後処理
+            option.Database.ConnectionString = ModifyConnectionString(option);
+        });
+
+        // 次のどちらかの方法でサービスを登録
+
+        // 既定のバインディング
+        // コンフィグのインスタンスは SampleService クラスのコンストラクタを通じて受け取ります。
+        services.AddSingleton&lt;IService, SampleService&gt;();
+
+        // 既定のバインディングに加えて独自の処理を組み込む必要がある場合、
+        // IServiceProvider.GetRequiredService メソッドでインスタンスを取得できます。
+        // 次のコードはコンフィグインスタンスの注入しか行っていませんので、結果的に上と同じ内容になります。
+        services.AddSingleton&lt;IService, SampleService&gt;((IServiceProvider provider) =&gt;
+        {
+            var option = provider.GetRequiredService&lt;IOptions&lt;SampleOption&gt;&gt;();
+            return new SampleService(option);
+        });
+
+    });
+

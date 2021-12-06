@@ -1,0 +1,262 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+public class TypeNameAndAssemblyPath
+{
+    private string _TypeName;
+    private string _AssemblyPath;
+
+    public string TypeName{get{return _TypeName;}}
+    public string AssemblyPath{get{return _AssemblyPath;}}
+
+    public TypeNameAndAssemblyPath(string typeName, string assemblyPath)
+    {
+        _TypeName = typeName;
+        _AssemblyPath = assemblyPath;
+    }
+
+    public static List&lt;TypeNameAndAssemblyPath&gt; FromFile(string filePath)
+    {
+        var ret = new List&lt;TypeNameAndAssemblyPath&gt;();
+        string[] strs;
+        strs = File.ReadAllLines(filePath);
+        Regex r = new Regex("^([^ \\t]+)(?:[ \\t](.+))?");
+
+        int lineNo=0;
+        foreach (string s in strs) {
+            lineNo++;
+            if ( s.Trim() == "" ) {
+                // nothing to do
+            }
+            else {
+                Match m = r.Match(s);
+                if ( m.Success ) {
+                    string typ =  m.Groups[1].Value;
+                    string asm = (m.Groups[2].Value??"").Trim();
+                    ret.Add(new TypeNameAndAssemblyPath(typ, asm));
+                }
+                else {
+                    Console.WriteLine("Warning: Line No. "+lineNo.ToString()+" is ignored.");
+                }
+            }
+        }
+        return ret;
+    }
+}
+
+public class MainForm : Form
+{
+    const string PATH_OF_TYPE_LIST = "typelist.txt";
+
+    TextBox txtTypeName;
+    TextBox txtAssemblyPath;
+    Button btnGetMembers;
+    SplitContainer spl;
+    ListView lsvTypes;
+    ListView lsvMembers;
+
+    void AddToTheLsvTypes(string filePath)
+    {
+        var list = TypeNameAndAssemblyPath.FromFile(filePath);
+
+        lsvTypes.BeginUpdate();
+        try {
+            list.Insert(0, new TypeNameAndAssemblyPath("",""));
+            foreach(var t in list) {
+                var itm = new ListViewItem(new String[]{t.TypeName, t.AssemblyPath});
+                itm.Tag = t;
+                lsvTypes.Items.Add(itm);
+            }
+        }
+        finally {
+            lsvTypes.EndUpdate();
+        }
+    }
+
+    public MainForm()
+    {
+        txtTypeName = new TextBox();
+        txtTypeName.Width = 150;
+        Controls.Add(txtTypeName);
+
+        txtAssemblyPath = new TextBox();
+        txtAssemblyPath.Location = new Point(0, 30);
+        txtAssemblyPath.Width = 450;
+        Controls.Add(txtAssemblyPath);
+
+        btnGetMembers = new Button();
+        btnGetMembers.Location = new Point(350, 0);
+        btnGetMembers.Size = new System.Drawing.Size(100,25);
+        btnGetMembers.Text = "Get Members";
+        btnGetMembers.Click += (sender,e)=&gt;{GetMembers();};
+        Controls.Add(btnGetMembers);
+
+        spl = new SplitContainer();
+        spl.Location = new Point(0, 55);
+        spl.Orientation = Orientation.Vertical;
+        Controls.Add(spl);
+
+        lsvTypes = new ListView();
+        lsvTypes.View = View.Details;
+        lsvTypes.FullRowSelect = true;
+        lsvTypes.GridLines = true;
+        lsvTypes.Columns.Add("TypeName"    , 150, HorizontalAlignment.Left);
+        lsvTypes.Columns.Add("AssemblyPath", 250, HorizontalAlignment.Left);
+        lsvTypes.Dock = DockStyle.Fill;
+        lsvTypes.SelectedIndexChanged += LsvTypes_SelectedIndexChanged;
+        lsvTypes.DoubleClick += LsvTypes_DoubleClick;
+        spl.Panel1.Controls.Add(lsvTypes);
+        AddToTheLsvTypes(PATH_OF_TYPE_LIST);
+
+        lsvMembers = new ListView();
+        lsvMembers.View = View.Details;
+        lsvMembers.FullRowSelect = true;
+        lsvMembers.GridLines = true;
+        lsvMembers.Columns.Add("Static or Not", 60, HorizontalAlignment.Left);
+        lsvMembers.Columns.Add("Category" , 65, HorizontalAlignment.Left);
+        lsvMembers.Columns.Add("Type"     ,120, HorizontalAlignment.Left);
+        lsvMembers.Columns.Add("Name"     ,120, HorizontalAlignment.Left);
+        lsvMembers.Columns.Add("Arguments",400, HorizontalAlignment.Left);
+        lsvMembers.Dock = DockStyle.Fill;
+        spl.Panel2.Controls.Add(lsvMembers);
+
+        ClientSize = new System.Drawing.Size(500, 400);
+
+        Load      += Form_Resize;
+        Resize    += Form_Resize;
+        ResizeEnd += Form_Resize;
+    }
+
+    void Form_Resize(object sender, EventArgs e)
+    {
+        spl.Size = new System.Drawing.Size(ClientSize.Width, ClientSize.Height - spl.Top);
+        txtAssemblyPath.Width = ClientSize.Width;
+        btnGetMembers.Left = ClientSize.Width - btnGetMembers.Width;
+    }
+
+    bool ReflectSelectedItemToText()
+    {
+        if (lsvTypes.SelectedIndices.Count != 1) {return false;}
+        int index = lsvTypes.SelectedIndices[0];
+        var t = (TypeNameAndAssemblyPath)(lsvTypes.Items[index].Tag);
+        txtTypeName.Text     = t.TypeName;
+        txtAssemblyPath.Text = t.AssemblyPath;
+        return true;
+    }
+
+    void LsvTypes_DoubleClick(object sender, EventArgs e)
+    {
+        if ( ReflectSelectedItemToText() ) {
+            GetMembers();
+        }
+    }
+
+    void LsvTypes_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        ReflectSelectedItemToText();
+    }
+
+    void GetMembers()
+    {
+        lsvMembers.Items.Clear();
+
+        if ( txtTypeName.Text.Trim() == "" ) {
+            return;
+        }
+
+        Type type;
+        try{
+            type = MyGetType(txtTypeName.Text.Trim(), txtAssemblyPath.Text.Trim());
+            if ( type == null ) {
+                Console.WriteLine("cannot get type object");
+                return;
+            }
+        }
+        catch(Exception excep){
+            Console.WriteLine(excep);
+            return;
+        }
+
+        lsvMembers.BeginUpdate();
+        try {
+            BindingFlags[] bFlags = new BindingFlags[]{BindingFlags.Static, BindingFlags.Instance};
+
+            foreach (var bFlag in bFlags) {
+                MethodInfo[] methods = type.GetMethods(bFlag | BindingFlags.Static | BindingFlags.Public);
+                foreach (MethodInfo m in methods.Where(x =&gt; x.DeclaringType == type)) {
+                    ParameterInfo[] pi = m.GetParameters();
+                    lsvMembers.Items.Add(new ListViewItem(new string[]{bFlag.ToString(), "Method", m.ReturnType.ToString(), m.Name, "("+String.Join(", ", pi.Select(p =&gt; p.ParameterType.Name+" "+p.Name))+")"}));
+                }
+
+                EventInfo[] events = type.GetEvents(bFlag | BindingFlags.Static | BindingFlags.Public);
+                foreach (EventInfo ei in events) {
+                    lsvMembers.Items.Add(new ListViewItem(new string[]{bFlag.ToString(), "Event", "", ei.Name, ""}));
+                }
+
+                PropertyInfo[] properties = type.GetProperties(bFlag | BindingFlags.Static | BindingFlags.Public);
+                foreach (PropertyInfo p in properties) {
+                    lsvMembers.Items.Add(new ListViewItem(new string[]{bFlag.ToString(), "Property", p.PropertyType.ToString(), p.Name, ""}));
+                }
+            }
+        }
+        finally {
+            lsvMembers.EndUpdate();
+        }
+        lsvMembers.Focus();
+    }
+
+    public static Type MyGetType(string typeName, string asmPath)
+    {
+        var type = Type.GetType(typeName);
+
+        if (type != null) {
+            return type;
+        }
+
+        if ( asmPath != null &amp;&amp; asmPath != "" ) {
+            var assembly = Assembly.LoadFrom(asmPath); //"C:\Windows\Microsoft.Net\assembly\GAC_MSIL\System\v4.0_4.0.0.0__b77a5c561934e089\System.dll");//(assemblyName);
+            if (assembly == null) {
+                Console.WriteLine("Cannot load assembly \"" + asmPath + "\"");
+            }
+            else {
+                type = assembly.GetType(typeName);
+                if (type != null) {
+                    return type;
+                }
+            }
+        }
+
+        var currentAssembly = Assembly.GetExecutingAssembly();
+        var referencedAssemblies = currentAssembly.GetReferencedAssemblies();
+
+        foreach (var assemblyName in referencedAssemblies) {
+            var assembly = Assembly.Load(assemblyName);
+
+            if (assembly != null) {
+                type = assembly.GetType(typeName);
+                if (type != null) {
+                    Console.WriteLine("\"" + typeName + "\" is found in \"" + assembly.Location + "\"");
+                    return type;
+                }
+            }
+        }
+
+        Console.WriteLine("Cannot find \"" + typeName + "\"");
+        return null;
+    }
+
+    [STAThread]
+    static void Main(){
+        Application.Run(new MainForm());
+    }
+}
+
+

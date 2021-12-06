@@ -1,0 +1,27 @@
+More than 5 years have passed since last update.僕達が、いつもありがたく使わせていただいている。
+とても書きやすく機能が豊富でそして後方互換性に力を入れすぎているMicrosoft様主導のC#という素晴らしい言語があることは皆様ご存知だと思います。そんな素晴らしいC#の標準ライブラリ.Net Frameworkですが、ソースコードが公開されていることはご存知でしょうか。（ご存知でしたか…）
+さすが天下のMicrosoft様です。というわけで、今回は.Net Frameworkのソースコードをちらっと見てみようというお話です。
+以下C#という言葉を.Netに置き換えても大丈夫だと思います。こちらです。
+http://referencesource.microsoft.com/試しに今回はStringクラスを読んでみたいと思います。
+http://referencesource.microsoft.com/#mscorlib/system/string.cs今回は詳細を読むわけではなくとりあえず試しに読んでみようぜという話なので、詳細は省いていきます。
+とりあえずStringのEqualsはどうやっているのかを読んでいきます。メンバフィールドは以下の2つが定義されています。
+[NonSerialized]private int  m_stringLength; 
+[NonSerialized]private char m_firstChar;内部の命名規則まだハンガリアンなん…？という話はおいておいて、Stringが何文字で構成されているかを表すものと1文字目の文字ですね。
+はて？これでどうやって文字列を表しているのでしょう？その疑問はCopyToなんかを読むとわかります。CopyToの以下の部分を見てみましょう。
+実際にコピーしている部分です。内部で使っているwstrcpyも引用してきます。
+http://referencesource.microsoft.com/#mscorlib/system/string.cs,701ポインタはC#ではあまりみないですが要するにm_firstCharは先頭アドレスになっていて、そこからm_stringLength*2バイトの範囲が文字列の実態ということになります。(C#のcharは2バイト)
+Cのタイプの文字列ではなくPascal系の文字列の持ち方のようですね。というわけでC#のStringは先頭アドレスと文字列長で表現されているということがわかりました。(実態もちゃんとあるのよ)さてEqualsメソッドはEqualsとEqualsHelperという2つのメソッドからなることがわかります。
+Equals
+http://referencesource.microsoft.com/#mscorlib/system/string.cs,506
+EqualsHelper
+http://referencesource.microsoft.com/#mscorlib/system/string.cs,364中を見てみると
+Equalsでは簡単なチェックをしています。
+相手がnullならfalse
+自分と相手の先頭アドレスが一致しているならtrue
+自分と相手の文字列長が一致しなければfalse
+と言った感じです。その後EqualsHelperに入ります。EqualsHelperでは1文字づつ比較していくのですが、高速化のためにただのforループではなくて10文字づつの比較してはループと言う形になっています。
+(AMD64では12文字づつ)さらにcharでの比較ではなくintでの比較で2文字づつのチェックになっていますね。残りの文字数が10文字以下になったらループを抜けて残りは2文字づつという形になっています。こんな感じで.Netのコードが読めるよというお話でした。
+あとContractめっちゃ使ってますね。
+これは僕らも使ったほうがいいのかな？（特に基底部分）
+
+

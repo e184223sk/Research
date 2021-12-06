@@ -1,0 +1,109 @@
+
+using System;
+using System.Runtime.InteropServices;  //DLLのインポートに必要
+//#####################################################################################################################
+///     RETROF-16(令和版改) 統合開発環境　FT245RLインタフェイスクラス  2020-11-26  SID.Gataro   
+//#####################################################################################################################
+namespace RETROF {
+    class RETROF245 : FT245RL {
+        private const int BUFFERSIZE = 2_500_000;       // 65536*36 = 2_400_000 送信はバッファにため一気に行なう
+        protected byte[] Buffer = new byte[BUFFERSIZE]; // ブロック転送用バッファ
+        protected uint Buffer_ptr;                      // バッファポインタ
+        private const int MAXRATE = 0x1F6_EE0;          ///要注意　2020/4/24         
+        //　レートの最大値はFTDI社のマニュアルを見ても良く判らない。BitBangモードで2.4Mbit/sでの転送が限界
+        //  0x1F6EE0 (1,260,000)より大きな値を指定するとレート設定エラーとなる
+        //  但し、レート指定値が500,000前後辺りで、それ以上の値を設定しても転送速度は変わらなくなる
+        private const int IO_MODE = 0xFE;                // D7-D1は出力、D0のみ入力
+        //-------------------------------------------------------------------------------------------------------
+        /// Open :　bitのI/Oの割当、転送速度をRETROF-16用の値に設定してオープン　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Open() { 
+            Buffer_ptr = 0;
+            Buffer[Buffer_ptr] = 0xFF;
+            uint sts;
+            if ((sts = Open(0)) != 0) goto err;
+            if ((sts = SetBaudRate(MAXRATE)) != 0) goto err;
+            //一瞬「L」信号がでるのを防ぐテク　2015-2-10
+            if ((sts = SetBitMode(0x00)) != 0) goto err;   //全bitを入力にして 
+            Buffer[0] = 0xFF;
+            if ((sts = Write(Buffer,1)) != 0) goto err;   //FFを出力してから
+            if ((sts = SetBitMode(IO_MODE)) != 0) goto err;   //改めて全ビットを設定
+            return (0);
+        err:
+            Close(); //このクローズは２重オープンエラー時以外は意味はない。
+            return sts;
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Close
+        //-------------------------------------------------------------------------------------------------------
+        new public uint Close() {return base.Close();}
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Put : バッファに1バイト書込み。　バッファサイズを超えない事は呼び出し側の責任、万一超えた場合は例外を投げる
+      　//-------------------------------------------------------------------------------------------------------
+        public void Put(uint c) {
+            //バッファサイズを超えない事は、呼び出し側の責任、万一超えた場合は、NotImplementedExceptionを投げる
+            if (Buffer_ptr &gt;= BUFFERSIZE) throw new NotImplementedException();  
+            Buffer[Buffer_ptr++] = (byte)(c &amp; 0xff);
+            return;
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Flush : 今までPutしたデータを一気に送る　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Flush() {
+            uint sts = Write(Buffer, Buffer_ptr); //書込みサイズは参照しないで捨てる
+            Buffer_ptr = 0;
+            return (sts);
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Get : デバイスから1バイト直接読み込み　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Get(ref int read_data) {
+            return GetBitMode(ref read_data);
+        }
+    }
+
+    class FT245RL {
+        //-------------------------------------------------------------------------------------------------------
+        // ft2xx.dllのインポート （VSのdebugフォルダとReleaseフォルダにftd2xx.dllを要す）
+        //-------------------------------------------------------------------------------------------------------
+        //binの下の.exeと同じフォルダか Windows\SysWOW64　にFTD2xx.dllを置く事
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Open(Int16 DeviceNumber, ref uint Handle);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Close(uint Handle);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_SetBaudRate(uint Handle, int BaudRate);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_SetBitMode(uint Handle, byte Mask, byte Mode);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Write(uint Handle, byte[] buffer, uint req_size, ref uint written_size);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_GetBitMode(uint Handle, ref int read_data);　
+        //-------------------------------------------------------------------------------------------------------
+        // FT245RLクラス　プロパティ
+        //-------------------------------------------------------------------------------------------------------
+        private byte BIGBANGMODE = 1;
+        private uint Handle;         // FTDIチップ識別子 　
+        private uint Written_size;   // 書き込んだサイズ
+        //-------------------------------------------------------------------------------------------------------
+        // コンストラクタ・デストラクタ
+        //-------------------------------------------------------------------------------------------------------
+        public FT245RL() { }
+        ~FT245RL() { FT_Close(Handle); }  //クローズ忘れに対する保証。通常は2重クローズになるが問題はない
+        //-------------------------------------------------------------------------------------------------------
+        // オリジナル関数　
+        //-------------------------------------------------------------------------------------------------------
+        protected uint Open(short device) {return FT_Open(device, ref Handle);}
+        protected uint Close() { return FT_Close(Handle); }
+        protected uint SetBaudRate(int rate) { return FT_SetBaudRate(Handle, rate); }
+        protected uint SetBitMode(byte mask) { return FT_SetBitMode(Handle, mask, BIGBANGMODE); }
+        protected uint Write(byte[] buffer, uint size) { return FT_Write(Handle,buffer, size, ref Written_size); }
+        protected uint GetBitMode(ref int read_data) { return FT_GetBitMode(Handle, ref read_data); }
+    }
+}
+
+

@@ -1,0 +1,239 @@
+
+class TypeWord{
+        /// &lt;summary&gt;
+        /// 先頭の文字インスタンスを指す絶対的なヘッド
+        /// 先頭の文字インスタンスにするとList&lt;&gt;で管理せなあかんので唯一のものを用意した。
+        /// &lt;/summary&gt;
+        public TypeChar HeadChar { get; set; }
+
+        /// &lt;summary&gt;
+        /// 前回入力が確定した文字。
+        /// 最初はHeadCharと同じ
+        /// &lt;/summary&gt;
+        public TypeChar NextChar { get; set; }
+
+        /// &lt;summary&gt;
+        /// 全部のTypeChar要素
+        /// &lt;/summary&gt;
+        protected List&lt;TypeChar&gt; AllChars { get; set; } = new List&lt;TypeChar&gt;();
+
+        /// &lt;summary&gt;
+        /// 「しゃ」などのリンキングワードの設定
+        /// &lt;/summary&gt;
+        private class Linking
+        {
+            private string _text = "";
+
+            public string First { get; set; }
+            public string Second { get; set; }
+
+            public string Text {
+                set
+                {
+                    this._text = value;
+                    this.First = $"{value[0]}";
+                    this.Second = $"{value[1]}";
+                }
+                get
+                {
+                    return this._text;
+                }
+            }
+
+            public string[] Inputs;
+        }
+        //「し」「ゃ」とかを「しゃ」に連結したパターンを生成する
+        private List&lt;Linking&gt; linkings = new List&lt;Linking&gt;() {
+                new Linking(){ Text="いぇ", Inputs=new []{ "ye" } },
+                new Linking(){ Text="きゃ", Inputs=new []{ "kya" } },
+                new Linking(){ Text="きゅ", Inputs=new []{ "kyu" } },
+                new Linking(){ Text="きょ", Inputs=new []{ "kyo" } },
+                new Linking(){ Text="ぎゃ", Inputs=new []{ "gya" } },
+                new Linking(){ Text="ぎぃ", Inputs=new []{ "gyi" } },
+                new Linking(){ Text="ぎゅ", Inputs=new []{ "gyu" } },
+                new Linking(){ Text="ぎぇ", Inputs=new []{ "gye" } },
+                new Linking(){ Text="ぎょ", Inputs=new []{ "gyo" } },
+                new Linking(){ Text="くぁ", Inputs=new []{ "qya", "qwa", "qa", "kwa" } },
+　　　　　　　　　　　　　　　　　　　　　：
+　　　　　　　　　　　　　　　　　長過ぎるので割愛
+            };
+        /// &lt;summary&gt;
+        /// １つの文章をローマ字に変換する
+        /// &lt;/summary&gt;
+        /// &lt;param name="word"&gt;ひらがな表記された文章&lt;/param&gt;
+        private void Parse(string word)
+        {
+            this.HeadChar = new TypeChar()
+            {
+                IndexOfWord = -1,
+                IndexOfSentence = -1,
+                Game = this.Sentence.Game
+            };
+
+            this.AllChars.Clear();
+
+            List&lt;TypeChar&gt; currents = new List&lt;TypeChar&gt;
+            {
+                this.HeadChar
+            };
+            List&lt;TypeChar&gt; lasts = new List&lt;TypeChar&gt;();
+
+            //１文字ずつ解析していく
+            //「しゃ」とかも「し」「ゃ」に分割される
+            int index = 0;
+            foreach (var c in word)
+            {
+                //１文字で表現できるものを取得
+                //ローマ字は、文字は同じでも入力方法は複数ある
+                var simpleChars = SimpleChars(c).ToList();
+                simpleChars.ForEach(s =&gt; s.Game = this.Sentence.Game);
+
+                this.AllChars.AddRange(simpleChars);
+
+                //前回からリストをつなげる
+                foreach (var prevNode in currents)
+                {
+                    foreach (var sc in simpleChars)
+                    {
+                        sc.IndexOfWord = index;
+                        sc.IndexOfSentence = this.IndexOfSentence;
+                        sc.Prev.AddRange(currents);
+                        prevNode.AddNext(sc);
+                    }
+                }
+                lasts.Clear();
+                lasts.AddRange(simpleChars);
+                index++;
+
+                //前回値を今回取得したやつにする
+                currents.Clear();
+                currents.AddRange(simpleChars);
+            }
+
+            //インデクサをクリア
+            currents.Clear();
+            //最後に追加した要素
+            currents.AddRange(lasts);
+            while (true)
+            {
+                List&lt;TypeChar&gt; prevs = new List&lt;TypeChar&gt;();
+
+                foreach (var at in currents)
+                {
+                    foreach (var linking in linkings)
+                    {
+                        TypeChar first = at.Text.Equals(linking.First) ? at : null;
+                        if (first == null)
+                            continue;
+
+                        var second = first.GetNext(linking.Second);
+                        if (second == null)
+                            continue;
+
+                        foreach (var input in linking.Inputs)
+                        {
+                            var linkingWord = this.AllChars.Find(c =&gt;
+                            {
+                                if (c.IndexOfSentence != this.IndexOfSentence)
+                                    return false;
+                                if (c.IndexOfWord != at.IndexOfWord)
+                                    return false;
+                                if (!c.Text.Equals(linking.Text))
+                                    return false;
+                                if (!c.InputCharString.Equals(input))
+                                    return false;
+
+                                return true;
+                            });
+                            if (linkingWord == null)
+                            {
+                                linkingWord = new TypeChar(linking.Text, input)
+                                {
+                                    IndexOfWord = at.IndexOfWord,
+                                    IndexOfSentence = this.IndexOfSentence,
+                                    Game = this.Sentence.Game,
+                                };
+                            }
+
+                            at.Prev.ForEach(p =&gt; p.AddNext(linkingWord));
+
+                            linkingWord.AddNext(second.Next);
+                            this.AllChars.Add(linkingWord);
+                        }
+                    }   
+
+                    //「ん」の「n」だけでいいパターンを生成する
+                    if (at.Text.Equals("ん"))
+                    {
+                        if ((at.Next.Count &gt; 0) &amp;&amp; !at.NextStartWith("あ,い,う,え,お,な,に,ぬ,ね,の,や,ゆ,よ".Split(new char[] { ',' })))
+                        {
+                            //次が「や」「な」「あ」行でないなら”n”だけでOK
+                            var linkingWord = new TypeChar("ん", "n")
+                            {
+                                IndexOfWord = at.IndexOfWord,
+                                IndexOfSentence = this.IndexOfSentence,
+                                Game = this.Sentence.Game,
+                            };
+                            at.Prev.ForEach(p =&gt; p.AddNext(linkingWord));
+                            linkingWord.AddNext(at.Next);
+                            this.AllChars.Add(linkingWord);
+                        }
+                    }
+
+                    //「っ」のパターンを生成する
+                    if (at.Text.Equals("っ"))
+                    {
+                        if (at.Next.Count != 0)
+                        {
+                            at.Next.ForEach(next =&gt;
+                            {
+                                var dup = next.InputChars[0];
+                                var dupChar = this.PickupByIndex(at.IndexOfWord).Where(p =&gt;
+                                {
+                                    if ((p.InputChars[0] == dup) &amp;&amp; (p.InputChars.Count == 1))
+                                        return true;
+                                    return false;
+                                }).ToList();
+
+                                if (dupChar.Count == 0)
+                                {
+                                    var linkingWord = new TypeChar("っ", next.InputChars[0])
+                                    {
+                                        IndexOfWord = at.IndexOfWord,
+                                        IndexOfSentence = this.IndexOfSentence,
+                                        Game = this.Sentence.Game,
+                                    };
+                                    at.Prev.ForEach(p =&gt; p.AddNext(linkingWord));
+                                    linkingWord.AddNext(at.Next);
+                                    this.AllChars.Add(linkingWord);
+                                }
+                                else
+                                {
+                                    dupChar.ForEach(d =&gt; at.Prev.ForEach(p =&gt; p.AddNext(d)));
+                                }
+                            });
+                        }
+                    }
+
+                    //前の要素（候補）
+                    prevs.AddRange(at.Prev);
+                }
+
+                //前の要素は重複している可能性があるのでダイエット
+                prevs = prevs.Distinct(new TypeCharEquality()).ToList();
+
+                if (prevs[0] == this.HeadChar)
+                {
+                    //先頭まで戻ってきたら終わり
+                    break;
+                }
+                currents.Clear();
+                currents.AddRange(prevs);
+
+                prevs = null;
+            }
+
+            this.NextChar = this.HeadChar;
+        }
+}
+

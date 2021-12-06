@@ -1,0 +1,22 @@
+More than 3 years have passed since last update.C#のDateTimeのKindの違いによって、PostgreSQLの日付型列にどう反映されるかを
+Visual Studio 2017
+Npgsql 4.0.2
+PostgreSQL 9.2.4
+で検証してみた。PostgreSQLにテーブルを定義。結果はとなり
+PostgreSQLのtable1の中身はとなった。整理するとTIMESTAMP WITH TIME ZONE型のdateteim_tzにはとなって、UtcとUnspecifiedは同じ挙動になっている。NpgsqlDataReaderでデータを読み込むと
+TIMESTAMP WITH TIME ZONE型のdatetime_tzはとなり、TIMESTAMP WITHOUT TIME ZONE型のdatetimeはとなった。これまでDateTimeのKindは特に気にすること無くやってきたので、Kind=Unspecifiedでコード書いていた。
+ここで気になるのが、id=3のケースでUnspecifiedのときDateTimeの値をUTCとして、UTCから日本時間に変換されているところ。
+これがこれまで、UTCから日本時間に変換ではなく、そのまま日本時間としてデータベースには 2018-01-01 00:00:00+09 が書き込まれていた。
+何が違うのかいろいろ調べてみたら、これまでの開発では、Npgsqlのバージョンが2.xを使用していた。
+今回検証のために最新の4.0.2を使ったが、この違いによる影響のようなので検証してみた。上記ソースをNpgsqlを2.2.7に変更して実行してみた。
+※NpgsqlTypes.NpgsqlDbType.TimestampTzはNpgsqlTypes.NpgsqlDbType.TimestampTZに変更している。
+その結果は、となり
+PostgreSQLのtable1の中身はとなった。整理するとTIMESTAMP WITH TIME ZONE型のdateteim_tzにはとなって、LocalとUnspecifiedは同じ挙動になっている。NpgsqlDataReaderでデータを読み込むと
+TIMESTAMP WITH TIME ZONE型のdatetime_tzはとなった。
+やはりid=3のKind=Unspecifiedのケースで挙動が異なる。どうやら、Npgsqlの2.x系と3.x系以降ではDateTimeのKind=Unspecifiedの際にとなっているようだ。ということで、手元にあるOracle12cで検証してみる。
+NpgsqlをOracle.ManagedDataAccess(バージョン18.3.0)に変更して実行してみると、となり
+Oracleのtable1の中身はとなった。
+Oracle.ManagedDataAccessの場合、DBに書き込むときにKindを見てない？ような気がする。
+また取り込むときも、KindがUnspecifiedになっているので何も設定していないようだ。MySQLやSQLite、SQL Serverなどは確認していないけど、このあたりは事前によく確認してからやったほうがよさそう。
+
+

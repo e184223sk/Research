@@ -1,0 +1,106 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+using System.IO;
+using System.Reflection;
+
+
+namespace CSVpractice.Models
+{
+
+    // TはLineDataの継承(AddressMasterLineData)、UはModelのクラス(ADDRESS_MASTER)
+    public class CsvReaderOneLine&lt;T, U&gt; :IDisposable where T:LineData,new() where U:class, new()
+    {
+        private StreamReader reader;
+        private bool skip;
+        Stream fileStream;
+        object ret;
+
+        // コンストラクタ
+        public CsvReaderOneLine(Stream fileStream, bool skip=true, string filePath = "")
+        {
+            if(filePath != "")
+            {
+                if(!filePath.EndsWith(".csv", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    throw new FormatException("拡張子が.csvではないファイルが指定されました");
+                }
+            }
+
+            this.fileStream = fileStream;
+            this.skip = skip;
+            reader = new StreamReader(fileStream);
+
+            if (skip) reader.ReadLine();
+        }
+
+
+        public bool MoveNext()
+        {
+            string line = reader.ReadLine();
+            if(line != null)
+            {
+                string[] lineSplited = line.Split(',');
+                var lineObj = new T();
+                lineObj.SetDataFrom(lineSplited);
+
+                var modelObj = new U();
+
+                // ここの実装が力技すぎてダサい ----------------------
+                PropertyInfo[] getItems = lineObj.GetType().GetProperties();
+                foreach (PropertyInfo getItem in getItems)
+                {
+
+                    PropertyInfo[] tmpItems = modelObj.GetType().GetProperties();
+                    foreach (PropertyInfo tmpItem in tmpItems)
+                    {
+                        if (getItem.Name == tmpItem.Name)
+                        {
+                            tmpItem.SetValue(modelObj, getItem.GetValue(lineObj, null));
+                        }
+                    }
+                }
+               //---------------------------------------
+
+                ret = modelObj;
+                return true;
+            }
+            else
+            {
+                ret = null;
+                return false;
+            }
+        }
+
+        public object current
+        {
+            get
+            {
+                if(ret != null)
+                {
+                    return ret;
+                }
+                else
+                {
+                    throw new NullReferenceException();
+                }
+            }
+        }
+
+        public void Reset()
+        {
+            reader.BaseStream.Seek(0, SeekOrigin.Begin);
+        }
+
+        public void Dispose()
+        {
+            this.reader.Dispose();
+        }
+
+    }
+}
+
+

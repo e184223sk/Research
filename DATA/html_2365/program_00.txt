@@ -1,0 +1,112 @@
+
+using System;
+using System.ComponentModel; // CancelEventArgsを使用するため
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+
+static class MyIconUtil
+{
+    static class NativeMethods
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public extern static bool DestroyIcon(IntPtr handle);
+    }
+
+    public static Icon Create16x16Icon(string[] iconDot)
+    {
+        Bitmap bmp = new Bitmap(16,16);
+        using ( Graphics g = Graphics.FromImage(bmp) ) {
+            g.Clear(Color.White);
+        }
+        for(int y=0;y&lt;16;y++){
+            for(int x=0;x&lt;16;x++){
+                if (iconDot[y][x]=='#') {
+                    bmp.SetPixel(x,y,Color.Black);
+                }
+            }
+        }
+
+        IntPtr Hicon = bmp.GetHicon();
+        return Icon.FromHandle(Hicon);
+    }
+
+    public static void DestroyIcon(Icon icon)
+    {
+        NativeMethods.DestroyIcon(icon.Handle);
+    }
+}
+
+
+class TaskTrayTest
+{
+    static string[] iconDot = new string[]{
+        "................",
+        ".###...##...##..",
+        "..#...#..#.#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#....#..#.",
+        "..#...#..#.#..#.",
+        ".###...##...##..",
+        "................",
+    };
+
+
+    TaskTrayTest()
+    {
+        //this.ShowInTaskbar = false; // TaskTrayTestがFormを継承する場合はコメントアウトを外す
+
+        NotifyIcon trayIcon = new NotifyIcon();
+
+        //trayIcon.Icon = new Icon("hogehoge.ico"); // 何かしらのアイコンを設定しないとタスクトレイに表示されない
+        Icon tmpIcon = MyIconUtil.Create16x16Icon(iconDot);
+        trayIcon.Icon = tmpIcon;
+        trayIcon.Visible = true;
+        // MyIconUtil.DestroyIcon(tmpIcon);
+
+        trayIcon.Text = "常駐テスト";
+        var menu = new ContextMenuStrip();
+
+        menu.Items.AddRange(new ToolStripMenuItem[]{
+            new ToolStripMenuItem("&amp;Open", null, (s,e)=&gt;{MyDoSomething();}, "Open"),
+            new ToolStripMenuItem("E&amp;xit", null, (s,e)=&gt;{MyExit();}, "Exit")
+        });
+
+        trayIcon.DoubleClick += (s,e)=&gt;{MyDoSomething();};
+        trayIcon.ContextMenuStrip = menu;
+    }
+
+    void MyDoSomething()
+    {
+        Console.WriteLine("MyDoSomething is called.");
+    }
+
+    void MyExit()
+    {
+        var e = new CancelEventArgs();
+        Application.Exit(e);
+        if (e.Cancel) {
+            Console.WriteLine("Application.Exit is canceled.");
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Console.WriteLine("Main() Start.");
+        new TaskTrayTest();
+        Console.WriteLine("Instance is created.");
+        Application.Run();
+        Console.WriteLine("Main() End.");
+    }
+}
+

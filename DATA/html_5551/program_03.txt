@@ -1,0 +1,35 @@
+
+        //FFmpegからのrawStreamを読んでBitmapに書き込む
+        private void ReadRawData()
+        {
+            MemoryStream ms = new MemoryStream();
+
+            byte[] buf = new byte[10240];
+            while (running)
+            {
+                int resSize = rawStream.Read(buf, 0, buf.Length);
+
+                if (ms.Length + resSize &gt;= bytePerframe)//今回読んだデータで1フレーム分のデータに達したか、上回った場合
+                {
+                    int needSize = bytePerframe - (int)ms.Length;//1フレームに必要な残りのデータのサイズ
+                    int remainSize = (int)ms.Length + resSize - bytePerframe;//余ったデータのサイズ
+
+                    ms.Write(buf, 0, bytePerframe - (int)ms.Length);//1フレームに必要な残りのデータを読む
+
+                    Dispatcher.Invoke(() =&gt;
+                    {
+                        if (writeableBitmap != null)//データを書き込む
+                            writeableBitmap.WritePixels(new Int32Rect(0, 0, imageWidth, imageHeight), ms.ToArray(), 3 * imageWidth, 0);
+                    });
+
+                    ms.Close();
+                    ms = new MemoryStream();
+                    ms.Write(buf, needSize + 1, remainSize);//余ったデータを書き込む
+                }
+                else
+                {
+                    ms.Write(buf, 0, resSize);//データを蓄積
+                }
+            }
+        }
+

@@ -1,0 +1,38 @@
+[assembly: FunctionsStartup(typeof(AzFuncDISample.HttpClientStartup))]
+namespace AzFuncDISample
+{
+    public class HttpClientStartup : FunctionsStartup
+    {
+        public override void Configure(IFunctionsHostBuilder builder)
+        {
+            //HttpClient
+            builder.Services.AddHttpClient("httpstat", (provider,httpClient) =&gt;
+            {
+                var configuration = provider.GetRequiredService&lt;IConfiguration&gt;();
+                var hostName = configuration.GetValue&lt;string&gt;("Test:HostName");
+                httpClient.BaseAddress = new Uri($"https://{hostName}/");
+                httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+            })
+            .ConfigurePrimaryHttpMessageHandler(() =&gt; GetHttpMessageHandler());
+
+            //HttpClient with Polly
+            builder.Services.AddHttpClient("httpstatWithPolly", (provider, httpClient) =&gt;
+            {
+                var configuration = provider.GetRequiredService&lt;IConfiguration&gt;();
+                var hostName = configuration.GetValue&lt;string&gt;("Test:HostName");
+                httpClient.BaseAddress = new Uri($"https://{hostName}/");
+                httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+            })
+            .SetHandlerLifetime(System.Threading.Timeout.InfiniteTimeSpan)
+            .AddPolicyHandler(HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg =&gt; msg.StatusCode == HttpStatusCode.NotFound || (int)msg.StatusCode == 429)
+                .Or&lt;TimeoutRejectedException&gt;()
+                .WaitAndRetryAsync(3, retryAttempt =&gt; TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
+                ))
+            .AddPolicyHandler(Policy.TimeoutAsync&lt;HttpResponseMessage&gt;(TimeSpan.FromSeconds(10)))
+            .ConfigurePrimaryHttpMessageHandler(() =&gt; GetHttpMessageHandler());
+        }
+    }
+}
+

@@ -1,0 +1,176 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Windows.Forms.DataVisualization.Charting;
+
+namespace ChartTest
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+
+            List&lt;ChartData&gt; data = new List&lt;ChartData&gt;
+                                       {
+                                           new ChartData {X = 0, Y = 3, Max = 7},
+                                           new ChartData {X = 1, Y = 4, Max = 5},
+                                           new ChartData {X = 2, Y = 8, Max = 9},
+                                           new ChartData {X = 3, Y = 6, Max = 11},
+                                           new ChartData {X = 4, Y = 7, Max = 8},
+                                           new ChartData {X = 5, Y = 3, Max = 4},
+                                           new ChartData {X = 6, Y = 1, Max = 7},
+                                           new ChartData {X = 7, Y = 0, Max = 5},
+                                           new ChartData {X = 8, Y = 5, Max = 6},
+                                           new ChartData {X = 9, Y = 2, Max = 5}
+                                       };
+
+            chart1.DataSource = data;
+
+            Series series = chart1.Series.Add("Sample");
+            series.MarkerStyle = MarkerStyle.Circle;
+            series.MarkerSize = 8;
+            series.XValueMember = "X";
+            series.YValueMembers = "Y";
+            series.ChartType = SeriesChartType.Line;
+            chart1.ChartAreas[0].AxisX.Minimum = 0;
+            chart1.ChartAreas[0].AxisX.Maximum = 9;
+
+            Series border = chart1.Series.Add("Border");
+            border.IsVisibleInLegend = false;
+            border.XValueMember = "X";
+            border.YValueMembers = "Max";
+            border.ChartType = SeriesChartType.Line;
+            border.Color = Color.Red;
+            border.BorderWidth = 2;
+
+        }
+
+        //指定した座標のグラフ要素を保持するオブジェクト
+        private HitTestResult hit = null;
+
+        //直線状態のBorderをクリックしたか
+        private bool IsHitBorderLine(string seriesName)
+        {
+            return checkBox1.Checked &amp;&amp; seriesName == "Border";
+        }
+
+        private void chart1_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (!e.Button.HasFlag(MouseButtons.Left))
+            {
+                return;
+            }
+
+            //マウス座標上にヒットしたグラフ要素を取得し、それがDataPointかつ存在するものかチェックする
+            HitTestResult test = chart1.HitTest(e.X, e.Y);
+            if (test.PointIndex &lt; 0 || test.ChartElementType != ChartElementType.DataPoint)
+            {
+                return;
+            }
+            hit = test;
+        }
+
+        private void chart1_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!e.Button.HasFlag(MouseButtons.Left) || hit == null)
+            {
+                return;
+            }
+
+            ChartArea ca = chart1.ChartAreas[0];
+            //NOTE:マウスの座標の範囲チェックをしないと例外が出る
+            double dx = ca.AxisX.PixelPositionToValue(e.X);
+            double dy = ca.AxisY.PixelPositionToValue(e.Y);
+
+            var curPoint = hit.Series.Points[hit.PointIndex];
+            if (IsHitBorderLine(hit.Series.Name))
+            {
+                //全ての線を移動させる
+                var points = hit.Series.Points;
+                foreach (var point in points)
+                {
+                    point.YValues[0] = dy;
+                }
+            }
+            else
+            {
+                curPoint.YValues[0] = dy;
+            }
+            chart1.Refresh();
+        }
+
+        private void chart1_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (hit == null)
+            {
+                return;
+            }
+
+            var curPoint = hit.Series.Points[hit.PointIndex];
+            var seriesName = hit.Series.Name;
+            //取得したグラフ要素を捨てる
+            hit = null;
+
+            var points = chart1.Series["Sample"].Points;
+            var boderPoints = chart1.Series["Border"].Points;
+
+            if (IsHitBorderLine(seriesName))
+            {
+                //Borderの最大Y軸に全データを合わせる
+                foreach (var point in points)
+                {
+                    if (point.YValues[0] &lt;= curPoint.YValues[0])
+                    {
+                        continue;
+                    }
+                    point.YValues[0] = curPoint.YValues[0];
+                }
+            }
+            else
+            {
+                //クリックしたX軸のデータをBorder以下のY軸にする
+                var point = points.Where(v =&gt; v.XValue == curPoint.XValue).FirstOrDefault();
+                var borderPoint = boderPoints.Where(v =&gt; v.XValue == curPoint.XValue).FirstOrDefault();
+                if (point == null || point.YValues[0] &lt;= borderPoint.YValues[0])
+                {
+                    return;
+                }
+
+                point.YValues[0] = borderPoint.YValues[0];
+            }
+
+            chart1.Refresh();
+        }
+
+        private void checkBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            if (checkBox1.Checked)
+            {
+                //Borderの全Pointを最大値に合わせる（直線にする）
+                var points = chart1.Series["Border"].Points;
+                var maxYValue = points.Max(v =&gt; v.YValues[0]);
+                foreach(var point in points)
+                {
+                    point.YValues[0] = maxYValue;
+                }
+                chart1.Refresh();
+            }
+        }
+    }
+
+    public class ChartData
+    {
+        public int X { get; set; }
+
+        public int Y { get; set; }
+
+        public int Max { get; set; }
+    }
+}
+

@@ -1,0 +1,77 @@
+
+private async Task&lt;(Playlist playlist, List&lt;string&gt; videoIds)&gt; GetOrInsertPlaylist(string playlistTitle)
+{
+    log.Infomation($"GetOrInsertPlaylist playlistTitle={playlistTitle}");
+
+    var listPlaylistRequest = youtubeService.Playlists.List("id,snippet");
+    listPlaylistRequest.Mine = true;
+    listPlaylistRequest.MaxResults = 50;
+    listPlaylistRequest.Fields = "items/id,items/snippet/title";
+
+    log.Infomation("listPlaylistRequest.ExecuteAsync");
+    var listPlaylistResponse = await listPlaylistRequest.ExecuteAsync();
+
+    var playlist = listPlaylistResponse.Items
+        .Where(x =&gt; x.Snippet.Title == playlistTitle)
+        .FirstOrDefault();
+
+    if (playlist != null)
+    {
+        var videoIds = await GetPlaylistItemVideoIds(playlist);
+
+        return (playlist, videoIds);
+    }
+
+    // not found playlist. insert playlist.
+    log.Infomation($"NotFound playlistTitle={playlistTitle}");
+
+    log.Infomation($"InsertPlayList {playlistTitle}");
+
+    var insertPlaylistRequest = youtubeService.Playlists.Insert(new Playlist
+    {
+        Snippet = new PlaylistSnippet
+        {
+            Title = playlistTitle,
+        },
+        Status = new PlaylistStatus
+        {
+            PrivacyStatus = "public",
+        },
+    }, "snippet,status");
+
+    insertPlaylistRequest.Fields = "id,snippet/title";
+
+    log.Infomation("insertPlaylistRequest.ExecuteAsync");
+    var insertPlaylistResponse = await insertPlaylistRequest.ExecuteAsync();
+
+    return (insertPlaylistResponse, new List&lt;string&gt;());
+}
+
+
+private async Task&lt;List&lt;string&gt;&gt; GetPlaylistItemVideoIds(Playlist playlist)
+{
+    var pageToken = default(string);
+
+    var list = new List&lt;string&gt;();
+
+    do
+    {
+        var playlistItemsRequest = youtubeService.PlaylistItems.List("snippet");
+        playlistItemsRequest.Fields = "items/snippet/id";
+        playlistItemsRequest.PageToken = pageToken;
+        playlistItemsRequest.PlaylistId = playlist.Id;
+        playlistItemsRequest.MaxResults = 50;
+
+        var playlistItemsResponse = await playlistItemsRequest.ExecuteAsync();
+
+        var videoIds = playlistItemsResponse.Items.Select(x =&gt; x.Id);
+
+        list.AddRange(videoIds);
+
+        pageToken = playlistItemsResponse.NextPageToken;
+
+    } while (!string.IsNullOrEmpty(pageToken));
+
+    return list;
+}
+

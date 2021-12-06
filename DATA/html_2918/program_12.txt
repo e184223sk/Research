@@ -1,0 +1,289 @@
+
+//  Copyright© tetr4lab.
+
+using System;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Purchasing;
+using UnityEngine.Purchasing.Security;
+
+/// &lt;summary&gt;UnityIAPを使う&lt;/summary&gt;
+namespace UnityInAppPuchaser {
+
+#if ALLOW_UIAP
+
+    /// &lt;summary&gt;課金処理&lt;/summary&gt;
+    public class Purchaser : IStoreListener {
+
+        #region Static
+
+        /// &lt;summary&gt;シングルトン&lt;/summary&gt;
+        private static Purchaser instance;
+
+        /// &lt;summary&gt;在庫目録 製品の課金状況一覧、消費タイプは未消費を表す&lt;/summary&gt;
+        public static Inventory Inventory { get; private set; }
+
+        /// &lt;summary&gt;有効 初期化が完了している&lt;/summary&gt;
+        public static bool Valid =&gt; (instance != null &amp;&amp; instance.valid);
+
+        /// &lt;summary&gt;使用不能 初期化に失敗した&lt;/summary&gt;
+        public static bool Unavailable { get; private set; }
+
+        /// &lt;summary&gt;製品目録 初期化時の製品IDに対してストアから得た情報&lt;/summary&gt;
+        public static ProductCollection Products =&gt; Valid ? instance.controller.products : null;
+
+        /// &lt;summary&gt;クラス初期化 製品のIDとタイプの一覧を渡す&lt;/summary&gt;
+        public static void Init (IEnumerable&lt;ProductDefinition&gt; products) {
+            if (instance == null || Unavailable) {
+                instance = new Purchaser (products);
+            }
+        }
+
+        /// &lt;summary&gt;所有検証 有効なレシートが存在する&lt;/summary&gt;
+        private static bool possession (Product product) {
+            return product.hasReceipt &amp;&amp; Purchaser.ValidateReceipt (product);
+        }
+
+        /// &lt;summary&gt;レシート検証&lt;/summary&gt;
+        public static bool ValidateReceipt (string productID) {
+            return (!string.IsNullOrEmpty (productID) &amp;&amp; instance.validateReceipt (instance.controller.products.WithID (productID)));
+        }
+
+        /// &lt;summary&gt;レシート検証&lt;/summary&gt;
+        public static bool ValidateReceipt (Product product) {
+            return (instance != null &amp;&amp; instance.validateReceipt (product));
+        }
+
+        /// &lt;summary&gt;課金 指定製品の課金処理を開始する&lt;/summary&gt;
+        public static bool Purchase (string productID) {
+            if (!string.IsNullOrEmpty (productID) &amp;&amp; Valid) {
+                return instance.purchase (instance.controller.products.WithID (productID));
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;課金 指定製品の課金処理を開始する&lt;/summary&gt;
+        public static bool Purchase (Product product) {
+            if (product != null &amp;&amp; Valid) {
+                return instance.purchase (product);
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;保留した課金の完了 消費タイプの指定製品の保留していた消費を完了する&lt;/summary&gt;
+        public static bool ConfirmPendingPurchase (string productID) {
+            if (!string.IsNullOrEmpty (productID) &amp;&amp; Valid) {
+                return instance.confirmPendingPurchase (instance.controller.products.WithID (productID));
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;保留した課金の完了 消費タイプの指定製品の保留していた消費を完了する&lt;/summary&gt;
+        public static bool ConfirmPendingPurchase (Product product) {
+            if (product != null &amp;&amp; Valid) {
+                return instance.confirmPendingPurchase (product);
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;復元 課金情報の復元を行い、結果のコールバックを得ることができる&lt;/summary&gt;
+        public static void Restore (Action&lt;bool&gt; onRestored = null) {
+            if (Valid) { instance.restore (onRestored); }
+        }
+
+        #endregion
+
+        /// &lt;summary&gt;コントローラー&lt;/summary&gt;
+        private IStoreController controller;
+        /// &lt;summary&gt;拡張プロバイダ&lt;/summary&gt;
+        private IExtensionProvider extensions;
+        /// &lt;summary&gt;Apple拡張&lt;/summary&gt;
+        private IAppleExtensions appleExtensions;
+        /// &lt;summary&gt;Google拡張&lt;/summary&gt;
+        private IGooglePlayStoreExtensions googlePlayStoreExtensions;
+        /// &lt;summary&gt;AppleAppStore&lt;/summary&gt;
+        private bool isAppleAppStoreSelected;
+        /// &lt;summary&gt;GooglePlayStore&lt;/summary&gt;
+        private bool isGooglePlayStoreSelected;
+        /// &lt;summary&gt;検証機構&lt;/summary&gt;
+        private CrossPlatformValidator validator;
+        /// &lt;summary&gt;有効&lt;/summary&gt;
+        private bool valid =&gt; (controller != null &amp;&amp; controller.products != null);
+
+        /// &lt;summary&gt;コンストラクタ&lt;/summary&gt;
+        private Purchaser (IEnumerable&lt;ProductDefinition&gt; products) {
+            Debug.Log ("Purchaser.Construct");
+            var module = StandardPurchasingModule.Instance ();
+            module.useFakeStoreUIMode = FakeStoreUIMode.StandardUser;
+            isGooglePlayStoreSelected = Application.platform == RuntimePlatform.Android &amp;&amp; module.appStore == AppStore.GooglePlay;
+            isAppleAppStoreSelected = Application.platform == RuntimePlatform.IPhonePlayer &amp;&amp; module.appStore == AppStore.AppleAppStore;
+            validator = new CrossPlatformValidator (GooglePlayTangle.Data (), AppleTangle.Data (), Application.identifier);
+            var builder = ConfigurationBuilder.Instance (module);
+            builder.AddProducts (products);
+            Inventory = new Inventory { };
+            UnityPurchasing.Initialize (this, builder);
+        }
+
+        /// &lt;summary&gt;レシート検証&lt;/summary&gt;
+        private bool validateReceipt (Product product) {
+            if (/*!valid ||*/ !product.hasReceipt) { return false; }
+#if UNITY_EDITOR
+            return true;
+#else
+            try {
+                var result = validator.Validate (product.receipt);
+                Debug.Log ($"Purchaser.validateReceipt Receipt is valid. (id:{product.definition.id})");
+                return true;
+            } catch (IAPSecurityException ex) {
+                Debug.LogError ($"Purchaser.validateReceipt Invalid receipt {product.definition.id}, not unlocking content. {ex}");
+                return false;
+            }
+#endif
+        }
+
+        /// &lt;summary&gt;課金開始&lt;/summary&gt;
+        private bool purchase (Product product) {
+            if (product != null &amp;&amp; product.Valid ()) {
+                Debug.Log ($"Purchaser.InitiatePurchase {product.definition.id} {product.metadata.localizedTitle} {product.metadata.localizedPriceString}");
+                controller.InitiatePurchase (product);
+                return true;
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;保留した課金の完了&lt;/summary&gt;
+        private bool confirmPendingPurchase (Product product) {
+            if (product != null &amp;&amp; Inventory [product] &amp;&amp; possession (product)) {
+                controller.ConfirmPendingPurchase (product);
+                Inventory [product] = false;
+                Debug.Log ($"Purchaser.ConfirmPendingPurchase {product.GetProperties ()}");
+                return true;
+            }
+            return false;
+        }
+
+        /// &lt;summary&gt;復元&lt;/summary&gt;
+        private void restore (Action&lt;bool&gt; onRestored = null) {
+            Debug.Log ("Purchaser.Restore");
+            Action&lt;bool&gt; onTransactionsRestored = success =&gt; { OnTransactionsRestored (success); onRestored?.Invoke (success); };
+            if (isGooglePlayStoreSelected) {
+                googlePlayStoreExtensions.RestoreTransactions (onTransactionsRestored);
+            } else if (isAppleAppStoreSelected) {
+                appleExtensions.RestoreTransactions (onTransactionsRestored);
+            }
+        }
+
+        #region Event Handler
+
+        /// &lt;summary&gt;復元完了&lt;/summary&gt;
+        private void OnTransactionsRestored (bool success) {
+            Debug.Log ($"Purchaser.Restored {success}");
+        }
+
+        /// &lt;summary&gt;iOS 'Ask to buy' 未成年者の「承認と購入のリクエスト」 承認または却下されると通常の購入イベントが発生する&lt;/summary&gt;
+        private void OnDeferred (Product product) {
+            Debug.Log ($"Purchaser.Deferred {product.GetProperties ()}");
+        }
+
+        /// &lt;summary&gt;初期化完了&lt;/summary&gt;
+        public void OnInitialized (IStoreController controller, IExtensionProvider extensions) {
+            Debug.Log ($"Purchaser.Initialized {controller}, {extensions}");
+            appleExtensions = extensions.GetExtension&lt;IAppleExtensions&gt; ();
+            appleExtensions.RegisterPurchaseDeferredListener (OnDeferred);
+            googlePlayStoreExtensions = extensions.GetExtension&lt;IGooglePlayStoreExtensions&gt; ();
+            this.controller = controller;
+            this.extensions = extensions;
+            foreach (var product in controller.products.all) {
+                if (!Inventory.ContainsKey (product)) {
+                    Inventory [product] = possession (product);
+                }
+            }
+        }
+
+        /// &lt;summary&gt;初期化失敗&lt;/summary&gt;
+        public void OnInitializeFailed (InitializationFailureReason error) {
+            Debug.LogError ($"Purchaser.InitializeFailed {error}");
+            Unavailable = true;
+        }
+
+        /// &lt;summary&gt;課金失敗&lt;/summary&gt;
+        public void OnPurchaseFailed (Product product, PurchaseFailureReason reason) {
+            Debug.LogError ($"Purchaser.PurchaseFailed Reason={reason}\n{product.GetProperties ()}");
+        }
+
+        /// &lt;summary&gt;課金結果 有効な消耗品なら保留、それ以外は完了とする&lt;/summary&gt;
+        public PurchaseProcessingResult ProcessPurchase (PurchaseEventArgs eventArgs) {
+            var validated = ValidateReceipt (eventArgs.purchasedProduct);
+            Inventory [eventArgs.purchasedProduct] = validated;
+            Debug.Log ($"Purchaser.ProcessPurchase {(validated ? "Validated" : "ValidationError")} {eventArgs.purchasedProduct.GetProperties ()}");
+            return (validated &amp;&amp; eventArgs.purchasedProduct.definition.type == ProductType.Consumable) ? PurchaseProcessingResult.Pending : PurchaseProcessingResult.Complete;
+        }
+
+        /// &lt;summary&gt;破棄&lt;/summary&gt;
+        ~Purchaser () {
+            Debug.Log ("Purchaser.Destruct");
+            if (instance == this) {
+                instance = null;
+                Inventory = null;
+                Unavailable = false;
+            }
+        }
+
+        #endregion
+
+    }
+
+    /// &lt;summary&gt;製品拡張&lt;/summary&gt;
+    public static class ProductExtentions {
+
+        /// &lt;summary&gt;製品諸元&lt;/summary&gt;
+        public static string GetProperties (this Product product) {
+            return string.Join ("\n", new [] {
+                $"id={product.definition.id} ({product.definition.storeSpecificId})",
+                $"type={product.definition.type}",
+                $"enabled={product.definition.enabled}",
+                $"available={product.availableToPurchase}",
+                $"localizedTitle={product.metadata.localizedTitle}({product.metadata.shortTitle ()})",
+                $"localizedDescription={product.metadata.localizedDescription}",
+                $"isoCurrencyCode={product.metadata.isoCurrencyCode}",
+                $"localizedPrice={product.metadata.localizedPrice}",
+                $"localizedPriceString={product.metadata.localizedPriceString}",
+                $"transactionID={product.transactionID}",
+                $"Receipt has={product.hasReceipt}",
+                $"Purchaser.Valid={Purchaser.Valid}",
+                $"Receipt validation={Purchaser.ValidateReceipt (product)}",
+                $"Possession={Purchaser.Inventory [product]}",
+            });
+        }
+
+        /// &lt;summary&gt;有効性 製品がストアに登録されていることを示すが、ストアで有効かどうかには拠らない&lt;/summary&gt;
+        public static bool Valid (this Product product) {
+            return (product.definition.enabled &amp;&amp; product.availableToPurchase);
+        }
+
+        /// &lt;summary&gt;アプリ名を含まないタイトル&lt;/summary&gt;
+        public static string shortTitle (this ProductMetadata metadata) {
+            return (metadata != null &amp;&amp; !string.IsNullOrEmpty (metadata.localizedTitle)) ? (new Regex (@"\s*\(.+\)$")).Replace (metadata.localizedTitle, "") : string.Empty;
+        }
+
+    }
+
+    /// &lt;summary&gt;productID基準でProductの在庫を表現する辞書&lt;/summary&gt;
+    public class Inventory : Dictionary&lt;string, bool&gt; {
+
+        /// &lt;summary&gt;Productによるアクセス&lt;/summary&gt;
+        public bool this [Product product] {
+            get { return base [product.definition.id]; }
+            set { base [product.definition.id] = value; }
+        }
+
+        /// &lt;summary&gt;Productによる存在確認&lt;/summary&gt;
+        public bool ContainsKey (Product product) =&gt; ContainsKey (product.definition.id);
+
+    }
+
+#endif
+
+}
+

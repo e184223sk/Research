@@ -1,0 +1,66 @@
+using Microsoft.Win32;
+using Prism.Interactivity.InteractionRequest;
+using System;
+using System.Linq;
+using System.Windows;
+using System.Windows.Interactivity;
+
+namespace Sample {
+    public class PopupCommonDialogAction : TriggerAction&lt;FrameworkElement&gt; {
+        public static readonly DependencyProperty FileDialogTypeProperty 
+            = DependencyProperty.Register(
+                nameof(FileDialogType),
+                typeof(Type),
+                typeof(PopupCommonDialogAction),
+                new PropertyMetadata(null));
+
+        public Type FileDialogType {
+            get { return (Type)GetValue(FileDialogTypeProperty); }
+            set { SetValue(FileDialogTypeProperty, value); }
+        }
+
+        protected override void Invoke(object parameter) {
+            var args = parameter as InteractionRequestedEventArgs;
+            if (args == null)
+                return;
+
+            var confirmation = args.Context as IConfirmation;
+            if (confirmation != null)
+                ShowDialog(confirmation);
+
+            args.Callback();
+        }
+
+        private void ShowDialog(IConfirmation confirmation) {
+            var dialog = (CommonDialog)Activator.CreateInstance(FileDialogType);
+            var confirmationProperties = confirmation.GetType().GetProperties();
+            var dialogProperties = dialog.GetType().GetProperties();
+
+            // ViewModelから渡された値をViewにセット
+            foreach (var prop in confirmationProperties) {
+                var value = prop.GetValue(confirmation, null);
+                if (value == null)
+                    continue;
+
+                var dialogProp = dialogProperties
+                    .FirstOrDefault(p =&gt; p.Name.Equals(prop.Name, StringComparison.OrdinalIgnoreCase));
+                if (dialogProp != null &amp;&amp; dialogProp.CanWrite)
+                    dialogProp.SetValue(dialog, value, null);
+            }
+
+            var ret = dialog.ShowDialog();
+
+            // Viewの値をViewModelに返す
+            foreach (var prop in dialogProperties) {
+                var ctxProp = confirmationProperties
+                    .FirstOrDefault(p =&gt; p.Name.Equals(prop.Name, StringComparison.OrdinalIgnoreCase));
+                if (ctxProp != null &amp;&amp; ctxProp.CanWrite)
+                    ctxProp.SetValue(confirmation, prop.GetValue(dialog, null), null);
+            }
+
+            if (confirmation != null)
+                confirmation.Confirmed = ret == true;
+        }
+    }
+}
+

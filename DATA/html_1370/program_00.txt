@@ -1,0 +1,52 @@
+
+// ログインユーザー
+var loginUser = ConfigurationManager.AppSettings["SPO_ID"];
+// サイトコレクション(サイト)のURL
+var siteCol = ConfigurationManager.AppSettings["SITE_COLLECTION_URL"];
+// サイトのURL名
+var newSiteUrl = ConfigurationManager.AppSettings["NEW_SITE_URL"];
+
+using (var clientContext = new ClientContext(Utility.URLCombine(siteCol, newSiteUrl)))
+using (var secureString = new SecureString())
+{
+    foreach (var c in ConfigurationManager.AppSettings["SPO_PASS"]) secureString.AppendChar(c);
+    secureString.MakeReadOnly();
+    clientContext.Credentials = new SharePointOnlineCredentials(loginUser, secureString);
+
+    var message = string.Empty;
+
+    var newGroupName = $"{newSiteUrl.TrimEnd('/')}Admin";       // サイトURL名+Admin 管理者用グループ
+    var newGroupDisc = "管理者用グループ";
+
+    // 指定したグループが既存かどうかを確認する
+    var groups = clientContext.Web.SiteGroups;
+    clientContext.Load(groups, gp =&gt; gp.Include(g =&gt; g.Title).Where(g =&gt; g.Title == newGroupName));
+    clientContext.ExecuteQuery();
+    // 存在する場合は処理終了
+    if (groups.FirstOrDefault() != null) return;
+
+    // グループ作成
+    var groupCreateInfo = new GroupCreationInformation
+    {
+        Title = newGroupName,
+        Description = newGroupDisc,
+    };
+
+    var newGroupAdd = clientContext.Web.SiteGroups.Add(groupCreateInfo);
+    clientContext.Load(newGroupAdd);
+    clientContext.ExecuteQuery();
+
+    // グループ設定の編集
+    // 編集のために再取得
+    groups = clientContext.Web.SiteGroups;
+    clientContext.Load(groups, gp =&gt; gp.Include(g =&gt; g.Title).Where(g =&gt; g.Title == newGroupName));
+    clientContext.ExecuteQuery();
+
+    var group = groups.FirstOrDefault();
+    group.OnlyAllowMembersViewMembership = false;           // グループのメンバーシップを表示できるユーザー：すべてのユーザー
+    group.AllowMembersEditMembership = true;                // グループのメンバーシップを編集できるユーザー：グループメンバー
+    group.Update();
+    clientContext.ExecuteQuery();
+}
+
+

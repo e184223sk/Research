@@ -1,0 +1,74 @@
+
+using System;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.IO;
+using UnityEditor;
+
+/// &lt;summary&gt;
+/// StreamingHubReceiverのインターフェースから具象型を生成するエディタ拡張
+/// &lt;/summary&gt;
+public static class StreamingHubReceiverCreator
+{
+    /// &lt;summary&gt;
+    /// StreamingHubReceiverのインターフェースから具象型を生成する
+    /// すべてのメソッドはIObservableに変換される
+    /// &lt;/summary&gt;
+    [MenuItem("Assets/Create/StreamingHubReceiver")]
+    private static void CreateStreamingHubReceiver()
+    {
+        var interfaceName = Selection.activeObject.name;
+
+        var source = File.ReadAllText(AssetDatabase.GetAssetPath(Selection.activeObject));
+
+        // using追加
+        if (!source.Contains("using System;")) source = "using System;\r\n" + source;
+        if (!source.Contains("using UniRx;")) source = "using UniRx;\r\n" + source;
+
+        // クラス名変換
+        source = Regex.Replace(source, "interface I(.*Receiver)", "class $1 : I$1");
+
+        // 各メソッド変換
+        source = Regex.Replace(source, "( *)void (.*)\\((.*)\\);", m =&gt;
+        {
+            var space = m.Groups[1].Value;
+            var name = m.Groups[2].Value;
+            var privateName = "_" + Char.ToLower(name[0]) + name.Substring(1);
+
+            var args = m.Groups[3].Value;
+            var genericArgs = "Unit";
+            var argNames = "Unit.Default";
+
+            // 引数の個数に応じてデータ構造を変更
+            var x = Regex.Matches(args, "(?:(.+?[^,]) (.+?)(?:,|$))").Cast&lt;Match&gt;().ToArray();
+            if (x.Length == 1)
+            {
+                genericArgs = x[0].Groups[1].Value;
+                argNames = x[0].Groups[2].Value;
+            }
+            else if (x.Length &gt; 1)
+            {
+                // タプル化
+                genericArgs = "(" + args + ")";
+                argNames = "(" + string.Join(", ", x.Select(y =&gt; y.Groups[2].Value)) + ")";
+            }
+
+            return $"{space}public IObservable&lt;{genericArgs}&gt; {name} =&gt; {privateName};\r\n" +
+                $"{space}private Subject&lt;{genericArgs}&gt; {privateName} = new Subject&lt;{genericArgs}&gt;();\r\n" +
+                $"{space}void {interfaceName}.{name}({args}) =&gt; {privateName}.OnNext({argNames});";
+        });
+
+        var fileName = Selection.activeObject.name.Substring(1) + ".cs";
+        var classPath = Directory.EnumerateFiles(".", fileName, SearchOption.AllDirectories).FirstOrDefault();
+        File.WriteAllText(classPath ?? "Assets/" + fileName, source);
+        AssetDatabase.Refresh();
+    }
+
+    /// &lt;summary&gt;
+    /// 選択しているアイテムがスクリプトファイルかどうかを判別する
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;スクリプトファイルかどうか&lt;/returns&gt;
+    [MenuItem("Assets/Create/StreamingHubReceiver", isValidateFunction: true)]
+    private static bool ValidateCreateStreamingHubReceiver() =&gt; Selection.activeObject is MonoScript;
+}
+

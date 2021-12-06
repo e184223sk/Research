@@ -1,0 +1,98 @@
+# Python風に、トップレベルであれば$moduleに"__main__"が入るようにしている。
+# 他のPowershellプロセスを立ち上げるときには、$moduleに"called"を入れるようにする。
+param([string]$module)
+if($module -eq ""){ $module = "__main__"}
+# コンパイル・実行を行う関数の定義
+function ComplieAndRun(){
+
+# CSharpコードのソース
+$Source=@"
+using System;
+using System.Runtime.InteropServices;
+using ComTypes = System.Runtime.InteropServices.ComTypes;
+
+namespace ListTypeLibInfo
+{
+public class Program
+{
+[DllImport("oleaut32.dll", PreserveSig=false)]
+public static extern ComTypes.ITypeLib LoadTypeLib([In, MarshalAs(UnmanagedType.LPWStr)] string typelib);
+
+public static void Main(string[] args)
+{
+ComTypes.ITypeLib lib;
+try {
+lib = LoadTypeLib(@args[0]);
+} catch (Exception ex) {
+Console.WriteLine("Error:" + ex.Message);
+//Console.ReadKey(true);
+return;
+}
+for (int i = 0; i &lt; lib.GetTypeInfoCount(); i++) {
+IntPtr ppta;
+ComTypes.ITypeInfo info;
+int con;
+string sname, doc, hlp;
+lib.GetTypeInfo(i, out info);
+info.GetDocumentation(-1, out sname, out doc, out con, out hlp);
+info.GetTypeAttr(out ppta);
+try {
+ComTypes.TYPEATTR ta = (ComTypes.TYPEATTR)Marshal.PtrToStructure(ppta, typeof(ComTypes.TYPEATTR));
+if (ta.typekind == ComTypes.TYPEKIND.TKIND_ENUM) {
+for (int j = 0; j &lt; ta.cVars; j++) {
+IntPtr ppvd;
+int pcnames;
+string[] names = {string.Empty};
+info.GetVarDesc(j, out ppvd);
+try {
+ComTypes.VARDESC vd = (ComTypes.VARDESC)Marshal.PtrToStructure(ppvd, typeof(ComTypes.VARDESC));
+info.GetNames(vd.memid, names, 1, out pcnames);
+Console.WriteLine("{0}\t{1}\t{2}", sname, names[0], Marshal.GetObjectForNativeVariant(vd.desc.lpvarValue));
+} finally {
+info.ReleaseVarDesc(ppvd);
+}
+}
+}
+} finally {
+info.ReleaseTypeAttr(ppta);
+}
+}
+//Console.Write("Press any key to continue . . . ");
+//Console.ReadKey(true);
+}
+}
+}
+
+"@
+# CSharpコードのコンパイル
+Add-Type -Language CSharpVersion3 -TypeDefinition $Source
+
+# CSharpコードの実行
+Cls;
+#[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\VBA\VBA7.1\VBE7.DLL")
+#[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\OFFICE15\MSO.DLL")
+#[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\DAO\dao360.dll")
+#[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\OFFICE15\acedao.dll")
+#[ListTypeLibInfo.Program]::main("C:\Windows\system32\stdole2.tlb")
+#[ListTypeLibInfo.Program]::main("C:\Windows\SysWow64\stdole2.tlb")
+#[ListTypeLibInfo.Program]::main("C:\DsoFile\dsofile.dll")
+[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Microsoft Office\Office15\Excel.exe")
+#X[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\OFFICE15\acecore.dll")
+#X[ListTypeLibInfo.Program]::main("C:\Program Files (x86)\Common Files\Microsoft Shared\OFFICE15\ACEOLEDB.DLL")
+}
+# トップレベルでない場合のみ、コンパイル・実行を行う。-
+if($module -ne "__main__"){
+ComplieAndRun
+[Console]::ReadKey() | Out-Null # 実行後入力を待つ
+}
+
+# トップレベルの場合は、別のPowershellプロセスを立ち上げ、自身のスクリプトを呼び出す。
+if($module -eq "__main__"){
+$path = '"' + $Script:MyInvocation.MyCommand.Path + '"'
+start-process powershell.exe -ArgumentList @('-File', $path, 'called')
+}
+&lt;#
+https://blogs.technet.microsoft.com/stefan_gossner/2010/05/07/using-csharp-c-code-in-powershell-scripts/
+https://stackoverflow.com/questions/25619169/deploying-32-bit-access-system-to-64-bit-office-machine
+#&gt;
+

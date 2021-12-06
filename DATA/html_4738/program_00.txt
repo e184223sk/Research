@@ -1,0 +1,1043 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class MeshCut : MonoBehaviour {
+
+    private MeshFilter attachedMeshFilter;
+    private Mesh attachedMesh;
+    private bool coliBool = false;
+    public float delta = 0.00001f;
+    public float skinWidth = 0.005f;
+
+    float time0;
+
+    void Start ()
+    {
+        Invoke ("BoolOn", 0.2f);
+    }
+
+    void BoolOn ()
+    {
+        attachedMeshFilter = GetComponent&lt;MeshFilter&gt; ();
+        attachedMesh = attachedMeshFilter.mesh;
+        coliBool = true;
+    }
+
+    public void Cut (Plane cutPlane)
+    {
+        if (coliBool == false) { return; }
+
+        Vector3 p1, p2, p3;
+        bool p1Bool, p2Bool, p3Bool;
+        var uv1 = new List&lt;Vector2&gt; ();
+        var uv2 = new List&lt;Vector2&gt; ();
+        var vertices1 = new List&lt;Vector3&gt; ();
+        var vertices2 = new List&lt;Vector3&gt; ();
+        var triangles1 = new List&lt;int&gt; ();
+        var triangles2 = new List&lt;int&gt; ();
+        var normals1 = new List&lt;Vector3&gt; ();
+        var normals2 = new List&lt;Vector3&gt; ();
+        var crossVertices = new List&lt;Vector3&gt; ();
+
+        for (int i = 0; i &lt; attachedMesh.triangles.Length; i += 3) {
+            p1 = transform.TransformPoint (attachedMesh.vertices [attachedMesh.triangles [i]]);
+            p2 = transform.TransformPoint (attachedMesh.vertices [attachedMesh.triangles [i + 1]]);
+            p3 = transform.TransformPoint (attachedMesh.vertices [attachedMesh.triangles [i + 2]]);
+
+            p1Bool = cutPlane.GetSide (p1);
+            p2Bool = cutPlane.GetSide (p2);
+            p3Bool = cutPlane.GetSide (p3);
+
+            if (p1Bool &amp;&amp; p2Bool &amp;&amp; p3Bool) {
+
+                for (int k = 0; k &lt; 3; k++) {
+                    vertices1.Add (attachedMesh.vertices [attachedMesh.triangles [i + k]]);
+                    uv1.Add (attachedMesh.uv [attachedMesh.triangles [i + k]]);
+                    normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + k]]);
+                    triangles1.Add (vertices1.Count - 1);
+                }
+
+
+            } else if (!p1Bool &amp;&amp; !p2Bool &amp;&amp; !p3Bool) {
+
+                for (int k = 0; k &lt; 3; k++) {
+                    vertices2.Add (attachedMesh.vertices [attachedMesh.triangles [i + k]]);
+                    uv2.Add (attachedMesh.uv [attachedMesh.triangles [i + k]]);
+                    normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + k]]);
+                    triangles2.Add (vertices2.Count - 1);
+                }
+            } else if ((p1Bool &amp;&amp; !p2Bool &amp;&amp; !p3Bool) || (!p1Bool &amp;&amp; p2Bool &amp;&amp; !p3Bool) || (!p1Bool &amp;&amp; !p2Bool &amp;&amp; p3Bool)) {
+                Vector3 p, c1, c2;
+                int n1, n2, n3;
+                if (p1Bool) {
+                    p = p1;
+                    c1 = p2;
+                    c2 = p3;
+                    n1 = 0;
+                    n2 = 1;
+                    n3 = 2;
+
+                } else if (p2Bool) {
+                    p = p2;
+                    c1 = p3;
+                    c2 = p1;
+                    n1 = 1;
+                    n2 = 2;
+                    n3 = 0;
+
+                } else {
+                    p = p3;
+                    c1 = p1;
+                    c2 = p2;
+                    n1 = 2;
+                    n2 = 0;
+                    n3 = 1;
+
+                }
+
+                Vector3 cross1 = transform.InverseTransformPoint (p
+                    + (-cutPlane.distance - Vector3.Dot (cutPlane.normal, p))
+                    * (c1 - p) / Vector3.Dot (cutPlane.normal, c1 - p));
+                Vector3 cross2 = transform.InverseTransformPoint (p
+                    + (-cutPlane.distance - Vector3.Dot (cutPlane.normal, p))
+                    * (c2 - p) / Vector3.Dot (cutPlane.normal, c2 - p));
+
+                crossVertices.Add (cross1);
+                crossVertices.Add (cross2);
+                Vector2 cross1Uv = Vector2.Lerp (attachedMesh.uv [attachedMesh.triangles [i + n2]], attachedMesh.uv [attachedMesh.triangles [i + n1]], (transform.TransformPoint (cross1) - c1).magnitude / (p - c1).magnitude);
+                Vector2 cross2Uv = Vector2.Lerp (attachedMesh.uv [attachedMesh.triangles [i + n3]], attachedMesh.uv [attachedMesh.triangles [i + n1]], (transform.TransformPoint (cross2) - c2).magnitude / (p - c2).magnitude);
+
+                vertices1.Add (cross1);
+                uv1.Add (cross1Uv);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles1.Add (vertices1.Count - 1);
+
+                vertices1.Add (cross2);
+                uv1.Add (cross2Uv);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles1.Add (vertices1.Count - 1);
+
+                vertices1.Add (attachedMesh.vertices [attachedMesh.triangles [i + n1]]);
+                uv1.Add (attachedMesh.uv [attachedMesh.triangles [i + n1]]);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles1.Add (vertices1.Count - 1);
+
+
+                vertices2.Add (cross2);
+                uv2.Add (cross2Uv);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles2.Add (vertices2.Count - 1);
+
+                vertices2.Add (attachedMesh.vertices [attachedMesh.triangles [i + n2]]);
+                uv2.Add (attachedMesh.uv [attachedMesh.triangles [i + n2]]);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n2]]);
+                triangles2.Add (vertices2.Count - 1);
+
+                vertices2.Add (attachedMesh.vertices [attachedMesh.triangles [i + n3]]);
+                uv2.Add (attachedMesh.uv [attachedMesh.triangles [i + n3]]);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n3]]);
+                triangles2.Add (vertices2.Count - 1);
+
+
+                vertices2.Add (cross2);
+                uv2.Add (cross2Uv);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles2.Add (vertices2.Count - 1);
+
+                vertices2.Add (cross1);
+                triangles2.Add (vertices2.Count - 1);
+                uv2.Add (cross1Uv);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices2.Add (attachedMesh.vertices [attachedMesh.triangles [i + n2]]);
+                uv2.Add (attachedMesh.uv [attachedMesh.triangles [i + n2]]);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n2]]);
+                triangles2.Add (vertices2.Count - 1);
+
+            } else if ((!p1Bool &amp;&amp; p2Bool &amp;&amp; p3Bool) || (p1Bool &amp;&amp; !p2Bool &amp;&amp; p3Bool) || (p1Bool &amp;&amp; p2Bool &amp;&amp; !p3Bool)) {
+                Vector3 p, c1, c2;
+                int n1, n2, n3;
+                if (!p1Bool) {
+                    p = p1;
+                    c1 = p2;
+                    c2 = p3;
+                    n1 = 0;
+                    n2 = 1;
+                    n3 = 2;
+                } else if (!p2Bool) {
+                    p = p2;
+                    c1 = p3;
+                    c2 = p1;
+                    n1 = 1;
+                    n2 = 2;
+                    n3 = 0;
+                } else {
+                    p = p3;
+                    c1 = p1;
+                    c2 = p2;
+                    n1 = 2;
+                    n2 = 0;
+                    n3 = 1;
+                }
+
+                Vector3 cross1 = transform.InverseTransformPoint (p
+                    + (-cutPlane.distance - Vector3.Dot (cutPlane.normal, p))
+                    * (c1 - p) / Vector3.Dot (cutPlane.normal, c1 - p));
+                Vector3 cross2 = transform.InverseTransformPoint (p
+                    + (-cutPlane.distance - Vector3.Dot (cutPlane.normal, p))
+                    * (c2 - p) / Vector3.Dot (cutPlane.normal, c2 - p));
+                crossVertices.Add (cross1);
+                crossVertices.Add (cross2);
+                Vector2 cross1Uv = Vector2.Lerp (attachedMesh.uv [attachedMesh.triangles [i + n2]], attachedMesh.uv [attachedMesh.triangles [i + n1]], (transform.TransformPoint (cross1) - c1).magnitude / (p - c1).magnitude);
+                Vector2 cross2Uv = Vector2.Lerp (attachedMesh.uv [attachedMesh.triangles [i + n3]], attachedMesh.uv [attachedMesh.triangles [i + n1]], (transform.TransformPoint (cross2) - c2).magnitude / (p - c2).magnitude);
+
+
+                vertices2.Add (cross1);
+                triangles2.Add (vertices2.Count - 1);
+                uv2.Add (cross1Uv);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices2.Add (cross2);
+                triangles2.Add (vertices2.Count - 1);
+                uv2.Add (cross2Uv);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices2.Add (attachedMesh.vertices [attachedMesh.triangles [i + n1]]);
+                uv2.Add (attachedMesh.uv [attachedMesh.triangles [i + n1]]);
+                normals2.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+                triangles2.Add (vertices2.Count - 1);
+
+
+                vertices1.Add (cross2);
+                triangles1.Add (vertices1.Count - 1);
+                uv1.Add (cross2Uv);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices1.Add (attachedMesh.vertices [attachedMesh.triangles [i + n2]]);
+                uv1.Add (attachedMesh.uv [attachedMesh.triangles [i + n2]]);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n2]]);
+                triangles1.Add (vertices1.Count - 1);
+
+                vertices1.Add (attachedMesh.vertices [attachedMesh.triangles [i + n3]]);
+                uv1.Add (attachedMesh.uv [attachedMesh.triangles [i + n3]]);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n3]]);
+                triangles1.Add (vertices1.Count - 1);
+
+
+
+                vertices1.Add (cross2);
+                triangles1.Add (vertices1.Count - 1);
+                uv1.Add (cross2Uv);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices1.Add (cross1);
+                triangles1.Add (vertices1.Count - 1);
+                uv1.Add (cross1Uv);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n1]]);
+
+                vertices1.Add (attachedMesh.vertices [attachedMesh.triangles [i + n2]]);
+                uv1.Add (attachedMesh.uv [attachedMesh.triangles [i + n2]]);
+                normals1.Add (attachedMesh.normals [attachedMesh.triangles [i + n2]]);
+                triangles1.Add (vertices1.Count - 1);
+            }
+        }
+
+
+
+        for (int i = 0; i &lt; vertices1.Count; i += 3) {
+
+            for (int j = i + 3; j &lt; vertices1.Count; j += 3) {
+                if (Vector3.Dot (Vector3.Cross (vertices1 [i + 1] - vertices1 [i], vertices1 [i + 2] - vertices1 [i + 1]).normalized, Vector3.Cross (vertices1 [j + 1] - vertices1 [j], vertices1 [j + 2] - vertices1 [j + 1]).normalized) &gt; 1 - delta) {
+                    for (int k = 0; k &lt; 3; k++) {
+                        int adj = 0;
+                        if (k == 2) {
+                            adj = -3;
+                        }
+                        if (Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [i + k]).normalized, (vertices1 [j + 1] - vertices1 [j]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [j+1]).normalized, (vertices1 [i+k] - vertices1 [j]).normalized) &lt; delta - 1) {
+
+                            if (Vector3.Dot ((vertices1 [i + numRep (2 + k)] - vertices1 [i + numRep (1 + k)]).normalized, (vertices1 [j] - vertices1 [j + 2]).normalized) &gt; 1 - delta) {
+
+                                vertices1.Add (vertices1 [i + k]);
+                                uv1.Add (uv1 [i + k]);
+                                normals1.Add (normals1 [i + k]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [j + 2]);
+                                uv1.Add (uv1 [j + 2]);
+                                normals1.Add (normals1 [j + 2]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices1 [i + k] - vertices1 [i + numRep (2 + k)]).normalized, (vertices1 [j + 2] - vertices1 [j + 1]).normalized) &gt; 1 - delta) {
+
+                                vertices1.Add (vertices1 [i + numRep (1 + k)]);
+                                uv1.Add (uv1 [i + numRep (1 + k)]);
+                                normals1.Add (normals1 [i + numRep (1 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+
+                                vertices1.Add (vertices1 [j + 2]);
+                                uv1.Add (uv1 [j + 2]);
+                                normals1.Add (normals1 [j + 2]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+                            }
+
+                        } else if(Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [i + k]).normalized, (vertices1 [j + 2] - vertices1 [j+1]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [j+2]).normalized, (vertices1 [i+k] - vertices1 [j+1]).normalized) &lt; delta - 1) {
+
+                            if (Vector3.Dot ((vertices1 [i + numRep (2 + k)] - vertices1 [i + numRep (1 + k)]).normalized, (vertices1 [j + 1] - vertices1 [j]).normalized) &gt; 1 - delta) {
+                                vertices1.Add (vertices1 [i + k]);
+                                uv1.Add (uv1 [i + k]);
+                                normals1.Add (normals1 [i + k]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [j]);
+                                uv1.Add (uv1 [j]);
+                                normals1.Add (normals1 [j]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices1 [i + k] - vertices1 [i + numRep (2 + k)]).normalized, (vertices1 [j] - vertices1 [j + 2]).normalized) &gt; 1 - delta) {
+                                vertices1.Add (vertices1 [i + numRep (1 + k)]);
+                                uv1.Add (uv1 [i + numRep (1 + k)]);
+                                normals1.Add (normals1 [i + numRep (1 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+
+                                vertices1.Add (vertices1 [j]);
+                                uv1.Add (uv1 [j]);
+                                normals1.Add (normals1 [j]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+                            }
+
+
+                        } else if(Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [i + k]).normalized, (vertices1 [j] - vertices1 [j+2]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices1 [i + numRep (1 + k)] - vertices1 [j]).normalized, (vertices1 [i+k] - vertices1 [j+2]).normalized) &lt; delta - 1) {
+
+
+                            if (Vector3.Dot ((vertices1 [i + numRep (2 + k)] - vertices1 [i + numRep (1 + k)]).normalized, (vertices1 [j + 2] - vertices1 [j + 1]).normalized) &gt; 1 - delta) {
+
+                                vertices1.Add (vertices1 [i + k]);
+                                uv1.Add (uv1 [i + k]);
+                                normals1.Add (normals1 [i + k]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [j + 1]);
+                                uv1.Add (uv1 [j + 1]);
+                                normals1.Add (normals1 [j + 1]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices1 [i + k] - vertices1 [i + numRep (2 + k)]).normalized, (vertices1 [j + 1] - vertices1 [j]).normalized) &gt; 1 - delta) {
+
+                                vertices1.Add (vertices1 [i + numRep (1 + k)]);
+                                uv1.Add (uv1 [i + numRep (1 + k)]);
+                                normals1.Add (normals1 [i + numRep (1 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.Add (vertices1 [i + numRep (2 + k)]);
+                                uv1.Add (uv1 [i + numRep (2 + k)]);
+                                normals1.Add (normals1 [i + numRep (2 + k)]);
+                                triangles1.Add (vertices1.Count - 1);
+
+
+                                vertices1.Add (vertices1 [j + 1]);
+                                uv1.Add (uv1 [j + 1]);
+                                normals1.Add (normals1 [j + 1]);
+                                triangles1.Add (vertices1.Count - 1);
+
+                                vertices1.RemoveRange (j, 3);
+                                uv1.RemoveRange (j, 3);
+                                normals1.RemoveRange (j, 3);
+                                triangles1.RemoveRange (j, 3);
+
+                                vertices1.RemoveRange (i, 3);
+                                uv1.RemoveRange (i, 3);
+                                normals1.RemoveRange (i, 3);
+                                triangles1.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles1.Count; l++) {
+                                    if (triangles1 [l] &gt;= j) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                    if (triangles1 [l] &gt;= i) {
+                                        triangles1 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+                            }
+
+
+
+                        }
+                    }
+
+
+                }
+
+            }
+
+
+        }  
+
+
+
+        for (int i = 0; i &lt; vertices2.Count; i += 3) {
+
+            for (int j = i + 3; j &lt; vertices2.Count; j += 3) {
+                if (Vector3.Dot (Vector3.Cross (vertices2 [i + 1] - vertices2 [i], vertices2 [i + 2] - vertices2 [i + 1]).normalized, Vector3.Cross (vertices2 [j + 1] - vertices2 [j], vertices2 [j + 2] - vertices2 [j + 1]).normalized) &gt; 1 - delta) {
+                    for (int k = 0; k &lt; 3; k++) {
+                        int adj = 0;
+                        if (k == 2) {
+                            adj = -3;
+                        }
+                        if (Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [i + k]).normalized, (vertices2 [j + 1] - vertices2 [j]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [j+1]).normalized, (vertices2 [i+k] - vertices2 [j]).normalized) &lt; delta - 1) {
+
+                            if (Vector3.Dot ((vertices2 [i + numRep (2 + k)] - vertices2 [i + numRep (1 + k)]).normalized, (vertices2 [j] - vertices2 [j + 2]).normalized) &gt; 1 - delta) {
+
+                                vertices2.Add (vertices2 [i + k]);
+                                uv2.Add (uv2 [i + k]);
+                                normals2.Add (normals2 [i + k]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [j + 2]);
+                                uv2.Add (uv2 [j + 2]);
+                                normals2.Add (normals2 [j + 2]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices2 [i + k] - vertices2 [i + numRep (2 + k)]).normalized, (vertices2 [j + 2] - vertices2 [j + 1]).normalized) &gt; 1 - delta) {
+
+                                vertices2.Add (vertices2 [i + numRep (1 + k)]);
+                                uv2.Add (uv2 [i + numRep (1 + k)]);
+                                normals2.Add (normals2 [i + numRep (1 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+
+                                vertices2.Add (vertices2 [j + 2]);
+                                uv2.Add (uv2 [j + 2]);
+                                normals2.Add (normals2 [j + 2]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+                            }
+
+                        } else if(Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [i + k]).normalized, (vertices2 [j + 2] - vertices2 [j+1]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [j+2]).normalized, (vertices2 [i+k] - vertices2 [j+1]).normalized) &lt; delta - 1) {
+
+                            if (Vector3.Dot ((vertices2 [i + numRep (2 + k)] - vertices2 [i + numRep (1 + k)]).normalized, (vertices2 [j + 1] - vertices2 [j]).normalized) &gt; 1 - delta) {
+                                vertices2.Add (vertices2 [i + k]);
+                                uv2.Add (uv2 [i + k]);
+                                normals2.Add (normals2 [i + k]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [j]);
+                                uv2.Add (uv2 [j]);
+                                normals2.Add (normals2 [j]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices2 [i + k] - vertices2 [i + numRep (2 + k)]).normalized, (vertices2 [j] - vertices2 [j + 2]).normalized) &gt; 1 - delta) {
+                                vertices2.Add (vertices2 [i + numRep (1 + k)]);
+                                uv2.Add (uv2 [i + numRep (1 + k)]);
+                                normals2.Add (normals2 [i + numRep (1 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+
+                                vertices2.Add (vertices2 [j]);
+                                uv2.Add (uv2 [j]);
+                                normals2.Add (normals2 [j]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+                            }
+
+
+                        } else if(Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [i + k]).normalized, (vertices2 [j] - vertices2 [j+2]).normalized) &lt; delta - 1
+                            &amp;&amp;Vector3.Dot ((vertices2 [i + numRep (1 + k)] - vertices2 [j]).normalized, (vertices2 [i+k] - vertices2 [j+2]).normalized) &lt; delta - 1) {
+
+
+                            if (Vector3.Dot ((vertices2 [i + numRep (2 + k)] - vertices2 [i + numRep (1 + k)]).normalized, (vertices2 [j + 2] - vertices2 [j + 1]).normalized) &gt; 1 - delta) {
+
+                                vertices2.Add (vertices2 [i + k]);
+                                uv2.Add (uv2 [i + k]);
+                                normals2.Add (normals2 [i + k]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [j + 1]);
+                                uv2.Add (uv2 [j + 1]);
+                                normals2.Add (normals2 [j + 1]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+
+
+                            } else if (Vector3.Dot ((vertices2 [i + k] - vertices2 [i + numRep (2 + k)]).normalized, (vertices2 [j + 1] - vertices2 [j]).normalized) &gt; 1 - delta) {
+
+                                vertices2.Add (vertices2 [i + numRep (1 + k)]);
+                                uv2.Add (uv2 [i + numRep (1 + k)]);
+                                normals2.Add (normals2 [i + numRep (1 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.Add (vertices2 [i + numRep (2 + k)]);
+                                uv2.Add (uv2 [i + numRep (2 + k)]);
+                                normals2.Add (normals2 [i + numRep (2 + k)]);
+                                triangles2.Add (vertices2.Count - 1);
+
+
+                                vertices2.Add (vertices2 [j + 1]);
+                                uv2.Add (uv2 [j + 1]);
+                                normals2.Add (normals2 [j + 1]);
+                                triangles2.Add (vertices2.Count - 1);
+
+                                vertices2.RemoveRange (j, 3);
+                                uv2.RemoveRange (j, 3);
+                                normals2.RemoveRange (j, 3);
+                                triangles2.RemoveRange (j, 3);
+
+                                vertices2.RemoveRange (i, 3);
+                                uv2.RemoveRange (i, 3);
+                                normals2.RemoveRange (i, 3);
+                                triangles2.RemoveRange (i, 3);
+
+                                for (int l = 0; l &lt; triangles2.Count; l++) {
+                                    if (triangles2 [l] &gt;= j) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                    if (triangles2 [l] &gt;= i) {
+                                        triangles2 [l] -= 3;
+                                    }
+                                }
+
+                                j = 9999;
+                                i = -3;
+                                break;
+
+                            }
+
+                    }
+                    }
+
+                }
+
+            }
+
+
+        } 
+
+
+
+
+
+        if (crossVertices.Count != 0) {
+
+            for (int i = 0; i &lt; crossVertices.Count; i += 2) {
+
+                for (int k = 2; k &lt; crossVertices.Count - i; k += 2) {
+
+                    if (((System.Math.Abs (Vector3.Dot ((crossVertices [i] - crossVertices [i + k]).normalized, (crossVertices [i] - crossVertices [i + 1 + k]).normalized)) &gt; 1 - delta))
+                        &amp;&amp; ((System.Math.Abs (Vector3.Dot ((crossVertices [i + 1] - crossVertices [i + k]).normalized, (crossVertices [i + 1] - crossVertices [i + 1 + k]).normalized)) &gt; 1 - delta))
+                        &amp;&amp; ((System.Math.Abs (Vector3.Dot ((crossVertices [i] - crossVertices [i + 1]).normalized, (crossVertices [i + k] - crossVertices [i + 1 + k]).normalized)) &gt; 1 - delta))
+                        &amp;&amp; ((System.Math.Abs (Vector3.Dot ((crossVertices [i] - crossVertices [i + 1 + k]).normalized, (crossVertices [i + k] - crossVertices [i + 1]).normalized)) &gt; 1 - delta))) {
+                        var value = System.Math.Max (Vector3.Distance (crossVertices [i], crossVertices [i + 1]), Vector3.Distance (crossVertices [i + k], crossVertices [i + k + 1]));
+                        if (value &gt;= Vector3.Distance (crossVertices [i], crossVertices [i + k])
+                            &amp;&amp; value &gt;= Vector3.Distance (crossVertices [i], crossVertices [i + 1 + k])
+                            &amp;&amp; value &gt;= Vector3.Distance (crossVertices [i + 1], crossVertices [i + k])
+                            &amp;&amp; value &gt;= Vector3.Distance (crossVertices [i + 1], crossVertices [i + 1 + k])) {
+                            if (Vector3.Distance (crossVertices [i], crossVertices [i + 1]) &gt; Vector3.Distance (crossVertices [i + k], crossVertices [i + 1 + k])) {
+                                crossVertices.RemoveRange (i + k, 2);
+                            } else {
+                                crossVertices.RemoveRange (i, 2);
+                            }
+
+
+                        } else {
+
+
+                            if (Vector3.Distance (crossVertices [i], crossVertices [i + k]) &gt; Vector3.Distance (crossVertices [i], crossVertices [i + 1 + k])) {
+                                if (Vector3.Distance (crossVertices [i], crossVertices [i + k]) &gt; Vector3.Distance (crossVertices [i + 1], crossVertices [i + k])) {
+                                    crossVertices.Insert (i, crossVertices [i + k]);
+                                    crossVertices.RemoveAt (i + 1 + k + 1);
+                                    crossVertices.RemoveAt (i + k + 1);
+                                    crossVertices.RemoveAt (i + 1 + 1);
+                                } else {
+                                    crossVertices.Insert (i, crossVertices [i + k]);
+                                    crossVertices.RemoveAt (i + 1 + k + 1);
+                                    crossVertices.RemoveAt (i + k + 1);
+                                    crossVertices.RemoveAt (i + 1);
+                                }
+                            } else {
+                                if (Vector3.Distance (crossVertices [i], crossVertices [i + 1 + k]) &gt; Vector3.Distance (crossVertices [i + 1], crossVertices [i + 1 + k])) {
+                                    crossVertices.Insert (i, crossVertices [i + 1 + k]);
+                                    crossVertices.RemoveAt (i + 1 + k + 1);
+                                    crossVertices.RemoveAt (i + k + 1);
+                                    crossVertices.RemoveAt (i + 1 + 1);
+                                } else {
+                                    crossVertices.Insert (i, crossVertices [i + 1 + k]);
+                                    crossVertices.RemoveAt (i + 1 + k + 1);
+                                    crossVertices.RemoveAt (i + k + 1);
+                                    crossVertices.RemoveAt (i + 1);
+                                }
+                            }
+
+                        }
+
+                        i = -2;
+                        break;
+
+                    }
+
+                }
+            }
+
+
+
+            Vector3 center = new Vector3 ();
+            foreach (var v in crossVertices) {
+                center += v;
+            }
+            center /= crossVertices.Count;
+
+
+            for (int i = 0; i &lt; crossVertices.Count; i += 2) {
+                if (Vector3.Dot (Vector3.Cross (transform.TransformPoint (crossVertices [i]) - transform.TransformPoint (center), transform.TransformPoint (crossVertices [i + 1]) - transform.TransformPoint (crossVertices [i])), cutPlane.normal) &lt;= 0) {
+
+                    Vector3 nor = Vector3.Cross (transform.TransformPoint (crossVertices [i]) - transform.TransformPoint (center), transform.TransformPoint (crossVertices [i + 1]) - transform.TransformPoint (crossVertices [i])).normalized;
+
+                    normals1.Add (nor);
+                    normals1.Add (nor);
+                    normals1.Add (nor);
+                    normals2.Add (-nor);
+                    normals2.Add (-nor);
+                    normals2.Add (-nor);
+
+
+
+                    vertices1.Add (center);
+                    uv1.Add (new Vector2 (0, 0));
+                    triangles1.Add (vertices1.Count - 1);
+
+                    vertices1.Add (crossVertices [i]);
+                    triangles1.Add (vertices1.Count - 1);
+                    uv1.Add (new Vector2 (0, 0));
+
+                    vertices1.Add (crossVertices [i + 1]);
+                    uv1.Add (new Vector2 (0, 0));
+                    triangles1.Add (vertices1.Count - 1);
+
+
+
+                    vertices2.Add (crossVertices [i]);
+                    triangles2.Add (vertices2.Count - 1);
+                    uv2.Add (new Vector2 (0, 0));
+
+                    vertices2.Add (center);
+                    uv2.Add (new Vector2 (0, 0));
+                    triangles2.Add (vertices2.Count - 1);
+
+                    vertices2.Add (crossVertices [i + 1]);
+                    uv2.Add (new Vector2 (0, 0));
+                    triangles2.Add (vertices2.Count - 1);
+
+                } else {
+
+                    Vector3 nor = -Vector3.Cross (transform.TransformPoint (crossVertices [i]) - transform.TransformPoint (center), transform.TransformPoint (crossVertices [i + 1]) - transform.TransformPoint (crossVertices [i])).normalized;
+
+                    normals1.Add (nor);
+                    normals1.Add (nor);
+                    normals1.Add (nor);
+                    normals2.Add (-nor);
+                    normals2.Add (-nor);
+                    normals2.Add (-nor);
+
+
+
+                    vertices1.Add (crossVertices [i]);
+                    triangles1.Add (vertices1.Count - 1);
+                    uv1.Add (new Vector2 (0, 0));
+
+                    vertices1.Add (center);
+                    uv1.Add (new Vector2 (0, 0));
+                    triangles1.Add (vertices1.Count - 1);
+
+                    vertices1.Add (crossVertices [i + 1]);
+                    uv1.Add (new Vector2 (0, 0));
+                    triangles1.Add (vertices1.Count - 1);
+
+
+                    vertices2.Add (center);
+                    uv2.Add (new Vector2 (0, 0));
+                    triangles2.Add (vertices2.Count - 1);
+
+                    vertices2.Add (crossVertices [i]);
+                    uv2.Add (new Vector2 (0, 0));
+                    triangles2.Add (vertices2.Count - 1);
+
+                    vertices2.Add (crossVertices [i + 1]);
+                    uv2.Add (new Vector2 (0, 0));
+                    triangles2.Add (vertices2.Count - 1);
+
+
+                }
+            }
+        }
+
+
+        GameObject obj = new GameObject ("cut obj", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider), typeof(Rigidbody), typeof(MeshCut));
+        var mesh = new Mesh ();
+        mesh.vertices = vertices1.ToArray ();
+        mesh.triangles = triangles1.ToArray ();
+        mesh.uv = uv1.ToArray ();
+        mesh.normals = normals1.ToArray ();
+        obj.GetComponent&lt;MeshFilter&gt; ().mesh = mesh;
+        obj.GetComponent&lt;MeshRenderer&gt; ().materials = GetComponent&lt;MeshRenderer&gt; ().materials;
+        obj.GetComponent&lt;MeshCollider&gt; ().sharedMesh = mesh;
+        obj.GetComponent&lt;MeshCollider&gt; ().inflateMesh = true;
+        obj.GetComponent&lt;MeshCollider&gt; ().skinWidth = skinWidth;
+        obj.GetComponent&lt;MeshCollider&gt; ().convex = true;
+        obj.GetComponent&lt;MeshCollider&gt; ().material = GetComponent&lt;Collider&gt; ().material;
+        obj.transform.position = transform.position;
+        obj.transform.rotation = transform.rotation;
+        obj.transform.localScale = transform.localScale;
+        obj.GetComponent&lt;Rigidbody&gt; ().velocity = GetComponent&lt;Rigidbody&gt; ().velocity;
+        obj.GetComponent&lt;Rigidbody&gt; ().angularVelocity = GetComponent&lt;Rigidbody&gt; ().angularVelocity;
+        obj.GetComponent&lt;MeshCut&gt;().skinWidth = skinWidth;
+        obj.GetComponent&lt;MeshCut&gt;().Start();
+
+        GameObject obj2 = new GameObject ("cut obj", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider), typeof(Rigidbody), typeof(MeshCut));
+
+        var mesh2 = new Mesh ();
+        mesh2.vertices = vertices2.ToArray ();
+        mesh2.triangles = triangles2.ToArray ();
+        mesh2.uv = uv2.ToArray ();
+        mesh2.normals = normals2.ToArray ();
+        obj2.GetComponent&lt;MeshFilter&gt; ().mesh = mesh2;
+        obj2.GetComponent&lt;MeshRenderer&gt; ().materials = GetComponent&lt;MeshRenderer&gt; ().materials;
+        obj2.GetComponent&lt;MeshCollider&gt; ().sharedMesh = mesh2;
+        obj2.GetComponent&lt;MeshCollider&gt; ().inflateMesh = true;
+        obj2.GetComponent&lt;MeshCollider&gt; ().skinWidth = skinWidth;
+        obj2.GetComponent&lt;MeshCollider&gt; ().convex = true;
+        obj2.GetComponent&lt;MeshCollider&gt; ().material = GetComponent&lt;Collider&gt; ().material;
+        obj2.transform.position = transform.position;
+        obj2.transform.rotation = transform.rotation;
+        obj2.transform.localScale = transform.localScale;
+        obj2.GetComponent&lt;Rigidbody&gt; ().velocity = GetComponent&lt;Rigidbody&gt; ().velocity;
+        obj2.GetComponent&lt;Rigidbody&gt; ().angularVelocity = GetComponent&lt;Rigidbody&gt; ().angularVelocity;
+        obj2.GetComponent&lt;MeshCut&gt;().skinWidth = skinWidth;
+        obj2.GetComponent&lt;MeshCut&gt;().Start();
+
+        Destroy (gameObject);
+
+    }
+
+    int numRep (int i)
+    {
+        if (i % 3 == 0) {
+            return 0;
+        } else if (i % 3 == 1) {
+            return 1;
+        } else if (i % 3 == 2) {
+            return 2;
+        } else {
+            return 0;
+        }
+    }
+
+}
+

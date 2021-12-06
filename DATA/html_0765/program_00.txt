@@ -1,0 +1,47 @@
+var process = new Process()
+{
+  StartInfo = new ProcessStartInfo
+  {
+     FileName = @".\gnuplot.exe",
+     Arguments = "",
+     CreateNoWindow = true,
+     UseShellExecute = false,
+     RedirectStandardInput = true,
+     RedirectStandardOutput = true,
+     RedirectStandardError = false,
+  }
+};
+
+process.Start();
+process.StandardInput.WriteLine("set term png enhanced size 640,480");
+process.StandardInput.WriteLine("set output");
+process.StandardInput.WriteLine("set palette defined(0'#000090',1'#000fff',2'#0090ff',3'#0fffee',4'#90ff70',5'#ffee00',6'#ff7000',7'#ee0000',8'#7f0000')");
+process.StandardInput.WriteLine("set xrange[-2:2]");
+process.StandardInput.WriteLine("set yrange[-2:2]");
+process.StandardInput.WriteLine("set pm3d at bs");
+process.StandardInput.WriteLine("set ticslevel 0.8");
+process.StandardInput.WriteLine("set isosample 20,20");
+process.StandardInput.WriteLine("set view 60,40");
+process.StandardInput.WriteLine("splot exp(-x*x) * exp(-y*y)");
+
+var reader = new BinaryReader(process.StandardOutput.BaseStream);
+
+var iend = new byte[] { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
+var list = new List&lt;byte&gt;();
+
+while (list.Skip(list.Count - iend.Length).SequenceEqual(iend) != true)
+{
+  list.Add(reader.ReadByte());
+}
+
+var image = Mat.FromImageData(list.ToArray(), ImreadModes.Color);
+pictureBox.Image = BitmapConverter.ToBitmap(image);
+
+//
+// [exit]を送信するまでは何度でもプロットでき、その都度、画像データを取得できます。
+//
+
+process.StandardInput.WriteLine("exit");
+
+process.Close();
+

@@ -1,0 +1,482 @@
+
+#define DEBUG
+
+using System;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using Windows.Data.Json;// to use JsonValue class
+
+
+public class MyJsonItemInfo
+{
+    public string Name{get;set;}
+    public string Description{get;set;}
+    public string Prefix{
+        get{return String.Join(", ", _prefix);}
+        set{_prefix = value.Split(new Char[]{','}).Select(x=&gt;x.Trim()).ToArray();}
+    }
+    public string Body{
+        get{return String.Join("\r\n", _body);}
+        set{_body = Regex.Split(value,@"\r?\n");}
+    }
+    public string BodyFirstLine{get{return (_body.Length==0)?"":_body[0];}}
+    public string[] BodyAsArray{get{return _body;}}
+    public int Lines{get{return _body.Length;}}
+
+    string[] _prefix;
+    string[] _body;
+
+
+    public MyJsonItemInfo(string keyName, JsonObject jo)
+    {
+        Name = keyName;
+
+        JsonValue jvPrefix;
+        _prefix = MyJsonAsStringArray("prefix", jo, out jvPrefix) ?? new string[]{};
+
+        JsonValue jvDescription;
+        Description = MyJsonAsString("description", jo, out jvDescription) ?? "";
+
+        JsonValue jvBody;
+        _body = MyJsonAsStringArray("body", jo, out jvBody) ?? new string[]{};
+    }
+
+
+    static string[] MyJsonAsStringArray(string keyName, JsonObject joItem, out JsonValue jv)
+    {
+        try {
+            jv = joItem.GetNamedValue(keyName);
+        }
+        catch ( Exception ) {
+            jv = null;
+            return new string[]{};
+        }
+
+        if ( jv.ValueType == JsonValueType.String ) {
+            return new string[]{jv.GetString()};
+        }
+        else if ( jv.ValueType == JsonValueType.Array ) {
+            return MyJsonArrayToStringArray(jv.GetArray());
+        }
+        else {
+            return new string[]{};
+        }
+    }
+
+    static string MyJsonAsString(string keyName, JsonObject joItem, out JsonValue jv)
+    {
+        try {
+            jv = joItem.GetNamedValue(keyName);
+            // 第２引数にデフォルト値として JsonValue.CreateNullValue() を入れようとしたが、なぜか無い..
+        }
+        catch ( Exception ) {
+            jv = JsonValue.CreateStringValue("");
+            return "";
+        }
+
+        if ( jv.ValueType == JsonValueType.String ) {
+            return jv.GetString();
+        }
+        else {
+            return "";
+        }
+    }
+
+    static string[] MyJsonArrayToStringArray(JsonArray a)
+    {
+        var s = new string[a.Count];
+        for ( int i=0;i&lt;a.Count;i++ ) {
+            s[i] = a.GetStringAt((uint)i);
+        }
+        return s;
+    }
+
+    public string MakeStringOfJson()
+    {
+        return JsonValue.CreateStringValue(Name).Stringify() + ":" + (MakeJsonObject().Stringify());
+    }
+
+    JsonObject MakeJsonObject()
+    {
+        var jo = new JsonObject();
+
+        JsonValue jvDescription = JsonValue.CreateStringValue(Description);
+        jo.Add("description", jvDescription);
+
+        if (_prefix.Length==1){
+            JsonValue jvPrefix = JsonValue.CreateStringValue(_prefix[0]);
+            jo.Add("prefix", jvPrefix); // Insertがない
+        }
+        else {
+            var jaPrefix = new JsonArray();
+            foreach ( string s in _prefix ) {
+                jaPrefix.Add(JsonValue.CreateStringValue(s)); // Appendがない
+            }
+            jo.Add("prefix", jaPrefix);
+        }
+
+        var jaBody = new JsonArray();
+        foreach ( string s in _body ) {
+            jaBody.Add(JsonValue.CreateStringValue(s));
+        }
+        jo.Add("body", jaBody);
+
+        return jo;
+    }
+}
+
+
+class VscodeSnippetEditor : Form
+{
+    static string GetDefaultSnippetPath()
+    {
+#if DEBUG
+        return (new FileInfo("csharp.json.txt")).FullName;
+#else
+        return Path.Combine(Environment.GetEnvironmentVariable("appdata"),
+                             @"code\user\snippets\csharp.json");
+#endif
+    }
+
+    TextBox txtName;
+    TextBox txtPrefix;
+    TextBox txtBody;
+    TextBox txtDescription;
+    SplitContainer spl;
+    ListView lsv;
+
+    readonly string Title = "Snippet editor";
+
+    bool NotSavedYet{
+        get{return _notSaved;}
+        set{
+            _notSaved = value;
+            if(_notSaved){Text=Title+"*";}else{Text=Title;}
+        }
+    }
+    bool _notSaved;
+
+    string _head;
+    string _tail;
+    bool _txtChangedByProgram;
+
+    readonly int ColumnIndex_Name   = 0;
+    readonly int ColumnIndex_Prefix = 1;
+    readonly int ColumnIndex_Lines  = 2;
+    readonly int ColumnIndex_Body   = 3;
+    readonly int ColumnIndex_Description = 4;
+
+    VscodeSnippetEditor()
+    {
+        ClientSize = new Size(800, 600);
+        Text=Title;
+
+        spl = new SplitContainer();
+        spl.Dock = DockStyle.Fill;
+        spl.Orientation = Orientation.Horizontal;//Vertical;
+        spl.SplitterDistance = 400;
+        Controls.Add(spl);
+
+        lsv = new ListView();
+        lsv.View = View.Details;
+        lsv.FullRowSelect = true;
+        lsv.HideSelection = false;
+        lsv.MultiSelect = false;
+        lsv.GridLines = true;
+        // 入れ替えなどでindexが変わる場合は ColumnIndex_xxxx もメンテすること
+        lsv.Columns.Add("Name",        100, HorizontalAlignment.Left);
+        lsv.Columns.Add("prefix",      100, HorizontalAlignment.Left);
+        lsv.Columns.Add("lines",        50, HorizontalAlignment.Left);
+        lsv.Columns.Add("body",        250, HorizontalAlignment.Left);
+        lsv.Columns.Add("description", 300, HorizontalAlignment.Left);
+        lsv.Dock = DockStyle.Fill;
+        lsv.SelectedIndexChanged += Lsv_SelectedIndexChanged;
+        spl.Panel1.Controls.Add(lsv);
+
+
+        txtName = new TextBox();
+        //txtName.Text = @"name";
+        txtName.Location = new Point(0,0);
+        txtName.Width = 200;
+        txtName.TextChanged += TxtName_TextChanged;
+        spl.Panel2.Controls.Add(txtName);
+
+        txtPrefix = new TextBox();
+        //txtPrefix.Text = @"prefix";
+        txtPrefix.Location = new Point(0,30);
+        txtPrefix.Width = 200;
+        txtPrefix.TextChanged += TxtPrefix_TextChanged;
+        spl.Panel2.Controls.Add(txtPrefix);
+
+        txtDescription = new TextBox();
+        //txtDescription.Text = @"description";
+        txtDescription.Location = new Point(0,60);
+        txtDescription.Width = 400;
+        txtDescription.TextChanged += TxtDescription_TextChanged;
+        spl.Panel2.Controls.Add(txtDescription);
+
+        txtBody = new TextBox();
+        txtBody.Multiline = true;
+        txtBody.ScrollBars = ScrollBars.Both;
+        //txtBody.Text = @"body";
+        txtBody.Location = new Point(0,90);
+        txtBody.Size = new Size(500, 300);
+        txtBody.Font = new Font("ＭＳ ゴシック", txtBody.Font.Size, txtBody.Font.Unit);
+        txtBody.TextChanged += TxtBody_TextChanged;
+        spl.Panel2.Controls.Add(txtBody);
+
+        Load += (s,e)=&gt;{
+            MyResize();
+            LoadSnippetToListView(GetDefaultSnippetPath());
+            ClearText();
+        };
+
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+        spl.SplitterMoving += (s,e)=&gt;{MyResize();};
+        spl.SplitterMoved  += (s,e)=&gt;{MyResize();};
+
+        FormClosing += Form_FormClosing;
+    }
+
+    void MyResize()
+    {
+        int w = spl.Panel2.ClientSize.Width;
+        int h = spl.Panel2.ClientSize.Height - txtBody.Top;
+        if(h&lt;50){h=50;}
+        txtBody.Size = new Size(w, h);
+    }
+
+    void Form_FormClosing(Object sender, FormClosingEventArgs e)
+    {
+        if ( !NotSavedYet ){return;} // nothing to do.
+
+        DialogResult result = MessageBox.Show("File is not saved yet.\r\nOverwrite the snippet file?",
+            "Confirmation",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Exclamation,
+            MessageBoxDefaultButton.Button3
+        );
+
+        if ( result == DialogResult.Yes ) {
+            // overwrite the file
+            if ( ! SaveSnippetFromListView(GetDefaultSnippetPath()) ) {
+                MessageBox.Show("Failed to overwrite the snippet file.");
+                e.Cancel = true;
+            }
+        }
+        else if ( result == DialogResult.No ) {
+            // nothing to do. form will be closed.
+        }
+        else if ( result == DialogResult.Cancel ) {
+            e.Cancel = true;
+        }
+    }
+
+
+
+    ListViewItem GetSelectedItemOfLsv()
+    {
+        var indices = lsv.SelectedIndices;
+        if ( indices.Count != 1 ) { return null; }
+        return lsv.Items[indices[0]];
+    }
+
+
+    void TxtName_TextChanged(object sender, EventArgs e)
+    {
+        if ( _txtChangedByProgram ) { return; }
+        NotSavedYet = true;
+        ListViewItem item = GetSelectedItemOfLsv();
+        ((MyJsonItemInfo)item.Tag).Name = txtName.Text;
+        item.SubItems[ColumnIndex_Name].Text = txtName.Text;
+    }
+
+    void TxtPrefix_TextChanged(object sender, EventArgs e)
+    {
+        if ( _txtChangedByProgram ) { return; }
+        NotSavedYet = true;
+        ListViewItem item = GetSelectedItemOfLsv();
+        ((MyJsonItemInfo)item.Tag).Prefix = txtPrefix.Text;
+        item.SubItems[ColumnIndex_Prefix].Text = ((MyJsonItemInfo)item.Tag).Prefix;
+    }
+
+    void TxtDescription_TextChanged(object sender, EventArgs e)
+    {
+        if ( _txtChangedByProgram ) { return; }
+        NotSavedYet = true;
+        ListViewItem item = GetSelectedItemOfLsv();
+        ((MyJsonItemInfo)item.Tag).Description = txtDescription.Text;
+        item.SubItems[ColumnIndex_Description].Text = ((MyJsonItemInfo)item.Tag).Description;
+    }
+
+    void TxtBody_TextChanged(object sender, EventArgs e)
+    {
+        if ( _txtChangedByProgram ) { return; }
+        NotSavedYet = true;
+        ListViewItem item = GetSelectedItemOfLsv();
+        ((MyJsonItemInfo)item.Tag).Body = txtBody.Text;
+        item.SubItems[ColumnIndex_Body].Text = ((MyJsonItemInfo)item.Tag).BodyFirstLine;
+        item.SubItems[ColumnIndex_Lines].Text = ((MyJsonItemInfo)item.Tag).Lines.ToString();
+
+    }
+
+    void Lsv_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        ListViewItem item = GetSelectedItemOfLsv();
+        if(item==null){return;}
+
+        _txtChangedByProgram = true;
+        {
+            txtName.Text = GetNameFromItem(item);
+            txtPrefix.Text = GetPrefixFromItem(item);
+            txtBody.Text = GetBodyFromItem(item);
+            txtDescription.Text = GetDescciptionFromItem(item);
+        }
+        _txtChangedByProgram = false;
+    }
+
+    void ClearText()
+    {
+        _txtChangedByProgram = true;
+        {
+            txtName.Text = "(name)";
+            txtPrefix.Text = "(prefix)";
+            txtBody.Text = "(body)";
+            txtDescription.Text = "(description)";
+        }
+        _txtChangedByProgram = false;
+    }
+
+    bool SaveSnippetFromListView(string path)
+    {
+        StreamWriter writer = new StreamWriter(path, false);
+        try {
+            writer.Write(_head);
+            writer.Write("\n");
+
+            for ( int i=0 ; i&lt;lsv.Items.Count ; i++ ) {
+                ListViewItem item = lsv.Items[i];
+                var t = (MyJsonItemInfo)item.Tag;
+                writer.Write(t.MakeStringOfJson());
+                if (i==lsv.Items.Count-1){
+                    writer.Write("\n");
+                }
+                else{
+                    writer.Write(",\n");
+                }
+            }
+            writer.Write(_tail);
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+        finally{
+            writer.Close();
+        }
+
+        NotSavedYet = false;
+        return true;
+    }
+
+    // return body
+    string ReadAndSeparateSnippetText(string s, out string head, out string tail)
+    {
+        head = null;
+        tail = null;
+
+        Regex rBegin = new Regex(@"^[ \t]*//[ \t]*%%kob58im-ToolBegin%%[ \t]*\r?$", RegexOptions.Multiline);
+        Regex rEnd   = new Regex(@"^[ \t]*//[ \t]*%%kob58im-ToolEnd%%[ \t]*\r?$", RegexOptions.Multiline);
+
+        Match mBegin = rBegin.Match(s);
+        if ( !mBegin.Success ) {
+            MessageBox.Show("Cannot find start mark\r\n// %%kob58im-ToolBegin%%");
+            return null;
+        }
+        Match mEnd   = rEnd.Match(s);
+        if ( !mEnd.Success ) {
+            MessageBox.Show("Cannot find end mark\r\n// %%kob58im-ToolEnd%%");
+            return null;
+        }
+
+        int posEndOfBeginMark = mBegin.Groups[0].Captures[0].Index
+                               +mBegin.Groups[0].Captures[0].Length;
+        int posStartOfEndMark = mEnd.Groups[0].Captures[0].Index;
+
+        head = s.Substring(0, posEndOfBeginMark);
+        tail = s.Substring(posStartOfEndMark);
+        return s.Substring(posEndOfBeginMark, posStartOfEndMark - posEndOfBeginMark);
+    }
+
+    bool LoadSnippetToListView(string path)
+    {
+        if (!File.Exists(path)) {
+            MessageBox.Show("Cannot find file: " + path);
+            return false;
+        }
+
+        string s;
+        try {
+            s = File.ReadAllText(path);
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+        string editablePart = ReadAndSeparateSnippetText(s, out _head, out _tail);
+
+        JsonObject joRoot = JsonObject.Parse("{"+editablePart+"}");
+
+        lsv.BeginUpdate();
+        try {
+            foreach(string name in joRoot.Keys)
+            {
+                JsonValue jvItem = joRoot.GetNamedValue(name);
+
+                if (jvItem.ValueType == JsonValueType.Object) {
+                    JsonObject joItem = jvItem.GetObject();
+                    ListViewItem item = MakeItemFromJson(name, joItem);
+                    lsv.Items.Add(item);
+                }
+            }
+        }
+        finally {
+            lsv.EndUpdate();
+        }
+
+        return true;
+    }
+
+    ListViewItem MakeItemFromJson(string keyName, JsonObject jo)
+    {
+        var t = new MyJsonItemInfo(keyName, jo);
+
+        string prefix = t.Prefix;
+        string[] body = t.BodyAsArray;
+        string description = t.Description;
+
+        string firstLine="";
+        if (body.Length&gt;=1){firstLine=body[0];}
+        var item = new ListViewItem(new string[]{keyName, prefix, body.Length.ToString(), firstLine, description});
+        item.Tag = t;
+        return item;
+    }
+
+    string GetNameFromItem(ListViewItem item) {        return ((MyJsonItemInfo)item.Tag).Name; }
+    string GetPrefixFromItem(ListViewItem item) {      return ((MyJsonItemInfo)item.Tag).Prefix; }
+    string GetBodyFromItem(ListViewItem item) {        return ((MyJsonItemInfo)item.Tag).Body; }
+    string GetDescciptionFromItem(ListViewItem item) { return ((MyJsonItemInfo)item.Tag).Description; }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new VscodeSnippetEditor());
+    }
+}
+

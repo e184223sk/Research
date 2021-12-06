@@ -1,0 +1,219 @@
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace WindowsFormsApp1
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+
+            labelKey.Text = "";
+            labelShift.Text = "";
+            labelCtrl.Text = "";
+            labelAlt.Text = "";
+        }
+
+        KeyboardHook keyboardHook = new KeyboardHook();
+
+        protected override void OnLoad(EventArgs e)
+        {
+            keyboardHook.KeyDownEvent += KeyboardHook_KeyDownEvent;
+            keyboardHook.KeyUpEvent += KeyboardHook_KeyUpEvent;
+            keyboardHook.Hook();
+        }
+
+        // A-Zキーが押されているときは非0が入る
+        int AtoZ = 0;
+
+        private void KeyboardHook_KeyDownEvent(object sender, KeyEventArg e)
+        {
+            KeysConverter kc = new KeysConverter();
+
+            if (e.KeyCode &gt;= 65 &amp;&amp; e.KeyCode &lt;= 90)
+            {
+                AtoZ = e.KeyCode;
+                labelKey.Text = kc.ConvertToString(e.KeyCode);
+            }
+            else if (e.KeyCode == 160 || e.KeyCode == 161)
+                labelShift.Text = "Shift";
+            else if (e.KeyCode == 162 || e.KeyCode == 163)
+                labelCtrl.Text = "Ctrl";
+            else if (e.KeyCode == 164 || e.KeyCode == 165)
+                labelAlt.Text = "Alt";
+            else
+                labelKey.Text = kc.ConvertToString(e.KeyCode);
+        }
+
+        private void KeyboardHook_KeyUpEvent(object sender, KeyEventArg e)
+        {
+            KeysConverter kc = new KeysConverter();
+
+            if (e.KeyCode &gt;= 65 &amp;&amp; e.KeyCode &lt;= 90 &amp;&amp; AtoZ == e.KeyCode)
+            {
+                AtoZ = 0;
+                labelKey.Text = "";
+            }
+            else if (e.KeyCode == 160 || e.KeyCode == 161)
+                labelShift.Text = "";
+            else if (e.KeyCode == 162 || e.KeyCode == 163)
+                labelCtrl.Text = "";
+            else if (e.KeyCode == 164 || e.KeyCode == 165)
+                labelAlt.Text = "";
+            else if (AtoZ == 0)
+                labelKey.Text = "";
+            else
+                labelKey.Text = kc.ConvertToString(AtoZ);
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            keyboardHook.UnHook();
+        }
+
+        private void labelAlt_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void labelShift_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void labelKey_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void labelCtrl_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
+        }
+    }
+
+    class KeyboardHook
+    {
+        protected const int WH_KEYBOARD_LL = 0x000D;
+        protected const int WM_KEYDOWN = 0x0100;
+        protected const int WM_KEYUP = 0x0101;
+        protected const int WM_SYSKEYDOWN = 0x0104;
+        protected const int WM_SYSKEYUP = 0x0105;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public class KBDLLHOOKSTRUCT
+        {
+            public uint vkCode;
+            public uint scanCode;
+            public KBDLLHOOKSTRUCTFlags flags;
+            public uint time;
+            public UIntPtr dwExtraInfo;
+        }
+
+        [Flags]
+        public enum KBDLLHOOKSTRUCTFlags : uint
+        {
+            KEYEVENTF_EXTENDEDKEY = 0x0001,
+            KEYEVENTF_KEYUP = 0x0002,
+            KEYEVENTF_SCANCODE = 0x0008,
+            KEYEVENTF_UNICODE = 0x0004,
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, KeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        private delegate IntPtr KeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private KeyboardProc proc;
+        private IntPtr hookId = IntPtr.Zero;
+
+        public void Hook()
+        {
+            if (hookId == IntPtr.Zero)
+            {
+                proc = HookProcedure;
+                using (var curProcess = Process.GetCurrentProcess())
+                {
+                    using (ProcessModule curModule = curProcess.MainModule)
+                    {
+                        hookId = SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+                    }
+                }
+            }
+        }
+
+        public void UnHook()
+        {
+            UnhookWindowsHookEx(hookId);
+            hookId = IntPtr.Zero;
+        }
+
+        public IntPtr HookProcedure(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode &gt;= 0 &amp;&amp; (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+            {
+                var kb = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+                var vkCode = (int)kb.vkCode;
+                OnKeyDownEvent(vkCode);
+            }
+            else if (nCode &gt;= 0 &amp;&amp; (wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP))
+            {
+                var kb = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+                var vkCode = (int)kb.vkCode;
+                OnKeyUpEvent(vkCode);
+            }
+            return CallNextHookEx(hookId, nCode, wParam, lParam);
+        }
+
+        public delegate void KeyEventHandler(object sender, KeyEventArg e);
+        public event KeyEventHandler KeyDownEvent;
+        public event KeyEventHandler KeyUpEvent;
+
+        protected void OnKeyDownEvent(int keyCode)
+        {
+            KeyDownEvent?.Invoke(this, new KeyEventArg(keyCode));
+        }
+        protected void OnKeyUpEvent(int keyCode)
+        {
+            KeyUpEvent?.Invoke(this, new KeyEventArg(keyCode));
+        }
+
+    }
+
+    public class KeyEventArg : EventArgs
+    {
+        public int KeyCode { get; }
+
+        public KeyEventArg(int keyCode)
+        {
+            KeyCode = keyCode;
+        }
+    }
+}
+

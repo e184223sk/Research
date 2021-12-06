@@ -1,0 +1,155 @@
+
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class MoveCamera : MonoBehaviour {
+
+    //どうやって作ればいいのかわかんねー教えてー
+
+    public enum CameraState{
+        Stay,LookClearHole, TracePlayer, GoToTarget, LookTitle, LookTitleMove
+    }
+
+    private GameObject objPlayer;
+    private GameObject objCamera;
+    private CameraState cstate = CameraState.TracePlayer;
+    private GameObject objClearHole;
+
+    private Player cmpPlayer;
+
+    Vector3 sPivot; //pivot for smabro camera
+    float sX = 10 * Mathf.Sqrt(3); //camera length of x for smabro camera
+    float sD = 1; //rate of camera move
+
+    void Start(){
+        Init ();
+    }
+
+    void Init(){
+        if (SceneManager.GetActiveScene ().name == "Title" &amp;&amp; TitleManager.firstTitleScene) {
+            cstate = CameraState.LookTitle;
+            TitleManager.firstTitleScene = false;
+        }
+        //object initialize
+        objCamera = GameObject.FindGameObjectWithTag ("MainCamera");
+        objPlayer = GameObject.FindGameObjectWithTag ("Player");
+        cmpPlayer = objPlayer.GetComponent&lt;Player&gt; ();
+        GameObject[] objUsIs = GameObject.FindGameObjectsWithTag ("UnshiftableItem");
+        foreach(GameObject objUsI in objUsIs){
+            StageObject SO = objUsI.GetComponent&lt;StageObject&gt; ();
+            if(SO != null &amp;&amp; SO.sotype == SOType.ClearHole){
+                objClearHole = objUsI;
+            }
+        }
+        if (objClearHole != null) {
+            Vector3 CorrectClearHolePos = new Vector3 (objClearHole.transform.position.x, objClearHole.transform.position.y, -10f);
+            transform.position = CorrectClearHolePos;
+        }
+    }
+
+    void Update(){
+        switch(cstate){
+        case CameraState.Stay:
+            break;
+        case CameraState.TracePlayer:
+            if (CorrectPosz (objPlayer.transform.position).x == transform.position.x)
+                SetState (CameraState.Stay);
+            TracePlayer_Move ();
+            break;
+        case CameraState.LookClearHole:
+            LookClearHole_Move ();
+            break;
+        case CameraState.LookTitle:
+            StartCoroutine (LookTitleCoroutine ());
+            break;
+        case CameraState.LookTitleMove:
+            GoToTarget_Move (objPlayer, 1);
+            break;
+        case CameraState.GoToTarget:
+            GoToTarget_Move (objPlayer, 3);
+            break;
+        }
+    }
+
+    public void SetState(CameraState state){
+        //外部からstateを変えるためのやつ
+        switch (state) {
+        case CameraState.LookClearHole:
+            cstate = CameraState.Stay;
+            StartCoroutine (SetStateCoroutine (0.3f, CameraState.LookClearHole));
+            break;
+        case CameraState.TracePlayer:
+            cstate = CameraState.TracePlayer;
+            Debug.Log ((objPlayer.transform.position).x - transform.position.x);
+            if ((objPlayer.transform.position).x &lt; transform.position.x) {
+                sPivot = transform.position + Vector3.forward * 10 + new Vector3 (sX, 0, 0);
+            } else {
+                sPivot = transform.position + Vector3.forward * 10 - new Vector3 (sX, 0, 0);
+            }
+            break;
+        case CameraState.GoToTarget:
+            cstate = CameraState.GoToTarget;
+            break;
+        case CameraState.Stay:
+            cstate = CameraState.Stay;
+            break;
+        }
+    }
+
+    public CameraState GetStats()
+    {
+        return cstate;
+    }
+
+    //Change State to some state after some seconds
+    IEnumerator SetStateCoroutine(float time, CameraState state){
+        yield return new WaitForSeconds (time);
+        //球を打てなくする
+        cmpPlayer.canFire = false;
+        cstate = state;
+    }
+
+    void TracePlayer_Move(){
+        transform.position = new Vector3 (objPlayer.transform.position.x, objPlayer.transform.position.y, -10f);
+    }
+
+    //move camera per frame
+    void LookClearHole_Move(){
+        float MoveSpeed = 5 + (objClearHole.transform.position - objPlayer.transform.position).magnitude * (1f/10f);
+        float Error = 0.2f;
+        objCamera.transform.position += (CorrectPosz(objPlayer.transform.position) - objCamera.transform.position).normalized * Time.unscaledDeltaTime * MoveSpeed;
+        //移動完了時
+        if ((CorrectPosz (objPlayer.transform.position) - objCamera.transform.position).magnitude &lt; Error) {
+            cmpPlayer.canFire = true;
+            SetState (CameraState.Stay);
+        }
+    }
+
+    //correct position.z for camera
+    Vector3 CorrectPosz(Vector3 pos){
+        Vector3 CorrectPos = new Vector3 (pos.x, pos.y, -10f);
+        return CorrectPos;
+    }
+
+    void GoToTarget_Move(GameObject objTarget, float speed){
+        Vector3 TargetPos = objTarget.transform.position;
+        transform.position += (CorrectPosz(TargetPos) - transform.position) * Time.unscaledDeltaTime * speed;
+        float Error = 0.1f;
+
+        if ((CorrectPosz (TargetPos).x + Error &gt; transform.position.x) &amp;&amp;
+            (CorrectPosz (TargetPos).x - Error &lt; transform.position.x) &amp;&amp;
+            (CorrectPosz (TargetPos).y + Error &gt; transform.position.y) &amp;&amp;
+            (CorrectPosz (TargetPos).y - Error &lt; transform.position.y)) {
+            SetState (CameraState.Stay);
+        }
+    }
+
+    IEnumerator LookTitleCoroutine(float time = 1f){
+        yield return new WaitForSeconds (time);
+        cstate = CameraState.LookTitleMove;
+    }
+}
+

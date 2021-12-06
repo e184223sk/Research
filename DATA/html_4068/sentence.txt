@@ -1,0 +1,293 @@
+以前の記事:
+[Unity] C# JobSystem を利用してテキストファイルを非同期でパースする
+で、Unityで外部のテキストファイルを非同期かつそこそこの速度でパースすることを実現しました。
+しかし、その結びに課題の一つとして以下の点を挙げていました。◎Burstでもっと速くならない？いつになるかは不明ですが、公式の案内では char には対応する予定らしいので、その暁にはもっと早くなるはず。Burst does not support the following types:
+- char (this will be supported in a future release)
+- string as this is a managed typeライブラリ内部ではASCII範囲の値しか検索、比較していないので、 char をすべて unit16 あたりにキャストして、関数ポインタ経由でBurstさせればもっと早くなる可能性は大いにあります。しかし、公式が対応すると明言していますし、上記の手法で Burst による高速化が特に期待されるホットスポットは TryParse() や Split() 関数なので、Burst が char に対応したならユーザーデータクラスの ParseLine(line) をまるごと適用したほうがはるかに効果的でしょう。本記事は「キャストするだけなら機械的に書き換えればいいし楽そうだからやってみよう」と、適当に手を出してハマった箇所のレポートと、その成果物の紹介です。前回に続き、今回の記事の内容をアップデートしたものを公開しています。GitHub
+NativeStringCollections基本的な利用方法やライブラリの大まかな設計については前回の記事をご参照ください。検証環境:50万Charaのテキストデータ(ノイズ、追加データあり。約59万行。デモシーン付属のジェネレータで生成)のパース時間を計測した。
+AsyncTextFileReader&lt;T&gt; の測定シーンは
+Assets/NativeStringCollections/Samples/Demo/Scenes/Demo_ReadingLargeFile.unity
+を、
+C#の標準機能のみを用いた場合の測定には
+Assets/NativeStringCollections/Samples/Demo/Scenes/Demo_StandardCSharp_(comparison).unity
+使用した。次に、先と同様の50万Charaのテキストデータを複数用意し、AsyncTextFileLoader&lt;T&gt;を用いた並列ファイルパース実行時の性能を、(1):ParseLines(), PostReadProc()全体へBurstを適用した場合, (2):ユーザ側でのBurst適用を行わない場合の2通りについて計測した。
+測定シーンには
+Assets/NativeStringCollections/Samples/Demo/Scenes/Demo_AsyncMultiFileManagement.unity
+を使用した。上記の結果から、NativeStringCollections を使用した場合はユーザーが特別な実装をしなくてもファイル読み込み速度が約1.5倍ほど高速になります。さらに、ユーザーがBurstを適用したITextFileParser.ParseLines()を実装した場合、C#標準と比較し、最高で3倍近く速くなります。また、およそCPUの物理コア数以下のJob数であればほとんど性能低下はなく、同時実行Job数の上限はAsyncTextFileLoader.MaxJobCountプロパティにより容易に制御できます。処理はネイティブメモリ上で行われるので、大規模なテキストを処理してもマネージドメモリを圧迫せずGCを起こしません。
+上記の並列Jobの性能計測では1つあたり約37MBのテキストファイル24個、合計約870MBを処理しています。次項で説明しますが、手間になる部分はNativeStringCollections側であらかじめ実装してありますので、利用時にはユーザー側でITextFileParser.ParseLines()のBurst版を実装することを推奨いたします。ITextFileParser.ParseLines() にBurstを適用する例 (折り畳み)
+
+using Unity.Burst;
+
+using NativeStringCollections;
+using NativeStringCollections.Utility;
+
+public struct YourDataElem
+{
+    public ReadOnlyStringEntity text;
+    public int somethingData;
+}
+
+public class YourDataParser : ITextFileParser, IDisposable
+{
+    // 処理したいデータの実体
+    public NativeList&lt;YourDataElem&gt; data_list;
+
+    private NativeStringList text_field_list;
+
+    // ReadOnlyStringEntity.Split() の一時結果格納用
+    private NativeList&lt;ReadOnlyStringEntity&gt; str_list; 
+
+    private bool _allocated;
+
+    // Burst に処理対象を渡すためのデータパック
+    // ref struct で渡す必要があるのでまとめておくと楽
+    public struct DataPack
+    {
+        // コンテナに対する UnsafeReference (NativeContainer はそのままでは渡せない)
+        //   NativeStringCollections.Utility に定義済みの UnsafeRefTo**** を利用するか、
+        //   Unity.Collections.LowLevel.Unsafe にある Unsafe なコンテナを使用、
+        //   またはそれらをもとに自作する
+        public UnsafeRefToNativeList&lt;YourDataElem&gt; data_list;
+        public UnsafeRefToNativeStringList text_field_list;
+
+        public UnsafeRefToNativeList&lt;ReadOnlyStringEntity&gt; str_list;
+    }
+    private DataPack pack;
+
+    public void Init()
+    {
+        data_list = new NativeList&lt;YourDataElem&gt;(Allocator.Persistent);
+        text_field_list = new NativeStringList(Allocator.Persistent);
+
+        str_list = new NativeList&lt;ReadOnlyStringEntity&gt;(Allocator.Persistent);
+
+        // DataPack に UnsafeRef を作成
+        //   NativeStringCollections.Utility に定義済みの支援関数を利用するか、
+        //   Unity.Collections.LowLevel.Unsafe にある Unsafe なコンテナを使用、
+        //   またはそれらをもとに自作する
+        pack.data_list = data_list.GetUnsafeRef();
+        pack.text_field_list = text_field_list.GetUnsafeRef();
+        pack.str_list = str_list.GetUnsafeRef();
+
+        _allocated = true;
+    }
+    public void Clear()
+    {
+        data_list.Clear();
+        text_field_list.Clear();
+    }
+    public bool ParseLines(NativeStringList lines)
+    {
+        // Burst でコンパイルされた関数の呼び出し
+        var input_lines = lines.GetUnsafeRef();
+        return YourDataParserBurst.ParseLines(ref pack, ref input_lines);
+    }
+    public void PostReadProc()
+    {
+        // Burst 実装例は割愛 ParseLines() と同様に
+
+        // NativeStringList にテキストを保存する場合は
+        // StringEntity の取り出しはデータの追加が終わったこのタイミングで行う
+        // (内部バッファの再確保でそれまで生成した StringEntity が無効な参照になる)
+    }
+    public void UnLoad()
+    {
+        // 略
+    }
+
+    public void Dispose()
+    {
+        if (_allocated)
+        {
+            data_list.Dispose();
+            text_field_list.Dispose();
+            str_list.Dispose();
+            _allocated = false;
+        }
+    }
+    ~YourDataParser()
+    {
+        this.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
+
+// Burst でコンパイルされる関数を実装する static class
+[BurstCompile]
+public static class YourDataParserBurst
+{
+    private delegate void ParseLinesDelegate(ref YourDataParser.DataPack pack,
+                                             ref UnsafeRefToNativeStringList lines,
+                                             out bool continueRead);
+    private static ParseLinesDelegate _parseLinesDelegate;
+
+    // Player 開始時にBurstでコンパイルしdelegateに格納
+    [RuntimeInitializeOnLoadMethod]
+    public static void Initialize()
+    {
+        _parseLinesDelegate = BurstCompiler.
+            CompileFunctionPointer&lt;ParseLinesDelegate&gt;(ParseLinesBurstEntry).Invoke;
+    }
+
+    // Burst でコンパイルされた関数を呼ぶためのインターフェイス
+    //   普通の C# 関数でラップすれば ref 渡しや void にこだわる必要はない
+    public static bool ParseLines(ref YourDataParser.DataPack pack,
+                                  ref UnsafeRefToNativeStringList lines)
+    {
+        _parseLinesDelegate(ref pack, ref lines, out bool continueRead);
+        return continueRead;
+    }
+
+    // Burst でコンパイルされる関数の実装
+    //   返値は void,
+    //   引数は ref struct, struct*, out struct のいずれか
+    //   (Burst &lt;-&gt; C# script の境界の制約)
+    [BurstCompile]
+    [AOT.MonoPInvokeCallback(typeof(ParseLinesDelegate))]
+    private static void ParseLinesBurstEntry(ref YourDataParser.DataPack pack,
+                                             ref UnsafeRefToNativeStringList lines,
+                                             out bool continueRead)
+    {
+        continueRead = true;
+        for(int i=0; i&lt;lines.Length; i++)
+        {
+            continueRead = ParseLineImpl(ref pack, lines[i]);
+        }
+    }
+    // Burst でコンパイルされる関数 の中で呼ばれる関数は
+    // 参照型さえ使わなければ普通の書き方でよい
+    private static bool ParseLineImpl(ref YourDataParser.DataPack pack,
+                                      ReadOnlyStringEntity line)
+    {
+        if (line.Length &lt; 1) return true; // 空行
+
+        line.Split(',', pack.str_list);   // CSVとして ',' 区切りで分割
+
+
+        // 以下は "ElemName,IntValue" な CSV の場合の実装例
+        pack.text_field_list.Add(pack.str_list[0]);
+
+        var elem = new YourDataElem();
+        pack.str_list[1].TryParse(out elem.somethingData);
+
+        pack.data_list.Add(elem);
+
+        return true;
+    }
+}
+
+
+Burst のコンパイル対象にするために static class に関数の実装とコンパイル結果を保持するdelegateを定義する必要がありますが、NativeStringCollectionsが提供しているNativeStringListとStringEntityおよびその補助関数類を利用する限り特に変わった実装をする必要はありません。NativeContiner はスレッドセーフの実現のために内部に参照型を持っており、Burstでコンパイルする領域では参照型は使えないのでBurstが扱える型に変換しないと渡せません。技術的な詳細は後述しますが、NativeStringCollections では以下のユーティリティーを提供しています。これらの unsafe な reference は各コンテナおよびコンバータの内部データへの参照を取得するため、UnsafeRefTo**** への変更は本体へ反映されます。参照の生成も GetUnsafeRef() により簡易に所得できますので、利用にあたって特に難しいことはないと思います。こちらの実装法をとるか否かでパース速度がおよそ2倍違うので、多少の手間はかかるもののユーザー自身でBurstを適用したParseLines()を実装することを推奨します。NativeStringCollections.BurstFunc を利用する例 (折り畳み)
+
+using NativeStringCollections;
+using NativeStringCollections.Utility;
+
+public struct YourDataElem
+{
+    public ReadOnlyStringEntity text;
+    public int somethingData;
+}
+
+public class YourDataParser : ITextFileParser, IDisposable
+{
+    // 処理したいデータの実体
+    public NativeList&lt;YourDataElem&gt; data_list;
+
+    private NativeStringList text_field_list;
+
+    // ReadOnlyStringEntity.Split() の一時結果格納用
+    private NativeList&lt;ReadOnlyStringEntity&gt; str_list; 
+
+    private bool _allocated;
+
+    public void Init()
+    {
+        data_list = new NativeList&lt;YourDataElem&gt;(Allocator.Persistent);
+        text_field_list = new NativeStringList(Allocator.Persistent);
+
+        str_list = new NativeList&lt;ReadOnlyStringEntity&gt;(Allocator.Persistent);
+
+        _allocated = true;
+    }
+    public void Clear()
+    {
+        data_list.Clear();
+        text_field_list.Clear();
+    }
+    public bool ParseLines(NativeStringList lines)
+    {
+        bool continueRead = true;
+        for(int i=0; i&lt;lines.Length; i++)
+        {
+            continueRead = ParseLineImpl(lines[i]);
+            if (!continueRead) return false;
+        }
+        return true;
+    }
+    private bool ParseLineImpl(ReadOnlyStringEntity line)
+    {
+        if (line.Length &lt; 1) return true; // 空行
+
+        line.Split(',', str_list);   // CSVとして ',' 区切りで分割
+
+
+        // 以下は "ElemName,IntValue" な CSV の場合の実装例
+        text_field_list.Add(str_list[0]);
+
+        var elem = new YourDataElem();
+        BurstFunc.TryParse(str_list[1], out elem.somethingData); // Burst 適用済み delegate
+
+        data_list.Add(elem);
+
+        return true;
+    }
+    public void PostReadProc()
+    {
+        // 略
+    }
+    public void UnLoad()
+    {
+        // 略
+    }
+
+    public void Dispose()
+    {
+        if (_allocated)
+        {
+            data_list.Dispose();
+            text_field_list.Dispose();
+            str_list.Dispose();
+            _allocated = false;
+        }
+    }
+    ~YourDataParser()
+    {
+        this.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
+
+
+あらかじめ以下の関数を NativeStringCollections.BurstFunc に定義してありますので、これを利用します。通常の実装と比べほとんど書き換える必要はありませんが、効果は限定的です。
+(およそ5~10%程度)また、前章のように ITextFileParser.ParseLines() 全体に Burst を適用する場合、このような関数ポインタを経由した実装が混入すると Burst は関数ポイントを跨いだ最適化を行えません。効果が限定的であること、また誤って使用すると最適化に悪影響を及ぼす可能性があることから、こちらの定義済み delegade は将来的に削除したほうがいいかもしれません。ライブラリ全体のデザインは前回の記事と同様なので、以下ではさらに Burst を適用するにあたってつまずいた点について解説します。今回の事例でいえば、NativeStringCollections ではテキストバイナリのデコードに System.Text.Encodingを, ジョブの時間計測に System.Diagnostics.Stopwatch を使用しており、これらの参照型をJobに持ち込むせいで Unity 公式が推奨する Job 構造体の Burst 適用ができません。以下はこのように、何らかの理由で JobSystem を用いた Burst 適用ができない場合に、関数ポインタ経由で Burst を利用する場合の Tips 集となります。公式ドキュメントにもある通り、Burst は JobSystem に適用する場合に最大のパフォーマンスを得られます。手間のかかる小細工を弄する前に、標準的な手法で実現可能な課題かどうかしっかり検討しましょう。そもそも単純な struct であるはずの Char がなぜ Burst で使えないのかというと、Burst が実際にコードを生成する C++ では基本的に char を 8bit整数(エンコーディングは実装依存!) として取り扱っており、一方 C# では 16bit整数(UTF16) を採用したため、単なる数値としてではなく 文字コードとして考えると適当に相互コピーしたのでは破綻するためと考えられます。これはC++のDLLなどで文字列解析ライブラリ等を使おうとするなら重大な問題ですが、今回はすべての実装をC#で書いてしまってそれをBurstでトランスコードする形になるので、内部のビット表現が C# のCharと同じ符号なし16bit整数である UInt16 をメンバに持つ struct Char16 を作り、これをベースに NativeStringList や StringEntity, Split(), TryParse()... などを書き換えました。これを NativeStringCollections では UTF-16 の符号を格納する struct として扱いますが、Burstコンパイラからは単なる UInt16 (ushort) 型に見えるので、Burstにコンパイルさせることができるようになります。BurstはC#の参照型を一切扱えず、操作できる型はプリミティブ型と unmanaged struct,およびそれらのポインタに限定されます。
+一方でUnityが用意している NativeContainer はスレッドセーフおよびメモリリークの監視を実現するために内部で参照型を使用しており、このためNativeContainerを含む struct をそのまま Burst コンパイルの delegade に渡してしまうと、と実行時にエラーが起きて止まります。普段NativeContainerでやらかす時と異なり、NativeContainerではなくC#のマーシャラー(C# &lt;-&gt; C++ でデータのやり取りの仲介を行うライブラリ)からエラーが飛んでくるのでちょっとわかりづらいです。事象の深堀はおいておいて、扱いやすいバッファである NativeList を持ち込めれば大変便利なので、これをBurstが扱えるように加工します。Collections パッケージを Package Manager からインストールすると、Unity 2019.4.24 ではプロジェクトフォルダの
+`Library/PackageCache/com.unity.collections@0.9.0-preview.6/Unity.Collections
+にダウンロードされ、ここでNativeContainerの実装を見ることができます。すると NativeList の正体は以下のような、UnsafeList へのポインタを持つだけのものです。データの実体に対してはポインタのポインタで関節参照していることになるので、インデクサによるアクセスやLengthフィールドの取得が妙に遅かったのはそういうことか、などという余談はさておき、この UnsafeListはCapacityと要素数を管理するだけの最小構成に近い実装で、これ単体では Add&lt;T&gt;() はできますがインデクサがありません。ただ、NativeList&lt;T&gt;.GetUnsafeList() というAPIが用意されており、NativeListが管理しているUnsafeListのポインタを取り出すことができます。
+これに public T this[int index] などの NativeList に近い挙動のラッパーを被せたものとして UnsafeRefToNativeList&lt;T&gt; を作ります。これで NativeList&lt;T&gt; を Burst で使える参照 UnsafeRefToNativeList&lt;T&gt; に変換できるようになりました。
+これを使えば、NativeList&lt;T&gt; を内部バッファに使用している NativeJaggedArray&lt;T&gt; や NativeStringList のUnsafeRef も容易に作成できます。また、自分でUnsafeなコンテナを作るのではなく、領域の確保はNativeListにやらせてBurstに渡す時にだけ型変換する、という方針をとることで、メモリリークの監視やBurstの外でのレースコンディションの検知など、NativeContainerの安全システムの恩恵に与ることができます。Burst は参照型を扱えないため、関数の引数定義によってBoxingが発生したりすると参照型への変換ができないためにコンパイルエラーとなります。メタプログラミングを意識してインターフェイスを利用している場合にはその使い方に注意が必要です。Generic Interface を使えるようになると何となく必要な型制約だけをつけたGenericな引数で関数を定義したくなりますよね。
+しかし、Burstのコンパイル結果は delegade 型の変数に格納される = この時点で関数ポインタのエントリポイントの型情報が確定している というわけで型情報を確定できない Generic な引数は使えません。もっとも、この制約はC#とC++の境界になる関数ポインタへの引数だけなので、下記の例のように delegade を呼ぶ関数をオーバーロードしたり、Burstでコンパイルされる関数内で Generic な関数を使うことに問題はありません。Burst は JobSystem などの複数のCPUコアへ処理を割り振るのではなく、CPUコア内の演算実行ユニットにできるだけ処理を詰め込んで処理を高速にしようとする最適化を行います。
+一般的にSIMD化とパイプライン化と呼ばれる最適化になります。我々が普段扱う変数はintやfloatといったものですが、これらのバイナリサイズは32bitです。
+一方、今日のPC用CPUでは加減乗除やビット演算など、同じ演算を同時に複数の変数に適用するための機能がついており、これは現行製品ではAVX2(256bit幅, AMDとIntel両社が対応)やAVX512(512bit幅, 現状Intelのみ)などが利用可能です。
+iOSやAndroid端末でも Arm NEON として同様の機能が実装されています。これを用いることで、例えば8つのfloatを別の8つのfloatと足し算する処理(ちょうどクォータニオン2つ分ですね)でfloatの足し算を8回処理しなければならないところ、AVX2が使える環境では全部まとめて1回の処理で計算が終わります。(32bit x 8 = 256bit)同じ演算でなければ利用できないとか、大量のデータの読み書きができないとデータが来なくて結局計算ができない(=うまくデータがキャッシュに乗っているかが重要。つまりNativeContainerやECSとセットで使わないとそもそも性能を発揮できない)とか制約はありますが、うまく適用できれば大変な高速化になります。SIMD化は一回の命令で処理できるデータを増やす方法でしたが、CPUの命令にはもう一つ特徴があり、たいていの命令は実行してから結果が得られるまでの時間(=Latency)と、次の命令を開始できるようになる時間(=Throughput)が違うことが多いです。たとえば Latency=5, Throughput=2 の命令を使うとして、いちいち結果が出るのを待ってから次の命令を開始していると20クロックで4回しか処理できませんが、結果に依存性がないデータをThroughputが許す限り、2クロックごとに詰め込めるだけ詰め込んでいけば19クロック時点で8回目のデータの結果が得られます。こちらも大きな性能向上をもたらす可能性があり、しかしやはりデータが到着しなければ処理が始まりませんので、データがちゃんとキャッシュメモリに(以下略SIMD化もパイプライニングも、マルチコアでの並列化と同様、同時に処理しているデータの処理結果について互いに依存関係にないことが前提として必要です。
+つまり得意な処理対象も同じ、できるだけ大きなforループです。今回のテーマである文字列のパース処理は、極端に単純化すれば文字列の先頭から1文字ずつ比較していって合致した場所をさがすという超巨大なforループです。
+比較的Burstが得意な処理に該当するので、 ITextFileParser.ParseLines() をBurst化した時には2倍近い高速化が達成できました。一方で、NativeStringCollections.BurstFunc の delegate を使用した場合にさほど大きな性能向上がなかったのは、ParseLines()ではブロックごとの処理内容がそのまま渡されるために数千文字分の巨大なループとして処理を詰め込めたのに対し、Split() や TryParse() 関数単独ではせいぜい数文字から数十文字といったところでCPUコアの演算器を埋め尽くすにはデータが足りなかったと考えられます。Basics of NativeStringCollections:
+[Unity] C# JobSystem を利用してテキストファイルを非同期でパースするQiita:
+【Unity】BurstCompilerをJobSystem以外でも使いたい
+【Unity】NativeArrayについての解説及び実装コードを読んでみるBlog:
+相互運用時に戻り値にNon-Bittable型が含まれる場合例外が発生する件
+【C#】え、Generic Interfaceでメソッド引数を設定すれば構造体のBoxingを回避できるの？Official:
+Burst User Guide
+Scripting API / Unity.Colections
+Burstを使ってSHA-256のハッシュ計算を高速に行う話
+
+

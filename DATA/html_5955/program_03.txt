@@ -1,0 +1,43 @@
+
+private void AesEncrypt(string FilePath, string OutFilePath)
+{
+  // パスワードは、単純な「abc」ですが、鍵空間を広げる
+  Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes("abc", 8, 1000);
+  // Rfc2898DeriveBytes オブジェクトからキーと IV を導出する
+  byte[] salt = deriveBytes.Salt;
+  byte[] key = deriveBytes.GetBytes(32);  // キーサイズは、256bit
+  byte[] iv = deriveBytes.GetBytes(16);   // ブロックサイズは、128bit
+
+  using (FileStream fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
+  {
+    using (FileStream outfs = new FileStream(OutFilePath, FileMode.Create, FileAccess.Write))
+    {
+      // salt だけ先頭に書き込む
+      outfs.Write(salt, 0, 8);
+      // AESオブジェクト
+      AesManaged aes = new AesManaged();
+      aes.Mode = CipherMode.CBC;       // デフォルト（書かなくてもO.K.）
+      aes.Padding = PaddingMode.PKCS7; // デフォルト（書かなくてもO.K.）
+      aes.KeySize = 256;
+      aes.BlockSize = 128;
+      aes.Key = key;
+      aes.IV = iv;
+      // 対称暗号化オブジェクト
+      using (ICryptoTransform encryptor = aes.CreateEncryptor())
+      {
+        // 書き出すための暗号化ストリーム
+        using (CryptoStream cs = new CryptoStream(outfs, encryptor, CryptoStreamMode.Write))
+        {
+          //暗号化されたデータを書き出す
+          byte[] buffer = new byte[1024];
+          int len;
+          while ((len = fs.Read(buffer, 0, buffer.Length)) &gt; 0)
+          {
+            cs.Write(buffer, 0, len);
+          }
+        }
+      }
+    }
+  }
+}
+

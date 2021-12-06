@@ -1,0 +1,166 @@
+
+////////////////////////////////////////////////////////////////////////
+// 4方向から進むに最適なタイルを算出
+////////////////////////////////////////////////////////////////////////
+private static TileBlock GetBestTile(TileBlock origin, int cost)
+{
+    if (origin.GetTileType() == TileType.GoalTile || origin.GetAnalyzed())
+    {
+        return origin;
+    }
+
+    var goalCoord   = GetTileBlockByTileType(TileType.GoalTile).GetCoordinate();
+    var originCoord = origin.GetCoordinate();
+
+    var up      = GetTileBlock(new Vector2(originCoord.x, originCoord.y - 1));
+    var bottom  = GetTileBlock(new Vector2(originCoord.x, originCoord.y + 1));
+    var right   = GetTileBlock(new Vector2(originCoord.x + 1, originCoord.y));
+    var left    = GetTileBlock(new Vector2(originCoord.x - 1, originCoord.y));
+
+    //ふるいにかける
+    if (up      != null &amp;&amp; up.      GetTileType() != TileType.Walkable &amp;&amp; up.GetTileType()      != TileType.GoalTile) up      = null;
+    if (bottom  != null &amp;&amp; bottom.  GetTileType() != TileType.Walkable &amp;&amp; bottom.GetTileType()  != TileType.GoalTile) bottom  = null;
+    if (right   != null &amp;&amp; right.   GetTileType() != TileType.Walkable &amp;&amp; right.GetTileType()   != TileType.GoalTile) right   = null;
+    if (left    != null &amp;&amp; left.    GetTileType() != TileType.Walkable &amp;&amp; left.GetTileType()    != TileType.GoalTile) left    = null;
+
+    //どれかが前のoriginだったらやめる
+    if (up      != null &amp;&amp; up.      GetAnalyzed())  up     = null;
+    if (bottom  != null &amp;&amp; bottom.  GetAnalyzed())  bottom = null;
+    if (right   != null &amp;&amp; right.   GetAnalyzed())  right  = null;
+    if (left    != null &amp;&amp; left.    GetAnalyzed())  left   = null;
+
+    //どれかがゴールだったらそこまで線を描画
+    if (up      != null &amp;&amp; up.      GetTileType() == TileType.GoalTile) DrawLineCenterTileToTile(origin.GetCoordinate(), up.    GetCoordinate());
+    if (bottom  != null &amp;&amp; bottom.  GetTileType() == TileType.GoalTile) DrawLineCenterTileToTile(origin.GetCoordinate(), bottom.GetCoordinate());
+    if (right   != null &amp;&amp; right.   GetTileType() == TileType.GoalTile) DrawLineCenterTileToTile(origin.GetCoordinate(), right. GetCoordinate());
+    if (left    != null &amp;&amp; left.    GetTileType() == TileType.GoalTile) DrawLineCenterTileToTile(origin.GetCoordinate(), left.  GetCoordinate());
+
+    var up_hcost        = 0;
+    var bottom_hcost    = 0;
+    var right_hcost     = 0;
+    var left_hcost      = 0;
+
+    //推定コストを計算
+    if (up      != null)    up_hcost        = CalculateHeuristic(up.    GetCoordinate(), goalCoord);
+    if (bottom  != null)    bottom_hcost    = CalculateHeuristic(bottom.GetCoordinate(), goalCoord);
+    if (right   != null)    right_hcost     = CalculateHeuristic(right. GetCoordinate(), goalCoord);
+    if (left    != null)    left_hcost      = CalculateHeuristic(left.  GetCoordinate(), goalCoord);
+
+    //データをセット
+    if (up      != null)    up.     SetAnalyzeData(     cost,   up_hcost       );
+    if (bottom  != null)    bottom. SetAnalyzeData(     cost,   bottom_hcost   );
+    if (right   != null)    right.  SetAnalyzeData(     cost,   right_hcost    );
+    if (left    != null)    left.   SetAnalyzeData(     cost,   left_hcost     );
+
+    var up_score        = 0;
+    var bottom_score    = 0;
+    var right_score     = 0;
+    var left_score      = 0;
+
+    if (up      != null)    up_score        = up.       GetScore();
+    if (bottom  != null)    bottom_score    = bottom.   GetScore();
+    if (right   != null)    right_score     = right.    GetScore();
+    if (left    != null)    left_score      = left.     GetScore();
+
+    var scores  = new int[4]        ;
+    scores[0]   = up_score          ;
+    scores[1]   = bottom_score      ;
+    scores[2]   = right_score       ;
+    scores[3]   = left_score        ;
+
+    var hcosts  = new int[4]        ;
+    hcosts[0]   = up_hcost          ;
+    hcosts[1]   = bottom_hcost      ;
+    hcosts[2]   = right_hcost       ;
+    hcosts[3]   = left_hcost        ;
+
+    var tiles   = new TileBlock[4]  ;
+    tiles[0]    = up                ;
+    tiles[1]    = bottom            ;
+    tiles[2]    = right             ;
+    tiles[3]    = left              ;
+
+    var min_score   = int.MaxValue  ;
+    var min_cost    = int.MaxValue  ;
+    var min_hcost   = int.MaxValue  ;
+    var min_tile    = origin        ;
+
+    //一番スコアの低いものを探す
+    for(int m = 0; m &lt; 4; m++)
+    {
+        if (scores[m] == 0)                             continue;
+        if (scores[m] &gt; min_score)                      continue;
+        if (scores[m] == min_score &amp;&amp; cost &gt;= min_cost) continue;
+
+        min_score   = scores[m];
+        min_cost    = cost;
+        min_tile    = tiles[m];
+        min_hcost   = hcosts[m];
+    }
+
+    //自身をClose
+    if (origin != null)
+    {
+        origin.Close();
+    }
+
+    if (min_tile.GetTileType() == TileType.Walkable)
+    {
+        origin.SetAnalyzed(true);
+        DrawLineCenterTileToTile(origin.GetCoordinate(), min_tile.GetCoordinate());
+    }
+    return min_tile;
+}
+
+////////////////////////////////////////////////////////////////////////
+// マップを探索
+////////////////////////////////////////////////////////////////////////
+public static async void AnalyzeMap()
+{
+    LoggerForm.WriteSuccess("探索開始");
+
+    //各タイル座標に属性を付与
+    SetTileAttributesToAll();
+
+    var startTile   = GetTileBlockByTileType(TileType.StartTile);
+    var goalTile    = GetTileBlockByTileType(TileType.GoalTile );
+
+    if(startTile == null || goalTile == null)
+    {
+        if(startTile == null)
+        {
+            LoggerForm.WriteError("Start tile not found.");
+        }
+        else if(goalTile == null)
+        {
+            LoggerForm.WriteError("Goal tile not found.");
+        }
+        return;
+    }
+
+    var startTileCoord  = startTile.GetCoordinate();
+    var goalTileCoord   = goalTile. GetCoordinate();
+
+    var k = 0;
+    TileBlock bestTile = startTile;
+    while (k &lt; 999)
+    {
+        k++;
+        if (bestTile == null || !IsTileBlockExists(bestTile.GetCoordinate()))
+        {
+            LoggerForm.WriteError("Tile not found.");
+            break;
+        }
+        else if (bestTile.GetTileType() == TileType.GoalTile)
+        {
+            LoggerForm.WriteSuccess("Goal found.");
+            break;
+        }
+        else
+        {
+            bestTile = GetBestTile(bestTile, k);
+        }
+        await Task.Delay(10);
+    }
+}
+

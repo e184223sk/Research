@@ -1,0 +1,56 @@
+
+
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
+
+namespace WebApplication1.Authorization
+{
+    public static class UserRollInitialize
+    {
+        // 初期化時のロール
+        public static readonly string SystemManagerRole = "SystemManager";      // システム管理権限
+        public static readonly string GroupManagerRole = "GroupManager";        // グループ管理権限
+
+        // 初期化時のシステム管理ユーザーID
+        public static readonly string StstemManageEmail = "system@test.com";    // 最初のシステム管理ユーザーのメールアドレス
+        public static readonly string StstemManagePassword = "!initialPassword01";    // 最初のシステム管理ユーザーの初期パスワード
+
+        /// &lt;summary&gt;
+        /// ユーザーとロールの初期化
+        /// 　初期のシステムユーザーあが存在しない場合のみ内容が実行される。存在する場合は何もせずに終了
+        /// &lt;/summary&gt;
+        /// &lt;param name="serviceProvider"&gt;&lt;/param&gt;
+        public static async Task Initialize(IServiceProvider serviceProvider)
+        {
+            // ユーザー管理を取得(using Microsoft.Extensions.DependencyInjectionがないとエラーになる)
+            var userManager = serviceProvider.GetService&lt;UserManager&lt;IdentityUser&gt;&gt;();
+
+            // 初期のユーザーマネージャーが存在しなければロールの作成と初期システムユーザーを作成する
+            var systemManager = await userManager.FindByNameAsync(StstemManageEmail);
+            if (systemManager == null)
+            {
+                // ロール管理を取得
+                var roleManager = serviceProvider.GetService&lt;RoleManager&lt;IdentityRole&gt;&gt;();
+
+                // ロールの追加
+                await roleManager.CreateAsync(new IdentityRole(SystemManagerRole));    // システム管理ロール
+                await roleManager.CreateAsync(new IdentityRole(GroupManagerRole));    // グループ管理ロール
+
+                // 初期システム管理者の作成
+                // なぜか知らないが、デフォルトのログイン画面はユーザーIDではなくメールアドレスを要求し、バリデーションもメールで設定されている。
+                // ところが、ログイン処理自体は「Email」ではなく「UserName」で行われるので両方に設定せざるを得ない。
+                // なんでこんなことのなっているのか？　変更するにはログイン画面を変えればいい
+                systemManager = new IdentityUser { UserName = StstemManageEmail, Email = StstemManageEmail };
+                await userManager.CreateAsync(systemManager, StstemManagePassword);
+
+                // システム管理ユーザーにシステム管理ロールを追加
+                systemManager = await userManager.FindByNameAsync(StstemManageEmail);
+                await userManager.AddToRoleAsync(systemManager, SystemManagerRole);
+            }
+        }
+    }
+}
+
+

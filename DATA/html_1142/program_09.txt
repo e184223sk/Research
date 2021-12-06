@@ -1,0 +1,148 @@
+
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+//
+// Generated with Bot Builder V4 SDK Template for Visual Studio EchoBot v4.6.2
+
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Bot.Builder;
+using Microsoft.Bot.Schema;
+
+//for TextAnalytics
+using System;
+using System.Net.Http;
+using Microsoft.Azure.CognitiveServices.Language.TextAnalytics;
+using Microsoft.Azure.CognitiveServices.Language.TextAnalytics.Models;
+using Microsoft.Rest;
+using System.Diagnostics;
+
+//for Twitter
+using CoreTweet;
+
+namespace YasashiiBot.Bots
+{
+    public class EchoBot : ActivityHandler
+    {
+        //for TextAnalytics
+        private static readonly string key = "&lt;replace-with-your-text-analytics-key-here&gt;;
+        private static readonly string endpoint = "&lt;replace-with-your-text-analytics-endpoint-here&gt;";
+
+        protected override async Task OnMessageActivityAsync(ITurnContext&lt;IMessageActivity&gt; turnContext, CancellationToken cancellationToken)
+        {
+
+            //for TextAnalytics
+            var client = authenticateClient();
+            var score = sentimentAnalysisExample(client,turnContext.Activity.Text);//戻り値を格納するためscoreを用意
+            var res = "";//返事格納用
+            Debug.WriteLine($"Sentiment Score2: {score:0.00}");//出力確認2
+
+            if(0.5 &lt;= score)
+            {
+                res = getShioComment();
+                Debug.WriteLine($"塩対応:{res}");//出力確認3
+            }
+            else
+            {
+                res = getTweet();
+                Debug.WriteLine($"励まし対応:{res}");//出力確認4
+            }
+
+            res = $"Score:{score:0.00}" + Environment.NewLine + res;
+            await turnContext.SendActivityAsync(MessageFactory.Text(res), cancellationToken);
+        }
+
+        protected override async Task OnMembersAddedAsync(IList&lt;ChannelAccount&gt; membersAdded, ITurnContext&lt;IConversationUpdateActivity&gt; turnContext, CancellationToken cancellationToken)
+        {
+            var welcomeText = "Hello and welcome!";
+            foreach (var member in membersAdded)
+            {
+                if (member.Id != turnContext.Activity.Recipient.Id)
+                {
+                    await turnContext.SendActivityAsync(MessageFactory.Text(welcomeText, welcomeText), cancellationToken);
+                }
+            }
+        }
+
+        //for TextAnalytics
+        static TextAnalyticsClient authenticateClient()
+        {
+            ApiKeyServiceClientCredentials credentials = new ApiKeyServiceClientCredentials(key);
+            TextAnalyticsClient client = new TextAnalyticsClient(credentials)
+            {
+                Endpoint = endpoint
+            };
+            return client;
+        }
+
+        //for TextAnalytics
+        static double sentimentAnalysisExample(ITextAnalyticsClient client, string message)//戻り値をdouble型に変更
+        {
+            var result = client.Sentiment(message, "ja");//引数messageを分析対象にし、言語は日本語に設定
+            Debug.WriteLine($"User Message: {message}");//引数messageの内容を出力
+            Debug.WriteLine($"Sentiment Score1: {result.Score:0.00}");//出力確認1
+
+            return (double)result.Score;//分析スコアを返す
+        }
+        //for Twitter
+        static string getTweet()
+        {
+            Random cRandom = new System.Random(); //取得したツイートからランダムに1つ選択するための乱数
+            var tokens = Tokens.Create("&lt;API KEY&gt;", "&lt;API SECRET&gt;", "&lt;ACCESS TOKEN&gt;", "&lt;ACCESS TOKEN SECRET&gt;");  //接続用トークン発行
+            var tweet = "";//取得したツイートを格納する変数
+
+            var parm = new Dictionary&lt;string, object&gt;();  //条件指定用Dictionary
+            parm["count"] = 60;  //取得数
+            parm["screen_name"] = "hagemasi1_bot";  //取得したいユーザーID
+
+
+            Task task = Task.Factory.StartNew(async () =&gt;
+            {
+                var tweets = await tokens.Statuses.UserTimelineAsync(parm); //parmの内容に従ってツイートを取得
+
+                var random = cRandom.Next(61); //0～60の間の乱数を生成
+                tweet = tweets[random].Text; //取得した60ツイートからrandom番目のツイートを格納
+
+            }).Unwrap();
+
+            task.Wait();
+
+            return tweet; //選んだツイートを戻り値として返す
+
+        }
+
+        static string getShioComment()
+        {
+            Random cRandom = new System.Random(); //乱数
+            string res = "";
+            var shio = new string[] { "へー・・・。", "・・・だから？", "知らんわー。", "興味ないね。", "いや、聞いてないし。", "ふーん・・・。で？", "そういうのいいから。", "あーちょっと今忙しいからまた今度。", "・・・けっ！", "リア充乙。" };
+
+            var random = cRandom.Next(11);
+            res = shio[random];
+            return res;
+        }
+    }
+
+    //for TextAnalytics
+    class ApiKeyServiceClientCredentials : ServiceClientCredentials
+    {
+        private readonly string apiKey;
+
+        public ApiKeyServiceClientCredentials(string apiKey)
+        {
+            this.apiKey = apiKey;
+        }
+
+        public override Task ProcessHttpRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException("request");
+            }
+            request.Headers.Add("Ocp-Apim-Subscription-Key", this.apiKey);
+            return base.ProcessHttpRequestAsync(request, cancellationToken);
+        }
+    }
+}
+

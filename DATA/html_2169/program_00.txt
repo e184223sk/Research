@@ -1,0 +1,59 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Leap;
+using Live2D.Cubism.Core;
+using Live2D.Cubism.Framework;
+
+public class MoveArm : MonoBehaviour
+{
+    private CubismModel _model;
+    private Controller controller;
+    private Dictionary&lt;Leap.Finger.FingerType, CubismParameter&gt; modelfingers;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        controller = new Controller();
+        _model = this.FindCubismModel();
+
+        modelfingers = new Dictionary&lt;Leap.Finger.FingerType, CubismParameter&gt;();
+        modelfingers.Add(Leap.Finger.FingerType.TYPE_INDEX, _model.Parameters[1]);
+        modelfingers.Add(Leap.Finger.FingerType.TYPE_MIDDLE, _model.Parameters[2]);
+        modelfingers.Add(Leap.Finger.FingerType.TYPE_RING, _model.Parameters[3]);
+        modelfingers.Add(Leap.Finger.FingerType.TYPE_PINKY, _model.Parameters[4]);
+        modelfingers.Add(Leap.Finger.FingerType.TYPE_THUMB, _model.Parameters[5]);
+    }
+    private void LateUpdate()
+    {
+        Frame frame = controller.Frame();
+
+        if (frame.Hands.Count != 0)
+        {
+            List&lt;Hand&gt; hand = frame.Hands;
+            var fingers = hand[0].Fingers;
+            foreach (Finger finger in fingers)
+            {
+                if (finger.Type == Leap.Finger.FingerType.TYPE_UNKNOWN) continue;
+
+                var angle = Mathf.PI - finger.Direction.AngleTo(hand[0].Direction);
+                var param = EditParam(angle, 0f, Mathf.PI, -30, 30);
+
+                if (finger.Type == Leap.Finger.FingerType.TYPE_THUMB)
+                {
+                    angle = finger.Direction.AngleTo(hand[0].PalmNormal);
+                    param = EditParam(angle, 1.0f, 1.27f, -30, 30);
+                    Debug.Log("THUMB " + angle + " " + param);
+                }
+
+                modelfingers[finger.Type].Value = param;
+            }
+        }
+    }
+    private float EditParam(float param,float leapmin,float leapmax, float modelmin,float modelmax)
+    {
+        return (param - leapmin) * ((modelmax - modelmin) / (leapmax - leapmin)) + modelmin;
+    }
+}
+
+

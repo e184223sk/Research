@@ -1,0 +1,27 @@
+
+private readonly AutoResetEvent condition = new AutoResetEvent();
+
+public async Task&lt;string&gt; DownloadAsync()
+{
+    using (var client = new HttpClient())
+    {
+        var response = await client.GetAsync(@"http://hoge.example.com/contents.dat");
+        using (var stream = new StreamReader(await response.Content.ReadAsStreamAsync()))
+        {
+            var first = stream.ReadLine();
+            FirstLineDownloaded?.Invoke(this, first);
+        }
+
+        // ①ユーザーから「OK」ボタンが押されるまで待ちたい
+        condition.WaitOne();
+
+        return await response.Content.ReadAsStringAsync();
+    }
+}
+
+public void DownloadAcceppted(object sender, EventArgs args)
+{
+    // ②「OK」が押されたら、DownloadAsync()を再開したい
+    condition.Set();
+}
+

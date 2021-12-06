@@ -1,0 +1,49 @@
+using System.Net;
+using System.Net.Http;
+namespace AuthService.logic {
+
+    public interface ISnsAuthLogic {
+        public Task&lt;ApiResponseCustomTokenData&gt; GetCustomAuthTokenForLine(string accessToken);
+    }
+
+    public class SnsAuthLogic : ISnsAuthLogic {
+
+        private static readonly HttpClient _httpClient;
+
+        static SnsAuthLogic() {
+            _httpClient = new HttpClient();
+        }
+
+        /// &lt;summary&gt;
+        /// カスタムトークン取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;ApiResponseCustomTokenData&gt; GetCustomAuthTokenForLine(string accessToken) {
+
+            string verifyUrl    = $"https://api.line.me/oauth2/v2.1/verify?access_token={accessToken}";
+
+            var veryfyRequest   = new HttpRequestMessage(HttpMethod.Get, verifyUrl);
+
+            //response
+            ApiResponseCustomTokenData data = new ApiResponseCustomTokenData() {
+                Status      = 0,
+                CustomToken = null
+            };
+
+            //accessToken検証
+            var verifyResponse  = await _httpClient.SendAsync(veryfyRequest);
+            data.Status         = (int)verifyResponse.StatusCode;
+
+            if(verifyResponse.StatusCode == HttpStatusCode.OK) {
+
+                //channelId抽出
+                var verifyBody  = await verifyResponse.Content.ReadAsStringAsync();
+                JObject verify  = JObject.Parse(verifyBody);
+                var clientId    = verify["client_id"].ToString();
+            }
+
+            return data;
+        }
+    }
+}
+

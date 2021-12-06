@@ -1,0 +1,111 @@
+using Microsoft.CognitiveServices.Speech;
+using Microsoft.CognitiveServices.Speech.Audio;
+using System;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace SpeechToTextSample
+{
+    public class AzureSpeechToText
+    {
+        const string KEY = "32文字の英数字";
+        const string REGION = "japaneast";
+        const string LOCALE = "ja-JP";
+
+        const string PROXY_HOST = "";
+        const int PROXY_PORT = 0;
+
+        public async Task&lt;string&gt; RecognizeAsync(string wavefile)
+        {
+            // Console.WriteLine($"RecognizeAsync: waveFile={wavefile}");
+
+            // Azure情報の設定
+            var config = SpeechConfig.FromSubscription(KEY, REGION);
+            config.SpeechRecognitionLanguage = LOCALE;
+
+            // Proxyの設定
+            if (!string.IsNullOrEmpty(PROXY_HOST))
+                config.SetProxy(PROXY_HOST, PROXY_PORT);
+
+            // 文字起こし開始
+            var result = await RecognizeStartAsync(config, wavefile);
+
+            return result;
+        }
+
+        private async Task&lt;string&gt; RecognizeStartAsync(SpeechConfig config, string wavefile)
+        {
+            var sb = new StringBuilder();
+            var stopRecognition = new TaskCompletionSource&lt;int&gt;();
+
+            // SpeechToTextの開始
+            using (var audioInput = AudioConfig.FromWavFileInput(wavefile))
+            {
+                using (var recognizer = new SpeechRecognizer(config, audioInput))
+                {
+                    // recognizer.Recognizing += (s, e) =&gt;
+                    // {
+                    //     Console.WriteLine($"RECOGNIZING: Text={e.Result.Text}");
+                    // };
+
+                    recognizer.Recognized += (s, e) =&gt;
+                    {
+                        if (e.Result.Reason == ResultReason.RecognizedSpeech)
+                        {
+                            var time = TimeSpan.FromSeconds(e.Result.OffsetInTicks / 10000000).ToString(@"hh\:mm\:ss");
+                            var text = $"{time} {e.Result.Text}\n";
+                            Console.Write(text);
+                            sb.Append(text);
+                        }
+                        else if (e.Result.Reason == ResultReason.NoMatch)
+                        {
+                            Console.WriteLine($"NOMATCH: Speech could not be recognized.");
+                        }
+                    };
+
+                    recognizer.Canceled += (s, e) =&gt;
+                    {
+                        // Console.WriteLine($"CANCELED: Reason={e.Reason}");
+
+                        if (e.Reason == CancellationReason.Error)
+                        {
+                            Console.WriteLine($"CANCELED: ErrorCode={e.ErrorCode}");
+                            Console.WriteLine($"CANCELED: ErrorDetails={e.ErrorDetails}");
+                            Console.WriteLine($"CANCELED: Did you update the subscription info?");
+                            // ret = null;
+                        }
+
+                        stopRecognition.TrySetResult(0);
+                    };
+
+                    // recognizer.SessionStarted += (s, e) =&gt;
+                    // {
+                    //     Console.WriteLine("\n    Session started event.");
+                    // };
+
+                    // recognizer.SessionStopped += (s, e) =&gt;
+                    // {
+                    //     Console.WriteLine("\n    Session stopped event.");
+                    //     Console.WriteLine("\nStop recognition.");
+                    //     if (string.IsNullOrEmpty(ret))
+                    //         ret = "";
+                    //     stopRecognition.TrySetResult(0);
+                    // };
+
+                    // Starts continuous recognition. Uses StopContinuousRecognitionAsync() to stop recognition.
+                    await recognizer.StartContinuousRecognitionAsync().ConfigureAwait(false);
+
+                    // Waits for completion.
+                    // Use Task.WaitAny to keep the task rooted.
+                    Task.WaitAny(new[] { stopRecognition.Task });
+
+                    // Stops recognition.
+                    await recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false);
+                }
+            }
+
+            return sb.ToString();
+        }
+    }
+}
+

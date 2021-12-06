@@ -1,0 +1,28 @@
+
+    public class TerrainFactory
+    {
+        const string terrain_gameobject_name = "Terrain";
+
+        public static void create()
+        {
+            GameObject terrain_gameobject = GameObject.FindWithTag(terrain_gameobject_name);
+            TerrainConfig terrain_config = TerrainConfigRepository.get(TerrainConfigRepository.createDefault());
+            WorldConfig world_config = (SceneService.transition_scene_data as AllowWorldCreate).world_config;
+
+            TerrainService.reset(terrain_gameobject, terrain_config, world_config);
+            TerrainService.createUnityTerrains();
+            TerrainService.setupTerrainCollection();
+
+            Observable.FromCoroutine(x =&gt;
+                TerrainService.update(0, 0)
+            ).Subscribe(x =&gt; {
+                MessageBroker.Default.Publish(new TerrainCreated{});
+            });
+
+            MessageBroker.Default.Receive&lt;playerTerrainChunkMove&gt;().Subscribe(x =&gt; {
+                MainThreadDispatcher.StartCoroutine(TerrainService.update(x.x, x.z));
+            });
+        }
+
+    }
+

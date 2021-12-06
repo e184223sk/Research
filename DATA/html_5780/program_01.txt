@@ -1,0 +1,96 @@
+
+    public class TerrainEntity : TerrainEntityCore
+    {
+
+        public GameObject game_object = null;    // Terrainを持つGameObjectを保持
+
+        public UnityTerrain terrain = null;    // GameObjectにアタッチされたTerrainコンポーネントを保持
+
+        public TerrainEntity(int x, int z, float[,] height_map, float terrain_height,
+            GameObject game_object, UnityTerrain terrain
+        ) {
+            this.pos_x = x;
+            this.pos_z = z;
+            this.height_map = height_map;
+            this.terrain_height = terrain_height;
+            this.game_object = game_object;
+            this.terrain = terrain;
+        }
+
+        public void enable()
+        {
+            this.game_object.SetActive(true);
+        }
+
+        public void disable()
+        {
+            this.game_object.SetActive(false);
+        }
+
+        public bool status()
+        {
+            return this.game_object.activeInHierarchy;
+        }
+
+        public void setNeighbors(TerrainEntity left, TerrainEntity top, TerrainEntity right, TerrainEntity bottom)
+        {
+            // 独自の名前空間にTerrainを使っていて名称の混乱が起きているので、using UnityTerrain = UnityEngine.Terrainしています。
+            UnityTerrain left_terrain = null;
+            UnityTerrain top_terrain = null;
+            UnityTerrain right_terrain = null;
+            UnityTerrain bottom_terrain = null;
+
+            if(left != null) { left_terrain = left.terrain; }
+            if(top != null) { top_terrain = top.terrain; }
+            if(right != null) { right_terrain = right.terrain; }
+            if(bottom != null) { bottom_terrain = bottom.terrain; }
+
+            this.terrain.SetNeighbors(left_terrain, top_terrain, right_terrain, bottom_terrain);
+        }
+
+        public void setTexture(Texture2D texture, int chunk_size)
+        {
+            Debug.Assert(0 &lt; chunk_size);
+
+            TerrainData tData = this.terrain.terrainData;
+            Vector3 tDataSize = tData.size;
+            tData.alphamapResolution = chunk_size;
+
+            // 今のところテクスチャ一枚をすべてのTerrainの全面に貼る機能しかありません。
+            SplatPrototype[] splatprototype = new SplatPrototype[1];
+            splatprototype[0] = new SplatPrototype();
+            splatprototype[0].texture = texture;
+            splatprototype[0].tileSize = new Vector2(tDataSize.x, tDataSize.z);
+
+            tData.splatPrototypes = splatprototype;
+
+            int al_w = tData.alphamapWidth;
+            int al_h = tData.alphamapHeight;
+            float[,,] map = new float[al_w, al_h, 1];
+
+            for (int x = 0; x &lt; al_w; x += 1) {
+                for (int z = 0; z &lt; al_h; z += 1) {
+                    map[x, z, 0] = 1f;
+                }
+            }
+
+            tData.SetAlphamaps(0, 0, map);
+            this.terrain.terrainData = tData;
+        }
+
+        public float getHeight(float offset_x, float offset_z)
+        {
+            Debug.Assert(offset_x &lt; 1f);
+            Debug.Assert(offset_z &lt; 1f);
+
+            // ワールド座標をチャンクサイズで割って小数部だけ取り出せば、Terrain内の欲しい位置が割り出せる算段
+            TerrainData tData = terrain.terrainData;
+            int max_w = tData.heightmapWidth;
+            int max_h = tData.heightmapHeight;
+            int x = Mathf.FloorToInt(max_w * offset_x);
+            int z = Mathf.FloorToInt(max_h * offset_z);
+            return this.height_map[x, z] * this.terrain_height;
+        }
+
+    }
+

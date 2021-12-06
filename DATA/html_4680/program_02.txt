@@ -1,0 +1,51 @@
+
+    public static class Logic
+    {
+        public static async Task&lt;bool&gt; StockUpdateLogic(long id, StockContext ctx, int saleQuantity)
+
+        {
+            var stock = await ctx.ProductStocks.SingleOrDefaultAsync(x =&gt; x.Id == id);
+
+            if (stock == null)
+                return false;
+
+            if (stock.RemainingQuantity &lt; saleQuantity)
+                return false;
+
+            stock.SoldQuantity += saleQuantity;
+            stock.RemainingQuantity -= saleQuantity;
+            ctx.Update(stock);
+
+            while (true)
+            {
+                try
+                {                 
+                    await ctx.SaveChangesAsync();
+                    break;
+                }
+                catch (DbUpdateConcurrencyException e)
+                {
+                    var entityEntry = e.Entries.Single(x =&gt; x.Entity is ProductStock);
+                    var proposedValues = entityEntry.CurrentValues;
+                    var databaseValues = await entityEntry.GetDatabaseValuesAsync();
+
+                    var dbSoldQuantity = databaseValues.GetValue&lt;int&gt;(nameof(ProductStock.SoldQuantity));
+                    var dbRemainingQuantity = databaseValues.GetValue&lt;int&gt;(nameof(ProductStock.RemainingQuantity));
+
+                    if (dbRemainingQuantity &lt; saleQuantity)
+                        return false;
+
+                    var newSoldQuantity = dbSoldQuantity + saleQuantity;
+                    var newRemainingQuantity = dbRemainingQuantity - saleQuantity;
+                    proposedValues[nameof(ProductStock.SoldQuantity)] = newSoldQuantity;
+                    proposedValues[nameof(ProductStock.RemainingQuantity)] = newRemainingQuantity;
+
+                    entityEntry.OriginalValues.SetValues(databaseValues);
+                }
+            }
+
+            return true;
+        }
+    }
+
+

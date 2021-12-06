@@ -1,0 +1,222 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+class MainForm : Form
+{
+    bool dragingNow;
+    int dragStartX;
+    int dragStartY;
+    //TextBox txt;
+
+    MainForm()
+    {
+        Text = "MouseHooker";
+        ClientSize = new System.Drawing.Size(700,200);
+        Shown += (s,e)=&gt;{Start();};
+        FormClosed += (s,e)=&gt;{Stop();};
+
+        //txt = new TextBox();
+        //Controls.Add(txt);
+
+        dragingNow = false;
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        NativeMethods.SetProcessDPIAware(); // 高解像度のスケーリング座標に対応するため
+        Application.Run(new MainForm());
+    }
+
+
+
+    private static class NativeMethods
+    {
+        public delegate IntPtr MouseHookCallback(int nCode, uint msg, ref MSLLHOOKSTRUCT msllhookstruct);
+
+        [DllImport("user32.dll")]
+        public static extern System.IntPtr SetWindowsHookEx(int idHook, MouseHookCallback lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll")]
+        public static extern System.IntPtr CallNextHookEx(IntPtr hhk, int nCode, uint msg, ref MSLLHOOKSTRUCT msllhookstruct);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static void SendInput(int nInputs, Input[] pInputs, int cbsize);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static IntPtr GetMessageExtraInfo();
+
+        [DllImport( "user32.dll" )]
+        public static extern bool SetProcessDPIAware();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private const int WH_MOUSE_LL = 14;
+    private const int WM_MOUSEMOVE   = 0x0200;
+    private const int WM_LBUTTONDOWN = 0x0201;
+    private const int WM_LBUTTONUP   = 0x0202;
+    private const int WM_RBUTTONDOWN = 0x0204;
+
+
+
+    private IntPtr hookHandle;
+    private event NativeMethods.MouseHookCallback hookCallback;
+
+    public void Start()
+    {
+        hookCallback = HookProcedure;
+        hookHandle = NativeMethods.SetWindowsHookEx(WH_MOUSE_LL, hookCallback, IntPtr.Zero, 0);
+
+        if (hookHandle == IntPtr.Zero)
+        {
+            throw new System.ComponentModel.Win32Exception();
+        }
+    }
+
+    public void Stop()
+    {
+        if (hookHandle != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(hookHandle);
+            hookHandle = IntPtr.Zero;
+        }
+    }
+
+    // 注意：このメソッド内で時間のかかる処理をすると、しばらくフリーズしてフックが外れてしまいます。
+    //       SendInputを直接呼ぶと、しにます。（おそらく、イベントのバッファが壊れておかしくなる？）
+    private IntPtr HookProcedure(int nCode, uint msg, ref MSLLHOOKSTRUCT s)
+    {
+        if ( nCode &gt;= 0 )
+        {
+            txt.Text = msg.ToString()+"]"+(s.pt.x).ToString();
+
+            if ( msg == WM_LBUTTONDOWN )
+            {
+                dragingNow = true;
+                dragStartX = s.pt.x;
+                dragStartY = s.pt.y;
+            }
+            else if ( msg == WM_LBUTTONUP )
+            {
+                if (dragingNow) {
+                    dragingNow = false;
+                    int absDx = s.pt.x - dragStartX;
+                    int absDy = s.pt.y - dragStartY;
+                    if ( absDx &lt; 0 ) { absDx = -absDx; }
+                    if ( absDy &lt; 0 ) { absDy = -absDy; }
+                    if ( absDy &lt; absDx/2 ) {
+                        int x = s.pt.x;
+                        BeginInvoke((MethodInvoker)delegate(){SendInputMouseLButtonUp(x, dragStartY);});
+                        return (IntPtr)1;   // cancel
+                    }
+                }
+            }
+        }
+
+        return NativeMethods.CallNextHookEx(hookHandle, nCode, msg, ref s);
+    }
+
+
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public int Data;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct KeyboardInput
+    {
+        public short VirtualKey;
+        public short ScanCode;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct HardwareInput
+    {
+        public int uMsg;
+        public short wParamL;
+        public short wParamH;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Input
+    {
+        public int Type;
+        public InputUnion ui;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mouse;
+        [FieldOffset(0)]
+        public KeyboardInput Keyboard;
+        [FieldOffset(0)]
+        public HardwareInput Hardware;
+    }
+
+    private const int MOUSEEVENTF_MOVE        = 0x0001;
+    private const int MOUSEEVENTF_LEFTDOWN    = 0x0002;
+    private const int MOUSEEVENTF_LEFTUP      = 0x0004;
+    private const int MOUSEEVENTF_VIRTUALDESK = 0x4000;
+    private const int MOUSEEVENTF_ABSOLUTE    = 0x8000;
+
+    private static void SendInputMouseLButtonUp(int x, int y)
+    {
+        if (x&lt;0) {x=0;}
+        if (y&lt;0) {y=0;}
+        x = (int)( (x*(long)65535) / (Screen.PrimaryScreen.Bounds.Width -1) ); // 微妙に変換があっていないっぽい。分母を-1しない場合でもずれる
+        y = (int)( (y*(long)65535) / (Screen.PrimaryScreen.Bounds.Height-1) );
+        SendInputMouseLButtonUpAbs(x, y);
+    }
+
+    private static void SendInputMouseLButtonUpAbs(int absX, int absY)
+    {
+        var stepMouseUp = new Input();
+        stepMouseUp.Type = 0; // MOUSE = 0
+        stepMouseUp.ui.Mouse.X = absX;
+        stepMouseUp.ui.Mouse.Y = absY;
+        stepMouseUp.ui.Mouse.Data = 0;
+        stepMouseUp.ui.Mouse.Flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP;
+        stepMouseUp.ui.Mouse.Time = 0;
+        stepMouseUp.ui.Mouse.ExtraInfo = IntPtr.Zero;
+
+        Input[] inputs = new Input[]{stepMouseUp};
+        NativeMethods.SendInput(inputs.Length, inputs, Marshal.SizeOf(inputs[0]));
+    }
+}
+
+

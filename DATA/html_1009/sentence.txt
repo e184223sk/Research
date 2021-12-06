@@ -1,0 +1,31 @@
+More than 1 year has passed since last update.LabelのTextを自力でDrawしたかったんです。
+OnPaintの中でDrawStringすればオッケです。
+簡単でしょ？なるべく、Labelコントロールのプロパティを尊重したいです。
+特にTextAlignプロパティは重要でした。ところで、Label.TextAlign は ContentAlignment 型のプロパティです。
+えーと、こんな感じしかし、DrawStringで表示位置を制御するにはStringAlignment型のアトリビュート二つ、つまりの組み合わせで、縦横の位置を指定しなければなりません。
+つまりAlignmentは、この位置を表していてLineAlignmentは、この位置を表していてこの組み合わせで、ContentAlignmentと同じ位置指定ができるようになっている。
+ちゅー訳です。NearとFarの位置関係は日本語ではの話、と思ってねところで、ContentAlignment型はenumで以下の値を持っています。StringAlignment型もenumで以下の値。
+因みに、ContentAlignmentを図示すると以下の形。enumの値は実際に立ったビットが２進数値としてどう評価されるかの値。
+
+一方、StringAlignmentは下図。enum値はただの、値を持った識別子。えーと、まずは分かり易そうな方から…StringAlignmentはただの値、と云いながらもよ～く見てみると以下の対応関係が成り立つようになっています。Left  = Near なのでContentAlignment（の一部）とStringAlignmentの位置関係は、上の図のようになります。
+で、着目すべきは赤い数字。つまり、$2^{StringAlignment}$とすると、その結果が１だったり２だったり４だったりして、ContentAlignmentの対応位置にビットを立てる事ができるって訳です。
+
+次は垂直方向の位置合わせです。
+サクッと図にしてしまうと以下のような感じです。Top / Middle / Bottom其々を４ビットのブロックとして考えると、StringAlignmentの値とブロックの位置関係を対応付ける事が出来ます。
+つまり、水平位置の変換結果に垂直位置の変換値を掛け合わせる事で、ContentAlignmentに変換されます。
+こう云う事―わっかり難ーい！
+と云う時には以下の様に考えても可。$2^{Alignment}$ で求めた水平配置情報を―４ビット左シフトすると云う事は、（２の４乗）＝１６を掛けるってのと同義だからね。
+
+さて―
+簡単な方は片付いたけど、本来やりたかったのはContentAlignmentを二つのStringAlignemntに分割する方でした。あっちからこっちへの変換は数式でできたので、こっちからあっちへの逆変換も数式で出来る筈です。
+数ⅡBを思い出しましょう！冪乗の逆関数は対数になります。
+$2^n = x$ なら、$n = log_2 x$ と云う事です。
+さて、もう一回この図を持ってきて逆の見方で読み解くと－もし ContentAlignment の値が $1$ ならば、$log_2 1 = 0$ で、(Topの)Nearです。
+もし ContentAlignment の値が $2$ ならば、$log_2 2 = 1$ で、(Topの)Middleになります。
+もし ContentAlignment の値が $4$ ならば、$log_2 4 = 2$ で、(Topの)Farに変換できます。じゃぁ、垂直方向がTop以外の場合はどうなるかと云うと、この場合も先ほどとは逆に４ビット単位で右シフトしてあげれば良いですね。ここも例に依って対数です。
+一つのブロックが４ビット（$=2^4=16$）単位ですので $log_{16} ContentAlignment$ とすれば、ビットがどのブロックに含まれているかを知る事が出来ます。えーと、ここにきて更に公式ですけど…
+C#のMathライブラリにおいて扱えるのは、常用対数か自然対数のどちらか1です。（対数の底が $10$ か $e$ かって事）
+上に出てきた様に底を $2$とか $16$ にしたければ以下の変換公式を使う必要があります。$log_x n = log_{10} n / log_{10} x$ここら辺を考慮すると縦位置はー横位置の方は縦位置に従って右シフトした上で対数変換すれば…で、縦横のStringAlignmentに変換できました。多分、Extensionにした方が使い易い様な気がする…
+ちょっと癖が出てしまいましたが、双方向ともStringFormatに対する拡張メソッドになります。てな感じで….NET Frmeworkの場合 ↩
+
+

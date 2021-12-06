@@ -1,0 +1,46 @@
+using (var _Fs = new FileStream(wavFilePath, FileMode.Open, FileAccess.Read))
+{
+    // wavファイルのチャンク読み込み
+    wavChunkReader.ReadChunk(_Fs);
+    int _rate = wavChunkReader.SamplingRate;
+    int _bits = wavChunkReader.SamplingBit;
+    int _channels = wavChunkReader.Channels;
+
+    // wavフォーマット
+    var _wavFormat = new WaveFormat(_rate, _bits, _channels);
+
+    // wavプロバイダーを生成
+    bufferedWaveProvider = new BufferedWaveProvider(_wavFormat);
+
+    // ボリューム調整用
+    var wavProvider = new VolumeWaveProvider16(bufferedWaveProvider) { Volume = 1.0f };
+
+    // 再生デバイスと出力先を設定(NAudioの用語でRender は出力、Capture は入力)
+    var mmDevice = new MMDeviceEnumerator().GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+
+    // タスクキャンセル用
+    var tokenSource = new CancellationTokenSource();
+    var token = tokenSource.Token;
+
+    // バッファ監視
+    Task _Task = TaskReadBuffer(_Fs, wavChunkReader, bufferedWaveProvider, token);
+
+    // 再生処理
+    using (var wavPlayer = new WasapiOut(mmDevice, AudioClientShareMode.Shared, false, 0))
+    {
+        // 出力に入力を接続して再生開始
+        wavPlayer.Init(wavProvider);
+        wavPlayer.Volume = 0.2f;
+        wavPlayer.Play();
+
+        Console.WriteLine("\nPress Button Exit.");
+        Console.ReadLine();
+
+        wavPlayer.Stop();
+    }
+
+    // タスクキャンセル
+    tokenSource.Cancel();
+}
+
+

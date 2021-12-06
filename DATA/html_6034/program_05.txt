@@ -1,0 +1,44 @@
+
+public class DonutViewModel
+    {
+        public DonutModel _DonutModel { get; private set; } = new DonutModel();
+        public ReadOnlyCollection&lt;CategoryEnum&gt; _Categories { get; } = CategoryEnumHelper.CategoryList;
+        public OxyOutsideDonutChart _OutsidePie { get; private set; } = new OxyOutsideDonutChart();
+        public OxyInsideDonutChart _InsidePie { get; private set; } = new OxyInsideDonutChart();
+        public ReactiveCommand C_PieUpdate { get; private set; } = new ReactiveCommand();
+
+        public DonutViewModel()
+        {
+            C_PieUpdate.Subscribe(x =&gt; PieUpdate());
+        }
+        private void PieUpdate()
+        {
+            //リストのソート
+            var sortedList = _DonutModel.ItemList
+                .Where(x =&gt; x.Value &gt; 0)
+                .OrderBy(x =&gt; x.Category);
+            //内側のグラフの更新
+            _InsidePie.UpdateSlices(sortedList.Select(x =&gt; new PieSlice(x.Label, x.Value)));
+            //外側のグラフの更新
+            _OutsidePie.UpdateSlices(_Categories.Select(x =&gt; new PieSlice(
+                x.ToString(),
+                SumMatch(
+                    sortedList,
+                    y =&gt; y.Category == x,
+                    y =&gt; y.Value)))
+                .Where(x =&gt; x.Value &gt; 0));
+        }
+        /// &lt;summary&gt;
+        /// コレクション内で条件に一致するものから指定した値を合計する
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;コレクションの所持する型&lt;/typeparam&gt;
+        /// &lt;param name="targetList"&gt;コレクション&lt;/param&gt;
+        /// &lt;param name="condition"&gt;条件&lt;/param&gt;
+        /// &lt;param name="key"&gt;合計する値&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private double SumMatch&lt;T&gt;(IEnumerable&lt;T&gt; targetList,Func&lt;T,bool&gt; condition,Func&lt;T,double&gt; key)
+        {
+            return targetList.Where(x =&gt; condition(x)).Sum(x =&gt; key(x));
+        }
+    }
+

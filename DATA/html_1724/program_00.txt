@@ -1,0 +1,141 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using myop.Models;
+using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.IdentityModel.Tokens.Jwt;
+using System.Text;
+
+namespace myop.Controllers
+{
+    public class AccessToken
+    {
+        public string access_token { get; set; }
+        public int? expires_in { get; set; }
+        public string token_type { get; set; }
+        public string scope { get; set; }
+        public string error { get; set; }
+        public string error_description { get; set; }
+    }
+
+    [Route("op/[controller]")]
+    [ApiController]
+    public class TokenController : ControllerBase
+    {
+        private readonly ApplicationDbContext _context;
+        string CLIENT_ID;
+        string CLIENT_SECRET;
+        string GRANT_TYPE;
+        string SCOPE;
+        string USERNAME;
+        string PASSWORD;
+        string CODE;
+        public TokenController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+        // POST: op/token
+        [HttpPost]
+        public async Task&lt;ActionResult&lt;AccessToken&gt;&gt; doPost()
+        {
+            // POSTパラメータ取得
+            string body = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();
+            string[] p =  body.Split('&amp;');
+            for (int i=0; i&lt;p.Length; i++){
+                string[] values =  p[i].Split('=');
+                switch(values[0])
+                {
+                    case "client_id":CLIENT_ID=values[1];break;
+                    case "client_secret":CLIENT_SECRET=values[1];break;
+                    case "grant_type":GRANT_TYPE=values[1];break;
+                    case "scope":SCOPE=values[1];break;
+                    case "username":USERNAME=values[1];break;
+                    case "password":PASSWORD=values[1];break;
+                    case "code":CODE=values[1];break;
+                }
+            }
+            // POSTパラメータclient_idチェック
+            var client = await _context.Clients.FindAsync(CLIENT_ID);
+            if (client == null) {
+                return new AccessToken {error = "unauthorized_client", error_description="client authentication failed."};
+            }
+            // access_token発番(authorization_code/client_credentials/password/refresh_token)
+            string random = Guid.NewGuid().ToString("N").ToUpper();
+            // refresh_token発番(authorization_code/password/refresh_token)
+            string refresh = Guid.NewGuid().ToString("N").ToUpper();
+            // 要求のgrant_typeをチェック
+            if (client.GrantTypes != GRANT_TYPE) {
+                return new AccessToken {error = "unsupported_response_type", error_description="the response_type value is not supported."};
+            }
+            // 要求がclient_credentialsの場合
+            if (client.GrantTypes == "client_credentials") {
+                // usernameはadmin固定
+                USERNAME = "admin";
+                // refresh_tokenは発行しない
+                refresh = null;
+            }
+            // 要求がpasswordの場合
+            if (client.GrantTypes == "password") {
+                // 要求のusernameをチェック
+                var user = _context.Users.FirstOrDefault(u =&gt; u.UserName == USERNAME);
+                if (user == null ) {
+                    return new AccessToken {error = "access_denied", error_description="user authentication failed."};
+                }
+                // 要求のpasswordを共通関数でチェック
+                if (!Util.PasswordEqual(user.PasswordHash, PASSWORD)) {
+                    return new AccessToken {error = "access_denied", error_description="user authentication failed."};
+                }
+            }
+            // scopeはopenidを最小限とする
+            string t="openid";
+            if (SCOPE != null) {
+                string[] s =  SCOPE.Split(' ');
+                for (int j=0; j&lt;s.Length; j++){
+                    if (s[j]!="openid" &amp;&amp; client.AllowedScope.Contains(s[j])) t=t+" "+s[j];
+                }
+            }
+            // 要求scopeと許可scopeのANDをとる
+            SCOPE=t;
+            // 機密クライアントの場合
+            if (client.AccessType == "confidential") {
+                // 要求のclient_secretチェック
+                if (client.ClientSecret != CLIENT_SECRET) {
+                    return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                }
+            // 公開クライアントの場合
+            } else if (client.AccessType == "public") {
+                // 要求がclient_credentialsではないかチェック
+                if (client.GrantTypes == "client_credentials") {
+                    return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                }
+                // 要求にclient_secretは不要
+                if (CLIENT_SECRET != null) {
+                    return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+                }
+            // 不明の場合
+            } else {
+                return new AccessToken {error = "invalid_request", error_description="client authentication failed."};
+            }
+            // 削除タイミングがないためaccess_tokenは１ユーザーにつき１つの制限
+            var token = await _context.Tokens.FindAsync(USERNAME);
+            if (token != null) {
+                _context.Tokens.Remove(token);
+                await _context.SaveChangesAsync();
+            }
+            // 有効期限60秒固定のaccess_tokenを発行
+            token = new Token {UserId = USERNAME, AccessToken = random, ClientId = CLIENT_ID, RefreshToken=refresh, Scope = SCOPE, Iat=DateTime.Now};
+            _context.Add(token);
+            await _context.SaveChangesAsync();
+            // access_tokenを返す
+            return new AccessToken {access_token = random, expires_in=60, token_type="bearer", scope = SCOPE};
+        }
+    }
+}
+

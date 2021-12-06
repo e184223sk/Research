@@ -1,0 +1,29 @@
+
+/// &lt;summary&gt;
+/// &lt;see cref="Login(ulong, ulong, InterlopLoginCallback)"/&gt;に渡すデリゲートインスタンスが
+/// GCされるのを回避するために変数として保持しておく
+/// &lt;/summary&gt;
+private static InterlopLoginCallback _loginCallback = LoginCallback;
+
+/// &lt;summary&gt;
+/// &lt;see cref="LoginCallback(ulong, ulong)"/&gt;が呼ばれたことを通知するイベント
+/// &lt;/summary&gt;
+private static Subject&lt;(ulong userId, ulong data)&gt; _onLoggedIn = new Subject&lt;(ulong userId, ulong data)&gt;();
+
+/// &lt;summary&gt;
+/// &lt;see cref="Login(ulong, ulong, InterlopLoginCallback)"/&gt;用のコールバック
+/// &lt;/summary&gt;
+[MonoPInvokeCallback]
+private static void LoginCallback(ulong userId, ulong data) =&gt; _onLoggedIn.OnNext((userId, data));
+
+/// &lt;summary&gt;
+/// ログイン処理を行う
+/// &lt;/summary&gt;
+public static Task&lt;(ulong userId, ulong data)&gt; LoginAsync(ulong userId, ulong authToken)
+{
+    // 先にTaskを起動しておかないとMock等で即コールバックが呼ばれた時に取りこぼす
+    var waitLoginTask = _onLoggedIn.FirstAsync(x =&gt; x.userId == userId).ToTask();
+    Login(userId, authToken, LoginCallback);
+    return waitLoginTask;
+}
+

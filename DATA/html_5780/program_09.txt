@@ -1,0 +1,200 @@
+
+    public class TerrainService
+    {
+        public static GameObject terrain_parent;
+
+        public static TerrainConfig terrain_config;
+
+        private static TerrainCollection terrain_collection;
+
+        private static WorldConfig world_config;
+
+        private static int preview_left_top_x = 0;
+
+        private static int preview_left_top_z = 0;
+
+        private static int preview_right_bottom_x = 0;
+
+        private static int preview_right_bottom_z = 0;
+
+        private static Texture2D texture;
+
+        // TerrainService初期化
+        // ConfigData.instantiate_texture2Dは後述
+        public static void reset(GameObject game_object, TerrainConfig terrain_config, WorldConfig world_config)
+        {
+            terrain_parent = game_object;
+            TerrainService.terrain_config = terrain_config;
+            TerrainService.world_config = world_config;
+            terrain_collection = TerrainCollectionFactory.create(terrain_config, world_config.world_size);
+            TerrainEntityRepository.reset(world_config.world_name);
+
+            texture = ConfigData.instantiate_texture2D(
+                StrOpe.i + "/Resources/" + terrain_config.texture_filepath,
+                terrain_config.detail_resolution,
+                terrain_config.detail_resolution
+            );
+        }
+
+        // プレイヤー移動時のTerrainアップデートを行います。
+        // 生成済みのTerrainは有効/無効の切り替えのみ。
+        // 未生成のTerrainは新しく生成します。
+        public static IEnumerator update(int player_x, int player_z)
+        {
+            int effective_range = terrain_config.chunk_effective_range;
+            int left_top_x = player_x - effective_range;
+            int left_top_z = player_z - effective_range;
+            int right_bottom_x = player_x + effective_range;
+            int right_bottom_z = player_z + effective_range;
+            int chunk_size = terrain_config.chunk_size;
+
+            float terrain_seed = world_config.terrain_seed;
+            float perlin_noise_scale = terrain_config.perlin_noise_scale;
+            bool terrain_create = false;
+
+            for (int x = left_top_x; x &lt;= right_bottom_x; x += 1) {
+                for (int z = left_top_z; z &lt;= right_bottom_z; z += 1) {
+                    yield return null;
+
+                    if (terrain_collection[x, z] == null) {
+                        terrain_create = true;
+                        createTerrain(x, z, chunk_size, terrain_seed, perlin_noise_scale);
+                    } else {
+                        if (!terrain_collection[x, z].status()) {
+                            terrain_collection[x, z].enable();
+                        }
+                    }
+                }
+            }
+
+            if (terrain_create) {
+                for (int x = left_top_x; x &lt;= right_bottom_x; x += 1) {
+                    for (int z = left_top_z; z &lt;= right_bottom_z; z += 1) {
+                        if (!terrain_collection[x, z].status()) {
+                            setupTerrain(x, z, chunk_size);
+                        }
+                    }
+                }
+            }
+
+            for (int x = preview_left_top_x; x &lt;= preview_right_bottom_x; x += 1) {
+                for (int z = preview_left_top_z; z &lt;= preview_right_bottom_z; z += 1) {
+                    yield return null;
+
+                    if (left_top_x &lt;= x &amp;&amp; x &lt;= right_bottom_x &amp;&amp;
+                            left_top_z &lt;= z &amp;&amp; z &lt;= right_bottom_z) {
+                        continue;
+                    }
+
+                    if(terrain_collection[x, z] == null) {
+                        continue;
+                    }
+
+                    terrain_collection[x, z].disable();
+                }
+            }
+
+            preview_left_top_x = left_top_x;
+            preview_left_top_z = left_top_z;
+            preview_right_bottom_x = right_bottom_x;
+            preview_right_bottom_z = right_bottom_z;
+        }
+
+        // Terrain初期化時のみ使用します。
+        // TerrainConfigで指定した範囲のTerrainを順次生成します。
+        public static void createUnityTerrains()
+        {
+            int chunk_size = terrain_config.chunk_size;
+            float terrain_seed = world_config.terrain_seed;
+            float perlin_noise_scale = terrain_config.perlin_noise_scale;
+
+            int xs = terrain_collection.terrain_pos_start;
+            int xe = terrain_collection.terrain_pos_end;
+            int zs = terrain_collection.terrain_pos_start;
+            int ze = terrain_collection.terrain_pos_end;
+
+            for (int x = xs; x &lt; xe; x += 1) {
+                for (int z = zs; z &lt; ze; z += 1) {
+                    createTerrain(x, z, chunk_size, terrain_seed, perlin_noise_scale);
+                }
+            }
+
+            preview_left_top_x = xs;
+            preview_left_top_z = zs;
+            preview_right_bottom_x = xe;
+            preview_right_bottom_z = ze;
+        }
+
+        // Terrain初期化時のみ使用します。
+        // createUnityTerrainsで作ったTerrain達に対して追加の調整を実施していきます。
+        public static void setupTerrainCollection()
+        {
+            int chunk_size = terrain_config.chunk_size;
+
+            for (int xx = terrain_collection.terrain_pos_start; xx &lt; terrain_collection.terrain_pos_end; xx += 1) {
+                for (int zz = terrain_collection.terrain_pos_start; zz &lt; terrain_collection.terrain_pos_end; zz += 1) {
+                    setupTerrain(xx, zz, chunk_size);
+                }
+            }
+        }
+
+        // Terrain生成
+        private static void createTerrain(int x, int z, int chunk_size, float terrain_seed, float perlin_noise_scale)
+        {
+            int xs = x * chunk_size;
+            int zs = z * chunk_size;
+            float[,] heights = createHeightMap(xs, zs, terrain_seed, perlin_noise_scale);
+            terrain_collection[x, z] = TerrainEntityFactory.create(x, z, heights, terrain_config, terrain_parent);
+            terrain_collection[x, z].disable();
+        }
+
+        // createTerrainで生成したTerrainに対して、追加で調整を行います。
+        private static void setupTerrain(int x, int z, int chunk_size)
+        {
+            terrain_collection[x, z].setNeighbors(
+                terrain_collection[x - 1, z],
+                terrain_collection[x, z + 1],
+                terrain_collection[x + 1, z],
+                terrain_collection[x, z - 1]
+            );
+
+            terrain_collection[x, z].setTexture(texture, chunk_size);
+            TerrainEntityRepository.set(terrain_collection[x, z]);
+            terrain_collection[x, z].enable();
+        }
+
+        // Terrain1つ分のハイトマップ生成
+        // ここが壊れていると針の山が出来たり地形に切れ目が出来ます
+        // Mathf.PerlinNoiseに渡す引数を作っているRand.calucurate_perlin_valueについては後述
+        private static float[,] createHeightMap(int xs, int zs, float terrain_seed, float perlin_noise_scale)
+        {
+            int x_max = terrain_config.chunk_size + 1;
+            int z_max = terrain_config.chunk_size + 1;
+            float[,] heights = new float[z_max, x_max];
+
+            for (int x = 0; x &lt; x_max; x += 1) {
+                for (int z = 0; z &lt; z_max; z += 1) {
+                    float xx = Rand.calucurate_perlin_value(xs + x, terrain_seed, perlin_noise_scale);
+                    float zz = Rand.calucurate_perlin_value(zs + z, terrain_seed, perlin_noise_scale);
+                    heights[z, x] = Mathf.PerlinNoise(xx, zz);
+                }
+            }
+
+            return heights;
+        }
+
+        // ワールド座標を受け取って、その位置の地形高さを返します。
+        // Terrain生成後にプレイヤーキャラクターを初期化しているので、地形に埋まらないようにこれで高さを取得しています。
+        public static float getHeight(float x, float z)
+        {
+            int integer_part_x = Mathf.CeilToInt(x / terrain_config.chunk_size);
+            int integer_part_z = Mathf.CeilToInt(z / terrain_config.chunk_size);
+            float r = terrain_collection[integer_part_x, integer_part_z].getHeight(
+                x - integer_part_x,
+                z - integer_part_z
+            );
+            return r;
+        }
+
+    }
+

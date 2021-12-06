@@ -1,0 +1,77 @@
+
+using System;
+using System.Drawing;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+//using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+using Excel = Microsoft.Office.Interop.Excel;
+//using Microsoft.Office.Core;
+
+class ExcelNameRemover : Form
+{
+    Button btnStartTryGet;
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void TryGetActiveBook()
+    {
+        try {
+            var oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+
+            if (oExcelApp == null) {return;}
+
+            dynamic book;
+            book = oExcelApp.ActiveWorkbook;
+
+            var res = MessageBox.Show("Are you sure to delete all names in the excel: \"" + book.Name+"\"", "Confirmation", MessageBoxButtons.OKCancel );
+            if (res == DialogResult.OK ) {
+                dynamic names = book.Names;
+                int count=0;
+                foreach(dynamic name in names){
+                    name.Delete();
+                    count++;
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                Console.WriteLine(count.ToString() + " names are deleted.");
+            }
+        }
+        catch(Exception e) {
+            if (e is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException ||
+                e is COMException ) {
+
+                Console.WriteLine(e);
+                // もみ消す
+                return;
+            }
+            throw e;
+        }
+        finally {
+        }
+    }
+
+
+    ExcelNameRemover()
+    {
+        Controls.Add(btnStartTryGet = new Button(){
+            Text = "Remove all names",
+            Location = new Point(0, 0),
+            Width = 200
+        });
+        btnStartTryGet.Click += (s,e)=&gt;{
+            TryGetActiveBook();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        };
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        //DumpTextOfActiveSheet();
+        Application.Run(new ExcelNameRemover());
+    }
+}
+

@@ -1,0 +1,70 @@
+
+    internal class MyWebApiControllerSelector : DefaultHttpControllerSelector
+    {
+        private HttpConfiguration _config;
+
+        public IHttpControllerSelector PreviousSelector { get; set; }
+
+        public MyWebApiControllerSelector(HttpConfiguration configuration) : 
+            base(configuration)
+        {
+            _config = configuration;
+        }
+
+        public override HttpControllerDescriptor SelectController(HttpRequestMessage request)
+        {
+            IHttpRouteData routeData = request.GetRouteData();
+
+            string namespaceName = GetRouteVariable&lt;string&gt;(routeData, "namespace");
+            string controllerName = GetRouteVariable&lt;string&gt;(routeData, "controller");
+
+            string className = namespaceName + "." + controllerName + "Controller";
+
+            IAssembliesResolver assembliesResolver =
+                _config.Services.GetAssembliesResolver();
+            IHttpControllerTypeResolver controllersResolver =
+                _config.Services.GetHttpControllerTypeResolver();
+
+            ICollection&lt;Type&gt; controllerTypes =
+                controllersResolver.GetControllerTypes(assembliesResolver);
+
+            //var hoge = AppDomain.CurrentDomain.GetAssemblies();
+
+            Type typ = null;
+            foreach (var t in controllerTypes)
+            {
+                if (t.FullName == className)
+                {
+                    typ = t;
+                    break;
+                }
+            }
+
+            if (typ == null)
+            {
+                throw new Exception("コントローラがありません。");
+            }
+
+            HttpControllerDescriptor ret = new HttpControllerDescriptor();
+            ret.Configuration = _config;
+            ret.ControllerName = controllerName + "Controller";
+            ret.ControllerType = typ;
+
+            return ret;
+        }
+
+        private static T GetRouteVariable&lt;T&gt;(IHttpRouteData routeData, string name)
+        {
+            //戻り値
+            object result = null;
+
+            //取得対象のデータがrouteDataに含まれていたら、返す。
+            //含まれていなければ、&lt;T&gt;のdefaultを返す
+            if (routeData.Values.TryGetValue(name, out result))
+            {
+                return (T)result;
+            }
+            return default(T);
+        }
+    }
+

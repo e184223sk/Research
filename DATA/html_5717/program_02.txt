@@ -1,0 +1,47 @@
+
+using AsyncAction = Func&lt;CancellationToken, Task&gt;;
+
+class Monopolizer
+{
+    /// &lt;summary&gt;
+    /// 処理のキュー
+    /// &lt;/summary&gt;
+    private readonly ConcurrentQueue&lt;AsyncAction&gt; _queue = new ConcurrentQueue&lt;AsyncAction&gt;();
+
+    /// &lt;summary&gt;
+    /// &lt;see cref="Enqueue(AsyncAction)"/&gt;されたことを通知する内部イベント
+    /// &lt;/summary&gt;
+    private readonly Subject&lt;object&gt; _queued = new Subject&lt;object&gt;();
+
+    /// &lt;summary&gt;
+    /// 処理をキューイングする
+    /// &lt;/summary&gt;
+    public void Enqueue(AsyncAction process)
+    {
+        _queue.Enqueue(process);
+        _queued.OnNext(null);
+    }
+
+    /// &lt;summary&gt;
+    /// 処理を取り出して実行する
+    /// &lt;/summary&gt;
+    public async Task LoopAsync(CancellationToken ct)
+    {
+        // ThreadContextを破棄
+        await Task.Run(() =&gt; { }).ConfigureAwait(false);
+
+        while (!ct.IsCancellationRequested)
+        {
+            // 処理がキューイングするまで待つタスクを作成
+            var waitQueueTask = _queued.FirstAsync().ToTask(ct);
+            if (_queue.IsEmpty) // タスク作成中にキューイングされた時用にチェックする
+            {
+                await waitQueueTask; // 実際に待ち合わせを行う
+            }
+
+            // キューイングされているものを待つ
+            while (_queue.TryDequeue(out var t)) await t(ct);
+        }
+    }
+}
+

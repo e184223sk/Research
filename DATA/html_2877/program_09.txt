@@ -1,0 +1,68 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+//インターフェースの名前空間
+using ExtractExcelDataInterface;
+
+//Excelを操作するために必要なクラスの名前空間を追加
+using Microsoft.Office.Interop.Excel;
+
+namespace ExtractExcelData
+{
+    public class ExtractExcelUseExcelDLL : IExtractExcelData
+    {
+        public Dictionary&lt;string, string&gt; ExtractExcelData(string ExcelFileName)
+        {
+            //returnするDicionaryインスタンス
+            Dictionary&lt;string, string&gt; dic = new Dictionary&lt;string, string&gt;();
+
+            // ファイルオープン
+            Application xlApp = new Application();
+            Workbooks xlBooks = xlApp.Workbooks;
+            Workbook xlBook = xlBooks.Open(
+                    ExcelFileName, Type.Missing, Type.Missing,
+                    Type.Missing, Type.Missing, Type.Missing,
+                    Type.Missing, Type.Missing, Type.Missing,
+                    Type.Missing, Type.Missing, Type.Missing,
+                    Type.Missing, Type.Missing, Type.Missing
+                );
+
+            // シートを選択
+            Worksheet sheet = xlBook.Sheets["メンバー一覧"];
+
+            // セルの領域を選択
+            Range TableRange = sheet.Range["A1", "B15"];
+
+            // 選択した領域の値をメモリー上に格納
+            // （１セルずつ見ていくよりも早い）
+            object[,] values = TableRange.Value;
+
+            // 配列アクセスができるので、それぞれをDictionaryに追加
+            // [WARNING] 配列の開始インデックスは１から
+            for (int i = 1; i &lt;= values.GetLength(0); i++)
+            {
+                dic.Add((string)values[i, 1], (string)values[i, 2]);
+            }
+
+            // 使用したCOMオブジェクトを解放
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(TableRange);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(sheet);
+
+            // Excelのクローズ
+            xlBook.Close();
+            xlApp.Quit();
+
+            // 使用したCOMオブジェクトを解放その２
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlBook);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlBooks);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(xlApp);
+
+            return dic;
+        }
+    }
+}
+

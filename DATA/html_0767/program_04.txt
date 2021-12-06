@@ -1,0 +1,115 @@
+
+class Program
+{
+    static void Main()
+    {
+        BenchmarkRunner.Run&lt;AclBench&gt;(DefaultConfig.Instance.AddDiagnoser(MemoryDiagnoser.Default));
+    }
+}
+class GcderInt
+{
+    static int Gcd(int a, int b) =&gt; b &gt; a ? Gcd(b, a) : b == default ? a : Gcd(b, a % b);
+    public int a;
+    public GcderInt(int a) { this.a = a; }
+    public int Calc(int b) =&gt; Gcd(a, b);
+}
+class Gcder&lt;T, TOp&gt; where T : struct where TOp : INumOperator&lt;T&gt;, new()
+{
+    static readonly TOp op = new TOp();
+    static T Gcd(T a, T b) =&gt; op.GreaterThan(b, a) ? Gcd(b, a) : (op.Equals(b, default) ? a : Gcd(b, op.Modulo(a, b)));
+    public T a;
+    public Gcder(T a) { this.a = a; }
+    public T Calc(T b) =&gt; Gcd(a, b);
+}
+public class ClassIntOperator : INumOperator&lt;int&gt;
+{
+    public int MinValue =&gt; int.MinValue;
+    public int MaxValue =&gt; int.MaxValue;
+    public int Add(int x, int y) =&gt; x + y;
+    public int Subtract(int x, int y) =&gt; x - y;
+    public int Multiply(int x, int y) =&gt; x * y;
+    public int Divide(int x, int y) =&gt; x / y;
+    public int Modulo(int x, int y) =&gt; x % y;
+    public bool GreaterThan(int x, int y) =&gt; x &gt; y;
+    public bool GreaterThanOrEqual(int x, int y) =&gt; x &gt;= y;
+    public bool LessThan(int x, int y) =&gt; x &lt; y;
+    public bool LessThanOrEqual(int x, int y) =&gt; x &lt;= y;
+    public int Compare(int x, int y) =&gt; x.CompareTo(y);
+    public bool Equals(int x, int y) =&gt; x == y;
+    public int GetHashCode(int obj) =&gt; obj.GetHashCode();
+}
+public class AclBench
+{
+    const int N = 10_000_000;
+
+    [Benchmark]
+    public long DirectInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new GcderInt(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+
+    [Benchmark]
+    public long GenericInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new Gcder&lt;int, IntOperator&gt;(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+
+    [Benchmark]
+    public long GenericClassInt()
+    {
+        var rnd = new System.Random(42);
+        long sum = 0;
+        var gcder = new Gcder&lt;int, ClassIntOperator&gt;(2 * 3 * 5 * 7 * 9 * 11 * 13 * 17 * 19 * 23);
+        for (int i = 0; i &lt; N; i++)
+        {
+            sum += gcder.Calc(rnd.Next());
+        }
+        return sum;
+    }
+}
+public interface INumOperator&lt;T&gt; : System.Collections.Generic.IEqualityComparer&lt;T&gt;, System.Collections.Generic.IComparer&lt;T&gt; where T : struct
+{
+    T MinValue { get; }
+    T MaxValue { get; }
+    T Add(T x, T y);
+    T Subtract(T x, T y);
+    T Multiply(T x, T y);
+    T Divide(T x, T y);
+    T Modulo(T x, T y);
+    bool GreaterThan(T x, T y);
+    bool GreaterThanOrEqual(T x, T y);
+    bool LessThan(T x, T y);
+    bool LessThanOrEqual(T x, T y);
+}
+public readonly struct IntOperator : INumOperator&lt;int&gt;
+{
+    public int MinValue =&gt; int.MinValue;
+    public int MaxValue =&gt; int.MaxValue;
+    public int Add(int x, int y) =&gt; x + y;
+    public int Subtract(int x, int y) =&gt; x - y;
+    public int Multiply(int x, int y) =&gt; x * y;
+    public int Divide(int x, int y) =&gt; x / y;
+    public int Modulo(int x, int y) =&gt; x % y;
+    public bool GreaterThan(int x, int y) =&gt; x &gt; y;
+    public bool GreaterThanOrEqual(int x, int y) =&gt; x &gt;= y;
+    public bool LessThan(int x, int y) =&gt; x &lt; y;
+    public bool LessThanOrEqual(int x, int y) =&gt; x &lt;= y;
+    public int Compare(int x, int y) =&gt; x.CompareTo(y);
+    public bool Equals(int x, int y) =&gt; x == y;
+    public int GetHashCode(int obj) =&gt; obj.GetHashCode();
+}
+

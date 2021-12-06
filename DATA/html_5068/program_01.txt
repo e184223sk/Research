@@ -1,0 +1,151 @@
+
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+    public class PlayerAction : MonoBehaviour
+    {
+        private Transform mTrans;
+        private Rigidbody mRigid;
+        private PlayerAnimation mAnim;
+
+        void Start()
+        {
+            mTrans = GetComponent&lt;Transform&gt;();
+            mRigid = GetComponent&lt;Rigidbody&gt;();
+            mAnim = GetComponent&lt;PlayerAnimation&gt;();
+            State = STATE.IDLE;
+        }
+
+        void Update()
+        {
+            switch (State)
+            {
+                case STATE.IDLE:
+                case STATE.RUN:
+                    CheckInputMove();
+                    break;
+            }
+        }
+
+        void FixedUpdate()
+        {
+            switch (State)
+            {
+                case STATE.IDLE:
+                case STATE.RUN:
+                    UpdateMove();
+                    break;
+            }
+        }
+
+        //--------
+        // 状態 //
+        //---------------------------------------------------------------------------------
+
+        public enum STATE
+        {
+            DEFAULT = 0,
+            IDLE,
+            RUN,
+            ROLL,
+            DOWN
+        }
+        public STATE State { get; private set; }
+
+        //-------------
+        // 入力の監視 //
+        //---------------------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// wasdの入力監視
+        /// 8方向移動
+        /// &lt;/summary&gt;
+        private void CheckInputMove()
+        {
+            Vector3 velocity = Vector3.zero;
+            if (Input.GetKey(KeyCode.W)) velocity.z += 1.0f;
+            if (Input.GetKey(KeyCode.A)) velocity.x -= 1.0f;
+            if (Input.GetKey(KeyCode.S)) velocity.z -= 1.0f;
+            if (Input.GetKey(KeyCode.D)) velocity.x += 1.0f;
+
+            // 移動力が0でない場合は移動の初期化
+            if (velocity.magnitude &gt; 0.0f)
+            {
+                OnMove(velocity);
+                return;
+            }
+
+            // 移動力が0の場合は移動停止の初期化
+            OffMove();
+        }
+
+        //--------
+        // 移動 //
+        //---------------------------------------------------------------------------------
+
+        private const float MAX_SPEED = 4.0f;
+        private const float DEC_SPEED_VALUE = 0.4f;
+        private const float ROTATE_SPEED = 0.2f;
+
+        private float mSpeed = MAX_SPEED; // 現在の速度
+        private Vector3 mMoveVelocity; // 入力によって決まる移動力を一時的に保持
+
+        /// &lt;summary&gt;
+        /// 移動の初期化
+        /// 
+        /// アニメーションを開始
+        /// 状態を遷移
+        /// 移動力を保持
+        /// &lt;/summary&gt;
+        /// &lt;param name="velocity"&gt;&lt;/param&gt;
+        private void OnMove(Vector3 velocity)
+        {
+            mAnim.Play(PlayerAnimation.ANIM_ID.RUN);
+            State = STATE.RUN;
+            mMoveVelocity = velocity.normalized * mSpeed;
+        }
+
+        /// &lt;summary&gt;
+        /// 移動停止の初期化
+        /// 
+        /// アニメーションを開始
+        /// 状態を遷移
+        /// 移動力を保持
+        /// &lt;/summary&gt;
+        private void OffMove()
+        {
+            mAnim.Play(PlayerAnimation.ANIM_ID.IDLE);
+            State = STATE.IDLE;
+            mMoveVelocity = Vector3.zero;
+        }
+
+        /// &lt;summary&gt;
+        /// 実際の移動処理
+        /// 
+        /// Rigidbodyに保持している移動力を反映する
+        /// &lt;/summary&gt;
+        private void UpdateMove()
+        {
+            mRigid.velocity = mMoveVelocity;
+
+            // 移動力が0でない場合はその方向に向きを変える（スムーズに）
+            if (mMoveVelocity.magnitude &gt; 0.0f)
+            {
+                mRigid.angularVelocity = Vector3.zero; // （重要）これが無いと壁と接触しながら移動する際に回転力が相殺される
+                mRigid.rotation = Quaternion.Slerp(mRigid.rotation, Quaternion.LookRotation(mMoveVelocity), ROTATE_SPEED);
+            }
+            else
+            {
+                // 移動終了後は地面との摩擦で回転する力がかかってしまう場合があるので、それをゼロにする
+                mRigid.angularVelocity = Vector3.zero;
+            }
+        }
+
+    }
+
+
+

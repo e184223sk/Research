@@ -1,0 +1,104 @@
+
+using SampleApi.Filters;
+using SampleApi.Handlers;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Swashbuckle.AspNetCore.Swagger;
+using System;
+using System.IO;
+using System.Reflection;
+using SampleApi.Models.ApplicationUsers.DataModels;
+using Microsoft.AspNetCore.Identity;
+
+namespace SampleApi
+{
+    public class Startup
+    {
+        public Startup(IConfiguration configuration, IOptions&lt;AppSettings&gt; optionsAccessor)
+        {
+            Configuration = configuration;
+        }
+
+        public IConfiguration Configuration { get; }
+
+        // This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+
+            services.AddSingleton&lt;IHttpContextAccessor, HttpContextAccessor&gt;();
+
+            //Sql
+            services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
+                options.UseSqlServer(
+                    Configuration.GetConnectionString("UserDabtaseConnection")));
+
+            // ADDED
+            services.AddIdentity&lt;ApplicationUserDataModel, IdentityRole&gt;()
+                .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
+                .AddDefaultTokenProviders();
+
+            // Register the Swagger generator, defining 1 or more Swagger documents
+            services.AddSwaggerGen(c =&gt;
+            {
+                c.SwaggerDoc("v1", new Info
+                {
+                    Title = "{title}",
+                    Version = "1",
+                    Description = "{description}",
+                    Contact = new Contact
+                    {
+                        Name = "{name}",
+                        Email = "{email}",
+                        Url = "{url}"
+                    }
+                });
+
+                c.OperationFilter&lt;AddAuthorizationHeaderParameterOperationFilter&gt;();
+
+                // Set the comments path for the Swagger JSON and UI.
+                string xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                c.IncludeXmlComments(xmlPath);
+            });
+
+        }
+
+        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+            else
+            {
+                app.UseHsts();
+            }
+
+            // Enable middleware to serve generated Swagger as a JSON endpoint.
+            app.UseSwagger();
+
+            // Enable middleware to serve swagger-ui (HTML, JS, CSS, etc.), 
+            // specifying the Swagger JSON endpoint.
+            app.UseSwaggerUI(c =&gt;
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "{name}");
+
+                c.RoutePrefix = string.Empty;
+            });
+
+            // ADDED
+            app.UseAuthentication();
+            app.UseHttpsRedirection();
+            app.UseMvc();
+        }
+    }
+}
+

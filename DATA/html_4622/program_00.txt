@@ -1,0 +1,45 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+
+const int TIME_OUT = 60; //[sec]
+
+public delegate void OnCompleteDownloadManifest( bool _isSucceeded, AssetBundle _bundle);
+
+public IEnumerator DoDownloadManifest( string _manifestName, OnCompleteDownloadManifest _onComplete)
+{
+    // Validation
+    if( string.IsNullOrEmpty(_manifestName) )
+    {
+        _onComplete?.Invoke( false, null );
+        yield break;
+    }
+    // uri とありますがurl と認識してもらって差し支えないです
+    string uri = $"{AssetManager.I.GetServerUrl()}/{_manifestName}";
+
+    // GetAssetBundle 関数ではcrcやhash128 を指定するものがありますが、
+    // 基本的にManifestファイルはキャッシュに保存せずオンメモリで扱うことが多い
+    // &amp; サーバー側からもらったバージョン(int やhash値)を見て必要になって
+　　　　　　　　//   これを叩いているはずなのであえて指定していません
+    #if UNITY2018_OR_NEWER
+    // なんでバージョンによってAPI名というかクラス名すら変わるかなぁ...(運用で困る)
+    UnityWebRequestAssetBundle webRequest = UnityWebRequestAssetBundle.GetAssetBundle( uri:uri);
+    #else
+    UnityWebRequest webRequest = UnityWebRequest.GetAssetBundle( uri:uri);
+    #endif
+
+    webRequest.timeout = TIME_OUT;
+    // DL 開始 &amp; 終了待機
+    #if UNITY_2017_3_OR_NEWER
+    yield return webRequest.SendWebRequest();
+    #else
+    yield return webRequest.Send();
+    #endif
+
+
+    bool isSucceeded = ( ! webRequest.isHttpError &amp;&amp; !webRequest.isNetworkError);
+    _onComplete?.Invoke( isSucceeded, DownloadHandlerAssetBundle.GetContent(webRequest) );
+}
+
+

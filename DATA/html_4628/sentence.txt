@@ -1,0 +1,29 @@
+More than 1 year has passed since last update.今流行りのPythonはなんでも出来る万能言語の一つですが、速度の遅さと標準GUIの貧弱さが課題です。
+Windows 環境では C# がその穴を埋める優秀な言語なので、双方の利点を活かす方法をまとめました。重複しますが利点は以下のとおりです。Riderを中心にするのは使いやすさもそうですが、Unity or Xamarin サポートが手厚いこと、
+Pycharm Communityをプラグイン形式で追加すればそのまま恩恵を受けることが出来ることが主な理由です。Pycharm が便利なことは素晴らしい紹介記事が各方面にあります。私から語るまでもないことなのでここでは割愛します。各言語のモジュールとライブラリを追加するためにいくつか設定しておきます。NuGetを標準で扱える Rider に特別な設定は必要ありません。
+あとで解説する、ironPython と任意で pythonnet_py27_dotnet をNuGetからダウンロードしておきます。C#にはFAMGAが配信するパッケージが多数存在しています。Pythonライブラリをラップする前に、
+目的のライブラリがあるかどうかチェックしておくとよいでしょう。
+.NET 関連は資産が古いものが結構検索にかかってしまうので、手元で実際に検証して見るまで動くかわからないのが若干面倒です。Settings &gt; Build, Execution, Deployment &gt; + から pure Python のみpipインストールが可能になります。
+CPythonのライブラリを使いたいことも多いので、pipenv を使って Settings &gt; Python Interpreter から
+通常のPython環境もセットアップしておくと良いと思います。ironPythonは3系の進行度が芳しくない(DO NOT USE. って...)ですが、他の実装型に比べ更新はされているほうですし、.NET Foundation の管理下にあるのであまり気にしていません。おおまかに４通りの使い方があります。一つ以上のパターンを組み合わせることが普通です。もっともよくあるケース。WPF、OfficeをPythonから直接叩きたい時に ironPython があればすぐに始められます。
+アッセンブリ参照を追加する文頭のボイラープレート以外、普段のPythonコードと変わりなく使えます。Tensorflow や OpenCV などC拡張モジュールを含むライブラリを ironPython で使うことは出来ません。(互換性に関する議論は既にあります。)
+CPython 拡張モジュールと.NET資産の両方を使いたい時は、CPython 実行環境で Python for .NET を使います。pip install pythonnetclr.pyd と Python.Runtime.dll の組み合わせで ironPython では出来ない、.NETとCPythonライブラリの複雑な共存が可能です。たとえば、Numpy コードを System.Console.Write から扱う例です。Pythonだけを想定するユーザーであれば、ここまでで大体の要求には応える事ができます。
+pip install pythonnet は既に述べた、ironPython実行環境下ではインストールできません。(CPythonとironPythonの行き来で既にややこしい)
+実装系の恩恵をPythonで受けることが主な目的なので、ケースバイケースです。Pythonで組んだロジックをC#スタンドアロンで配布する用途に使います。ipyc.exe でコンパイルを行う。ipyc.exe /main:Application.py /target:winexe /out:appここに必要になるライブラリをコピーするとexeを実行することが出来ます。
+* IronPython.dll
+* IronPython.Modules.dll
+* Microsoft.Dynamic.dll
+* Microsoft.Scripting.dllpure な Windows環境のユーザーは準備無しに Python を実行できません。
+ironPython.dll を同梱するだけでユーザーはPythonをインストールする必要がなく、スクリプトを配布できる点が最大のメリットです。C#内にPythonコードを埋め込んで実行します。動的スクリプト言語は実行時に型を決定しますが、C#とPythonでオブジェクトをやりとりするために dynamic 修飾が便利です。
+アッセンブリ参照の追加を行います。Explorer &gt; References &gt; Add Reference から、ironPython インストールディレクトリのdll をすべて追加するか、NuGet から ironPython のアッセンブリを Add Reference してください。先に述べたように、C拡張モジュールを含むC#コードは実行出来ません。
+Python.Runtime.dll の参照を追加すると読み込む事ができるようになります。
+これはCPythonインストールディレクトリの Lib/site-packages/Python.Runtime.dll か Nuget から取得できます。1で述べたC拡張モジュールをC#で作る仕組みです。C#実装をPython側に公開することでコアとユーザーのカスタマイズ層を分けたり、実行速度を速くすることが期待できます。
+経験上ソフトウェアエンジニアにその有用性を理解されない事が多いですが、CG に関する大量のアセットを生成することが求められる業界では重要視される一面です。
+ここの解説をPython公式ドキュメントから拾ってみます。ユーザが Python でスクリプトを書き、アプリケーションを自分好みに仕立てられるようにする、というのがその一例です。
+プログラマが、特定の機能を Python でより楽に書ける場合に自分自身のために埋め込みを行うこともできます。この手の拡張に関するトピックは足し算で行う通例があるので、C#で実装します。これをcsc (mono-csc) でdllにコンパイルします。標準で以下のパスからコンパイル出来ます。
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exeあるいはBuildToolsからもコンパイルできます。Build Tool が配布されているのでインストール後、
+C:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin\Roslyn\csc.exedllビルド後、Pythonからアクセスします。インポート手順は特に変わりありません。単純なボトルネックを高速化するか、実際のアプリケーションから公開したい実装部分を別にコンパイルしてアプリケーションにPythonからアクセスします。複数人が関わる製品開発プロセスで言語間をまたぐフローを採用することは稀だと思いますし、
+学習コストや採用コストが高くなる観点から安直な採用は危険です。最終成果物に含まれないプロトタイピングや個々に配布することを想定したインハウスのユーティリティなど、少数開発でのイテレーションが重要視されるプロセスでは良い選択だと思います。ネイティブの開発言語に加えて、シェルスクリプトでビルド周辺のユーティリティを書くことは多いと思います。
+そういったシェルスクリプトの用途に加えて、Python をテスターとして使うライブラリはGitHub上で一般的です。メイン開発の言語に一つスクリプト言語を加えるだけで、一つの言語で最初から最後まで作り切るプロセスよりも、開発効率の良いプロダクトの開発ができそうです。
+
+

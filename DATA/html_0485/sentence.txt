@@ -1,0 +1,134 @@
+前回、pythonで単純作業を自動化したものの、C#バージョンです。
+微妙に処理内容がpythonの時と違うのであしからず。二次受けとして参画しているPJにて、
+一次受けの会社に対して月末に勤務時間をまとめたExcelを提出する。上記2, 3の出退勤時間の転記を自動化しました。.NET Core (3.1)
+Selenium.WebDriver (3.141.0)
+Selenium.WebDriver.ChromeDriver (86.0.4240.2200)
+AngleSharp (1.0.0-alpha-844)
+EPPlus (4.5.3.3)
+※EPPlusの最新は5だけど、ライセンスが変わったので一応…ソースコード
+
+
+WorkingTimeGet
+using AngleSharp.Html.Parser;
+using OfficeOpenXml;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
+using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+
+namespace WorkingTimeGet
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 自社サイトからHTML取得
+            string html = GetHtml();
+
+            // HTMLをパースし、必要な情報を取得
+            var parser = new HtmlParser();
+            var doc = parser.ParseDocument(html);
+            var table = doc.QuerySelectorAll("[name=\"{nameセレクタの値}\"] tr")
+                .Select(tr =&gt;
+            {
+                // td単位でデータを取得する
+                var td = tr.GetElementsByTagName("td");
+
+                var date = td[0].TextContent.Trim(); // 日付
+                var workFrom = td[1].TextContent.Trim(); // 出勤時間
+                var workTo = td[2].TextContent.Trim(); // 退勤時間
+
+                return new { Date = date, WorkFrom = workFrom, WorkTo = workTo };
+            });
+
+            // Excelへの書き込み
+            // テンプレートファイルの存在チェック
+            string tmpFile = @"..\勤務表(XXXX)_yyyyMMdd.xlsm";
+            if (!File.Exists(tmpFile))
+                throw new FileNotFoundException("テンプレートファイルが存在しません。");
+
+            // 新規Excelに必用な情報を入力
+            Console.WriteLine("勤務表作成者の苗字と作成年月を半角スペース区切りで指定してください。");
+            Console.WriteLine("例）作成者：田中、作成年月：2020年11月　⇒　田中 202011");
+            string[] values = Console.ReadLine().Split(' ');
+
+            while (values.Length != 2)
+            {
+                Console.WriteLine("入力が間違っています。");
+                values = Console.ReadLine().Split(' ');
+            }
+
+            string outFile = @"..\勤務表(" + values[0].ToString() + ")_" + values[1].ToString() + ".xlsm";
+            string year = values[1].Substring(0, 4);
+            string month = values[1].Substring(4, 2);
+
+            if (File.Exists(outFile))
+                File.Delete(outFile);
+
+            // テンプレートから新規Excelを作成
+            File.Copy(tmpFile, outFile);
+            FileInfo newFile = new FileInfo(outFile);
+            using (var package = new ExcelPackage(newFile))
+            {
+                var ws = package.Workbook.Worksheets["{シート名}"];
+
+                int row = 6;
+                const int colFrom = 3;
+                const int colTo = 5;
+
+                table.ToList().ForEach(item =&gt;
+                {
+                    ws.Cells["R2"].Value = year;
+                    ws.Cells["S2"].Value = month;
+
+                    ws.Cells[row, colFrom].Value = item.WorkFrom;
+                    ws.Cells[row, colTo].Value = item.WorkTo;
+
+                    // 中略（その他の処理）
+
+                    row++;
+                });
+
+                package.Save();
+
+            }
+        }
+
+        private static string GetHtml()
+        {
+            const string loginPage = @"{ログインページのURL}";
+            const string targetPage = @"{勤務時間取得ページのURL}";
+
+            // Webドライバーのインスタンス化
+            IWebDriver driver = new ChromeDriver(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location));
+
+            // 自社サイト（ログインページ）へアクセス
+            driver.Navigate().GoToUrl(loginPage);
+
+            // ID・PASSを入力
+            Console.WriteLine("ログインIDを入力してください。");
+            driver.FindElement(By.Id("{ID入力欄の要素id}")).SendKeys(Console.ReadLine());
+            Console.WriteLine("ログインパスワードを入力してください。");
+            driver.FindElement(By.Id("{PASS入力欄の要素id}")).SendKeys(Console.ReadLine());
+            // ログインボタンのクリック
+            driver.FindElement(By.Name("{ログインボタンの要素id}")).Click();
+
+            // 勤務時間取得用のページへ遷移し、HTML取得
+            driver.Navigate().GoToUrl(targetPage);
+            string html = driver.PageSource;
+
+            // ブラウザを閉じる
+            driver.Quit();
+
+            return html;
+        }
+    }
+}
+
+
+
+
+
+

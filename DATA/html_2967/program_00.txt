@@ -1,0 +1,65 @@
+using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class Promise&lt;TResult&gt; : IDisposable
+{
+    public delegate void PromiseResolve(Action&lt;TResult&gt; resolve);
+
+    public delegate void PromiseResolveReject(Action&lt;TResult&gt; resolve, Action&lt;Exception&gt; reject);
+
+    private readonly TaskCompletionSource&lt;TResult&gt; tcs;
+    private readonly PromiseResolve unRegistResolve;
+
+    private readonly PromiseResolveReject unRegistResolveReject;
+
+    public Promise(PromiseResolveReject registCallback, CancellationToken ct = default) : this(registCallback, null, ct)
+    {
+    }
+
+    public Promise(PromiseResolve registCallback, CancellationToken ct = default) : this(registCallback, null, ct)
+    {
+    }
+
+    public Promise(PromiseResolveReject registCallback, PromiseResolveReject unRegistCallback,
+        CancellationToken ct = default)
+    {
+        tcs = new TaskCompletionSource&lt;TResult&gt;();
+        if (ct != default) ct.Register(() =&gt; tcs.TrySetCanceled(ct));
+        registCallback(Resolve, Reject);
+        unRegistResolveReject = unRegistCallback;
+    }
+
+    public Promise(PromiseResolve registCallback, PromiseResolve unRegistCallback, CancellationToken ct = default)
+    {
+        tcs = new TaskCompletionSource&lt;TResult&gt;();
+        if (ct != default) ct.Register(() =&gt; tcs.TrySetCanceled(ct));
+        registCallback(Resolve);
+        unRegistResolve = unRegistCallback;
+    }
+
+    public void Dispose()
+    {
+        if (unRegistResolve != null)
+            unRegistResolve(Resolve);
+        else
+            unRegistResolveReject?.Invoke(Resolve, Reject);
+    }
+
+    public TaskAwaiter&lt;TResult&gt; GetAwaiter()
+    {
+        return tcs.Task.GetAwaiter();
+    }
+
+    private void Resolve(TResult result)
+    {
+        tcs.TrySetResult(result);
+    }
+
+    private void Reject(Exception ex)
+    {
+        tcs.TrySetException(ex);
+    }
+}
+

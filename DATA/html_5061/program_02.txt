@@ -1,0 +1,102 @@
+
+
+    public void LoadStage(int stageId)
+    {
+        // 指定されたステージファイルを読み込んで1行ずつ処理
+        string filePath = "stage_" + stageId;
+        TextAsset textAsset = Resources.Load(filePath) as TextAsset;
+        string text = textAsset.text;
+        string line;
+        using (TextReader reader = new StringReader(text)) // usingとは、処理終わりにstreamの解放を自動で行う構文（finally句でDisposeを実行するコードと同じ）
+        {
+            while ((line = reader.ReadLine()) != null)
+            {
+                // ステージサイズ
+                if (line.StartsWith("@size"))
+                {
+                    line = REGEX_WHITE.Replace(line, "");
+                    string[] mapSize = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                    mStageX = int.Parse(mapSize[1]);
+                    mStageY = int.Parse(mapSize[2]);
+                    mStageMap = new int[mStageY, mStageX];
+                    InstantiateFloor();
+                    continue;
+                }
+
+                // ステージ構造（ブッシュ）
+                if (line.StartsWith("@bush"))
+                {
+                    // ステージ構造は16進数表記の文字列なため、10進数のint配列に変換
+                    StringBuilder sbStage = new StringBuilder();
+                    for (int y = 0; y &lt; mStageY; y++)
+                    {
+                        sbStage.Append(reader.ReadLine());
+                    }
+                    int start = 0;
+                    for (int y = 0; y &lt; mStageY; y++)
+                    {
+                        for (int x = 0; x &lt; mStageX; x++)
+                        {
+                            mStageMap[y, x] = Convert.ToInt32(sbStage.ToString(start, 2), 16);
+                            start += 2;
+                        }
+                    }
+                    // ステージ構造を元にブッシュを生成
+                    InstantiateBushs();
+                    continue;
+                }
+
+                // プレイヤー初期位置
+                if (line.StartsWith("@player"))
+                {
+                    line = REGEX_WHITE.Replace(line, "");
+                    string[] strPlayerPos = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                    InstantiatePlayer(int.Parse(strPlayerPos[1]), int.Parse(strPlayerPos[2]));
+                    continue;
+                }
+
+ポップアップポイントを生成するコードを追加
+
+                // ポップアップポイント
+                if (line.StartsWith("@popup"))
+                {
+                    line = REGEX_WHITE.Replace(line, "");
+                    string[] strPopupPos = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                    InstantiatePopup(int.Parse(strPopupPos[1]), int.Parse(strPopupPos[2]));
+                }
+
+ここまで：ポップアップポイントを生成するコード
+
+            }
+        }
+    }
+
+        //----------------------
+        // ポップアップポイント //
+        //---------------------------------------------------------------------------------
+
+        [SerializeField]
+        private GameObject prefabPopupPoint; // ポップアップポイントのプレハブを指定
+        private List&lt;PopupPoint&gt; mPopupList = new List&lt;PopupPoint&gt;();
+
+        public List&lt;PopupPoint&gt; GetPopupList()
+        {
+            return mPopupList;
+        }
+
+        /// &lt;summary&gt;
+        /// ポップアップポイントを指定されたステージ座標に生成
+        /// PopupPointの参照を保持する
+        /// &lt;/summary&gt;
+        /// &lt;param name="x"&gt;&lt;/param&gt;
+        /// &lt;param name="y"&gt;&lt;/param&gt;
+        private void InstantiatePopup(int x, int y)
+        {
+            Vector3 pos = new Vector3(x * BLOCK_SIZE + BLOCK_SIZE, 0, y * -BLOCK_SIZE - BLOCK_SIZE);
+            GameObject obj = Instantiate(prefabPopupPoint, pos, Quaternion.identity);
+            obj.transform.parent = mTrans;
+            PopupPoint popupPoint = obj.GetComponent&lt;PopupPoint&gt;();
+            mPopupList.Add(popupPoint);
+        }
+
+

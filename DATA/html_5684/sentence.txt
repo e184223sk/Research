@@ -1,0 +1,21 @@
+More than 3 years have passed since last update.この記事は KLab Advent Calendar の22日目の記事です。私が所属するチームでは Unity での開発におけるコーディングスタイルチェックに StyleCop というツールを使っています。
+この記事では Unity と StyleCop をうまく連携して使う方法について書きたいと思います。Unity で使える外部エディタは MonoDevelop 以外にもあります。MonoDevelop ではエディタ上から StyleCop の実行結果を確認することができました。しかし、 MonoDevelop 以外の Rider
+ などのエディタを使おうと思うと、簡単に導入できる StyleCop プラグインはありません。（今のところ）
+そこで、Unity から StyleCop を実行することができれば、エディタに関わらず StyleCop の出力結果を確認できると思い、外部アプリケーションとして Editor 拡張から呼び出す方法を検討しました。StyleCopはC#向けのコーディングスタイルやルールを静的解析するツールです。
+コードレビューをしてもらう前に実装者自身が修正することができるので、インデントのスペースの数が違ったり、変数がキャメルケースになっていなかったりコードの本質ではない部分をレビュワーが指摘する必要がなくなります。
+すべてのルールを適用すると、かなり厳しいものとなるため、使うチームで適用するルールを選定することをオススメします。Unity の Editor 拡張を使ってStyleCopを実行します。
+記事のおわりに、 StyleCop を実行するためのコードを記載しています。
+その中から重要と思われる箇所について、該当コードと一緒に解説していきます。スクリプトのコンパイル時に呼ばれる DidReloadScripts のタイミングで外部アプリケーションとして StyleCop を呼び出します。
+DidReloadScripts は実行順が設定できること以外は InitializeOnLoad とそこまで変わらないようですが、別の拡張との兼ね合いで、実行順を指定しています。次に RunStyleCop というメソッドを分解して、StyleCop の実行について解説します。StyleCop の実行ファイルがない場合は、 XBuild を使ってビルドします。
+こちらも外部アプリケーションとして実行しています。外部アプリケーションとして実行するために、ProcessStartInfo を設定していきます。
+macOS では、 mono を使って StyleCop.exe を実行します。 Windows の場合はそのまま実行できるので、実行する FileName と Arguments を実行環境によって分ける必要があります。
+また、 StyleCop の出力ログを取得するために、RedirectStandardOutput を有効にしておく必要があります。実際に StyleCop を実行するために Process クラスを使います。
+ログの収集を行う dataReceivedEventHandler と実行終了後のイベント exitedHandler を登録します。
+Start で実行を開始し、BeginOutputReadLine で StyleCop の出力読み取りを開始します。終了時のイベントに登録した OnFinished でログの整形をしています。
+ログの出力形式は、見やすいように色とか必要な情報だけサマっています。
+また、 UnityEditor のログに出力する場合、あまり長すぎるとすべて表示されないので注意が必要です。
+Warning などのログレベルの設定やカラータグが使えるので、 StyleCop の出力が他のログに埋もれないようにする工夫はできると思います。今回の説明外の拡張コードは省いていますが、対象ディレクトリや StyleCop のパスを正しく設定すれば実行できるように載せています。この記事では、Unity 上で StyleCop を実行する方法を説明しました。
+チーム内では MonoDevelop はもう使われていないため、この方法で StyleCop が利用されています。
+コードの可読性が上がるので、StyleCop を利用することをオススメします。
+
+

@@ -1,0 +1,42 @@
+
+//using System.IO;
+//using System.Diagnostics;
+//using SharpCompress.Readers;
+//using XZ.NET;
+//using Utf8Json;
+
+var zipRootDir = @"C:\data\tarxz";
+var zipFiles = Directory.EnumerateFiles(zipRootDir, "*.tar.xz", SearchOption.AllDirectories);
+
+var sw = new Stopwatch();
+sw.Start();
+foreach (var archive in zipFiles)
+{
+    using (var fs = new FileStream(archive, FileMode.Open, FileAccess.Read))
+    using (var xzStream = new XZInputStream(fs))
+    using (var tarMs = new MemoryStream())
+    {
+        xzStream.CopyTo(tarMs);
+        tarMs.Position = 0;
+
+        using (var tarReader = ReaderFactory.Open(tarMs))
+        {
+            while (tarReader.MoveToNextEntry())
+            {
+                if (!tarReader.Entry.IsDirectory)
+                {
+                    using (var entryMs = new MemoryStream())
+                    using (var entryStream = tarReader.OpenEntryStream())
+                    {
+                        entryStream.CopyTo(entryMs);
+                        entryMs.Position = 0;
+                        var obj = JsonSerializer.Deserialize&lt;JsonData&gt;(entryMs);
+                    }
+                }
+            }
+        }
+    }
+}
+sw.Stop();
+Console.WriteLine(sw.Elapsed);
+

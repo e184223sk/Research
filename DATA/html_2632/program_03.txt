@@ -1,0 +1,33 @@
+
+
+public class FooBehaviour : MonoBehaviour
+{
+    void Start()
+    {
+        var token = this.GetCancellationTokenOnDestroy();
+        UniTask.Action(async () =&gt; {
+            var result = await HogeWorkerAsync(10000, token);
+            Debug.Log("result:" + result);
+        })();
+    }
+
+    // 別スレッドに仕事をさせる非同期メソッド
+    async UniTask&lt;string&gt; HogeWorkerAsync(int count, CancellationToken token)
+    {
+        // スレッドを切り替える
+        await UniTask.SwitchToThreadPool();
+
+        // ここに書いた内容は別スレッドで実行される（Unity APIはほとんど利用できないことに注意）
+        var result = "";
+        for (int i = 0; i &lt; count; i++)
+        {
+            result += i + "|";
+        }
+        Debug.Log($"This is not main thread. thread: {Thread.CurrentThread.Name}"); // Debug.Logは例外的に別スレッドでも実行可能
+
+        // メインスレッドに戻る
+        await UniTask.SwitchToMainThread(cancellationToken: token);
+        return result;
+    }
+}
+

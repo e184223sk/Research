@@ -1,0 +1,376 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+class MyDiff : Form
+{
+    SplitContainer spl1;
+    SplitContainer spl2;
+    TextBox txtPathL;
+    TextBox txtPathR;
+    ListView lsvFiles;
+
+    string _leftPath;
+    string _rightPath;
+
+    enum DiffType {
+        Unknown, Same, Different, LOnly, ROnly,
+    };
+
+    MyDiff( string path1, string path2 )
+    {
+        Text = "Diff tool";
+        ClientSize = new Size(600, 300);
+
+        try {
+            if ( path1 != null ) {
+                path1 = Path.GetFullPath(path1);
+            }
+            if ( path2 != null ) {
+                path2 = Path.GetFullPath(path2);
+            }
+        }
+        catch(ArgumentException e                ){ Console.WriteLine(e); path1=null; path2=null; }
+        catch(System.Security.SecurityException e){ Console.WriteLine(e); path1=null; path2=null; }
+        catch(NotSupportedException e            ){ Console.WriteLine(e); path1=null; path2=null; }
+        catch(PathTooLongException e             ){ Console.WriteLine(e); path1=null; path2=null; }
+        _leftPath = path1;
+        _rightPath = path2;
+
+
+        Controls.Add(spl1 = new SplitContainer(){
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal, // 横線で上下に分割
+            // SplitterDistance = 250,                // 分割線の位置を指定
+            BorderStyle = BorderStyle.FixedSingle,
+            SplitterWidth = 2,
+            FixedPanel = FixedPanel.Panel1, // spl1が属すコントロールがリサイズされたときに、Panel1側のサイズ（分割線）を保持（固定）する
+        });
+
+        spl1.Panel2.Controls.Add(spl2 = new SplitContainer(){
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical, // 縦線で左右に分割
+            // SplitterDistance = 100,// 分割線の位置を指定
+            BorderStyle = BorderStyle.Fixed3D,
+            SplitterWidth = 2,
+            IsSplitterFixed = true,
+        });
+
+        spl1.Panel1.Controls.AddRange(
+            new Control[]{
+                txtPathL = new TextBox(){
+                    Location = new Point(0, 0),
+                    ReadOnly = true,
+                    AllowDrop = true,
+                },
+                txtPathR = new TextBox(){
+                    Location = new Point(0, 25),
+                    ReadOnly = true,
+                    AllowDrop = true,
+                },
+                lsvFiles = new ListView(){
+                    Location = new Point(0, 50),
+                    //Dock = DockStyle.Fill,
+                    View = View.Details,
+                    FullRowSelect = true,
+                    HideSelection = false,
+                    MultiSelect = false,
+                    GridLines = true,
+                },
+            }
+        );
+        txtPathL.Text = _leftPath ??"";
+        txtPathR.Text = _rightPath??"";
+
+        txtPathL.DragEnter += TxtPathX_DragEnter;
+        txtPathL.DragDrop  += TxtPathX_DragDrop;
+        txtPathR.DragEnter += TxtPathX_DragEnter;
+        txtPathR.DragDrop  += TxtPathX_DragDrop;
+
+        // 列ヘッダを登録
+        lsvFiles.Columns.Add("Path"     , 170, HorizontalAlignment.Left);
+        lsvFiles.Columns.Add("FileName" , 170, HorizontalAlignment.Left);
+        lsvFiles.Columns.Add("Ext"      ,  40, HorizontalAlignment.Left); // extension of file
+        lsvFiles.Columns.Add("Diff"     ,  40, HorizontalAlignment.Left); // == &lt;&gt; o- -o   (same, not same, left only, right only)
+        lsvFiles.Columns.Add("Size"     ,  70, HorizontalAlignment.Right); // file size
+        lsvFiles.Columns.Add("LastModif",  70, HorizontalAlignment.Left); // last modified time stamp
+
+        Load += (s,e)=&gt;{
+            spl1.SplitterDistance = 150; // 分割線の位置を指定
+            spl2.SplitterDistance = 200; // 分割線の位置を指定 
+        };
+        Load += (s,e)=&gt;{MyResize();};
+        Resize += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+        spl1.SplitterMoved += (s,e)=&gt;{MyResize();};
+
+        LoadPathesAndDiffToListViewWithCheck();
+    }
+
+    void MyResize()
+    {
+        int w = spl1.Panel1.ClientSize.Width;
+        int tmpH = txtPathL.Height;
+        int h = spl1.Panel1.ClientSize.Height - tmpH*2;
+        if (h&lt;50){h=50;}
+        txtPathL.Width = w;
+        txtPathR.Top = tmpH;
+        txtPathR.Width = w;
+        lsvFiles.Size = new Size(w, h);
+        lsvFiles.Top  = tmpH*2;
+    }
+
+
+    void TxtPathX_DragEnter(object sender, DragEventArgs e)
+    {
+        if ( e.Data.GetDataPresent(DataFormats.FileDrop) ) {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    void TxtPathX_DragDrop(object sender, DragEventArgs e)
+    {
+        if ( e.Data.GetDataPresent(DataFormats.FileDrop) ) {
+            string[] fileNames;
+            fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+            if ( fileNames.Length == 1 ) {
+                string fn = fileNames[0];
+                if ( (TextBox)sender == txtPathL ) {
+                    _leftPath = fn;
+                    txtPathL.Text = fn;
+                }
+                else {
+                    _rightPath = fn;
+                    txtPathR.Text = fn;
+                }
+
+                LoadPathesAndDiffToListViewWithCheck();
+            }
+        }
+    }
+
+    static string DiffTypeToString(DiffType t)
+    {
+        if ( t == DiffType.Same ) {return "==";}
+        if ( t == DiffType.Different ) {return "&lt;&gt;";}
+        if ( t == DiffType.LOnly ) {return "o-";}
+        if ( t == DiffType.ROnly ) {return "-o";}
+        return "  ";
+        /*
+            if ( t == DiffType.Same ) {return "";}
+            if ( t == DiffType.Different ) {return "Differ";}
+            if ( t == DiffType.LOnly ) {return "L only";}
+            if ( t == DiffType.ROnly ) {return "R only";}
+            return "?";
+        */
+    }
+
+    ListViewItem MakeListViewItem(string subDir, string fileName, DiffType t)
+    {
+        string ext;
+        string diffMark = DiffTypeToString(t);
+        string sizeText;
+        string lastModifText;
+
+        if ( fileName == null ) {
+            // directory
+            ext = "/";
+            sizeText = "";
+            lastModifText = "";
+        }
+        else {
+            ext = Path.GetExtension(fileName);
+            sizeText = "";
+            lastModifText = "";
+        }
+
+        var item = new ListViewItem(new string[]{subDir, fileName, ext, diffMark, sizeText, lastModifText});
+        // item.Tag = ...;
+        return item;
+    }
+
+    void LoadPathesAndDiffToListViewWithCheck()
+    {
+        if ( _leftPath != null &amp;&amp; _rightPath != null ) {
+            if ( Directory.Exists(_leftPath) &amp;&amp; Directory.Exists(_rightPath) ) {
+                LoadPathesAndDiffToListView();
+            }
+            else if ( File.Exists(_leftPath) &amp;&amp; File.Exists(_rightPath) ) {
+                LoadFileDiffToListView();
+            }
+        }
+    }
+
+    void LoadPathesAndDiffToListView()
+    {
+        //Console.WriteLine(_leftPath);
+        //Console.WriteLine(_rightPath);
+
+        lsvFiles.BeginUpdate();
+        try {
+            lsvFiles.Items.Clear();
+            LoadSubFiles("", true, true);
+            LoadSubDir("", true, true);
+        }
+        finally {
+            lsvFiles.EndUpdate();
+        }
+    }
+
+    void LoadFileDiffToListView()
+    {
+        lsvFiles.BeginUpdate();
+        try {
+            lsvFiles.Items.Clear();
+            // todo
+            // load
+        }
+        finally {
+            lsvFiles.EndUpdate();
+        }
+    }
+
+    void LoadSubDir(string relativeDirFromRoot, bool lDirExists, bool rDirExists)
+    {
+        string[] subdirs1 = lDirExists ? Directory.GetDirectories(Path.Combine(_leftPath , relativeDirFromRoot)) : new string[0];
+        string[] subdirs2 = rDirExists ? Directory.GetDirectories(Path.Combine(_rightPath, relativeDirFromRoot)) : new string[0];
+
+        int n1 = _leftPath.Length;
+        int n2 = _rightPath.Length;
+
+        foreach ( string sd1 in subdirs1 ) {
+            string relativeSubDir = sd1.Substring(n1+1); // +1 intend to trim last path separator
+            //Console.WriteLine(relativeSubDir);
+            string tmpPath = Path.Combine(_rightPath, relativeSubDir);
+            //Console.WriteLine(tmpPath);
+            int index2 = Array.IndexOf(subdirs2, tmpPath);
+            if ( index2 &gt;= 0 ) {
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, null, DiffType.Unknown));
+                subdirs2[index2] = null; // mark to avoid double pickup
+                LoadSubFiles(relativeSubDir, true, true);
+                LoadSubDir(relativeSubDir, true, true);
+            }
+            else {
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, null, DiffType.LOnly));
+                LoadSubFiles(relativeSubDir, true, false);
+                LoadSubDir(relativeSubDir, true, false);
+            }
+        }
+
+        // to pick up exists in subdirs2 and not exists in subdirs1
+        foreach ( string sd2 in subdirs2 ) {
+            if ( sd2 != null ) {
+                string relativeSubDir = sd2.Substring(n2+1);
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, null, DiffType.ROnly));
+                LoadSubFiles(relativeSubDir, false, true);
+                LoadSubDir(relativeSubDir, false, true);
+            }
+        }
+    }
+
+    void LoadSubFiles(string relativeDirFromRoot, bool lDirExists, bool rDirExists)
+    {
+        string subdir1 = Path.Combine(_leftPath , relativeDirFromRoot);
+        string subdir2 = Path.Combine(_rightPath, relativeDirFromRoot);
+
+        string[] files1 = lDirExists ? Directory.GetFiles(subdir1) : new string[0];
+        string[] files2 = rDirExists ? Directory.GetFiles(subdir2) : new string[0];
+
+        int n1 = _leftPath.Length;
+        int n2 = _rightPath.Length;
+
+        string relativeSubDir = relativeDirFromRoot;//(relativeDirFromRoot=="")?"":subdir1.Substring(n1+1);
+        //Console.WriteLine(relativeSubDir);
+
+        foreach ( string filePath1 in files1 ) {
+            string fileName = Path.GetFileName(filePath1);
+            string filePath2 = Path.Combine(subdir2, fileName);
+
+            int index2 = Array.IndexOf(files2, filePath2);
+            if ( index2 &gt;= 0 ) {
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, fileName, JudgeFileContentDiff(filePath1, filePath2)));
+                files2[index2] = null; // mark to avoid double pickup
+            }
+            else {
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, fileName, DiffType.LOnly));
+            }
+        }
+
+        // to pick up exists in subdirs2 and not exists in subdirs1
+        foreach ( string filePath2 in files2 ) {
+            if ( filePath2 != null ) {
+                string fileName = Path.GetFileName(filePath2);
+                lsvFiles.Items.Add(MakeListViewItem(relativeSubDir, fileName, DiffType.ROnly));
+            }
+        }
+    }
+
+    DiffType JudgeFileContentDiff(string path1, string path2)
+    {
+        FileInfo fi1, fi2;
+        fi1 = new FileInfo(path1);
+        fi2 = new FileInfo(path2);
+
+        try {
+            if ( fi1.Length != fi2.Length ) {
+                return DiffType.Different;
+            }
+
+            using (     FileStream fs1 = new FileStream(path1, FileMode.Open, FileAccess.Read) ) {
+                using ( FileStream fs2 = new FileStream(path2, FileMode.Open, FileAccess.Read) ) {
+                    byte[] buf1 = new byte[0x1000];
+                    byte[] buf2 = new byte[buf1.Length];
+                    while ( true ) {
+                        int readSize1 = fs1.Read(buf1, 0, buf1.Length);
+                        int readSize2 = fs2.Read(buf2, 0, buf2.Length);
+
+                        if ( readSize1 != readSize2 ) { return DiffType.Unknown; } // unexpected.
+
+                        for ( int i=0; i&lt;readSize1; i++ ) {
+                            if ( buf1[i] != buf2[i] ) {
+                                return DiffType.Different;
+                            }
+                        }
+
+                        //ファイルをすべて読み込んだときは終了する
+                        if ( readSize1 == 0 ) { return DiffType.Same; }
+                    }
+                }
+            }
+        }
+        catch(FileNotFoundException      ){return DiffType.Unknown;}
+        catch(DirectoryNotFoundException ){return DiffType.Unknown;}
+        catch(UnauthorizedAccessException){return DiffType.Unknown;}
+        catch(PathTooLongException       ){return DiffType.Unknown;}
+        catch(DriveNotFoundException     ){return DiffType.Unknown;}
+        catch(IOException                ){return DiffType.Unknown;}
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        string target1 = null;
+        string target2 = null;
+        if ( args.Length &gt; 2) {
+            return;
+        }
+        if ( args.Length &gt;= 1 ) {
+            target1 = args[0];
+        }
+        if ( args.Length &gt;= 2 ) {
+            target2 = args[1];
+        }
+        Application.Run(new MyDiff(target1, target2));
+    }
+}
+

@@ -1,0 +1,226 @@
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Data;
+using System.Data.SqlClient;
+using System.Text.RegularExpressions;
+
+namespace Sample
+{
+    public class SQLManager
+    {
+        private SqlConnection _con;
+        private SqlTransaction _tran;
+        private string _connectString;
+
+        public SQLManager(string connectionString = "DefaultConnection")
+        {
+            // 接続文字列を生成
+            _connectString = ConfigurationManager.ConnectionStrings[connectionString].ConnectionString;
+            if (this._con == null)
+            {
+                this._con = new SqlConnection(_connectString);
+                _con.Open();
+            }
+        }
+
+
+        /// &lt;summary&gt;
+        /// トランザクション進行確認フラグです
+        /// &lt;/summary&gt;
+        public bool IsTran { get; private set; } = false;
+
+        /// &lt;summary&gt;
+        /// トランザクションを開始します
+        /// &lt;/summary&gt;
+        /// &lt;param name="level"&gt;&lt;/param&gt;
+        public void BeginTran(IsolationLevel level = IsolationLevel.ReadCommitted)
+        {
+            if (this._con != null &amp;&amp; this._tran == null)
+            {
+                this._tran = this._con.BeginTransaction(level);
+                this.IsTran = true;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションをコミットします
+        /// &lt;/summary&gt;
+        public void CommitTran()
+        {
+            if (this._tran != null &amp;&amp; this.IsTran)
+            {
+                this._tran.Commit();
+                this._tran.Dispose();
+                this._tran = null;
+                this.IsTran = false;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションをロールバックします
+        /// &lt;/summary&gt;
+        public void RollbackTran()
+        {
+            if (this._tran != null)
+            {
+                this._tran.Rollback();
+                this._tran.Dispose();
+                this._tran = null;
+                this.IsTran = false;
+            }
+        }
+
+
+        /// &lt;summary&gt;
+        /// DBへのコネクションをクローズします
+        /// &lt;/summary&gt;
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            this.RollbackTran();
+            if (this._tran != null)
+            {
+                this._tran.Dispose();
+                this._tran = null;
+            }
+            if (this._con != null)
+            {
+                this._con.Close();
+                this._con.Dispose();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを伴わないSQLを実行します
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="TClass"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="query"&gt;&lt;/param&gt;
+        /// &lt;param name="parameterValues"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public IEnumerable&lt;TClass&gt; ExecuteNonTranSql&lt;TClass&gt;(string query, params SqlParameter[] parameterValues) where TClass : new()
+        {
+            if (Regex.IsMatch(query, @"^INSERT|UPDATE|DELETE"))
+                throw new InvalidOperationException("Cannot execute query transaction needed");
+
+
+            using (SqlCommand sqlCom = new SqlCommand())
+            {
+
+                //クエリー送信先、トランザクションの指定
+                sqlCom.Connection = this._con;
+                sqlCom.CommandText = query;
+
+                sqlCom.CommandType = CommandType.Text;
+                sqlCom.CommandText = query;
+                foreach (var item in parameterValues)
+                {
+                    sqlCom.Parameters.Add(item);
+                }
+                var list = this.ReadRows&lt;TClass&gt;(sqlCom);
+                return list;
+            }
+        }
+        public IEnumerable&lt;TClass&gt; ExecuteNonTranSql&lt;TClass&gt;(string query) where TClass : new()
+        {
+            return this.ExecuteNonTranSql&lt;TClass&gt;(query, new SqlParameter());
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを伴うCUDのSQLを実行します
+        /// &lt;/summary&gt;
+        /// &lt;param name="query"&gt;&lt;/param&gt;
+        /// &lt;param name="parameterValues"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public int ExecuteTranSql(string query, params SqlParameter[] parameterValues)
+        {
+            if (this._tran == null || !this.IsTran)
+                throw new InvalidOperationException("Not call 'begin tran' method!");
+
+            using (SqlCommand sqlCom = new SqlCommand())
+            {
+                sqlCom.Connection = this._con;
+                sqlCom.Transaction = (SqlTransaction)this._tran;
+                sqlCom.CommandType = CommandType.Text;
+                sqlCom.CommandText = query;
+                foreach (var item in parameterValues)
+                {
+                    sqlCom.Parameters.Add(item);
+                }
+                return sqlCom.ExecuteNonQuery();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを伴うReadのSQLを実行します
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="TClass"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="query"&gt;&lt;/param&gt;
+        /// &lt;param name="parameterValues"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public IEnumerable&lt;TClass&gt; ExecuteTranSql&lt;TClass&gt;(string query, params SqlParameter[] parameterValues)
+            where TClass : new()
+        {
+            if (this._tran == null || !this.IsTran)
+                throw new InvalidOperationException("Not call 'begin tran' method!");
+
+            using (SqlCommand sqlCom = new SqlCommand())
+            {
+                sqlCom.Connection = this._con;
+                sqlCom.Transaction = (SqlTransaction)this._tran;
+                sqlCom.CommandType = CommandType.Text;
+                sqlCom.CommandText = query;
+                foreach (var item in parameterValues)
+                {
+                    sqlCom.Parameters.Add(item);
+                }
+                var list = this.ReadRows&lt;TClass&gt;(sqlCom);
+                return list;
+            }
+        }
+
+        private List&lt;TClass&gt; ReadRows&lt;TClass&gt;(SqlCommand cmd) where TClass : new()
+        {
+            var list = new List&lt;TClass&gt;();
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    var obj = new TClass();
+                    var props = typeof(TClass).GetProperties();
+                    foreach (var property in props)
+                    {
+                        if (reader[property.Name] == DBNull.Value)
+                        {
+                            if (property.PropertyType == typeof(int))
+                                property.SetValue(obj, 0);
+                            else if (property.PropertyType == typeof(string))
+                                property.SetValue(obj, null);
+                            else if (property.PropertyType == typeof(decimal))
+                                property.SetValue(obj, 0m);
+                            else if (property.PropertyType == typeof(bool))
+                                property.SetValue(obj, false);
+                            else if (property.PropertyType == typeof(long))
+                                property.SetValue(obj, 0L);
+                            else if (property.PropertyType == typeof(double))
+                                property.SetValue(obj, 0d);
+                            else if (property.PropertyType == typeof(float))
+                                property.SetValue(obj, 0f);
+                            else if (property.PropertyType == typeof(uint))
+                                property.SetValue(obj, 0U);
+                        }
+                        else
+                            property.SetValue(obj, reader[property.Name]);
+                    }
+                    list.Add(obj);
+                }
+            }
+            return list;
+        }
+
+    }
+}
+

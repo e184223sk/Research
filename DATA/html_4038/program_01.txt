@@ -1,0 +1,133 @@
+
+namespace Examples.GrpcConfiguration.Clients
+{
+    static class Program
+    {
+        /// &lt;summary&gt;
+        ///
+        /// &lt;/summary&gt;
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            // 設定ファイルを読み込みます。
+            RpcConfigurationConfig config = LoadConfig(@".\GrpcClient.config");
+
+            // コンテキストを生成します。
+            // 第二引数は、コンテキストが dispose された時に生成した gRPC オブジェクトを破棄（チャネルをシャットダウン）するかどうかを表します。
+            using (RpcConfigurationContext context = new RpcConfigurationContext(config, true))
+            {
+                Application.Run(new Form1(context));
+            }
+
+        }
+
+        /// &lt;summary&gt;
+        /// 指定された設定ファイルを読み込みます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="filePath"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static RpcConfigurationConfig LoadConfig(string filePath)
+        {
+            // ExtraInterceptors などに指定した型をシリアライザに渡します。
+            Type[] extraTypes =
+            {
+                typeof(ExampleInterceptorConfig)
+            };
+
+            XmlSerializer serializer = new XmlSerializer(typeof(RpcConfigurationConfig), extraTypes);
+
+            RpcConfigurationConfig config = new RpcConfigurationConfig();
+
+            using (XmlReader reader = XmlReader.Create(filePath))
+            {
+                return (RpcConfigurationConfig)serializer.Deserialize(reader);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// インターセプターを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="config"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static Interceptor CreateExampleInterceptor(CustomInterceptorConfig config)
+        {
+            // MethodArgs で指定した引数を取得できます。
+            if (config.TryGetMethodArgs("name", out object name))
+            {
+                return new ExampleInterceptor(name.ToString());
+            }
+            else
+            {
+                return new ExampleInterceptor();
+            }
+        }
+
+    }
+}
+
+namespace Examples.GrpcConfiguration.Clients
+{
+
+    /// &lt;summary&gt;
+    /// 
+    /// &lt;/summary&gt;
+    internal partial class Form1 : Form
+    {
+
+        #region ctor
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        internal Form1() : this(null)
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        /// &lt;param name="rpcContext"&gt;&lt;/param&gt;
+        internal Form1(RpcConfigurationContext rpcContext)
+        {
+            InitializeComponent();
+            m_RpcContext = rpcContext;
+        }
+
+        #endregion
+
+        #region gRPC
+
+        private readonly RpcConfigurationContext m_RpcContext;
+
+        #endregion
+
+        private async void BtnCallRpc_Click(object sender, EventArgs e)
+        {
+            try
+            {
+
+                // 設定上の名称を指定して CallInvoker を生成します。
+                CallInvoker invoker = m_RpcContext.GetCallInvoker("invoker1");
+
+                ExampleService.ExampleServiceClient client = new ExampleService.ExampleServiceClient(invoker);
+
+                MemberCondition condition = new MemberCondition() { ID = "123" };
+
+                Models.Member member = await client.GetMemberAsync(condition);
+
+                MessageBox.Show(member.Name);
+
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+                MessageBox.Show(ex.Message);
+            }
+
+        }
+    }
+}
+

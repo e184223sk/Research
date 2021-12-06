@@ -1,0 +1,30 @@
+using System;
+using System.Reflection;
+using System.Reflection.Emit;
+
+class Program
+{
+    static void Main()
+    {
+        //アセンブリの設定
+        string projectName = "Hello World";
+        AssemblyName assemblyName = new AssemblyName() { Name = projectName };//アセンブリの名前を設定する
+        AssemblyBuilder assemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Save);//アセンブリを生成する
+        ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule(projectName, projectName + ".exe", true);//アセンブリのモデルを生成する
+        //クラスを宣言する
+        TypeBuilder typeBuilder = moduleBuilder.DefineType("Program", TypeAttributes.Class);//クラスを設定
+        MethodBuilder mainMethodBuilder = typeBuilder.DefineMethod("Main", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);//メソッドの設定
+        ILGenerator ilMain = mainMethodBuilder.GetILGenerator();//ILを指定する
+        LocalBuilder msgLocal = ilMain.DeclareLocal(typeof(string));//stringの変数を宣言する
+        msgLocal.SetLocalSymInfo("letter");//変数名を決める
+        ilMain.Emit(OpCodes.Ldstr, "Hello World");//スタックにHello Worldをプッシュする(文字列の時)
+        ilMain.Emit(OpCodes.Stloc, msgLocal);//スタックの一番上から現在の値をポップし変数に格納する
+        ilMain.Emit(OpCodes.Ldloc, msgLocal);//スタックに変数からプッシュする
+        ilMain.EmitCall(OpCodes.Call, Type.GetType("System.Console").GetMethod("WriteLine", new Type[] { typeof(string) }), null);//呼び出す
+        ilMain.Emit(OpCodes.Ret);
+        typeBuilder.CreateType();
+        assemblyBuilder.SetEntryPoint(mainMethodBuilder);
+        assemblyBuilder.Save(projectName+".exe");
+    }
+}
+

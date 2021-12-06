@@ -1,0 +1,98 @@
+using System;
+using System.IO;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace WebhookListener
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // System.Net.HttpListenerを利用してサーバを実装します。
+            using (var listener = new HttpListener())
+            {
+                // ローカルの8080番ポート(ngrok起動時のオプションで指定した番号)で待ち受け開始。
+                // ngrokが同じローカルマシンで動いているので、"127.0.0.1"だけで待ち受ければよい。
+                // (外部の環境からリクエストを受ける必要がない)
+                // また、"/webhook"のパスも入れておく。Prefix指定時は、"/"で終わるようにしておく必要がある。
+                listener.Prefixes.Add("http://127.0.0.1:8080/webhook/");
+
+                // HttpListenerの待ち受けを開始します。
+                listener.Start();
+
+                // スレッドプール上で待ち受けるようにする。
+                // 今回は1スレッドだが、例えばループで64回Task作成すれば、64スレッドで待ち受けるようになる。
+                Task.Run(
+                    async () =&gt;
+                    {
+                        // HttpListenerが待ち受け中はループする。
+                        while(listener.IsListening)
+                        {
+                            ////////////////////////////////////////////////////////////////
+                            // このサンプルの実装では、whileブロック内で例外が発生すると後続の待ち受けも中断されます。
+                            // 実際には、適切に例外を処理する必要があります。
+                            // どの例外をcatchすべきかは、whileブロック内での処理内容にもよります。
+                            // catchしすぎると、意図せずループが続く場合もあるので注意が必要です。
+                            // 基本的には、例外が発生しても待ち受けを継続したいような場合の例外は、whileブロックの中、
+                            // 待ち受けを継続しても意味がないような例外は、whileブロックの外側で受けるように実装します。
+
+                            // 先ほど登録したアドレス、ポート、パスに合致するリクエストが来ると、処理用のContextが取得できる。
+                            var context = await listener.GetContextAsync();
+
+                            // リクエストとレスポンス処理用のインスタンス取得。
+                            var request  = context.Request;
+                            var response = context.Response;
+
+                            try
+                            {
+                                if (request.HttpMethod != "POST" &amp;&amp; request.HttpMethod != "GET")
+                                {
+                                    // Webhook通知元の仕様にもよるが、HTTPのPOSTかGETかで通知が来る前提にして、
+                                    // それ以外は、"204 No Content"を返す。
+                                    response.StatusCode = 204;
+                                }
+                                else
+                                {
+                                    // Bodyの内容を読み込んで表示するだけ。
+                                    if (request.HasEntityBody)
+                                    {
+                                        using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
+                                        {
+                                            Console.WriteLine("RequestData: {0}", reader.ReadToEnd());
+                                        }
+                                    }
+
+                                    ////////////////////////////////////////////////////////////////
+                                    // 以下、レスポンスで何を返すべきかは通知元のサービス側の仕様にもよる。
+
+                                    // "204 No Content"を返せばいい場合は、以下にコメントアウトした1行だけでBody出力不要。
+                                    // response.StatusCode = 204;
+
+                                    // レスポンスヘッダで、Content-Type: application/jsonにする。
+                                    response.ContentType = "application/json";
+
+                                    // レスポンスのBodyは決め打ちで書き込む。
+                                    using (var writer = new StreamWriter(response.OutputStream))
+                                    {
+                                        writer.Write("{\"status\" : \"OK\"}");
+                                    }
+                                }
+                            }
+                            finally
+                            {
+                                // ResponseはClose()を呼ぶ必要があります。
+                                response.Close();
+                            }
+                        }
+                    });
+
+                // 何かキーを押したら終了させる。
+                Console.WriteLine("終了するには何かキーを押してください。");
+                Console.ReadKey(false);
+            }
+        }
+    }
+}
+

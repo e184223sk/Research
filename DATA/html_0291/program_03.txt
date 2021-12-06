@@ -1,0 +1,59 @@
+
+using System.Collections.Immutable;
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
+
+namespace Analyzer1
+{
+    [DiagnosticAnalyzer(LanguageNames.CSharp)]
+    public class AL0001 : DiagnosticAnalyzer
+    {
+        public const string DiagnosticId = "AL0001";
+        private const string Category = "Spacing";
+
+        private static readonly LocalizableString Title = new LocalizableResourceString(nameof(Resources.AL0001Title), Resources.ResourceManager, typeof(Resources));
+        private static readonly LocalizableString MessageFormat = new LocalizableResourceString(nameof(Resources.AL0001MessageFormat), Resources.ResourceManager, typeof(Resources));
+        private static readonly LocalizableString Description = new LocalizableResourceString(nameof(Resources.AL0001Description), Resources.ResourceManager, typeof(Resources));
+
+        private static readonly DiagnosticDescriptor Rule = new DiagnosticDescriptor(DiagnosticId, Title, MessageFormat, Category, DiagnosticSeverity.Error, true, Description);
+
+        public override ImmutableArray&lt;DiagnosticDescriptor&gt; SupportedDiagnostics =&gt; ImmutableArray.Create(Rule);
+
+        public override void Initialize(AnalysisContext context)
+        {
+            // 同時に実行できるようにする
+            context.EnableConcurrentExecution();
+            // 自動生成コードは検査しないようにする
+            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+
+            context.RegisterSyntaxTreeAction(
+                action =&gt;
+                {
+                    var root = action.Tree.GetRoot(action.CancellationToken);
+
+                    // Whitespace だけ取り出して
+                    var triviaList = root.DescendantTrivia()
+                        .Where(w =&gt; w.IsKind(SyntaxKind.WhitespaceTrivia))
+                        .ToArray();
+
+                    foreach (var trivia in triviaList)
+                    {
+                        // 全角スペースを拾う
+                        if (!trivia.ToString().Contains("　"))
+                        {
+                            continue;
+                        }
+
+                        // 違反位置を特定して通報
+                        var location = trivia.GetLocation();
+                        var diagnostic = Diagnostic.Create(Rule, location);
+
+                        action.ReportDiagnostic(diagnostic);
+                    }
+                });
+        }
+    }
+}
+

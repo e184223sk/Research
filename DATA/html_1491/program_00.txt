@@ -1,0 +1,129 @@
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+namespace dll
+{
+    namespace test
+    {
+        /// &lt;summary&gt;
+        /// DLL マーシャリング処理クラス
+        /// &lt;/summary&gt;
+        public class TestDll
+        {
+            private GCHandle callbackHandle;
+
+            public TestDll()
+            {
+            }
+
+            ~TestDll()
+            {
+                if (callbackHandle.IsAllocated)
+                {
+                    callbackHandle.Free();
+                }
+            }
+
+            // シングルトン
+            private static TestDll instance;
+            public static TestDll Instance
+            {
+                get
+                {
+                    if (instance == null)
+                    {
+                        instance = new TestDll();
+                    }
+                    return instance;
+                }
+            }
+
+            // 文字列リスト取得（文字列配列の変換）
+            public int GetList(ref List&lt;string&gt; strList)
+            {
+                byte[,] listBuffer = new byte[5, 10];
+                uint listCount = 0;
+                int status = NativeMethods.GetList(listBuffer , out listCount);
+                string[] StrBufferList = new string[listCount];
+
+                for (int ii = 0; ii &lt; StrBufferList.Length; ii++)
+                {
+                    byte[] str = new byte[10];
+                    for (int jj = 0; jj &lt; str.Length; jj++)
+                    {
+                        str[jj] = listBuffer[ii, jj];
+                    }
+                    StrBufferList[ii] = System.Text.Encoding.ASCII.GetString(str).TrimEnd('\0');
+                }
+
+                strList = new List&lt;string&gt;(StrBufferList);
+
+                return status;
+            }
+
+            public void SetFunc(FuncDelegate func)
+            {
+                callbackHandle = GCHandle.Alloc(func);
+                NativeMethods.SetFunction(outputFunc);
+            }
+
+#region DLL
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+            public class Config
+            {
+                [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1024)]
+                public string test;
+                [MarshalAs(UnmanagedType.ByValArray, SizeConst = 10)]
+                public byte[] list;
+                public uint count;
+
+                public Config()
+                {
+                    test = "";
+                    list = new byte[10];
+                    count = 0;
+                }
+            }
+
+            public delegate void FuncDelegate(string message);
+
+            private static class NativeMethods
+            {
+                public const string DLLName = "testdll";
+
+                [DllImport(DLLName, EntryPoint = "Get1")]
+                public static extern int Get1(int a);
+
+                // 引数（char[5][10], uint32_t）の変換（文字列配列のマーシャリング）
+                [DllImport(DLLName, EntryPoint = "GetList")]
+                public static extern int GetList([In, Out] byte[,] stringList, out uint listCount);
+
+                // 引数（bool）の変換
+                [DllImport(DLLName, EntryPoint = "Set1")]
+                public static extern void Set1([MarshalAs(UnmanagedType.U1)]bool isEnable);
+
+                // 引数（const char*）の変換
+                [DllImport(DLLName, EntryPoint = "Set2", CharSet = CharSet.Ansi)]
+                public static extern void Set2(string str);
+
+                // 引数（const void*）の変換
+                [DllImport(DLLName, EntryPoint = "Set3")]
+                public static extern void Set3([In] byte[] data);
+
+                // 引数（構造体config）の変換（構造体のマーシャリング）
+                [DllImport(DLLName, EntryPoint = "Set4")]
+                public static extern void Set4(Config config);
+
+                // 引数（コールバック）の変換
+                [DllImport(DLLName, EntryPoint = "SetFunction")]
+                public static extern void SetFunction(FuncDelegate func);
+            }
+#endregion
+        }
+    }
+}
+
+
+

@@ -1,0 +1,51 @@
+
+[HttpPost]
+public virtual ActionResult GetFiles(string dir, bool onlyFolders, bool onlyFiles, string[] rootFolders)　// ←rootFoldersの引数をstring型からstring配列型に変更
+{
+    List&lt;FileTreeViewModel&gt; files = new List&lt;FileTreeViewModel&gt;();
+
+    // index.cshtml中で指定されたルートフォルダをList&lt;string&gt;型インスタンスに保持させます。
+    foreach (string root in rootFolders)
+    {
+        string rootDecoded = Server.UrlDecode(root).Replace("/", "\\");
+        if (!rootList.Contains(rootDecoded))
+            rootList.Add(rootDecoded);
+    }
+
+    // Web画面の初回表示時に、dirに、2つ設定したルートフォルダの情報が渡されるので、その情報をList&lt;string&gt;インスタンスに変換して保持する。
+    // （なお、フォルダ・ファイルのクリック時には、そのクリックしたノードの情報のみ渡される。
+    //   2つのノード情報がカンマ区切りで送られてくるのは初回表示時のみ）
+    dir = Server.UrlDecode(dir);
+    List&lt;string&gt; dirList = dir.Replace("/", "\\").Split(delimiter).ToList&lt;string&gt;();
+
+    foreach (string realDir in dirList)
+    {
+        DirectoryInfo di = new DirectoryInfo(realDir);
+
+        // ルートノードと同じフォルダに対する操作に対しては、そのフォルダ配下の情報は返さないようにする。
+        if (rootList.Contains(realDir))
+        {
+            files.Add(new FileTreeViewModel() { Name = di.Name, Path = String.Format("{0}\\", realDir), IsDirectory = true });
+            continue;
+        }
+
+        if (!onlyFiles)
+        {
+            foreach (DirectoryInfo dc in di.GetDirectories())
+            {
+                files.Add(new FileTreeViewModel() { Name = dc.Name, Path = String.Format("{0}\\{1}\\", realDir, dc.Name), IsDirectory = true });
+            }
+        }
+
+        if (!onlyFolders)
+        {
+            foreach (FileInfo fi in di.GetFiles())
+            {
+                files.Add(new FileTreeViewModel() { Name = fi.Name, Ext = fi.Extension.Substring(1).ToLower(), Path = realDir + fi.Name, IsDirectory = false });
+            }
+        }
+    }
+
+    return PartialView(files);
+}
+

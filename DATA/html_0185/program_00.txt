@@ -1,0 +1,109 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+class Search{
+
+  public List&lt;IntPtr&gt; _windowHwnd { get; set; }
+  public String _wihdowTitle { get; set; }
+  public String _wihdowClass { get; set; }
+
+  public delegate bool EnumWindowsDelegate(IntPtr hWnd, IntPtr lparam);
+
+  [DllImport("user32.dll")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public extern static bool EnumWindows(EnumWindowsDelegate lpEnumFunc, IntPtr lparam);
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern int GetWindowTextLength(IntPtr hWnd);
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+  private bool EnumWindowCallBack(IntPtr hWnd, IntPtr lparam){
+
+      // ウィンドウのタイトル長を取得
+      int textLen = Search.GetWindowTextLength(hWnd);
+
+      if (0 &lt; textLen){
+          // ウィンドウのタイトルを取得
+          StringBuilder tsb = new StringBuilder(textLen + 1);
+          Search.GetWindowText(hWnd, tsb, tsb.Capacity);
+
+          // ウィンドウのクラス名を取得
+          StringBuilder csb = new StringBuilder(256);
+          Search.GetClassName(hWnd, csb, csb.Capacity);
+
+          // 指定のタイトル名、クラス名のウィンドウハンドルを取得
+          if(tsb.ToString().Contains(_wihdowTitle) &amp;&amp; csb.ToString().Contains(_wihdowClass)){
+              _windowHwnd.Add(hWnd);
+          }
+      }
+      return true;
+  }
+
+  public void GetWindows(){
+    _windowHwnd.Clear();
+    EnumWindows(new EnumWindowsDelegate(EnumWindowCallBack),IntPtr.Zero);
+  }
+
+  public Search(){
+    _windowHwnd = new List&lt;IntPtr&gt;();
+  }
+
+}
+
+class Activate_Teams{
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern bool ShowWindowAsync(IntPtr hwnd, int nCmdShow);
+
+  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  public static void Main(string[] args)
+  {
+    var hWndList = new List&lt;IntPtr&gt;();
+    String wihdowTitle = "| Microsoft Teams";
+    String windowClass = "Chrome_WidgetWin_1";
+
+    Search teams = new Search();
+    teams._wihdowTitle = wihdowTitle;
+    teams._wihdowClass = windowClass;
+
+    while(true){
+
+      teams.GetWindows();
+
+      for(int i = 0; i &lt; teams._windowHwnd.Count; i++ ){
+        if(!hWndList.Contains(teams._windowHwnd[i])){
+          hWndList.Add(teams._windowHwnd[i]); // 新しいウィドウハンドルをリストに追加
+        }
+      }
+
+      for(int i = 0; i &lt; hWndList.Count; i++){
+        if(!teams._windowHwnd.Contains(hWndList[i])){
+          hWndList.RemoveAt(i); // サーチできなかったウィドウハンドルをリストから削除
+        }
+      }
+
+      if(File.Exists(args[0])){ // Activate.csによって作られたactivate.txtがあった場合
+        ShowWindowAsync(hWndList.Last(), 4); // ウィンドウをアクティブ化
+        SetForegroundWindow(hWndList.Last()); // ウィンドウを最前面へ
+        System.Windows.Forms.SendKeys.SendWait("^+m"); // Ctrl+Shift+m(ミュート切り替え)
+
+        File.Delete(args[0]); // activate.txtを削除
+      }
+
+      Thread.Sleep(100);
+    }
+  }
+}
+

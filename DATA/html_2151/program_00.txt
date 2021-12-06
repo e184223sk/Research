@@ -1,0 +1,87 @@
+using UniRx;
+using System;
+using UnityEngine;
+using UniRx.Triggers;
+using UnityEngine.UI;
+
+public class TextPerOneWrite : MonoBehaviour
+{
+    [SerializeField]
+    float m_textInterval = 0.2f;
+
+    [SerializeField]
+    KeyCode m_keyCode = KeyCode.Space;
+
+    Text m_windowText;
+
+    IDisposable m_textDispose;
+    IDisposable m_updateDispose;
+
+    void Start()
+    {
+        m_windowText = this.gameObject.GetComponent&lt;Text&gt;();
+        m_windowText.text = "";
+
+        //実行サンプル 文字を1文字ずつ出す
+        ShowPerOne("ウホウホバナナヨコセ");
+        ShowPerOne("ウホウホバナナヨコセ(早口)", 0.1f);
+
+    }
+
+    void ShowPerOne(string commentText)
+    {
+        m_windowText.text = "";
+
+        if (m_textDispose != null)
+        {
+            m_textDispose.Dispose();
+            m_updateDispose.Dispose();
+        }
+
+        m_textDispose = Observable.Interval(TimeSpan.FromSeconds(m_textInterval))
+            .Take(commentText.Length)
+            .Select(_ =&gt; 1)
+            .Scan((accumulation, newValue) =&gt; accumulation + newValue)
+            .DoOnCompleted(() =&gt; m_updateDispose.Dispose())
+            .SubscribeToText(m_windowText, length =&gt; commentText.Substring(0, length))
+            .AddTo(this);
+
+        //特定のキー入力で文字を1文字ずつ出す機能を止める
+        m_updateDispose =  this.UpdateAsObservable()
+            .FirstOrDefault(_ =&gt; Input.GetKeyDown(m_keyCode))
+            .Subscribe(_ =&gt;
+            {
+                m_textDispose.Dispose();
+                m_windowText.text = commentText;
+            });
+    }
+
+    void ShowPerOne(string commentText, double textInterval)
+    {
+        m_windowText.text = "";
+
+        if (m_textDispose != null)
+        {
+            m_textDispose.Dispose();
+            m_updateDispose.Dispose();
+        }
+
+        m_textDispose = Observable.Interval(TimeSpan.FromSeconds(textInterval))
+            .Take(commentText.Length)
+            .Select(_ =&gt; 1)
+            .Scan((accumulation, newValue) =&gt; accumulation + newValue)
+            .DoOnCompleted(()=&gt;m_updateDispose.Dispose())
+            .SubscribeToText(m_windowText, length =&gt; commentText.Substring(0, length))
+            .AddTo(this);
+
+        //特定のキー入力で文字を1文字ずつ出す機能を止める
+        m_updateDispose =  this.UpdateAsObservable()
+           .FirstOrDefault(_ =&gt; Input.GetKeyDown(m_keyCode))
+           .Subscribe(_ =&gt;
+           {
+               m_textDispose.Dispose();
+               m_windowText.text = commentText;
+           });
+    }
+}
+

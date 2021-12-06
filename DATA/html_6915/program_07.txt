@@ -1,0 +1,122 @@
+
+        public async Task RefreshFriendIds()
+        {
+            if (MyCommon._endingFlag) return;
+
+            var cursor = -1L;
+            var newFriendIds = new HashSet&lt;long&gt;();
+            do
+            {
+                var ret = await this.Api.FriendsIds(cursor)
+                    .ConfigureAwait(false);
+
+                if (ret.Ids == null)
+                    throw new WebApiException("ret.ids == null");
+
+                newFriendIds.UnionWith(ret.Ids);
+                cursor = ret.NextCursor;
+            } while (cursor != 0);
+
+            HashSet&lt;long&gt; oldFriendIds = new HashSet&lt;long&gt;();
+            string line;
+            try
+            {
+                using (StreamReader sr = new StreamReader(@"FriendIds.txt"))
+                {
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        oldFriendIds.Add(long.Parse(line));
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Console.WriteLine(error.Message);
+            }
+            StreamWriter writer = new StreamWriter(@"FriendIds.txt", false);
+            writer.Write("");
+            writer.Close();
+            writer = new StreamWriter(@"FriendIds.txt", true);
+            HashSet&lt;long&gt; newFriendIds_ = new HashSet&lt;long&gt;();
+            foreach (long Id in newFriendIds)
+            {
+                newFriendIds_.Add(Id);
+            }
+            foreach (long Id in newFriendIds_)
+            {
+                writer.WriteLine(Id);
+                if (oldFriendIds.Contains(Id))
+                {
+                    oldFriendIds.Remove(Id);
+                    newFriendIds.Remove(Id);
+                }
+            }
+            writer.Close();
+
+            if (oldFriendIds.Count != 0 || newFriendIds.Count != 0)
+            {
+                writer = new StreamWriter(@"FriendChages.txt", true);
+                writer.WriteLine(DateTime.Now.ToShortDateString());
+
+                if (oldFriendIds.Count != 0)
+                {
+                    long[] oldArray = (long[])oldFriendIds.ToArray();
+                    long[] oldArray2;
+                    for (int i = 0; i &lt;= oldArray.Length / 100; i++)
+                    {
+                        if (i != oldArray.Length / 100)
+                        {
+                            oldArray2 = new long[100];
+                            Array.Copy(oldArray, i * 100, oldArray2, 0, 100);
+                        }
+                        else
+                        {
+                            oldArray2 = new long[oldArray.Length % 100];
+                            Array.Copy(oldArray, i * 100, oldArray2, 0, oldArray.Length % 100);
+                        }
+                        var users = await this.Api.UsersLookup(oldArray2)
+                            .ConfigureAwait(false);
+                        foreach (TwitterUser usr in users)
+                        {
+                            writer.WriteLine("- {0}@{1}", usr.Name, usr.ScreenName);
+                            oldFriendIds.Remove(usr.Id);
+                        }
+                        foreach (long id in oldFriendIds)
+                        {
+                            writer.WriteLine("- {0}", id);
+                        }
+                    }
+                }
+                if (newFriendIds.Count != 0)
+                {
+                    long[] newArray = (long[])newFriendIds.ToArray();
+                    long[] newArray2;
+                    for (int i = 0; i &lt;= newArray.Length / 100; i++)
+                    {
+                        if (i != newArray.Length / 100)
+                        {
+                            newArray2 = new long[100];
+                            Array.Copy(newArray, i * 100, newArray2, 0, 100);
+                        }
+                        else
+                        {
+                            newArray2 = new long[newArray.Length % 100];
+                            Array.Copy(newArray, i * 100, newArray2, 0, newArray.Length % 100);
+                        }
+                        var users = await this.Api.UsersLookup(newArray2)
+                            .ConfigureAwait(false);
+                        foreach (TwitterUser usr in users)
+                        {
+                            writer.WriteLine("+ {0}@{1}", usr.Name, usr.ScreenName);
+                            newFriendIds.Remove(usr.Id);
+                        }
+                        foreach (long id in newFriendIds)
+                        {
+                            writer.WriteLine("+ {0}", id);
+                        }
+                    }
+                }
+                writer.Close();
+            }
+        }
+

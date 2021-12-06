@@ -1,0 +1,344 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Automation;
+using System.Windows.Forms;
+
+
+public static class NativeMethods
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    public const int WH_MOUSE_LL = 14;
+    public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, HookProc callback, IntPtr hInstance, int threadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UnhookWindowsHookEx(IntPtr hHook);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr CallNextHookEx(IntPtr hHook, int nCode, IntPtr wParam, IntPtr lParam);
+
+    public const int WM_MOUSEMOVE   = 0x0200;
+    public const int WM_LBUTTONDOWN = 0x0201;
+    public const int WM_LBUTTONUP   = 0x0202;
+    public const int WM_RBUTTONDOWN = 0x0204;
+    public const int WM_RBUTTONUP   = 0x0205;
+    public const int WM_MOUSEWHEEL  = 0x020A;
+    public const int WM_MOUSEHWHEEL = 0x020E;
+
+    [DllImport("user32.dll",SetLastError = true)]
+    public static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll",SetLastError = true)]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, int gaFlags);
+    public const int GA_PARENT    = 1;
+    public const int GA_ROOT      = 2;
+    public const int GA_ROOTOWNER = 3;
+
+    [DllImport("User32.dll")]
+    public static extern IntPtr GetDC(IntPtr hwnd);
+
+    [DllImport("User32.dll")]
+    public static extern void ReleaseDC(IntPtr hwnd, IntPtr dc);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetProcessDPIAware();
+}
+
+
+public class AutomationTest : Form
+{
+    IntPtr _hHook;
+    NativeMethods.HookProc _handler;
+    GCHandle _hookProcHandle;
+    NativeMethods.POINT _lastPoint;
+    bool _hookExitReq;
+
+    System.Windows.Forms.Timer timer;
+    Button btn;
+    TextBox txtProc;
+    ListView lsv;
+
+    AutomationTest()
+    {
+        NativeMethods.SetProcessDPIAware();
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 10;
+        timer.Tick += (s,e)=&gt;{Timer_Tick();};
+
+        btn = new Button(){Text="get"};
+        btn.Click += (s,e)=&gt;{Btn_Click();};
+        Controls.Add(btn);
+
+        txtProc = new TextBox(){
+            ReadOnly = true,
+            Location = new System.Drawing.Point(100,0)
+        };
+        txtProc.KeyDown += (sender,e)=&gt;{
+            if (e.Control &amp;&amp; e.KeyCode == Keys.A) { txtProc.SelectAll(); }
+        };
+        Controls.Add(txtProc);
+
+        lsv = new ListView(){
+            Location = new System.Drawing.Point(0, 40),
+            FullRowSelect = true,
+            GridLines = true,
+            HideSelection = false,
+            MultiSelect = false,
+            View = View.Details
+        };
+        lsv.MouseDoubleClick += Lsv_MouseDoubleClick;
+        lsv.Columns.AddRange(new ColumnHeader[]{
+            new ColumnHeader(){Text="ClassName",Width=150},
+            new ColumnHeader(){Text="AutomationId",Width=80},
+            new ColumnHeader(){Text="ControlType",Width=100},
+            new ColumnHeader(){Text="FrameworkId",Width=50},
+            new ColumnHeader(){Text="Name",Width=150},
+            new ColumnHeader(){Text="ItemType",Width=50},
+            new ColumnHeader(){Text="X"     ,Width=50,TextAlign=HorizontalAlignment.Right},
+            new ColumnHeader(){Text="Y"     ,Width=50,TextAlign=HorizontalAlignment.Right},
+            new ColumnHeader(){Text="Width" ,Width=50,TextAlign=HorizontalAlignment.Right},
+            new ColumnHeader(){Text="Height",Width=50,TextAlign=HorizontalAlignment.Right},
+        });
+        Controls.Add(lsv);
+
+        this.Text = "AutomationElement Information Getter";
+        this.ClientSize = new System.Drawing.Size(700, 500);
+
+        FormClosed += (s,e)=&gt;{UnHook();};
+
+        Load += (s,e)=&gt;{MyResize();};
+        Resize += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+    }
+
+    void MyResize()
+    {
+        int w = ClientSize.Width - txtProc.Left;
+        int h = ClientSize.Height - lsv.Top;
+        if (w&lt;50){w=50;}
+        if (h&lt;50){h=50;}
+        lsv.Size = new System.Drawing.Size(ClientSize.Width, h);
+        txtProc.Width = w;
+    }
+
+    void Timer_Tick()
+    {
+        UnHook();
+        if ( !timer.Enabled ) {
+            return;
+        }
+        timer.Stop();
+        btn.Enabled = true;
+
+        var p = new System.Windows.Point(_lastPoint.x, _lastPoint.y);
+
+        IntPtr hWnd = NativeMethods.WindowFromPoint(_lastPoint);
+        hWnd = NativeMethods.GetAncestor(hWnd, NativeMethods.GA_ROOT);
+        var elem = AutomationElement.FromHandle(hWnd);
+
+        {
+            int pid;
+            NativeMethods.GetWindowThreadProcessId(hWnd, out pid);
+            var proc = System.Diagnostics.Process.GetProcessById(pid);
+            txtProc.Text = proc.MainModule.FileName;
+        }
+
+        if ( elem != null) {
+            lsv.BeginUpdate();
+            try {
+                AutomationElement.AutomationElementInformation elemInfo;
+                do {
+                    try {
+                        elemInfo = elem.Current;
+                    }
+                    catch( ElementNotAvailableException ) {
+                        return;
+                    }
+
+                    lsv.Items.Add(AeToListItem(elemInfo));
+                    elem = FindNextElementFromPoint(elem, p);
+                }
+                while(elem != null);
+
+                DrawPointAndRectToScreen(p, elemInfo.BoundingRectangle);
+            }
+            finally {
+                lsv.EndUpdate();
+            }
+        }
+    }
+
+    AutomationElement FindNextElementFromPoint(AutomationElement elem, System.Windows.Point p)
+    {
+        var childElements = elem.FindAll(TreeScope.Children, Condition.TrueCondition);
+
+        foreach(AutomationElement childElem in childElements) {
+            AutomationElement.AutomationElementInformation elemInfo;
+            try {
+                elemInfo = childElem.Current;
+            }
+            catch( ElementNotAvailableException ) {
+                return null;
+            }
+
+            if ( elemInfo.BoundingRectangle.Contains(p) ) {
+                return childElem;
+            }
+        }
+        return null;
+    }
+
+    ListViewItem AeToListItem(AutomationElement.AutomationElementInformation a)
+    {
+        System.Windows.Rect r = a.BoundingRectangle;
+
+        return new ListViewItem(new string[]{
+            a.ClassName,
+            a.AutomationId,
+            a.ControlType.ToString(),
+            a.FrameworkId,
+            a.Name,
+            a.ItemType,
+            r.X.ToString(),
+            r.Y.ToString(),
+            r.Width.ToString(),
+            r.Height.ToString()
+        });
+    }
+
+    void Btn_Click()
+    {
+        try {
+            _hookExitReq = false;
+            SetHook();
+        }
+        catch (System.ComponentModel.Win32Exception e) {
+            MessageBox.Show(e.ToString());
+            return;
+        }
+
+        btn.Enabled = false;
+        lsv.Items.Clear();
+    }
+
+    void Lsv_MouseDoubleClick(object sender, MouseEventArgs e)
+    {
+        ListViewHitTestInfo info = lsv.HitTest(e.Location);
+        if ( info.SubItem != null ) {
+            SubForm f = new SubForm(info.SubItem.Text);
+            f.ShowDialog();
+        }
+    }
+
+    void DrawPointAndRectToScreen(System.Windows.Point p, System.Windows.Rect rect)
+    {
+        IntPtr desktopDC = NativeMethods.GetDC(IntPtr.Zero);
+
+        if (desktopDC == IntPtr.Zero) {
+            // failed
+            return;
+        }
+
+        try {
+            var pen = new System.Drawing.Pen(System.Drawing.Color.Blue, 6.0f);
+            using (var g = System.Drawing.Graphics.FromHdc(desktopDC)) {
+                g.DrawLine(pen, (float)(p.X-5), (float)(p.Y-5), (float)(p.X+5), (float)(p.Y+5));
+                g.DrawLine(pen, (float)(p.X-5), (float)(p.Y+5), (float)(p.X+5), (float)(p.Y-5));
+                g.DrawRectangle(pen, (float)rect.X, (float)rect.Y, (float)rect.Width, (float)rect.Height);
+            }
+        }
+        finally {
+            NativeMethods.ReleaseDC(IntPtr.Zero, desktopDC);
+        }
+    }
+
+    void SetHook()
+    {
+        IntPtr module = IntPtr.Zero;
+        _handler = CallbackProc;
+        _hookProcHandle = GCHandle.Alloc(_handler);
+        _hHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _handler, module, 0);
+
+        if ( _hHook == IntPtr.Zero ) {
+            // failed
+            int errorCode = Marshal.GetLastWin32Error();
+            _hookProcHandle.Free();
+            _handler = null;
+            throw new System.ComponentModel.Win32Exception(errorCode);
+        }
+    }
+
+    void UnHook()
+    {
+        if ( _hHook != IntPtr.Zero ) {
+            NativeMethods.UnhookWindowsHookEx(_hHook);
+            _hHook = IntPtr.Zero;
+            _hookProcHandle.Free();
+            _handler = null;
+        }
+    }
+
+    IntPtr CallbackProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if ( nCode &lt; 0 || _hookExitReq ) {
+            return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+        }
+        else {
+            if ( (long)wParam == NativeMethods.WM_MOUSEMOVE ) {
+                return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+                // 注意：WM_MOUSEMOVE をキャンセルすると、カーソル表示が更新されない
+            }
+            else {
+                if ( (long)wParam == NativeMethods.WM_LBUTTONDOWN ||
+                     (long)wParam == NativeMethods.WM_RBUTTONDOWN ) {
+                    _hookExitReq = true;
+                    var p = Cursor.Position;
+                    _lastPoint = new NativeMethods.POINT(){x=p.X, y=p.Y};
+                    timer.Start();
+                }
+                // cancel
+                return new IntPtr(1);
+            }
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new AutomationTest());
+    }
+}
+
+internal class SubForm : Form
+{
+    internal SubForm(string text)
+    {
+        var txt = new TextBox(){
+            Text = text,
+            Multiline = true,
+            ScrollBars = ScrollBars.Both,
+            Dock = DockStyle.Fill
+        };
+        txt.KeyDown += (sender,e)=&gt;{
+            if (e.Control &amp;&amp; e.KeyCode == Keys.A) { txt.SelectAll(); }
+        };
+        Controls.Add(txt);
+    }
+}
+

@@ -1,0 +1,185 @@
+//データのセーブ、バックアップ、バックアップの取得、読み込みを行う
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.IO;
+using UnityEngine;
+using NCMB; //忘れないように
+
+public class FileSaveTest : MonoBehaviour {
+
+    public Player player = new Player();
+
+    private const string userNameKey = "_user_name_";
+    private const string passwordKey = "_pass_word_";
+
+    //パスとファイル名
+    string path;
+    string fileName;
+
+    //セーブデータ
+    List&lt;NCMBObject&gt; saveDataList;
+
+    void Start()
+    {
+        SaveData.Clear();
+
+        path = Application.persistentDataPath + "/";
+        fileName = Application.companyName + "." + Application.productName + ".savedata.json";
+
+        //テスト用に値書き換え,バックアップされる
+        player.PlayerName = "アズマ1";
+        Debug.Log("player.PlayerName = " + player.PlayerName);
+
+        //セーブ
+        SavePlayer();
+        UploadSaveFile();
+
+        //テスト用に値書き換え,バックアップされてない
+        player.PlayerName = "アズマ2";
+        Debug.Log("player.PlayerName = " + player.PlayerName);
+
+        //バックアップのロード、savedata.jsonに上書き
+        loadSaveData();
+
+        //savedata.jsonからロード
+        player = SaveData.GetClass&lt;Player&gt;("Player", new Player());
+        //値変更確認,バックアップされた「アズマ1」が出力されれば成功
+        Debug.Log("player.PlayerName = " + player.PlayerName);
+    }
+
+    //JsonUtilityでセーブ
+    void SavePlayer(){
+        SaveData.SetClass&lt;Player&gt;("Player", player);
+        SaveData.Save();
+    }
+
+    /// &lt;summary&gt;
+    /// セーブデータファイルをサーバーにアップロード
+    /// &lt;/summary&gt;
+    void UploadSaveFile(){
+
+        string str = "";
+
+        //JSONファイルを読んでstringへ
+        if (File.Exists(path + fileName))
+        {
+            using (StreamReader sr = new StreamReader(path + fileName, Encoding.GetEncoding("utf-8")))
+            {
+                str = sr.ReadToEnd();
+            }
+        }
+
+        byte[] data = System.Text.Encoding.UTF8.GetBytes(str);
+
+        //ファイル名重複を避けるためファイル名を日付＋乱数で生成
+        string NCMBFileName = Application.companyName + "." + Application.productName + ".savedata" + "-" + DateTime.Now.Year+DateTime.Now.Month+DateTime.Now.Day+DateTime.Now.Hour+DateTime.Now.Minute+DateTime.Now.Second;
+        NCMBFileName += "-" + UnityEngine.Random.Range (100000,999999);
+        NCMBFileName += ".json";
+
+        NCMBFile file = new NCMBFile(NCMBFileName, data);
+        file.SaveAsync((NCMBException error) =&gt; {
+            if (error != null)
+            {
+                // 失敗
+                Debug.Log("UploadPlayer : 失敗"); //追記
+            }
+            else
+            {
+                // 成功
+                Debug.Log("UploadPlayer : 成功"); //追記
+            }
+        });
+
+        //バックアップレコードを追加
+        AddRecord(NCMBFileName);
+    }
+
+    //バックアップの更新
+    void AddRecord(string filename)
+    {
+        NCMBObject obj = new NCMBObject("SaveData");
+        obj.Add("username", PlayerPrefs.GetString(userNameKey, ""));
+        obj.Add("savedatafile", filename);
+        obj.Add("date", DateTime.Now.Date);
+
+        obj.Save((NCMBException e) =&gt; {
+            if (e != null)
+            {
+                Debug.Log("save data error");
+                showError(e);
+            }
+            else
+            {
+                //成功時の処理
+                Debug.Log("UpdateSaveData : 成功");
+            }
+        });
+    }
+
+    void showError(NCMBException e)
+    {
+        Debug.Log("UpdateSaveData : 失敗");
+    }
+
+    //ファイル名を取得, ファイルを取得, 読み込む
+    void loadSaveData()
+    {
+        saveDataList = new List&lt;NCMBObject&gt;();
+
+        //QueryTestを検索するクラスを作成
+        NCMBQuery&lt;NCMBObject&gt; query = new NCMBQuery&lt;NCMBObject&gt;("SaveData");
+        //ユーザー名で抽出
+        query.WhereEqualTo("username", PlayerPrefs.GetString(userNameKey, ""));
+        //ソートkeyを設定
+        query.OrderByDescending("createDate");
+        //検索結果を取得
+        query.FindAsync((List&lt;NCMBObject&gt; objList, NCMBException e) =&gt; {
+            if (e != null)
+            {
+                //検索失敗時の処理
+                Debug.Log("loadSaveData : 失敗");
+            }
+            else
+            {
+                Debug.Log("loadSaveData : 成功");
+                //最新のファイルを読み込む
+                Debug.Log(objList[0]["username"] + " " + objList[0]["savedatafile"]);
+                LoadSaveFile(objList[0]["savedatafile"].ToString());
+            }
+        });
+    }
+
+    //SaveDataファイルを取得
+    void LoadSaveFile(string Name)
+    {
+        NCMBFile file = new NCMBFile(Name);
+        file.FetchAsync((byte[] fileData, NCMBException error) =&gt; {
+            if (error != null)
+            {
+                // 失敗
+                Debug.Log("LoadSaveFile : 失敗");
+            }
+            else
+            {
+                //成功
+                Debug.Log("LoadSaveFile : 成功");
+                SaveBytesTo(fileData);
+            }
+        });
+    }
+
+    //Byteデータをsavedata.jsonに書き込む
+    void SaveBytesTo(byte[] b)
+    {
+        Debug.Log("SaveBytesTo");
+        //UTF8 エンコードでbyteからstringへ
+        string text = System.Text.Encoding.UTF8.GetString(b);
+        //上書き
+        StreamWriter writer = new StreamWriter(path + fileName, false, Encoding.GetEncoding("utf-8"));
+        writer.WriteLine(text);
+        writer.Close();
+    }
+
+}
+

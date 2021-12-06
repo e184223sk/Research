@@ -1,0 +1,57 @@
+[Test]
+public async Task Test()
+{
+    var cancellationToken = CancellationToken.None;
+
+    var keys = new List&lt;string&gt;
+    {
+        "0000000001",
+        "0000000002",
+        "0000000003"
+    };
+
+    var result = await GetTextFileFromS3Async(keys, cancellationToken);
+
+    var value = string.Join("\n", result);
+    Console.WriteLine(value);
+
+}
+
+private static async Task&lt;IEnumerable&lt;string&gt;&gt; GetTextFileFromS3Async(IEnumerable&lt;string&gt; keys, CancellationToken cancellationToken)
+{
+    var concurrentBag = new ConcurrentBag&lt;string&gt;();
+
+    // ITargetBlock&lt;T&gt; を継承する ActionBlock で key を受け取ってファイルの中身を読み取る
+    var actionBlock = new ActionBlock&lt;string&gt;(async key =&gt;
+        {
+            using (var s3Client = new AmazonS3Client())
+            {
+                var response = await s3Client.GetObjectAsync("bucket-name", key, cancellationToken);
+                using (var reader = new StreamReader(response.ResponseStream))
+                {
+                    concurrentBag.Add(reader.ReadToEnd());
+                }
+            }
+        },
+        // Select で Task にくるんで WaitAll と異なりこの辺の制御ができる。
+        new ExecutionDataflowBlockOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Environment.ProcessorCount
+        });
+
+    foreach (var key in keys)
+    {
+        // actionBlock に key を渡して投げる
+        await actionBlock.SendAsync(key, cancellationToken);
+    }
+
+    // actionBlock にもう依頼は無い事を通知する。
+    actionBlock.Complete();
+
+    // actionBlock を await して全部終わるのを待つ。
+    await actionBlock.Completion;
+
+    return concurrentBag;
+}
+

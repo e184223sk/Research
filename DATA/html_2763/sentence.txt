@@ -1,0 +1,201 @@
+WindowsPCにリモートディスクトップ接続した場合に、接続者がいるとキックしてしまうのでSlackに通知して誰が接続しているのかを投稿して管理するとわかりやすいのではないかと思い作成してみました。Windowsサービス作成自体は チュートリアル: Windows サービス アプリを作成する と同じ手順で行っています。Visual Studio 2019
+.Net Framework 4.7.2・Visual Studio 2019を起動して新しいプロジェクトの作成からWindows サービス(.NET Framwork)を選択・プロジェクト名と保存先を指定して作成・作成するとService1.csのファイルがあるので名前を変更しましょう。
+・エラーが出ない限り好きな名前でよいです今回はPrj_RemoteDesktopWindowsにしています。
+・名前を変更すると参照をすべて変更しますかと出るのではいを選択します。・先ほど変更したPrj_RemoteDesktopWindows.csファイルを右クリックしてデザイナーの表示を選択・プロパティのServiceNameをPrj_RemoteDesktopWindowsに変更します。・チュートリアル: Windows サービス アプリを作成するの通りにサービス保留の状態を実装しておきます。・Prj_RemoteDesktopWindows.csのコードを開いてサービス保留の状態を実装コード.cs
+
+
+Prj_RemoteDesktopWindows.cs
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Linq;
+using System.ServiceProcess;
+using System.Text;
+using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+
+namespace Prj_RemoteDesktopWindows
+{
+    public partial class Prj_RemoteDesktopWindows : ServiceBase
+    {
+        public Prj_RemoteDesktopWindows()
+        {
+            InitializeComponent();
+        }
+
+        protected override void OnStart(string[] args)
+        {
+            // Update the service state to Start Pending.
+            ServiceStatus serviceStatus = new ServiceStatus();
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_START_PENDING;
+            serviceStatus.dwWaitHint = 100000;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            // Update the service state to Running.
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+        }
+
+        protected override void OnStop()
+        {
+        }
+
+        public enum ServiceState
+        {
+            SERVICE_STOPPED = 0x00000001,
+            SERVICE_START_PENDING = 0x00000002,
+            SERVICE_STOP_PENDING = 0x00000003,
+            SERVICE_RUNNING = 0x00000004,
+            SERVICE_CONTINUE_PENDING = 0x00000005,
+            SERVICE_PAUSE_PENDING = 0x00000006,
+            SERVICE_PAUSED = 0x00000007,
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ServiceStatus
+        {
+            public int dwServiceType;
+            public ServiceState dwCurrentState;
+            public int dwControlsAccepted;
+            public int dwWin32ExitCode;
+            public int dwServiceSpecificExitCode;
+            public int dwCheckPoint;
+            public int dwWaitHint;
+        };
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool SetServiceStatus(System.IntPtr handle, ref ServiceStatus serviceStatus);
+
+
+    }
+}
+
+
+
+・ここからチュートリアルと少し違ってきます。・ServiceBase.OnSessionChange(SessionChangeDescription) メソッド
+・OnSessionChangeの注釈を見るとそのままでは動かないのでCanHandleSessionChangeEventを有効にします。
+・ServiceBase.CanHandleSessionChangeEvent プロパティリモート接続を検知実装コード.cs
+
+
+Prj_RemoteDesktopWindows.cs
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Linq;
+using System.ServiceProcess;
+using System.Text;
+using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+
+namespace Prj_RemoteDesktopWindows
+{
+    public partial class Prj_RemoteDesktopWindows : ServiceBase
+    {
+        public Prj_RemoteDesktopWindows()
+        {
+            InitializeComponent();
+            // OnSessionChange関数をの実行を有効にするため、CanHandleSessionChangeEventをtrueに
+            CanHandleSessionChangeEvent = true;
+        }
+
+        protected override void OnStart(string[] args)
+        {
+            // Update the service state to Start Pending.
+            ServiceStatus serviceStatus = new ServiceStatus();
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_START_PENDING;
+            serviceStatus.dwWaitHint = 100000;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            // Update the service state to Running.
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+        }
+
+        protected override void OnStop()
+        {
+        }
+
+        public enum ServiceState
+        {
+            SERVICE_STOPPED = 0x00000001,
+            SERVICE_START_PENDING = 0x00000002,
+            SERVICE_STOP_PENDING = 0x00000003,
+            SERVICE_RUNNING = 0x00000004,
+            SERVICE_CONTINUE_PENDING = 0x00000005,
+            SERVICE_PAUSE_PENDING = 0x00000006,
+            SERVICE_PAUSED = 0x00000007,
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ServiceStatus
+        {
+            public int dwServiceType;
+            public ServiceState dwCurrentState;
+            public int dwControlsAccepted;
+            public int dwWin32ExitCode;
+            public int dwServiceSpecificExitCode;
+            public int dwCheckPoint;
+            public int dwWaitHint;
+        };
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool SetServiceStatus(System.IntPtr handle, ref ServiceStatus serviceStatus);
+
+        /// &lt;summary&gt;
+        /// 変更イベントがターミナル サーバー セッションから受信された場合に実行します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="changeDescription"&gt;&lt;/param&gt;
+        protected override void OnSessionChange(SessionChangeDescription changeDescription)
+        {
+            switch (changeDescription.Reason)
+            {
+                case SessionChangeReason.ConsoleConnect:
+                    break;
+                case SessionChangeReason.ConsoleDisconnect:
+                    break;
+                case SessionChangeReason.RemoteConnect:
+                    break;
+                case SessionChangeReason.RemoteDisconnect:
+                    break;
+                case SessionChangeReason.SessionLogon:
+                    break;
+                case SessionChangeReason.SessionLogoff:
+                    break;
+                case SessionChangeReason.SessionLock:
+                    break;
+                case SessionChangeReason.SessionUnlock:
+                    break;
+                case SessionChangeReason.SessionRemoteControl:
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+
+
+・まずはデザイナーを表示します。(Prj_RemoteDesktopWindows.csファイルを右クリックしてデザイナーの表示を選択)
+・バックグランドを右クリックしてインストーラーの追加を選択・ProjectInstallerコンポーネントクラスが生成されます。・デザインビューのserviceInstaller1を選択、プロパティのServiceNameがPrj_RemoteDesktopWindowsになっていることを確認しましょう。・StartTypeやサービス一覧に表示されるサービス名や説明を追記します。・ローカルシステムアカウントを使用してサービスがインストール、実行するようにするため、デザインビューのserviceProcessInstaller1を選択してプロパティのUserをLocalSystemにします。作成したプロジェクトでインストールできるように修正してSlackに投稿できるようにします。
+Slackに投稿するは【c#】Slackに投稿してスレッドに返信できるようにする。を参考にして下さい。今回はSlackSendMessage.csで追加しました。・NuGetコンソールから
+・下記のコマンドを実行してインストールしましょう。こちらで取得できるという記事がありましたが管理者権限で実行しているアプリケーションではうまく取れなかったので
+Windows Terminal Services API.にアクセスできるライブラリCassiaこちらを使わせていただきます。NuGetコンソールでSessionManagerクラスを追加して名前を取得できるようにしました。・OnStart()時にSlackに通知してスレッド投稿するためにtsを保持
+・RemoteDisconnectのタイミングではclientNameが空白になっているのでstringで保持
+・なんとなくtry-catch・Prj_RemoteDesktopWindowsプロジェクトのプロパティのアプリケーションタブからスタートアップオブジェクトをPrj_RemoteDesktopWindows.Programにします。・Ctrl+Shift+Bでビルドします。(または、Prj_RemoteDesktopWindowsプロジェクトを右クリックして [ビルド] を選択します)・exeが生成されます。(Debugでビルドしているとbinの中にはDebugフォルダが生成されます。)やっていることは同じですが2パターンのインストール方法を記載しておきます。
+前提としてインストールするためには管理者として実行する必要があります。・管理者として実行して、作成したプロジェクトを再度開きましょう。・ツールメニューコマンドラインから開発者コマンドプロンプトを選択・コマンド実行exeまでのパスはとりあえずフルパスがいいと思います。・installutil.exeがない場合は自身のPCにインストールされているか確認してフルパスを指定しましょうシステムで installutil.exe を見付けることができない場合は、コンピューター上に存在することを確認してください。 このツールは、.NET Framework と共に %windir%\Microsoft.NET\Framework[64]&lt;framework version&gt; フォルダーにインストールされます。 たとえば、64 ビット バージョンでの既定のパスは %windir%\Microsoft.NET\Framework64\v4.0.30319\InstallUtil.exe です。・InstallUtil.exe が必要なので自分のPCのインストール先のパスを指定したbatを作成（すべてフルパスで指定しています）・右クリックで管理者として実行します。System.Security.SecurityException: ソースが見つかりませんでしたが、いくつかまたはすべてのログを検索できませんでした。アクセス不可能なログ: Security管理者として実行しましょう。インストール段階で例外が発生しました。
+System.ComponentModel.Win32Exception: 指定されたサービスは既に開始されています。アンインストールしてからインストールしましょう。
+・アンインストールコマンドエラー      "obj\Debug\Prj_RemoteDesktopWindows.exe" を "bin\Debug\Prj_RemoteDesktopWindows.exe" にコピーできませんでした。10 回の再試行回数を超えたため、失敗しました。このファイルは "RemoteConnectSlackBot (1544)" によってロックされています。・サービスが開始されています、まずはアンインストールしましょう。・右クリックから開始を選択
+・確認のためにmacbookairでWindowsPCリモート接続してスレッドに返信されていることを確認しました。Debugビルドのままですが最終的にはReleaseビルドにしてください。
+サービス保留の状態を実装するなど行っていますが実際に必要なのかなどわかっていない部分もあります（チュートリアルが実装していたのでとりあえず追加している程度です）
+はじめてWindowsサービスを作ったのですが、実際にリモート接続しないといけなかったり管理者権限でインストールしないと行けなかったりデバッグ方法が面倒でした、またOnStart()でSlackに投稿をしているので何かしらの更新で再度OnStart()が呼ばれるかもしれないなと思いました。（確認していませんが、リモート先のPCを再起動するなど）また、人によってはエラー内容が違っていたりするので参考にプロジェクトをGithubなどに上げられたらよかったですが、アクセストークンなどもあるのでローカルで開発しています。
+見たい方がいて問題なさそうならあげてもよいのですが、とりあえず構成だけ張っておきます。リモートを検知してSlackに投稿するなどの需要があるのかわかりませんが、参考にしていただければと思います。チュートリアル: Windows サービス アプリを作成する 
+リモート接続先で接続元の情報を C# で取得する
+
+

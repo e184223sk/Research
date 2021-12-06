@@ -1,0 +1,66 @@
+
+public class CsprojAnalyzerPostProcessor : AssetPostprocessor
+{
+    const string AnalyzerDirectoryPath = "Analyzers";
+
+    public static void OnGeneratedCSProjectFiles()
+    {
+        var currentDirectory = Directory.GetCurrentDirectory();
+        var projectFiles = Directory.GetFiles(currentDirectory, "*.csproj");
+
+        foreach (var file in projectFiles)
+        {
+            UpgradeProjectFile(file);
+        }
+    }
+
+    static void UpgradeProjectFile(string projectFile)
+    {
+        XDocument doc;
+        try
+        {
+            doc = XDocument.Load(projectFile);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (doc.Root == null)
+        {
+            return;
+        }
+
+        if (projectFile.EndsWith("Assembly-CSharp.csproj", StringComparison.InvariantCulture)
+            || projectFile.EndsWith("client.csproj", StringComparison.InvariantCulture))
+        {
+            AddAnalyzerReference(doc.Root, doc.Root.Name.NamespaceName);
+        }
+
+        doc.Save(projectFile);
+    }
+
+    static void AddAnalyzerReference(XElement projectContentElement, XNamespace xmlns)
+    {
+        var itemGroup = new XElement(xmlns + "ItemGroup");
+
+        var analyzerPath = Path.Combine(Directory.GetCurrentDirectory(), "Assets", AnalyzerDirectoryPath);
+        var files = Directory.GetFiles(analyzerPath, "*.dll", SearchOption.AllDirectories);
+
+
+        if (files.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var analyzer in files)
+        {
+            var analyzerElement = new XElement(xmlns + "Analyzer");
+            analyzerElement.Add(new XAttribute("Include", analyzer));
+            itemGroup.Add(analyzerElement);
+        }
+
+        projectContentElement.Add(itemGroup);
+    }
+}
+

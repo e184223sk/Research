@@ -1,0 +1,29 @@
+
+public class StreamingLoggingInterceptor : Interceptor
+{
+    public override AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt;(
+        ClientInterceptorContext&lt;TRequest, TResponse&gt; context,
+        AsyncDuplexStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation
+    )
+    {
+        // 差し込む処理の定義
+        void intercept(byte[] data)
+        {
+            // 雑にJSON化
+            Debug.Log(MessagePackSerializer.ToJson(data));
+        }
+
+        var call = continuation(context);
+
+        // 自作Streamに差し替えたcallを返す
+        return new AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt;(
+            new MyRequestStream&lt;TRequest&gt;(intercept, call.RequestStream),
+            new MyResponseStream&lt;TResponse&gt;(intercept, call.ResponseStream),
+            call.ResponseHeadersAsync,
+            call.GetStatus,
+            call.GetTrailers,
+            call.Dispose
+        );
+    }
+}
+

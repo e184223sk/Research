@@ -1,0 +1,89 @@
+using FrostweepGames.Plugins.GoogleCloud.SpeechRecognition;
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+using UnityEngine.UI;
+
+/// &lt;summary&gt;
+/// Google音声認識テスト
+/// &lt;/summary&gt;
+public class GoogleSpeechTest : MonoBehaviour
+{
+    [SerializeField] private Button recButton;
+    [SerializeField] Text resultText;
+
+    private GCSpeechRecognition _speechRecognition;
+
+    void Start()
+    {
+        _speechRecognition = GCSpeechRecognition.Instance;
+
+        _speechRecognition.FinishedRecordEvent += OnFinishedRecordEvent;
+        _speechRecognition.RecognizeSuccessEvent += OnRecognizeSuccessEvent;
+
+        if (_speechRecognition.HasConnectedMicrophoneDevices())
+        {
+            _speechRecognition.SetMicrophoneDevice(_speechRecognition.GetMicrophoneDevices()[0]);
+        }
+
+        recButton.OnPointerDownAsObservable()
+            .Subscribe(_ =&gt; _speechRecognition.StartRecord(false)).AddTo(this);
+
+        recButton.OnPointerUpAsObservable()
+            .Subscribe(_ =&gt; _speechRecognition.StopRecord()).AddTo(this);
+    }
+
+    private void OnDestroy()
+    {
+        _speechRecognition.FinishedRecordEvent -= OnFinishedRecordEvent;
+        _speechRecognition.RecognizeSuccessEvent -= OnRecognizeSuccessEvent;
+    }
+
+    /// &lt;summary&gt;
+    /// 音声認識成功時のコールバックイベント
+    /// &lt;/summary&gt;
+    /// &lt;param name="recognitionResponse"&gt;認識結果のレスポンス&lt;/param&gt;
+    private void OnRecognizeSuccessEvent(RecognitionResponse recognitionResponse)
+    {
+        string r = "";
+
+        foreach (var result in recognitionResponse.results)
+        {
+            foreach (var alternative in result.alternatives)
+            {
+                if (recognitionResponse.results[0].alternatives[0] != alternative)
+                {
+                    r = alternative.transcript;
+                }
+            }
+        }
+
+        resultText.text = r;
+    }
+
+    /// &lt;summary&gt;
+    /// 録音終了時のコールバックイベント
+    /// &lt;/summary&gt;
+    /// &lt;param name="clip"&gt;音声クリップ&lt;/param&gt;
+    /// &lt;param name="raw"&gt;生データ&lt;/param&gt;
+    private void OnFinishedRecordEvent(AudioClip clip, float[] raw)
+    {
+        if (clip == null) return;
+
+        RecognitionConfig config = RecognitionConfig.GetDefault();
+        config.languageCode = Enumerators.LanguageCode.ja_JP.Parse();
+        config.audioChannelCount = clip.channels;
+
+        GeneralRecognitionRequest recognitionRequest = new GeneralRecognitionRequest()
+        {
+            audio = new RecognitionAudioContent()
+            {
+                content = raw.ToBase64()
+            },
+            config = config
+        };
+
+        _speechRecognition.Recognize(recognitionRequest);
+    }
+}
+

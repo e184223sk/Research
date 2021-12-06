@@ -1,0 +1,49 @@
+
+private void btImport_Click(object sender, EventArgs e)
+{
+    var sendGridMap = this.dgvDestination.Rows
+        .Cast&lt;DataGridViewRow&gt;()
+        .Select(o =&gt; (SendGridDataSet.RecipientsRow)((DataRowView)o.DataBoundItem).Row)
+        .ToDictionary(o =&gt; o.Email, o =&gt; o);
+
+    var selectedList = this.dgvSource.Rows.Cast&lt;DataGridViewRow&gt;()
+        .Where(o =&gt; o.Selected)
+        .Select(o =&gt; (SalesforceDataSet.ContactRow)((DataRowView)o.DataBoundItem).Row)
+        .ToList();
+
+
+    this.btImport.Enabled = false;
+
+    Task.Factory.StartNew(() =&gt;
+    {
+        var processed = 0;
+
+        foreach (var selected in selectedList)
+        {
+            Invoke(new Action(() =&gt; this.Text = "処理中... (" + (processed + 1) + " / " + selectedList.Count + ")" ));
+
+            if (sendGridMap.ContainsKey(selected.Email) || selected.IsEmailNull())
+            {
+                continue;
+            }
+
+            this.recipientsTableAdapter.Insert(
+                DBNull.Value, DBNull.Value, DBNull.Value,
+                selected.Email, selected.IsFirstNameNull() ? "" : selected.FirstName, selected.LastName,
+                DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value);
+
+            processed++;
+        }
+    })
+    .ContinueWith(task =&gt;
+    {
+        // エラー処理は省略
+
+        Invoke(new Action(() =&gt;
+        {
+            this.btImport.Enabled = true;
+            this.Text = "完了";
+        }));
+    });
+}
+

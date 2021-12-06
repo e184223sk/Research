@@ -1,0 +1,75 @@
+
+using MailKit.Net.Smtp;
+using MailKit.Security;
+using MimeKit;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+using System.IO;
+
+namespace RPA_Password_Alerter
+{
+    class MailManager
+    {
+        private string From { get; set; } = "RPA担当者@hoge.com";
+        public string[] To { get; set; } = new string[] { "RPA担当者@hoge.com" }; // Main内で指定するが、nullにならないよう初期化しておく
+        public string[] Cc { get; set; }
+        public string Subject { get; set; } = "自動送信";
+        public HtmlBuilder HtmlBody { get; set; } = new HtmlBuilder();
+        public string[] Attatchments { get; set; } = new string[] { };
+        private string Host { get; set; } = "hogehoge.net";
+        private int Port { get; set; } = 25;
+
+        static MailManager()
+        {
+            ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, sslPolicyErrors) =&gt; true;
+        }
+
+        public async Task SendEmailAsync()
+        {
+            MimeMessage mime = new MimeMessage();
+            mime.From.Add(new MailboxAddress("", From));
+
+            this.To.ToList().ForEach(v =&gt; mime.To.Add(new MailboxAddress("", v)));
+            this.Cc?.ToList().ForEach(v =&gt; mime.Cc.Add(new MailboxAddress("", v)));
+
+            mime.Subject = this.Subject;
+
+            Multipart multipart = new Multipart("mixed")
+            {
+                new TextPart(MimeKit.Text.TextFormat.Html) { Text = this.HtmlBody.HtmlString }
+            };
+            foreach (var item in Attatchments)
+            {
+                multipart.Add(new MimePart()
+                {
+                    Content = new MimeContent(File.OpenRead(item)),
+                    ContentDisposition = new ContentDisposition(),
+                    ContentTransferEncoding = ContentEncoding.Base64,
+                    FileName = Path.GetFileName(item)
+                });
+            }
+            mime.Body = multipart;
+
+            using (var client = new SmtpClient())
+            {
+                await client.ConnectAsync(this.Host, this.Port, SecureSocketOptions.StartTls);
+                await client.SendAsync(mime);
+                await client.DisconnectAsync(true);
+            }
+        }
+
+        public class HtmlBuilder
+        {
+            StringBuilder builder = new StringBuilder();
+            public void AddStyle(string v) =&gt; builder.AppendLine("&lt;style&gt;" + v + "&lt;/style&gt;");
+            public void AddParagraph(string v) =&gt; builder.AppendLine("&lt;p&gt;" + v + "&lt;/p&gt;");
+            public void AddLink(string displayname, string path) =&gt; AddParagraph($"&lt;a href=\"{path}\"&gt;{displayname}&lt;/a&gt;");
+            public string HtmlString =&gt; builder.ToString();
+
+        }
+
+    }
+}
+

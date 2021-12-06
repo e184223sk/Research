@@ -1,0 +1,37 @@
+
+// Copyright(c) 2017 Takahiro Miyaura
+// Released under the MIT license
+// http://opensource.org/licenses/mit-license.php
+public override void DetectFace()
+{
+    AppCallbacks.Instance.InvokeOnUIThread(async () =&gt;
+    {
+        var properties =
+            _capture.VideoDeviceController.GetMediaStreamProperties(MediaStreamType.VideoPreview) as
+                VideoEncodingProperties;
+        if (properties == null)
+            return;
+
+        //coution! face detect is only supported 'BitmapPixelFormat.Gray8'.
+        var videoFrame = new VideoFrame(BitmapPixelFormat.Gray8, (int) properties.Width, (int) properties.Height);
+
+        this.FrameSizeWidth = (int) properties.Width;
+        this.FrameSizeHeight = (int) properties.Height;
+
+
+        var previewFrame = await _capture.GetPreviewFrameAsync(videoFrame);
+
+        var detector = await FaceDetector.CreateAsync();
+        var detectFaces = await detector.DetectFacesAsync(previewFrame.SoftwareBitmap);
+        var faceInformations = detectFaces.Select(x =&gt; new FaceInformation
+        {
+            X = x.FaceBox.X,
+            Y = x.FaceBox.Y,
+            Width = x.FaceBox.Width,
+            Height = x.FaceBox.Height
+        }).ToList();
+        AppCallbacks.Instance.InvokeOnAppThread(() =&gt; { OnDetected(faceInformations); }, false);
+    }, true);
+}
+
+

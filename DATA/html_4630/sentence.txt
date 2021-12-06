@@ -1,0 +1,13 @@
+More than 1 year has passed since last update.データベースの日付型列とDateTimeのKindについて でDateTimeのKindの状態によって、PostgreSQLのTIMESTAMP WITH TIME ZONE型の列にどのように書き込まれるかを確認した。今度は、データベースのテーブルをDataTableに取り込んだとき、日付型のデータがどうなるか確認してみる。環境は前回に引き続き
+Visual Studio 2017
+Npgsql 4.0.2
+PostgreSQL 9.2.4
+で検証してみた。現在、データベースにtable1というテーブルがあり、データは次のようになっているとする。結果はとなり、DateTimeのKindが全てUnspecifiedとなった。NpgsqlDataReaderで読み込んだときにはとなっていたが、DataTableに読み込むとうまくKindまで設定してくれていない。今度は、DataTableにデータを入れて、DataAdapter.Updateでデータベースに書き込んでみる。結果、データベースのテーブル table1 はとなり、実行結果の出力はとなった。どうやら、DataTableのDateTime型の列にDateTimeのKindがLocalやUtcのデータを入れても、DataTable側の列はKind=Unspecifiedのままのようだ。
+そのため、Npgsql 3.x系以降では前回検証したように、ので、データベースには2018-01-01 09:00:00+09が書き込まれている。
+Npgsql 2.x系の場合はだったので、おそらくデータベースには2018-01-01 00:00:00+09で書き込まれるはずである(あとで検証してみた)。なんで、DataRowのDateTime型の列にDateTime型の変数を渡したときに、Kindが引き継がれないの？という疑問が残るけど、行毎にKindが異なるとマズイんだろうなーっということは想像できる。これだとDataTableとDataAdapterを使って、ちゃんと日時データを取り扱えない。。。困った。
+※Npgsql 2.x系だとUnspecifiedがLocalと同じ挙動なので、なんとなく思ったように動くけど、3.x以降だとダメじゃん。途方に暮れながら更に調べてみると、DataColumnにDateTimeModeというプロパティがあることを発見した！
+DataColumn.DateTimeMode プロパティ
+DataSetDateTime 列挙型DataTableのDateTime型の列のDateTimeModeをLocalに変更してやればいいのではないか？
+ということで、上記検証ソースのtable1の定義後にを追加して実行してみると、データベースのtable1はとなり、実行結果の出力はとなり、狙った通りの動作になった。
+
+

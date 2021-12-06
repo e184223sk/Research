@@ -1,0 +1,26 @@
+More than 1 year has passed since last update.SC（非公式）Advent Calendar 2019 の19日目です。最近JWT周りのなんやかんやを触る機会が多いです。
+別の言語での取り回しなんかもできるのが、JWTでの検証の良いところだと思います。今回は.NetCore3.0で追加された 暗号化キーのインポート/エクスポートで、
+RSAではなくECDsa(楕円暗号方式)で署名/検証しました。サーバー構成としては以下になります。
+OS: mac OS Mojave 10.14.6
+IDE: VS2019 for Mac community 8.3.6
+.NetCore: 3.1.100
+node: 10.14.1
+npm: 6.4.1
+クライアント: POSTMAN余談ですが、MacでわざわざC#を触る人ってキチガイですよね～。
+と、後輩に言われました。以下のコマンドで楕円曲線暗号方式で秘密鍵と公開鍵を作成します。JWTを発行するC#のプロジェクトを立ち上げます。
+必要なパッケージとして
+Microsoft.AspNetCore.Authentication.JwtBearer
+を追加しています。まずはAuthenticationControllerを新しく作成します。
+全貌がこちら。ではでは、GenerateTokenメソッドの解説をしていきますJWTは、RFC7519で定義されているスキーマを持っていて、大きく以下の3種類のスキーマ定義があります。詳しくはここのサイトが大変参考になります。(JSON Web Token（JWT）のClaimについて)Registered Claim Namesはあらかじめ決められた、「JWTならこれ持ってますよね」という定義です。これらのスキーマ定義に則って、JwtPayloadクラスの設定をしているのが、以下の部分です。現在から有効な、http://localhost:3000向けのJWTを発行しています。
+有効期限は現在から1時間です。
+実際のアプリではユーザーIDなどを入れると思いますので、Private Claim NamesとしてSid属性に入れています。今回は、どの言語でも汎用的に使用できるように、opensslで秘密鍵と公開鍵のファイルを作成しました。
+もちろんC#のプログラムからキーの生成を行うこともできますが、PEMファイルを読み込むとき少しハマったので、ご紹介。ECDsaのImportECPrivateKeyメソッドはこんな定義になっているので、
+ファイルの余分な部分を削除して、base64デコードして渡してあげないとダメです。ですので、Utilクラスでこんな泥くさいことをやっています。POSTMANからメールアドレスとパスワードでアクセストークンを取得します。DECsaの形式で署名されたJWTを取得できました。つづいてはアクセストークンを検証するサーバーをNode.jsで作っていきます。
+Expressのテンプレートを作成するexpress-generatorをグローバルインストールして、
+適当なアプリを作成します。これでhttp://localhost:3000でサーバーが立つはずです。app.jsに以下のコードを追加します。Authorizeというミドルウェアを追加しています。userRouterの先のuser.jsファイルはこんな感じになっています。では先ほど取得したトークン情報をauthorizationヘッダーに載せてアクセスしてみます。
+POSTMANでAuthorizationタブからBaerer Tokenを選択して、Tokenに先ほど取得したToken値を入れてGetでSendするだけです。Tokenがなかった場合、きちんと401が返ってきます。以上です。C#での検証もためしてみたので、雑に載せときます。これで、認可したいControllerに[Authorize]属性つければ、
+認証のフィルターができるようになります。.NET Core 3.0 の新機能
+Embracing nullable reference types
+JWT Signing using ECDSA in .NET Core
+
+

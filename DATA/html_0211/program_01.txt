@@ -1,0 +1,140 @@
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Google.Apis.Services;
+using Google.Apis.YouTube.v3;
+
+public class CommentInfo
+{
+    public int ParentNo;
+    public int ChildNo;
+    public string Text;
+    public long LikeCount;
+    public string AuthorName;
+    public DateTime PublishedAt;
+    public long ReplyCount;
+}
+
+namespace WindowsFormsApp
+{
+    public partial class Form1 : Form
+    {
+        // ここにAPI KEYを入力
+        private const string API_KEY = "(API KEYを入力)"
+
+        // ここにVideo IDを入力
+        private const string VIDEO_ID = "(Video IDを入力)"
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private async void button1_Click(object sender, EventArgs e)
+        {
+            var youtubeService = new YouTubeService(new BaseClientService.Initializer()
+            {
+                ApiKey = API_KEY
+            });
+
+            var videoId = VIDEO_ID;
+
+            List&lt;CommentInfo&gt; commentList = new List&lt;CommentInfo&gt;();
+            await GetComment(commentList, videoId, youtubeService, 1, null);
+
+            foreach(var info in commentList)
+            {
+                string line;
+                if (info.ChildNo == 0)
+                    line = string.Format("{0:0000}\t{1}\t{2}\t{3}\t{4}\t{5}", info.ParentNo, info.Text.Replace("\n", ""), info.LikeCount, info.AuthorName, info.PublishedAt, info.ReplyCount);
+                else
+                    line = string.Format("{0:0000}-{1:000}\t{2}\t{3}\t{4}\t{5}", info.ParentNo, info.ChildNo, info.Text.Replace("\n", ""), info.LikeCount, info.AuthorName, info.PublishedAt);
+                System.Diagnostics.Debug.WriteLine(line);
+            }
+
+            MessageBox.Show("出力が完了しました。");
+        }
+
+        // コメント取得
+        static public async Task GetComment(List&lt;CommentInfo&gt; commentList, string videoId, YouTubeService youtubeService, int no, string nextPageToken)
+        {
+            var request = youtubeService.CommentThreads.List("snippet");
+            request.VideoId = videoId;
+            request.Order = CommentThreadsResource.ListRequest.OrderEnum.Relevance;
+            request.TextFormat = CommentThreadsResource.ListRequest.TextFormatEnum.PlainText;
+            request.MaxResults = 100;
+            request.PageToken = nextPageToken;
+
+            var response = await request.ExecuteAsync();
+            foreach (var item in response.Items)
+            {
+                try
+                {
+                    CommentInfo info = new CommentInfo();
+                    info.ParentNo = no;
+                    info.ChildNo = 0;
+                    info.Text = item.Snippet.TopLevelComment.Snippet.TextDisplay;
+                    info.LikeCount = (long)item.Snippet.TopLevelComment.Snippet.LikeCount;
+                    info.AuthorName = item.Snippet.TopLevelComment.Snippet.AuthorDisplayName;
+                    info.PublishedAt = JsonDateToDate(item.Snippet.TopLevelComment.Snippet.PublishedAt);
+                    info.ReplyCount = (long)item.Snippet.TotalReplyCount;
+                    string parentId = item.Snippet.TopLevelComment.Id;
+                    commentList.Add(info);
+
+                    if (item.Snippet.TotalReplyCount &gt; 0)
+                        await GetReplyComment(commentList, youtubeService, parentId, no, 1, null);
+                    no++;
+                }
+                catch { }
+            }
+
+            if (response.NextPageToken != null)
+                await GetComment(commentList, videoId, youtubeService, no, response.NextPageToken);
+        }
+
+        // 返信コメント取得
+        static public async Task GetReplyComment(List&lt;CommentInfo&gt; commentList, YouTubeService youtubeService, string parentId, int no, int cno, string nextPageToken)
+        {
+            var request = youtubeService.Comments.List("snippet");
+            request.TextFormat = CommentsResource.ListRequest.TextFormatEnum.PlainText;
+            request.MaxResults = 50;
+            request.ParentId = parentId;
+            request.PageToken = nextPageToken;
+
+            var response = await request.ExecuteAsync();
+
+            foreach (var item in response.Items)
+            {
+                try
+                {
+                    CommentInfo info = new CommentInfo();
+                    info.ParentNo = no;
+                    info.ChildNo = cno;
+                    info.Text = item.Snippet.TextDisplay;
+                    info.LikeCount = (long)item.Snippet.LikeCount;
+                    info.AuthorName = item.Snippet.AuthorDisplayName;
+                    info.PublishedAt = JsonDateToDate(item.Snippet.PublishedAt);
+                    commentList.Add(info);
+                    cno++;
+                }
+                catch { }
+
+            }
+
+            if (response.NextPageToken != null)
+                await GetReplyComment(commentList, youtubeService, parentId, no, cno, response.NextPageToken);
+        }
+
+        // JSON日付変換
+        static private DateTime JsonDateToDate(string dt)
+        {
+            DateTime result;
+            DateTime.TryParse(dt, out result);
+
+            return result;
+        }
+    }
+}
+

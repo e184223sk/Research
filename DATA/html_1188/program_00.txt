@@ -1,0 +1,73 @@
+
+using System;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Windows.Graphics.Imaging;
+using Windows.Media.Ocr;
+using Windows.Storage;
+using Windows.Storage.Streams;
+using Windows.Foundation;
+
+
+class OcrTest
+{
+    [System.STAThread]
+    static void Main(string[] args)
+    {
+        if(args.Length==0){return;}
+        Task&lt;string&gt; ret = LoadImageAndOcr(args[0]);
+        Console.WriteLine(ret.Result);
+    }
+
+    static async Task&lt;OcrResult&gt; detect(SoftwareBitmap bitmap)
+    {
+        var ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
+        var ocrResult = await MyWaitUtil&lt;OcrResult&gt;.GetResultWithWaiting( ocrEngine.RecognizeAsync(bitmap) );
+        // https://docs.microsoft.com/ja-jp/uwp/api/windows.media.ocr.ocrresult.lines?view=winrt-19041
+        return ocrResult;
+    }
+
+    static async Task&lt;string&gt; LoadImageAndOcr(string path)
+    {
+        var inputFile = await MyWaitUtil&lt;StorageFile&gt;.GetResultWithWaiting(
+            StorageFile.GetFileFromPathAsync( Path.GetFullPath(path) )
+        );
+
+        SoftwareBitmap softwareBitmap;
+        // https://docs.microsoft.com/ja-jp/windows/uwp/audio-video-camera/imaging
+        using (var stream = await MyWaitUtil&lt;IRandomAccessStream&gt;.GetResultWithWaiting(inputFile.OpenAsync(Windows.Storage.FileAccessMode.Read)))
+        {
+            // Create the decoder from the stream
+            var decoder = await MyWaitUtil&lt;BitmapDecoder&gt;.GetResultWithWaiting(
+                BitmapDecoder.CreateAsync(stream)
+            );
+
+            // Get the SoftwareBitmap representation of the file
+            softwareBitmap = await MyWaitUtil&lt;SoftwareBitmap&gt;.GetResultWithWaiting((decoder.GetSoftwareBitmapAsync()));
+        }
+
+        OcrResult t = await detect(softwareBitmap);
+
+        return t.Text;
+    }
+}
+
+// IAsyncOperationのGetAwaiterがないとか謎のコンパイルエラーがでたので、その対策として実装した
+public static class MyWaitUtil&lt;T&gt;
+{
+    public static async Task&lt;T&gt; GetResultWithWaiting(IAsyncOperation&lt;T&gt; task)
+    {
+        while(task.Status != AsyncStatus.Completed){
+            if (task.Status == AsyncStatus.Error || task.Status == AsyncStatus.Canceled){
+                Console.WriteLine("Error or Canceled");
+                return default(T);
+            }
+            await Task.Delay(1);
+        };
+        return task.GetResults();
+    }
+}
+
+

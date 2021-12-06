@@ -1,0 +1,67 @@
+
+/// &lt;summary&gt;
+/// カットを実行
+/// &lt;/summary&gt;
+static void Capping()
+{
+    // カット用頂点追跡リスト
+    // 具体的には新頂点全部に対する調査を行う。その過程で調査済みをマークする目的で利用する。
+    capVertTracker.Clear();
+
+    // 新しく生成した頂点分だけループする＝全新頂点に対してポリゴンを形成するため調査を行う
+    // 具体的には、カット面を構成するポリゴンを形成するため、カット時に重複した頂点を網羅して「面」を形成する頂点を調査する
+    for (int i = 0; i &lt; new_vertices.Count; i++)
+    {
+        // 対象頂点がすでに調査済みのマークされて（追跡配列に含まれて）いたらスキップ
+        if (capVertTracker.Contains(new_vertices[i]))
+        {
+            continue;
+        }
+
+        // カット用ポリゴン配列をクリア
+        capVertpolygon.Clear();
+
+        // 調査頂点と次の頂点をポリゴン配列に保持する
+        capVertpolygon.Add(new_vertices[i + 0]);
+        capVertpolygon.Add(new_vertices[i + 1]);
+
+        // 追跡配列に自身と次の頂点を追加する（調査済みのマークをつける）
+        capVertTracker.Add(new_vertices[i + 0]);
+        capVertTracker.Add(new_vertices[i + 1]);
+
+        // 重複頂点がなくなるまでループし調査する
+        bool isDone = false;
+        while (!isDone)
+        {
+            isDone = true;
+
+            // 新頂点郡をループし、「面」を構成する要因となる頂点をすべて抽出する。抽出が終わるまでループを繰り返す
+            // 2頂点ごとに調査を行うため、ループは2単位ですすめる
+            for (int k = 0; k &lt; new_vertices.Count; k += 2)
+            { // go through the pairs
+                // ペアとなる頂点を探す
+                // ここでのペアとは、いちトライアングルから生成される新頂点のペア。
+                // トライアングルからは必ず2頂点が生成されるため、それを探す。
+                // また、全ポリゴンに対して分割点を生成しているため、ほぼ必ず、まったく同じ位置に存在する、別トライアングルの分割頂点が存在するはずである。
+                if (new_vertices[k] == capVertpolygon[capVertpolygon.Count - 1] &amp;&amp; !capVertTracker.Contains(new_vertices[k + 1]))
+                {   // if so add the other
+                    // ペアの頂点が見つかったらそれをポリゴン配列に追加し、
+                    // 調査済マークをつけて、次のループ処理に回す
+                    isDone = false;
+                    capVertpolygon.Add(new_vertices[k + 1]);
+                    capVertTracker.Add(new_vertices[k + 1]);
+                }
+                else if (new_vertices[k + 1] == capVertpolygon[capVertpolygon.Count - 1] &amp;&amp; !capVertTracker.Contains(new_vertices[k]))
+                {   // if so add the other
+                    isDone = false;
+                    capVertpolygon.Add(new_vertices[k]);
+                    capVertTracker.Add(new_vertices[k]);
+                }
+            }
+        }
+
+        // 見つかった頂点郡を元に、ポリゴンを形成する
+        FillCap(capVertpolygon);
+    }
+}
+

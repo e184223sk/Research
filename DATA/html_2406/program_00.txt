@@ -1,0 +1,120 @@
+
+using Microsoft.CSharp; // C# プラグインの処理に必要
+using System;
+using System.CodeDom.Compiler; // C# プラグインの処理に必要
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Drawing;
+using System.Windows.Forms;
+
+class PluginTest : Form
+{
+    Button btn;
+    TextBox txt;
+
+    PluginTest()
+    {
+        btn = new Button();
+        btn.Size = new Size(200, 30);
+        btn.Text = "Compile and Go.";
+        btn.Click += (s,e)=&gt;{CompileAndGo();};
+        Controls.Add(btn);
+
+        txt = new TextBox();
+        txt.Multiline = true;
+        txt.ScrollBars = ScrollBars.Both;
+        txt.Top = 40;
+        txt.Text = String.Join("\r\n", new string[]{
+                    "using System;",
+                    "public class TestClass",
+                    "{",
+                    "    public void Run(string s)",
+                    "    {",
+                    "        Console.Write(\"Hello, \");",
+                    "        Console.WriteLine(s);",
+                    "    }",
+                    "}",
+                    ""
+                    });
+        Controls.Add(txt);
+
+        Load      += (s,e)=&gt;{MyResize();};
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+    }
+
+    void MyResize()
+    {
+        int h = ClientSize.Height - txt.Top;
+        if(h&lt;20){h=20;}
+        txt.Size = new Size(ClientSize.Width, h);
+    }
+
+    void CompileAndGo()
+    {
+        string sourceCode = txt.Text;
+        RunCSharp(sourceCode);
+    }
+
+    static void RunCSharp(string sourceCode)
+    {
+        // C# のコードをアセンブリに変換
+        Assembly assembly = CompileCSharpCode(sourceCode);
+        if (assembly != null) {
+            // アセンブリに変換されたプラグインを実行
+            RunAssembly(assembly);
+        }
+    }
+
+    public static Assembly CompileCSharpCode(string csharpSourceCode)
+    {
+        using (var cscp = new CSharpCodeProvider()) {
+            var param = new CompilerParameters { GenerateInMemory = true };
+            try {
+                CompilerResults result = cscp.CompileAssemblyFromSource(param, csharpSourceCode);
+                if ( result.Errors.Count &gt; 0 ) {
+                    foreach (CompilerError compErr in result.Errors) {
+                        //Console.WriteLine("FileName:{0}", compErr.FileName);
+                        Console.WriteLine("Line:{0}", compErr.Line);
+                        Console.WriteLine("Column:{0}", compErr.Column);
+                        Console.WriteLine("ErrorNumber:{0}", compErr.ErrorNumber);
+                        Console.WriteLine("ErrorText:{0}", compErr.ErrorText);
+                    }
+                    return null;
+                }
+                return result.CompiledAssembly;
+            }
+            catch(Exception e) {
+                Console.WriteLine(e);
+                return null;
+            }
+        }
+    }
+
+    static void RunAssembly(Assembly pluginAssembly)
+    {
+        // アセンブリを読み込み、その中から public な最初のクラスを取り出す
+        var pluginType = pluginAssembly.GetExportedTypes().FirstOrDefault(type =&gt; type.IsClass);
+        if (pluginType != null) {
+            dynamic myInstance = Activator.CreateInstance(pluginType);
+
+            Type type = myInstance.GetType();
+            MethodInfo mi = type.GetMethod("Run", new Type[]{typeof(String)} );
+            if (mi == null) { // Stringクラスを引数とするRunメソッドがあるかをチェック
+                MessageBox.Show("Cannot find Run(String) method.");
+            }
+            else {
+                myInstance.Run("World!!!");
+            }
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new PluginTest());
+    }
+}
+
+

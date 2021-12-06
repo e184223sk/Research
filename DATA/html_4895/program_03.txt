@@ -1,0 +1,107 @@
+
+    public class ObjectIdentifierValue : AsnValue
+    {
+        public const byte TAGTYPE = 0x06;
+
+        public String Oid {get; set; }
+
+        public override byte GetTag()
+        {
+            return TAGTYPE;
+        }
+
+        public ObjectIdentifierValue(String Oid)
+        {
+            this.Oid = Oid;
+        }
+
+        public override List&lt;byte&gt; GetBytes()
+        {
+            // OIDをピリオドで区切って数値配列に分けて格納する。 
+            int[] values = Oid.Split('.').Select(int.Parse).ToArray();
+
+            List&lt;byte&gt; result = new List&lt;byte&gt;();
+
+            // 1個目、2個目 
+            result.AddRange(ConvByte(ParseXY(values[0], values[1])));
+            for (int i = 2; i &lt; values.Length; i++)
+            {
+                result.AddRange(ConvByte(values[i]));
+            }
+            result.InsertRange(0, GetFieldLengthByte(result.Count));
+
+            result.Insert(0, GetTag());
+
+            return result;
+        }
+
+
+        public static List&lt;byte&gt; ConvByte(int param)
+        {
+            List&lt;byte&gt; result = new List&lt;byte&gt;();
+            int value = param;
+            int i = 0;
+
+            for (; ; )
+            {
+                int amari = value % 128;
+                int sho = value / 128;
+                result.Insert(0, (byte)(amari + (i == 0 ? 0 : 0x80)));
+                if (sho == 0)
+                {
+                    break;
+                }
+                value = sho;
+                i++;
+
+            }
+            return result;
+        }
+        private static List&lt;int&gt; ParseByte(byte[] data)
+        {
+            List&lt;int&gt; result = new List&lt;int&gt;();
+            List&lt;int&gt; tmpList = new List&lt;int&gt;();
+
+            foreach (byte b in data)
+            {
+                if (b &gt;= 128)
+                {
+                    tmpList.Add(b - 0x80);
+                } else
+                {
+                    tmpList.Add(b);
+                    tmpList.Reverse();
+                    int tmpValue = 0;
+                    for (int i = 0; i &lt; tmpList.Count; i++)
+                    {
+                        tmpValue += tmpList[i] * (int)Math.Pow(128, i);
+                    }
+                    result.Add(tmpValue);
+                    tmpList = new List&lt;int&gt;();
+                }
+            }
+
+            return result;
+        }
+
+        private int ParseXY(int first, int second)
+        {
+            return (first * 40 + second);
+        }
+
+        public static AsnValue Parse(byte[] valueByteData)
+        {
+            List&lt;int&gt; oidList = ParseByte(valueByteData);
+            int sho = oidList[0] / 40;
+            int amari = oidList[0] % 40;
+            oidList.RemoveAt(0);
+            oidList.Insert(0, amari);
+            oidList.Insert(0, sho);
+
+            String value = String.Join(".", oidList);
+
+            return new ObjectIdentifierValue(value);
+
+        }
+
+

@@ -1,0 +1,125 @@
+/* using 省略*/
+
+namespace SpanTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            BenchmarkRunner.Run&lt;Test&gt;(new BenchmarkConfig());
+        }
+    }
+
+    public class Test
+    {
+        private readonly string Str = "hoge,fuga,moge";
+
+        [Benchmark]
+        public (string, string) UsingSplit()
+        {
+            /* 前回と同じなので省略 */
+        }
+
+        [Benchmark]
+        public (string, string) UsingSpanSplit()
+        {
+            /* 前回と同じなので省略 */
+        }
+
+        [Benchmark]
+        public (string, string) UseFastSpanWithLocalMethod()
+        {
+            ReadOnlySpan&lt;char&gt; span = Str.AsSpan();
+
+            char separator = ',';
+            int offset = 0;
+
+            ReadOnlySpan&lt;char&gt; GetNextValue(ref ReadOnlySpan&lt;char&gt; strSpan)
+            {
+                int length = 0;
+                int startPos = offset;
+                for (int i = offset; i &lt; strSpan.Length; i++)
+                {
+                    length++;
+                    if (strSpan[i] == separator)
+                    {
+                        offset = i + 1;
+                        break;
+                    }
+                }
+                return strSpan.Slice(startPos, length);
+            }
+
+            var a = new string(GetNextValue(ref span));
+            GetNextValue(ref span);
+            var b = new string(GetNextValue(ref span));
+
+            return (a, b);
+        }
+
+        [Benchmark]
+        public (string, string) UseFastSpan()
+        {
+            ReadOnlySpan&lt;char&gt; span = Str.AsSpan();
+
+            char separator = ',';
+
+            int offset = 0;
+
+            var a = new string(GetNextValue(ref span, separator, ref offset));
+            GetNextValue(ref span, separator, ref offset);
+            var b = new string(GetNextValue(ref span, separator, ref offset));
+
+            return (a, b);
+        }
+
+        private ReadOnlySpan&lt;char&gt; GetNextValue(ref ReadOnlySpan&lt;char&gt; strSpan, char separator, ref int offset)
+        {
+            int length = 0;
+            int startPos = offset;
+            for (int i = offset; i &lt; strSpan.Length; i++)
+            {
+                length++;
+                if (strSpan[i] == separator)
+                {
+                    offset = i + 1;
+                    break;
+                }
+            }
+            return strSpan.Slice(startPos, length);
+        }
+    }
+
+
+    public readonly struct MySpan
+    {
+        /* 前回と同じなので省略 */
+    }
+
+    public class BenchmarkConfig : ManualConfig
+    {
+        public BenchmarkConfig()
+        {
+            Add(SetRun(Job.Default.UnfreezeCopy()));
+
+            Add(DefaultColumnProviders.Instance);
+            Add(MarkdownExporter.GitHub);
+            Add(new ConsoleLogger());
+            Add(new HtmlExporter());
+            Add(MemoryDiagnoser.Default);
+        }
+
+        private static Job SetRun(Job job)
+        {
+            job.Run.UnrollFactor = 5;
+            job.Run.InvocationCount = 5;
+            job.Run.WarmupCount = 1;
+            job.Run.TargetCount = 1;
+            job.Run.LaunchCount = 30;
+            return job;
+        }
+    }
+
+}
+
+

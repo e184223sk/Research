@@ -1,0 +1,258 @@
+
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using Input = System.ArraySegment&lt;char&gt;;
+using CharList = System.Collections.Immutable.ImmutableStack&lt;char&gt;;
+
+namespace Yhpg
+{
+    class Program
+    {
+        static void Main()
+        {
+            Test("foo/bar/baz", "foo,bar,baz");
+            Test("/foo/bar/baz'/", "-");
+            Test("\"", "-");
+            Test("'", "-");
+            Test("/", "-");
+            Test("\"\"", "-");
+            Test("''", "-");
+            Test("//", "/");
+            Test("\"/'", "-");
+            Test("'/\"", "-");
+            Test("Qux", "Qux");
+            Test("Foo/Bar", "Foo,Bar");
+            Test("foo\"bar", "-");
+            Test("foo'bar", "-");
+            Test("/foo/bar", "-");
+            Test("Foo//Bar", "Foo/Bar");
+            Test("foo/bar/", "-");
+            Test("'\"'a'\"'/b", "\"a\",b");
+            Test("Foo\"/\"Bar", "Foo/Bar");
+            Test("foo\"'\"bar", "foo'bar");
+            Test("foo'\"'bar", "foo\"bar");
+            Test("foo///bar", "foo/,bar");
+            Test("\"Z\"\"tO\"uFM", "ZtOuFM");
+            Test("''/foo/bar", "-");
+            Test("////'/\"//'", "///\"//");
+            Test("File/'I/O'", "File,I/O");
+            Test("Foo'//'Bar", "Foo//Bar");
+            Test("foo/''/bar", "-");
+            Test("foo/bar/\"\"", "-");
+            Test("'/////'////", "///////");
+            Test("'foo\"\"\"bar'", "foo\"\"\"bar");
+            Test("//'int'/V/c", "/int,V,c");
+            Test("foo/bar/baz", "foo,bar,baz");
+            Test("'H//Sg//zN'/", "-");
+            Test("//'//\"/'/'\"'", "///\"/,\"");
+            Test("foo//bar/baz", "foo/bar,baz");
+            Test("\"\"\"///\"/'/'//", "///,//");
+            Test("58\"\"N\"//nIk'd", "-");
+            Test("foo\"/\"bar/baz", "foo/bar,baz");
+            Test("/////'\"/'/'\"/'", "//,\"/,\"/");
+            Test("f\"//J\"/O9o\"//'", "-");
+            Test("foo\"//\"bar/baz", "foo//bar,baz");
+            Test("foo/bar////baz", "foo,bar//baz");
+            Test("\"\"\"'/'//'''/\"//", "'/'//'''//");
+            Test("8//'/k///\"3da\"'", "8//k///\"3da\"");
+            Test("foo/'/bar/'/baz", "foo,/bar/,baz");
+            Test("///''\"//\"\"///\"\"\"", "/,/////");
+            Test("//wUJ8KNAk'n0//\"", "-");
+            Test("What/is/'\"real\"'", "What,is,\"real\"");
+            Test("\"//'/////\"''/'//'", "//'/////,//");
+            Test("\"8hKE\"3Fx/4//Hk/J", "8hKE3Fx,4/Hk,J");
+            Test("'////''\"'//'/\"///'", "////\"//\"///");
+            Test("Ro\"/j''/2u/f/r/\"3n", "Ro/j''/2u/f/r/3n");
+            Test("hoge\"//\"fuga//piyo", "hoge//fuga/piyo");
+            Test("'foo//bar'//baz/qux", "foo//bar/baz,qux");
+            Test("//'//\"'/\"///'\"/''//", "///\",///',/");
+            Test("2/L'3'A8p/7//wP49Jb", "2,L3A8p,7/wP49Jb");
+            Test("\"foo'\"/\"bar'\"/\"baz'\"", "foo',bar',baz'");
+            Test("'//'\"//'///'///''\"//", "////'///'///''/");
+            Test("F6vX/q/Zu//5/'/H\"/'w", "F6vX,q,Zu/5,/H\"/w");
+            Test("\"foo'bar\"/'hoge\"fuga'", "foo'bar,hoge\"fuga");
+            Test("/\"/'//'/\"\"\"''//'/\"'''", "-");
+            Test("0gK\"koYUb\"\"S/p''z/\"Et", "0gKkoYUbS/p''z/Et");
+            Test("Foo/Bar/\"Hoge'/'Fuga\"", "Foo,Bar,Hoge'/'Fuga");
+        }
+
+        static void Test(string input, string expected)
+        {
+            var actual = Parse(input);
+            if (expected != actual)
+            {
+                Console.WriteLine($"input:{input} expected:{expected} actual:{actual}");
+            }
+        }
+
+        static string Parse(string input)
+        {
+            var t = Entries.Parse(new Input(input.ToCharArray()));
+            if (t == null || t.Item2.Count &gt; 0)
+            {
+                return "-";
+            }
+            var entries = t.Item1.Select(x =&gt; new string(x.ToArray()));
+            return string.Join(",", entries);
+        }
+
+        static readonly Parser&lt;char&gt; Item =
+            new Parser&lt;char&gt;(input =&gt; input.Count &gt; 0 ? Tuple.Create(input[0], input.Slice(1)) : null);
+
+        static Parser&lt;char&gt; Char(char c) =&gt;
+            Item.Filter(x =&gt; x == c);
+
+        static readonly Parser&lt;CharList&gt; Empty =
+            new Parser&lt;CharList&gt;(CharList.Empty);
+
+        static readonly Parser&lt;char&gt; Slash = Char('/');
+        static readonly Parser&lt;char&gt; DoubleQuote = Char('"');
+        static readonly Parser&lt;char&gt; SingleQuote = Char('\'');
+        static Func&lt;char, bool&gt; isAlphaNumeric = c =&gt;
+            ('A' &lt;= c &amp;&amp; c &lt;= 'Z') ||
+            ('a' &lt;= c &amp;&amp; c &lt;= 'z') ||
+            ('0' &lt;= c &amp;&amp; c &lt;= '9');
+        static readonly Parser&lt;char&gt; AlphaNumeric =
+            Item.Filter(isAlphaNumeric);
+        static readonly Parser&lt;char&gt; InsideDoubleQuote =
+            Item.Filter(c =&gt; isAlphaNumeric(c) || (c == '/') || (c == '\''));
+        static readonly Parser&lt;char&gt; InsideSingleQuote =
+            Item.Filter(c =&gt; isAlphaNumeric(c) || (c == '/') || (c == '"'));
+
+        static readonly Parser&lt;CharList&gt; AlphaNumericSegment =
+            AlphaNumeric.OneOrMore();
+        static readonly Parser&lt;CharList&gt; DoubleSlashSegment =
+            Slash
+                .AndThen(_ =&gt; Slash, (_, __) =&gt; CharList.Empty.Push('/'));
+
+        static Parser&lt;CharList&gt; DQ(Parser&lt;CharList&gt; parser) =&gt;
+            DoubleQuote
+                .AndThen(_ =&gt; parser, (_, x) =&gt; x)
+                .AndThen(_ =&gt; DoubleQuote, (x, _) =&gt; x);
+
+        static readonly Parser&lt;CharList&gt; DoubleQuotedEmptySegment =
+            DQ(Empty);
+        static readonly Parser&lt;CharList&gt; DoubleQuotedNonEmptySegment =
+            DQ(InsideDoubleQuote.OneOrMore());
+        static readonly Parser&lt;CharList&gt; DoubleQuotedSegment =
+            DQ(InsideDoubleQuote.ZeroOrMore());
+
+        static Parser&lt;CharList&gt; SQ(Parser&lt;CharList&gt; parser) =&gt;
+            SingleQuote
+                .AndThen(_ =&gt; parser, (_, x) =&gt; x)
+                .AndThen(_ =&gt; SingleQuote, (x, _) =&gt; x);
+        static readonly Parser&lt;CharList&gt; SingleQuotedEmptySegment =
+            SQ(Empty);
+        static readonly Parser&lt;CharList&gt; SingleQuotedNonEmptySegment =
+            SQ(InsideSingleQuote.OneOrMore());
+        static readonly Parser&lt;CharList&gt; SingleQuotedSegment =
+            SQ(InsideSingleQuote.ZeroOrMore());
+
+        static readonly Parser&lt;CharList&gt; EmptySegment =
+            DoubleQuotedEmptySegment
+                .OrElse(SingleQuotedEmptySegment);
+        static readonly Parser&lt;CharList&gt; NonEmptySegment =
+            AlphaNumericSegment
+                .OrElse(DoubleQuotedNonEmptySegment)
+                .OrElse(SingleQuotedNonEmptySegment)
+                .OrElse(DoubleSlashSegment);
+        static readonly Parser&lt;CharList&gt; Segment =
+            AlphaNumericSegment
+                .OrElse(DoubleQuotedSegment)
+                .OrElse(SingleQuotedSegment)
+                .OrElse(DoubleSlashSegment);
+
+        static readonly Parser&lt;CharList&gt; Entry =
+            EmptySegment.ZeroOrMore()
+                .AndThen(_ =&gt; NonEmptySegment, (_, x) =&gt; x)
+                .AndThen(_ =&gt; Segment.ZeroOrMore(), (x, xs) =&gt; xs.Push(x).Flatten());
+
+        static readonly Parser&lt;Char&gt; Separator = Slash;
+        static readonly Parser&lt;CharList&gt; SeparatorEntry =
+            Separator
+                .AndThen(_ =&gt; Entry, (_, x) =&gt; x);
+        static readonly Parser&lt;ImmutableStack&lt;CharList&gt;&gt; Entries =
+            Entry
+                .AndThen(_ =&gt; SeparatorEntry.ZeroOrMore(), (x, xs) =&gt; xs.Push(x));
+    }
+
+    class Parser&lt;T&gt;
+    {
+        public Parser(T unit)
+        {
+            this.func = input =&gt; Tuple.Create(unit, input);
+        }
+
+        public Parser(Func&lt;Input, Tuple&lt;T, Input&gt;&gt; func)
+        {
+            this.func = func;
+        }
+
+        private readonly Func&lt;Input, Tuple&lt;T, Input&gt;&gt; func;
+
+        public Tuple&lt;T, Input&gt; Parse(Input input) =&gt; func(input);
+    }
+
+    static class Extensions
+    {
+        public static Parser&lt;T&gt; Filter&lt;T&gt;(this Parser&lt;T&gt; self, Func&lt;T, bool&gt; predicate) =&gt;
+            new Parser&lt;T&gt;(input =&gt;
+            {
+                var t = self.Parse(input);
+                return (t != null &amp;&amp; predicate(t.Item1)) ? t : null;
+            });
+
+        public static Parser&lt;TResult&gt; Map&lt;T, TResult&gt;(this Parser&lt;T&gt; self, Func&lt;T, TResult&gt; f) =&gt;
+            new Parser&lt;TResult&gt;(input =&gt;
+            {   
+                var t = self.Parse(input);
+                return (t != null) ? Tuple.Create(f(t.Item1), t.Item2) : null;
+            });
+
+        public static Parser&lt;TResult&gt; AndThen&lt;T1, T2, TResult&gt;(this Parser&lt;T1&gt; self,
+            Func&lt;T1, Parser&lt;T2&gt;&gt; f, Func&lt;T1, T2, TResult&gt; selector) =&gt;
+            new Parser&lt;TResult&gt;(input =&gt;
+            {
+                var t1 = self.Parse(input);
+                if (t1 == null) return null;
+                var t2 = f(t1.Item1).Parse(t1.Item2);
+                if (t2 == null) return null;
+                return Tuple.Create(selector(t1.Item1, t2.Item1), t2.Item2);
+            });
+
+        public static Parser&lt;T&gt; OrElse&lt;T&gt;(this Parser&lt;T&gt; left, Parser&lt;T&gt; right) =&gt;
+            new Parser&lt;T&gt;(input =&gt; left.Parse(input) ?? right.Parse(input));
+
+        public static Parser&lt;ImmutableStack&lt;T&gt;&gt; ZeroOrMore&lt;T&gt;(this Parser&lt;T&gt; self) =&gt;
+            self.OneOrMore()
+                .OrElse(new Parser&lt;ImmutableStack&lt;T&gt;&gt;(ImmutableStack&lt;T&gt;.Empty));
+
+        public static Parser&lt;ImmutableStack&lt;T&gt;&gt; OneOrMore&lt;T&gt;(this Parser&lt;T&gt; self) =&gt;
+            self
+                .AndThen(_ =&gt; self.ZeroOrMore(), (x, xs) =&gt; xs.Push(x));
+
+        public static ImmutableStack&lt;T&gt; Concat&lt;T&gt;(this ImmutableStack&lt;T&gt; left, ImmutableStack&lt;T&gt; right)
+        {
+            var rev = new Stack&lt;T&gt;(left);
+            foreach (var e in rev)
+            {
+                right = right.Push(e);
+            }
+            return right;
+        }
+
+        public static ImmutableStack&lt;T&gt; Flatten&lt;T&gt;(this ImmutableStack&lt;ImmutableStack&lt;T&gt;&gt; self)
+        {
+            var rev = new Stack&lt;ImmutableStack&lt;T&gt;&gt;(self);
+            var flat = ImmutableStack&lt;T&gt;.Empty;
+            foreach (var e in rev)
+            {
+                flat = e.Concat(flat);
+            }
+            return flat;
+        }
+    }
+}
+

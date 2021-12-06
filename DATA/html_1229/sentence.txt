@@ -1,0 +1,452 @@
+Q. プリキュア名でしりとりをしたとき、最大で何人登場するか？
+A. 9人（結果は最後の方に記載しています）本記事の内容は、2021年9月5日（「トロピカル～ジュ！プリキュア」本編第27話まで放送済み）時点での状況を元に記載しています。
+以下、特記のない限り「現在」はこの日時点をさします。ラビリン「この前はイニシャルを見てみたラビ！」
+のどか「ねえラビリン、プリキュアの名前でしりとりしたらどうなるのかな？」
+ラビリン「調べてみるラビ！」ラビリン「まずはしりとりのルールを決めるラビ！」ラビリン「今回はC#でしりとりを続けるプログラムを書く:Gushwell's Dev Notesのプログラムを使うから、最初の4つは同じルールにしたラビ！」ラビリン「今回のコードはGitHubに置いておくラビ！」
+→ Hokkaidosm/precure_shiritori: プリキュア名でしりとりをする今回は「プリキュアオールスターズ」扱いの全プリキュアを対象とします。
+なので、映画のみに登場している「キュアエコー」も対象となります。
+なお、対象プリキュアの一覧はデータを読み込むに記載しています。gitのルートディレクトリで次のコマンドをたたきます。これで、precure_shiritori/rubicureディレクトリ内に、rubicureがコピーされます。プリキュア名と、読みと、最初と最後の文字を保持するクラスを作っていきます。
+長いので折りたたむラビ
+
+
+Precure.cs
+namespace precure_shiritori
+{
+    /// &lt;summary&gt;
+    /// プリキュアデータ
+    /// &lt;/summary&gt;
+    class Precure
+    {
+        /// &lt;summary&gt;
+        /// プリキュア名
+        /// &lt;/summary&gt;
+        public string PrecureName { get; private set; }
+        /// &lt;summary&gt;
+        /// 読み
+        /// &lt;/summary&gt;
+        public string PrecureRuby { get; private set; }
+        /// &lt;summary&gt;
+        /// 読みの最初の文字
+        /// &lt;/summary&gt;
+        public char First { get; private set; }
+        /// &lt;summary&gt;
+        /// 読みの最後の文字
+        /// &lt;/summary&gt;
+        public char Last { get; private set; }
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="name"&gt;プリキュア名&lt;/param&gt;
+        public Precure(string name)
+        {
+            PrecureName = name;
+            PrecureRuby = name; // TODO: 後で修正します
+            First = ToSeion(ToChokuon(PrecureRuby[0]));
+            Last = ToSeion(ToChokuon(PrecureRuby[PrecureRuby.Length - 1]));
+            // 長音一文字の単語はない前提
+            if (Last == 'ー' || Last == '－')
+            {
+                Last = ToSeion(ToChokuon(PrecureRuby[PrecureRuby.Length - 2]));
+            }
+        }
+
+        // ッは促音だが、拗音(Youon)という変数名とする
+        private const string Youon = "ァィゥェォヵヶッャュョヮ";
+        private const string Chokuon = "アイウエオカケツヤユヨワ";
+        private char ToChokuon(char c)
+        {
+            int ix = Youon.IndexOf(c);
+            if (ix &gt; 0)
+                return Chokuon[ix];
+            return c;
+        }
+
+        //　半濁音を含んでいますが定数名はDakuon（濁音）にします
+        private const string Dakuon = "ガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポ";
+        private const string Seion  = "カキクケコサシスセソタチツテトハヒフヘホハヒフヘホ";
+        private char ToSeion(char c)
+        {
+            int ix = Dakuon.IndexOf(c);
+            if (ix &gt; 0)
+            {
+                return Seion[ix];
+            }
+            return c;
+        }
+
+        public override string ToString()
+        {
+            return this.PrecureName.ToString();
+        }
+    }
+}
+
+
+
+実際にデータを読み込み、出力させてみます。
+※イニシャルを調べた記事に詳細を掲載しています。
+長いので折りたたむラビ
+
+
+Program.cs
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using YamlDotNet.Serialization;
+
+namespace precure_shiritori
+{
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// rubicure/config のパス
+        /// &lt;/summary&gt;
+        static readonly string rubicureConfigPath = "../../rubicure/config/";
+        static void Main(string[] args)
+        {
+            List&lt;Precure&gt; precureList = LoadPrecure();
+            Console.WriteLine("プリキュア名, 読み, 最初, 最後");
+            foreach (Precure precure in precureList)
+            {
+                Console.WriteLine($"{precure.PrecureName}, {precure.PrecureRuby}, {precure.First}, {precure.Last}");
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 全てのプリキュアのデータを読み込む.
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;プリキュアデータのリスト&lt;/returns&gt;
+        static List&lt;Precure&gt; LoadPrecure()
+        {
+            List&lt;Precure&gt; precureList = new List&lt;Precure&gt;();
+            var rootPath = rubicureConfigPath + "girls/";
+            string[] files = Directory.GetFiles(rootPath, "*.yml", SearchOption.TopDirectoryOnly);
+            foreach (string file in files)
+            {
+                var input = new StreamReader(file, Encoding.UTF8);
+                var deserializer = new Deserializer();
+                Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt; girls_tmp = deserializer.Deserialize&lt;Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt;&gt;(input);
+                foreach (var girl in girls_tmp)
+                {
+                    if (girl.Value.Count == 1)
+                    {
+                        // エイリアスは飛ばす
+                        continue;
+                    }
+                    string precureName = null;
+                    if (girl.Value.TryGetValue("precure_name", out object precureNameObj))
+                    {
+                        precureName = (string)precureNameObj;
+                    }
+                    precureList.Add(new Precure(precureName));
+                }
+            }
+
+            return precureList;
+        }
+    }
+}
+
+
+
+結果はこれラビ
+
+プリキュア名, 読み, 最初, 最後
+キュアブラック, キュアブラック, キ, ク
+キュアホワイト, キュアホワイト, キ, ト
+シャイニールミナス, シャイニールミナス, シ, ス
+キュアブルーム, キュアブルーム, キ, ム
+キュアイーグレット, キュアイーグレット, キ, ト
+キュアブライト, キュアブライト, キ, ト
+キュアウィンディ, キュアウィンディ, キ, イ
+キュアドリーム, キュアドリーム, キ, ム
+キュアルージュ, キュアルージュ, キ, ユ
+キュアレモネード, キュアレモネード, キ, ト
+キュアミント, キュアミント, キ, ト
+キュアアクア, キュアアクア, キ, ア
+ミルキィローズ, ミルキィローズ, ミ, ス
+キュアピーチ, キュアピーチ, キ, チ
+キュアベリー, キュアベリー, キ, リ
+キュアパイン, キュアパイン, キ, ン
+キュアパッション, キュアパッション, キ, ン
+キュアブロッサム, キュアブロッサム, キ, ム
+キュアマリン, キュアマリン, キ, ン
+キュアサンシャイン, キュアサンシャイン, キ, ン
+キュアムーンライト, キュアムーンライト, キ, ト
+キュアメロディ, キュアメロディ, キ, イ
+キュアリズム, キュアリズム, キ, ム
+キュアビート, キュアビート, キ, ト
+キュアミューズ, キュアミューズ, キ, ス
+キュアハッピー, キュアハッピー, キ, ヒ
+キュアサニー, キュアサニー, キ, ニ
+キュアピース, キュアピース, キ, ス
+キュアマーチ, キュアマーチ, キ, チ
+キュアビューティ, キュアビューティ, キ, イ
+キュアハート, キュアハート, キ, ト
+キュアダイヤモンド, キュアダイヤモンド, キ, ト
+キュアロゼッタ, キュアロゼッタ, キ, タ
+キュアソード, キュアソード, キ, ト
+キュアエース, キュアエース, キ, ス
+キュアラブリー, キュアラブリー, キ, リ
+キュアプリンセス, キュアプリンセス, キ, ス
+キュアハニー, キュアハニー, キ, ニ
+キュアフォーチュン, キュアフォーチュン, キ, ン
+キュアフローラ, キュアフローラ, キ, ラ
+キュアマーメイド, キュアマーメイド, キ, ト
+キュアトゥインクル, キュアトゥインクル, キ, ル
+キュアスカーレット, キュアスカーレット, キ, ト
+キュアミラクル, キュアミラクル, キ, ル
+キュアマジカル, キュアマジカル, キ, ル
+キュアフェリーチェ, キュアフェリーチェ, キ, エ
+キュアホイップ, キュアホイップ, キ, フ
+キュアカスタード, キュアカスタード, キ, ト
+キュアジェラート, キュアジェラート, キ, ト
+キュアマカロン, キュアマカロン, キ, ン
+キュアショコラ, キュアショコラ, キ, ラ
+キュアパルフェ, キュアパルフェ, キ, エ
+キュアエール, キュアエール, キ, ル
+キュアアンジュ, キュアアンジュ, キ, ユ
+キュアエトワール, キュアエトワール, キ, ル
+キュアマシェリ, キュアマシェリ, キ, リ
+キュアアムール, キュアアムール, キ, ル
+キュアスター, キュアスター, キ, タ
+キュアミルキー, キュアミルキー, キ, キ
+キュアソレイユ, キュアソレイユ, キ, ユ
+キュアセレーネ, キュアセレーネ, キ, ネ
+キュアコスモ, キュアコスモ, キ, モ
+キュアグレース, キュアグレース, キ, ス
+キュアフォンテーヌ, キュアフォンテーヌ, キ, ヌ
+キュアスパークル, キュアスパークル, キ, ル
+キュアアース, キュアアース, キ, ス
+キュアサマー, キュアサマー, キ, マ
+キュアコーラル, キュアコーラル, キ, ル
+キュアパパイア, キュアパパイア, キ, ア
+キュアフラミンゴ, キュアフラミンゴ, キ, コ
+キュアラメール, キュアラメール, キ, ル
+キュアエコー, キュアエコー, キ, コ
+
+
+普通にしりとりをやろうとすると、プリキュア名のほとんどが「キュア」で始まるため、「キ」が先頭に来てしまうことが多くなってしまいます。
+試しに、「キ」で終わるプリキュアだけ抽出してみます。
+長いので折りたたむラビ
+
+
+Program.cs（一部）
+using System.Linq; // これを追加
+
+namespace precure_shiritori
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            List&lt;Precure&gt; precureList = LoadPrecure();
+            Console.WriteLine("プリキュア名, 読み, 最初, 最後");
+            var lastKiList = precureList.Where(P =&gt; P.Last.Equals('キ'));
+            foreach (Precure precure in lastKiList)
+            {
+                Console.WriteLine($"{precure.PrecureName}, {precure.PrecureRuby}, {precure.First}, {precure.Last}");
+            }
+        }
+    }
+}
+
+
+
+結果は：なんと言うことでしょう。「キュアミルキー」しか出てきませんでした。参考までに、読みの最初が「キ」ではないプリキュアを抽出してみます。
+長いので折りたたむラビ
+
+
+Program.cs（一部）
+namespace precure_shiritori
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            List&lt;Precure&gt; precureList = LoadPrecure();
+            Console.WriteLine("プリキュア名, 読み, 最初, 最後");
+            var firstNotKiList = precureList.Where(P =&gt; !P.First.Equals('キ'));
+            foreach (Precure precure in firstNotKiList)
+            {
+                Console.WriteLine($"{precure.PrecureName}, {precure.PrecureRuby}, {precure.First}, {precure.Last}");
+            }
+        }
+    }
+}
+
+
+
+結果は：のどか「そうだ！このルールを追加しよう！」
+ラビリン「ラビ！」…というコードを、 Precure.cs に入れてみます。
+長いので折りたたむラビ
+
+
+Precure.cs（一部）
+using System.Text.RegularExpressions; // これを追加
+
+namespace precure_shiritori
+{
+    /// &lt;summary&gt;
+    /// プリキュアデータ
+    /// &lt;/summary&gt;
+    class Precure
+    {
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="name"&gt;プリキュア名&lt;/param&gt;
+        public Precure(string name)
+        {
+            PrecureName = name;
+            PrecureRuby = Regex.Replace(name, "^キュア", "");
+            First = ToSeion(ToChokuon(PrecureRuby[0]));
+            Last = ToSeion(ToChokuon(PrecureRuby[PrecureRuby.Length - 1]));
+            // 長音一文字の単語はない前提
+            if (Last == 'ー' || Last == '－')
+            {
+                Last = ToSeion(ToChokuon(PrecureRuby[PrecureRuby.Length - 2]));
+            }
+        }
+    }
+}
+
+
+
+こうすると、下記のように「キュア」が取り除かれます（下記結果は、それがわかりやすい部分だけ取り出しました）。のどか「いよいよ本番だね」長いので折りたたむラビ
+
+
+PrecureChainList.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace precure_shiritori
+{
+    class PrecureChainList
+    {
+        private List&lt;short&gt; _chain = new List&lt;short&gt;();
+        private List&lt;Precure&gt; AllPrecures { get; set; }
+
+        public PrecureChainList(List&lt;Precure&gt; precureList)
+        {
+            this.AllPrecures = precureList;
+        }
+
+        public Precure LastPrecure
+        {
+            get
+            {
+                int ix = _chain[_chain.Count - 1];
+                return AllPrecures[ix];
+            }
+        }
+
+        public PrecureChainList Clone()
+        {
+            var wcl = new PrecureChainList(this.AllPrecures)
+            {
+                _chain = _chain.ToList()
+            };
+            return wcl;
+        }
+
+        public void Add(Precure precure)
+        {
+            short ix = (short)AllPrecures.FindIndex(x =&gt; x.PrecureName == precure.PrecureName);
+            _chain.Add(ix);
+        }
+
+        public Precure Find(Func&lt;Precure, bool&gt; pred)
+        {
+            foreach (var w in GetPrecureList())
+            {
+                if (pred(w) == true)
+                {
+                    return w;
+                }
+            }
+            return null;
+        }
+
+        public IEnumerable&lt;Precure&gt; GetPrecureList()
+        {
+            foreach (var ix in _chain)
+            {
+                yield return AllPrecures[ix];
+            }
+        }
+
+        public int Count
+        {
+            get { return _chain.Count; }
+        }
+
+        internal void RemoveAt(int index)
+        {
+            _chain.RemoveAt(index);
+        }
+    }
+}
+
+
+
+長いので折りたたむラビ
+
+
+PrecureChainSolver.cs
+using System.Collections.Generic;
+using System.Linq;
+
+namespace precure_shiritori
+{
+    class PrecureChainSolver
+    {
+        public List&lt;Precure&gt; PrecureList { get; set; }
+        public PrecureChainSolver(List&lt;Precure&gt; precureList)
+        {
+            PrecureList = precureList.ToList();
+        }
+
+        private Queue&lt;PrecureChainList&gt; _queue = new Queue&lt;PrecureChainList&gt;();
+        public PrecureChainList Solve(Precure precure)
+        {
+            PrecureChainList firstState = new PrecureChainList(PrecureList);
+            firstState.Add(precure);
+            PrecureChainList ans = firstState;
+            _queue.Enqueue(firstState);
+            while (_queue.Count &gt; 0)
+            {
+                var curr = _queue.Dequeue();
+                ans = curr;
+                foreach (var w in Candidate(curr.LastPrecure))
+                {
+                    if (ans.Find(x =&gt; x == w) != null)
+                        continue;
+                    curr.Add(w);
+                    _queue.Enqueue(curr.Clone());
+                    curr.RemoveAt(curr.Count - 1);
+                }
+
+            }
+            return ans;
+        }
+        // 候補の単語を列挙する
+        private IEnumerable&lt;Precure&gt; Candidate(Precure precure)
+        {
+            return PrecureList.Where(x =&gt; precure.Last == x.First).ToList();
+        }
+    }
+}
+
+
+
+のどか「これが…最長なの？」
+ペギタン「最長とは限らないペエ。だって、これ最初「キュアブラック」で固定しているペエ。他だったらもっと長い結果が出るかもしれないペエ」
+のどか「試してみようよ！」のどか「結果を見てみよう！」ラビリン「人数の多い順に、結果を出してみるラビ！」2パターン5パターン8パターン8パターン16パターン4パターン3パターン9パターン17パターンペギタン「疲れたペエ」ちゆ「そういえば、なんか「キュアルージュ」で終わるものが多いような気がするけど」
+ペギタン「調べてみるペエ」ちゆ「見間違いじゃなかったのね」ひなた「そういえば、プリキュアの名前で最初と最後に使われている文字ってどんなのがあるんだろう？」
+ニャトラン「調べてみようぜ！」
+
+

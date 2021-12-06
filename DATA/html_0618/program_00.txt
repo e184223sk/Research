@@ -1,0 +1,150 @@
+using System;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        // CSVファイルの読み込み
+        string filePath  = @".\JUFx_KMJ\JUF1_KMJ.csv";
+        string filePath2 = @".\JUFx_KMJ\JUF2_KMJ.csv";
+
+        string filePath3 = args[2];
+        string filePath4 = args[0];
+        string filePath5 = args[1];
+
+        var myTable  = new Dictionary&lt;string, string&gt;();
+        var myTable2 = new Dictionary&lt;string, string&gt;();
+
+        using (StreamReader reader = new StreamReader(filePath, Encoding.GetEncoding("UTF-8")))
+        {
+            while (reader.Peek() &gt;= 0)
+            {
+                // 読み込んだ文字列をカンマ区切りで配列に格納
+                string[] cols = reader.ReadLine().Split(',');
+                // コメント行を飛ばす
+                if(Regex.IsMatch(cols[0], "^#")){continue;}
+                for (int n = 0; n &lt; cols.Length; n++)
+                {
+                    //For Debug
+                    //Console.Write(cols[n] + ",");
+                }
+                // Dictionary生成
+                myTable.Add(cols[0], cols[1]);
+            }
+        }
+
+        using (StreamReader reader2 = new StreamReader(filePath2, Encoding.GetEncoding("UTF-8")))
+        {
+            while (reader2.Peek() &gt;= 0)
+            {
+                // 読み込んだ文字列をカンマ区切りで配列に格納
+                string[] cols = reader2.ReadLine().Split(',');
+                // コメント行を飛ばす
+                if(Regex.IsMatch(cols[0], "^#")){continue;}
+                for (int n = 0; n &lt; cols.Length; n++)
+                {
+                    //For Debug
+                    //Console.Write(cols[n] + ",");
+                }
+                // Dictionary生成
+                myTable2.Add(cols[0], cols[1]);
+            }
+        }
+
+        // 最後まで読み込む
+        List&lt;string[]&gt; readCsvList = new List&lt;string[]&gt;();
+        using (StreamReader readCsvObject = new StreamReader(filePath3, Encoding.GetEncoding("utf-8")))
+        {
+            while (!readCsvObject.EndOfStream)
+            {
+                var readCsvLine = readCsvObject.ReadLine();
+                readCsvList.Add(readCsvLine.Split(','));
+            }
+        }
+
+        var recSize = Convert.ToInt32(readCsvList[readCsvList.Count - 1][1])
+                        + Convert.ToInt32(readCsvList[readCsvList.Count - 1][2]) - 1;
+        //Console.Write("recSize: " + recSize + "\n");
+        //Console.Write(readCsvList.Count + "\n");
+        using (FileStream fs = new FileStream(filePath4, FileMode.Open, FileAccess.Read)) {
+        using (FileStream fsout = new FileStream(filePath5, FileMode.Create, FileAccess.Write)) {
+        using (var writer = new BinaryWriter(fsout)) {
+            // バイナリファイル読み出し
+            int fileSize = (int)fs.Length; // ファイルのサイズ
+            byte[] buf = new byte[fileSize]; // データ格納用配列
+
+            int readSize; // Readメソッドで読み込んだバイト数
+            int remain = fileSize; // 読み込むべき残りのバイト数
+            int bufPos = 0; // データ格納用配列内の追加位置
+
+            //マルチレイアウトは許可しない
+            Debug.Assert(fileSize%recSize == 0);
+
+            while (remain &gt; 0) {
+                readSize = fs.Read(buf, bufPos, Math.Min(recSize, remain));
+                bufPos += readSize;
+                remain -= readSize;
+            }
+
+            for(int i = 0; i &lt; fileSize; i++) {
+            for(int j = 0; j &lt; readCsvList.Count; j++) {
+                if((i != 0) &amp;&amp; ((i%recSize) == 0)) 
+                {
+                    writer.Write(Convert.ToUInt16("000A", 16));    
+                }
+                if((j != 0) &amp;&amp; ((i%recSize) == (Convert.ToInt32(readCsvList[j][1])-1)))
+                {
+                    writer.Write(Convert.ToUInt16("002C", 16));
+                }
+
+                // １バイトテーブル
+                if(Regex.IsMatch(readCsvList[j][0], "EBC") &amp;&amp; 
+                ((i%recSize) &gt;= (Convert.ToInt32(readCsvList[j][1])-1)) &amp;&amp; 
+                ((i%recSize) &lt;  (Convert.ToInt32(readCsvList[j][1]) + Convert.ToInt32(readCsvList[j][2])-1)))
+                {
+                    //Console.Write(myTable[buf[i].ToString("X2")] + "\n");
+                    writer.Write(Convert.ToUInt16(myTable[buf[i].ToString("X2")], 16));
+                    break;
+                }
+                // ２バイトテーブル
+                if(Regex.IsMatch(readCsvList[j][0], "EKJ") &amp;&amp; 
+                ((i%recSize) &gt;= (Convert.ToInt32(readCsvList[j][1])-1)) &amp;&amp; 
+                ((i%recSize) &lt;  (Convert.ToInt32(readCsvList[j][1]) + Convert.ToInt32(readCsvList[j][2])-1)))
+                {
+                    Encoding utf8 = Encoding.GetEncoding("UTF-8");
+                    int num = utf8.GetByteCount(myTable2[buf[i].ToString("X2") + buf[i+1].ToString("X2")]);
+                    if(utf8.GetByteCount(myTable2[buf[i].ToString("X2") + buf[i+1].ToString("X2")]) &lt;= 4)
+                    {
+                        //Console.Write(myTable2[buf[i].ToString("X2") + buf[i+1].ToString("X2")] + "\n");
+                        writer.Write(Convert.ToUInt16(myTable2[buf[i].ToString("X2") + buf[i+1].ToString("X2")], 16));
+                    }       
+                    else
+                    {
+                        //サロゲートペア計算（ライブラリが見つからなかった）
+                        var codePoint = Convert.ToInt32(myTable2[buf[i].ToString("X2") + buf[i+1].ToString("X2")],16);
+                        //Console.Write("codePoint: " + codePoint + "\n");
+                        var codePoint2 = (codePoint - 0x10000) &gt;&gt; 10;
+                        //Console.Write("plane: " + plane + "\n");
+                        var lead = (codePoint2 &amp; 0x3F) | 0xD800;
+                        //Console.Write("lead: " + lead + "\n");
+                        var trail = (codePoint &amp; 0x3FF) | 0xDC00;
+                        //Console.Write("trail: " + trail + "\n");
+                        writer.Write(Convert.ToUInt16(lead));
+                        writer.Write(Convert.ToUInt16(trail));
+                    }
+                    i++;
+                    break;
+                }
+            }
+            }
+        }
+        }
+        }
+    }
+}
+

@@ -1,0 +1,24 @@
+More than 3 years have passed since last update.製作中のゲームのCOM処理が重くなってきたので、以前から気になっていたJobSystemに手を出してみました。
+JobSystemで、大量のオブジェクトをマルチスレッドで処理する記事は結構見つかるのですが、重めの処理をJobSystemにやってもらう情報は見つからず…。手探りでしたが、マルチスレッド化には成功したので知見をまとめてみました。Unity : Unity 2018.2.3f1
+OS : Windows 10 Pro
+CPU : Intel Core i7-8700K(6コア12スレッド)実行プロジェクト
+https://github.com/Piorimu/JobSystemRouterCOMがいくつかの目的地を選ぶような場面を想定して、以下のような処理を作ってみました。40x40の格子状のマップに1~10の移動コストを設定します。
+マップに10個の目的地と開始地点を設定し、開始地点から各目的地までの経路探索をジョブシステムで並列化してみました。まず、メインスレッドだけで経路探索をした場合…
+
+およそ3秒。そして、JobSystemで並列化した場合…
+
+0.3秒でおよそ10分の1に！
+Profilerのタイムラインで確認すると、10ジョブを12スレッドに割り振って、各経路探索を各スレッドで処理されていることが確認出来ます。
+JobSystemで経路探索を行ったコードは以下の通り。基本的なことは、以下の記事が分かりやすかったです。ECSとJobSystem 基礎 - しゅみぷろ
+http://esprog.hatenablog.com/entry/2018/05/19/150313流れをざっとまとめるとカウンターのような配列ではない処理結果を受け取りたい場合は、要素数1のNativeArrayを使います。【Unity】C# Job Systemを自分なりに解説してみる - テラシュールブログ
+http://tsubakit1.hateblo.jp/entry/2018/03/04/223804#%E4%B8%80%E3%81%A4%E3%81%AE%E3%82%B8%E3%83%A7%E3%83%96%E3%82%92%E7%99%BA%E8%A1%8C%E3%81%99%E3%82%8BIJob目的地によって経路の長さは変わりますが、NativeArrayは固定長の配列なので、経路探索結果に応じて配列のサイズを変えられません。
+これはしょうがないので、多めに配列を確保して、経路を受け取るようにしました。また、経路の長さは別にカウントすることで、配列のどこまでが経路かを判定します（番兵でも良かったかも）付け忘れると、エラーが出て怒られます。
+例えば、今回のJobSystemRouterだと、共有するフィールドのコスト配列にReadOnly属性を付け忘れると、以下のようなエラーが出ます。InvalidOperationException: The previously scheduled job JobRouter writes to the NativeArray JobRouter.costs. You are trying to schedule a new job JobRouter, which writes to the same NativeArray (via JobRouter.costs). To guarantee safety, you must include JobRouter as a dependency of the newly scheduled job.今回はIJobを使いました。
+当初は、目的地の数だけIJobParallelForで回そうとしましたが、経路の座標配列をどうやって受け取るか分からなかったので、諦めてIJobに。目的地毎にジョブを回していますが、経路が被っている分の計算が勿体ないので、こちらをまず何とかしたほうが良さそう。
+ただ、その場合は今回のように各スレッドでA*をそれぞれ回すのではなく、A*の中身であるノード処理を並列化する必要があります。A*の並列化について調べたら、以下のようなアルゴリズムが考案されているようです。HDA*: Hash Distributed A*
+https://qiita.com/DINDIN92/items/0bc6b76a47b36f0590ae流し読みした程度ですが、ハッシュでスレッドとノードを対応させて並列化するイメージでしょうか。あとGitHubにUnityのプロジェクト上げるのすっごい簡単になってて驚き。Unityは勝手にForceTextにしてるし、GitHubはUnity向けの.gitignore用意してある…。ECSとJobSystem 基礎 - しゅみぷろ
+http://esprog.hatenablog.com/entry/2018/05/19/150313【Unity】C# Job Systemを自分なりに解説してみる - テラシュールブログ
+http://tsubakit1.hateblo.jp/entry/2018/03/04/223804C# Job System Cookbook
+https://github.com/stella3d/job-system-cookbook
+
+

@@ -1,0 +1,91 @@
+
+using System;
+using System.Runtime.InteropServices; //GCHandle
+using System.Threading; //EventWaitHandle
+using XAudio2CS;
+
+namespace xaudio2test
+{
+    class Program
+    {
+        private static XAudio2MasteringVoice m_masteringvoice;
+        private static XAudio2SourceVoice m_sourcevoice;
+        private static byte[] wavedata;
+        private static GCHandle gch_wavedata;
+        private static XAUDIO2_BUFFER buf;
+        private static GCHandle gch_buf;
+        private static VoiceCallback m_callback;
+
+        static void Main(string[] args)
+        {
+            XAudio2.Create();
+            XAudio2.CreateMasteringVoice(out m_masteringvoice);
+
+            var wfex = new WAVEFORMATEX();
+            ushort channels = 2;
+            uint samplerate = 48000;
+            wfex.wFormatTag = XAudio2.WAVE_FORMAT_PCM;
+            wfex.nChannels = channels;
+            wfex.nSamplesPerSec = samplerate;
+            wfex.nBlockAlign = (ushort)((16 / 8) * channels);
+            wfex.nAvgBytesPerSec = samplerate * (uint)((16 / 8) * channels);
+            wfex.wBitsPerSample = 16;
+            m_callback = new VoiceCallback();
+            XAudio2.CreateSourceVoice(out m_sourcevoice, wfex, 0, 2.0f, m_callback.funcentry);
+
+            m_sourcevoice.SetVolume(0.2f);
+            m_sourcevoice.Start();
+
+            wavedata = new byte[48000 * 2 * 2];
+            uint uintval;
+            for (var i = 0; i &lt; 48000; ++i) {
+                uintval = (uint)(i % 110) * 595;
+                wavedata[i * 4] = (byte)(uintval &amp; 0xff);
+                wavedata[i * 4 + 1] = (byte)(uintval &gt;&gt; 8);
+                uintval = (uint)(i % 73) * 892;
+                wavedata[i * 4 + 2] = (byte)(uintval &amp; 0xff);
+                wavedata[i * 4 + 3] = (byte)(uintval &gt;&gt; 8);
+            }
+            gch_wavedata = GCHandle.Alloc(wavedata, GCHandleType.Pinned);
+            buf = new XAUDIO2_BUFFER();
+            buf.pAudioData = gch_wavedata.AddrOfPinnedObject();
+            buf.AudioBytes = (uint)(wavedata.Length);
+            gch_buf = GCHandle.Alloc(buf, GCHandleType.Pinned);
+            m_sourcevoice.SubmitSourceBuffer(gch_buf.AddrOfPinnedObject());
+
+            m_callback.m_event_BufferEnd.WaitOne();
+            Console.WriteLine("バッファ終了。");
+
+            m_sourcevoice.Stop();
+            m_sourcevoice.FlushSourceBuffers();
+            gch_buf.Free();
+            gch_wavedata.Free();
+            m_sourcevoice.DestroyVoice();
+            m_callback.Release();
+            m_masteringvoice.DestroyVoice();
+            XAudio2.Release();
+        }
+    }
+
+    class VoiceCallback : XAudio2VoiceCallback {
+        internal EventWaitHandle m_event_BufferEnd { get; }
+
+        internal VoiceCallback() {
+            m_event_BufferEnd = new EventWaitHandle(false, EventResetMode.AutoReset);
+        }
+
+        internal override void OnVoiceProcessingPassStart(uint BytesRequired) {}
+        internal override void OnVoiceProcessingPassEnd() {}
+        internal override void OnStreamEnd() {}
+        internal override void OnBufferStart(IntPtr pBufferContext) {}
+
+        internal override void OnBufferEnd(IntPtr pBufferContext) {
+            m_event_BufferEnd.Set();
+        }
+
+        internal override void OnLoopEnd(IntPtr pBufferContext) {}
+        internal override void OnVoiceError(IntPtr pBufferContext, int Error) {}
+    }
+}
+
+

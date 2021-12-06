@@ -1,0 +1,61 @@
+
+static void ZipCopyParallel( string srcPath, string zipPath )
+{
+    //書き込むZIP書庫のStream
+    var writer = new System.IO.FileStream( zipPath, System.IO.FileMode.Create, System.IO.FileAccess.Write );
+    //ZipOutputStreamを作成
+    var zipStream = new ICSharpCode.SharpZipLib.Zip.ZipOutputStream( writer );
+
+    //圧縮レベルを設定する。0は圧縮しない。9は最高圧縮。
+    zipStream.SetLevel( 0 );
+
+    // コピー元ファイルのリストを作る
+    System.IO.DirectoryInfo dir = new System.IO.DirectoryInfo( srcPath );
+    System.IO.FileInfo[] files =
+        dir.GetFiles( "*", System.IO.SearchOption.AllDirectories );
+
+    //srcPathの相対パスをエントリ名にする
+    var nameTrans = new ICSharpCode.SharpZipLib.Zip.ZipNameTransform( srcPath );
+
+    // 並列処理でファイルを読み込む
+    var fList = new ConcurrentBag&lt;Index&gt;();
+    Parallel.ForEach( files, file =&gt;
+    {
+        using( System.IO.FileStream fs = new System.IO.FileStream( file.FullName, System.IO.FileMode.Open, System.IO.FileAccess.Read ) )
+        {
+            var idx = new Index();
+            idx.body = new byte[file.Length];
+            // ファイルを読み込む
+            fs.Read( idx.body, 0, idx.body.Length );
+            // ファイル名を記録
+            idx.name = file.FullName;
+            // コレクションに追加
+            fList.Add( idx );
+        }
+    } );
+
+    // コレクションに記録したファイルをZipにまとめる
+    foreach( var idx in fList )
+    {
+        // ZIP内のエントリの名前を決定する
+        string entryName = nameTrans.TransformFile( idx.name );
+
+        // ZipEntryを作成
+        var zipEntry = new ICSharpCode.SharpZipLib.Zip.ZipEntry( entryName );
+
+        // サイズを設定する。サイズを設定したほうが何故か高速。
+        zipEntry.Size = idx.body.Length;
+
+        // 新しいエントリの追加
+        zipStream.PutNextEntry( zipEntry );
+
+        // 書庫に書き込む
+        zipStream.Write( idx.body, 0, idx.body.Length );
+    }
+
+    // 閉じる
+    zipStream.Finish();
+    zipStream.Close();
+    writer.Close();
+}
+

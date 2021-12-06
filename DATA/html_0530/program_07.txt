@@ -1,0 +1,20 @@
+
+static ChannelReader&lt;T&gt; Merge&lt;T&gt;(
+    ChannelReader&lt;T&gt;[] inputs)
+{
+    var output = Channel.CreateUnbounded&lt;T&gt;();
+
+    Task.Run(async () =&gt;
+    {
+        async Task Redirect(ChannelReader&lt;T&gt; input)
+        {
+            await foreach (var item in input.ReadAllAsync())
+                await output.Writer.WriteAsync(item);
+        }
+
+        await Task.WhenAll(inputs.Select(i =&gt; Redirect(i)).ToArray());
+        output.Writer.Complete();
+    });
+    return output;
+}
+

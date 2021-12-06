@@ -1,0 +1,27 @@
+本記事は.NET Core 3.x以上が対象です。C#erなので、小規模なツールやバッチ処理を行うプログラム等を.NET Coreコンソールアプリケーションで作ることがよくあります。
+多くの場合、ログはファイルやたまにイベントログに出力したりします。
+ただ、アプリケーションで発生したエラーを検知して通知等のアクションを行いたいような場合だと、色々準備する必要があり手間が掛かったりします。
+なので、もういっそコンソールアプリのログも全部Azure Application Insightsに送信してしまえばいいじゃん、というのが今回の趣旨です。私がくどくど書くまでもなく、Azureのドキュメントに書いてありますので、省略。
+Application Insights とは何か?TelemetryClientを使って自前で直接送信する方法と、ログプロバイダーを構築してILogger経由で送信する方法があります。
+今回はテレメトリというより完全にログなので、後者を選択します。AzureポータルからApplication Insightsを作成してください。
+Application Insightsにデータを送信するためには、作成後に概要画面に表示されるインストルメンテーションキーが必要となります。汎用ホストは使わずに構成をしてみます。
+まずはnugetで Microsoft.ApplicationInsights.WorkerService をインストールします。
+その後、以下のような感じでコードを書いてみました。コード内を見ていきます。まず、ServiceCollectionを作成してログのフィルタを設定してログレベルをInformationに設定しています。
+その後、Application Insightsのインストルメンテーションキーを渡して送信できるように構成させます。
+「テレメトリチャネルをInMemoryChannelに設定」と書いている部分では、Application Insightsのテレメトリチャネルをデフォルトの物から変更しています。
+何も指定しない場合、テレメトリチャネルはServerTelemetryChannelとなります。再試行に優れた高度なチャネルなのですが、テレメトリの送信が同期的には行われなくなります。ASP.NET Coreアプリケーションのような動作し続けている物なら問題ありませんが、コンソールアプリケーションのように明確に（割と素早く）終了するアプリケーションでは、送信が行われる前にプログラムが終了してしまい、ログが送られないままになってしまう場合が多いです。
+InMemoryChannelはServerTelemetryChannelに比べて軽量かつ再試行性が劣りますが、メモリ内にバッファリングしているため同期的なテレメトリの送信が可能です。
+そして、上記の設定が終わったので、サービスプロバイダーを構築してLoggerインスタンスを取得し、同様にTelemetryClientを取得します。（当然、先ほど設定したInMemoryChannelが取得されます）その後は適当にログを出力し、最後に上記で取得したTelemetryClientからFlushを呼び出してデータの送信を行って終了です。
+上記の通りInMemoryChannelにしているため、Flushで同期的にテレメトリが送信されます。AzureポータルのApplication Insightsから送信されたのログを見てみます。
+監視カテゴリ内のログからLog Analyticsの画面を開き、tracesの内容を表示させます。
+コード内で送信させたログメッセージが確認できました。
+コード内で例外を発生させた場合も確認してみます。今度はexceptionsの内容を表示させます。
+例外が記録されていることも確認できました。
+割と少ないコード量でコンソールアプリからApplication Insightsにログが送れました。
+ただ、このコードだけだとログのフィルタリング設定など、設定ファイル等で変更したいような内容までコード内で設定しているので、あまり使い勝手がよくありません。
+このことは若干趣旨がずれるので、この辺を解消する方法は別途書きたいと思っています。.NET Core および ASP.NET Core でのログ記録
+https://docs.microsoft.com/ja-jp/aspnet/core/fundamentals/loggingワーカー サービス アプリケーション (非 HTTP アプリケーション) 向け Application Insights
+https://docs.microsoft.com/ja-jp/azure/azure-monitor/app/worker-serviceApplication Insights のテレメトリ チャネル
+https://docs.microsoft.com/ja-jp/azure/azure-monitor/app/telemetry-channels
+
+

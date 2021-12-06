@@ -1,0 +1,223 @@
+
+class One_wire
+{
+    private static int baudRate_reset_pulse = 18750;
+    private static int baudRate_bit_TR = 100 * 1000;
+
+    private readonly SerialPort serial_port;
+
+    public class BusErrorException : Exception
+    {
+    }
+
+    public One_wire(String port_name)
+    {
+        serial_port = new SerialPort(port_name);
+        serial_port.ReadTimeout = 50;
+    }
+
+    public byte calc_CRC(byte[] data, int length = 0)
+    {
+        if (length == 0)
+        {
+            length = data.Length;
+        }
+
+        byte crcsr = 0;
+
+        for (int i = 0; i &lt; length; i++)
+        {
+            byte dat = data[i];
+
+            for (int j = 0; j &lt; 8; j++)
+            {
+                crcsr = ((dat ^ crcsr) &amp; 1) != 0 ? (byte)(((crcsr ^ 0x18) &gt;&gt; 1) | 0x80) : (byte)(crcsr &gt;&gt; 1);
+                dat &gt;&gt;= 1;
+            }
+        }
+
+        return (crcsr);
+    }
+
+    protected void Open()
+    {
+        serial_port.Open();
+    }
+
+    protected void Close()
+    {
+        serial_port.Close();
+    }
+
+    protected bool Reset()
+    {
+        serial_port.BaudRate = baudRate_reset_pulse;
+
+        serial_port.Write(new byte[1] { 0x00 }, 0, 1);
+
+        try
+        {
+            serial_port.ReadByte();
+        }
+        catch
+        {
+            serial_port.BaudRate = baudRate_bit_TR;
+            throw (new BusErrorException());
+        }
+
+        bool result;
+
+        try
+        {
+            serial_port.ReadByte();
+
+            result = true;
+        }
+        catch (TimeoutException)
+        {
+            result = false;
+        }
+
+        serial_port.BaudRate = baudRate_bit_TR;
+
+        return (result);
+    }
+
+    protected void write(byte data, bool read_data)
+    {
+        serial_port.Write(new byte[]
+        {
+            (byte)((data &gt;&gt; 0 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 1 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 2 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 3 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 4 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 5 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 6 &amp; 1) != 0 ? 0xFF : 0x00),
+            (byte)((data &gt;&gt; 7 &amp; 1) != 0 ? 0xFF : 0x00),
+        }, 0, 8);
+
+        if (read_data)
+        {
+            byte[] buff = new byte[8];
+
+            try
+            {
+                buff[0] = (byte)serial_port.ReadByte();
+                buff[1] = (byte)serial_port.ReadByte();
+                buff[2] = (byte)serial_port.ReadByte();
+                buff[3] = (byte)serial_port.ReadByte();
+                buff[4] = (byte)serial_port.ReadByte();
+                buff[5] = (byte)serial_port.ReadByte();
+                buff[6] = (byte)serial_port.ReadByte();
+                buff[7] = (byte)serial_port.ReadByte();
+            }
+            catch (TimeoutException)
+            {
+                throw (new BusErrorException());
+            }
+        }
+    }
+
+    protected void read(byte[] datas, int start, int length)
+    {
+        for (int i = 0; i &lt; length; i++)
+        {
+            write(0xFF, false);
+        }
+
+        for (int i = 0; i &lt; length; i++)
+        {
+            byte[] buff = new byte[8];
+
+            try
+            {
+                buff[0] = (byte)serial_port.ReadByte();
+                buff[1] = (byte)serial_port.ReadByte();
+                buff[2] = (byte)serial_port.ReadByte();
+                buff[3] = (byte)serial_port.ReadByte();
+                buff[4] = (byte)serial_port.ReadByte();
+                buff[5] = (byte)serial_port.ReadByte();
+                buff[6] = (byte)serial_port.ReadByte();
+                buff[7] = (byte)serial_port.ReadByte();
+            }
+            catch (TimeoutException)
+            {
+                throw (new BusErrorException());
+            }
+
+            byte data = 0;
+
+            if (buff[0] == 0xFF) { data |= 0x01; }
+            if (buff[1] == 0xFF) { data |= 0x02; }
+            if (buff[2] == 0xFF) { data |= 0x04; }
+            if (buff[3] == 0xFF) { data |= 0x08; }
+            if (buff[4] == 0xFF) { data |= 0x10; }
+            if (buff[5] == 0xFF) { data |= 0x20; }
+            if (buff[6] == 0xFF) { data |= 0x40; }
+            if (buff[7] == 0xFF) { data |= 0x80; }
+
+            datas[i] = data;
+        }
+    }
+}
+
+class DS18B20 : One_wire
+{
+    public DS18B20(String portName) : base(portName)
+    {
+    }
+
+    public bool convert_temperature()
+    {
+        Open();
+
+        bool flag = true;
+
+        flag = flag &amp;&amp;
+            Reset();
+
+        if (flag)
+        {
+            write(0xCC, true);
+            write(0x44, true);
+        }
+
+        Close();
+
+        return (flag);
+    }
+
+    public bool read_temperature(out float temperature_degree_celsius)
+    {
+        temperature_degree_celsius = float.NaN;
+
+        Open();
+
+        bool flag = true;
+
+        flag = flag &amp;&amp;
+            Reset();
+
+        if (flag)
+        {
+            write(0xCC, true);
+            write(0xBE, true);
+
+            byte[] buff = new byte[9];
+            read(buff, 0, 9);
+
+            flag = buff[8] == calc_CRC(buff, 8);
+
+            if (flag)
+            {
+                temperature_degree_celsius = (Int16)(buff[0] | buff[1] &lt;&lt; 8) / 16.0f;
+            }
+        }
+
+        Close();
+
+        return (flag);
+    }
+}
+

@@ -1,0 +1,30 @@
+using System.Configuration;
+using Microsoft.Azure.Storage;
+using Microsoft.Azure.Storage.Blob;
+
+// Web Appsの場合、接続文字列はApplication Settingsから取るのがおそらく一般的。
+string connectionstring = ConfigurationManager.AppSettings["connectionstring"];
+// blobが保存されるコンテナ名
+string containername = ConfigurationManager.AppSettings["containername"];
+
+// アップロードされたファイルを取得
+HttpPostedFile file = HttpContext.Current.Request.Files["userfile"];
+if (!string.IsNullOrEmpty(file.FileName))
+{
+    CloudStorageAccount storageAccount = CloudStorageAccount.Parse(connectionstring);
+    CloudBlobClient client = storageAccount.CreateCloudBlobClient();
+
+    CloudBlobContainer container = client.GetContainerReference(containername);
+    // もしコンテナが存在しなかった場合は作成
+    container.CreateIfNotExists();
+
+    // 一意となるファイル名でblobに対しての参照を取得する
+    CloudBlockBlob blob = container.GetBlockBlobReference($"{file.FileName}");
+
+    using (var fileStream = file.InputStream)
+    {
+        // ファイルをアップロードする
+        blob.UploadFromStream(fileStream);
+    }
+}
+

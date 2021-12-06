@@ -1,0 +1,133 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Data.SQLite;
+
+namespace dbtool
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            if (args.Length&lt;1 || args.Length&gt;2) {
+                help();
+                return;
+            }
+            if (args.Length==1) {
+                switch(args[0])
+                {
+                    case "-v": version();break;
+                    default: help();break;
+                }
+                return;
+           }
+           switch(args[0])
+           {
+                case "-i": import(args[1]);break;
+                case "-e": export(args[1]);break;
+                case "-d": delete(args[1]);break;
+                default: help();break;
+           }
+           return;
+        }
+        static void import(string param)
+        {
+            string sqlcmd;
+            var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = "members.db" };
+            using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+            {
+                cn.Open();
+                Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                using (StreamReader sr = new StreamReader(new FileStream(@param, FileMode.Open), Encoding.GetEncoding("shift_jis")))
+                {
+                    while(sr.Peek() &gt;0){
+                        String line = sr.ReadLine();
+                        string[] values =  line.Split('\t');
+                        if (values[0]=="Id") {
+                            continue;
+                        } else {
+                            sqlcmd = "REPLACE INTO members (Id, Name, Email, Birth, Married, Memo) VALUES (" + values[0]+",'"+values[1]+"','"+values[2]+"','"+values[3]+"','"+values[4]+"','"+values[5]+"')";
+                        }
+                        using (SQLiteTransaction trans = cn.BeginTransaction())
+                        {
+                            SQLiteCommand cmd = cn.CreateCommand();
+                            cmd.CommandText = sqlcmd;
+                            cmd.ExecuteNonQuery();
+                            trans.Commit();
+                        }
+                    }
+                }
+                cn.Close();
+            }
+            return;
+        }
+        static void export(string param)
+        {
+            var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = "members.db" };
+            using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+            {
+                cn.Open();
+                using (var cmd = new SQLiteCommand(cn))
+                {
+                    cmd.CommandText = "SELECT * FROM members";
+                    using (SQLiteDataReader reader = cmd.ExecuteReader())
+                    {
+                        string message = "Id\tName\tEmail\tBirth\tMarried\tMemo\r\n";
+                        while (reader.Read())
+                        {
+                            message += reader["Id"].ToString() + "\t" + reader["Name"].ToString() + "\t" + reader["Email"].ToString() + "\t" + reader["Birth"].ToString() + "\t" + reader["Married"].ToString() + "\t" + reader["Memo"].ToString() + "\r\n";
+                        }
+                        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                        File.WriteAllText(@param, message, Encoding.GetEncoding("shift_jis"));
+                    }
+                }
+                cn.Close();
+            }
+            return;
+        }
+        static void delete(string param)
+        {
+            var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = "members.db" };
+            using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+            {
+                cn.Open();
+                Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                using (StreamReader sr = new StreamReader(new FileStream(@param, FileMode.Open), Encoding.GetEncoding("shift_jis")))
+                {
+                    while(sr.Peek() &gt;0){
+                        string sqlcmd = "DELETE FROM MEMBERS WHERE Id = " + sr.ReadLine();
+                        using (SQLiteTransaction trans = cn.BeginTransaction())
+                        {
+                            SQLiteCommand cmd = cn.CreateCommand();
+                            cmd.CommandText = sqlcmd;
+                            cmd.ExecuteNonQuery();
+                            trans.Commit();
+                        }
+                    }
+                }
+                cn.Close();
+            }
+            return;
+        }
+        static void version()
+        {
+            Console.WriteLine("\nSQLite module: version 201910\n");
+            return;
+        }
+        static void help()
+        {
+
+            Console.WriteLine("\nUsage: dbtool -options [file path]\n");
+
+            Console.WriteLine("options");
+            Console.WriteLine("    -e          export user from SQLite");
+            Console.WriteLine("    -i          import user to SQLite");
+            Console.WriteLine("    -d          delete user from SQLite");
+            Console.WriteLine("    -v          display version");
+            Console.WriteLine("    -h          display help message");
+            return;
+        }
+    }
+}
+

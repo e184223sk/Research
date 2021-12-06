@@ -1,0 +1,26 @@
+More than 1 year has passed since last update.色々な事情があり、すでにC#で作ってあるライブラリを、C++のアプリから呼びたい。
+(なので、タイトルは正確に言うと、C#のdllを、COM参照可能にしたC#dllでラップして、C++アプリから呼ぶが正しい)こちらのページにあるように、いろいろなやり方があるっぽい。今回は、1.の方法で実験をした。つまり、下記のような構成とする。コードは、ほぼほぼこちらのを参考にさせていただきました。ありがとうございます。DllCsプロジェクトに、下記ファイルを追加。
+引数を2つ取ってそれを足した値を返すメソッドAddを持っている。DllCsComWrapperプロジェクトに、下記のファイルを追加。
+上のファイルをラップしたメソッドを持っている。まず「アセンブリをCOM参照可能にする」にチェックを入れる。
+
+次に「COM相互運用機能の登録」にチェックを入れる。
+※「COM相互運用機能の登録」は、後で出てくるregasmによるレジストリ登録をビルド時に自動でやってくれる機能と思われる。そのため、作成中のデバッグ時はチェックあった方が便利だが、これにチェックが入っていると、デバッグ中はCOMの登録が行われるため動いていたが、本番機ではCOM登録が行われないため動かない、となってしまうため注意が必要。クラスには、下記の属性をつける（とりあえずおまじないとして、動くものをつくる。後で詳細調べること。）
+- ComVisible
+- ClassInterface
+- Guid　→VisualStudioのGUID付与ツールを使用する([ツール] &gt; [GUIDの作成]から。)※using DllCs;を追加し、DllCsのdllを参照に追加しておくこと。ConsoleApplication1に下記のファイルを追加。下記の処理を行っている。CLSIDFromProgID(L"DllCsComWrapper.DllCsComWrapperClass", &amp;clsid);の一つ目の引数は、C#のラッパークラスの「&lt;名前空間名&gt;.&lt;クラス名&gt;」にすること。OLECHAR *Func_Name[] = { SysAllocString (L"Add") };で定義する名前は、C#のラッパークラスの中の、呼びたいメソッド名にすること。戻り値や引数をやり取りするときに、下記のような対応で型を決める必要がある。
+こちらの表より。regasmを使用し、下記のコマンドで作成したラッパーDLLを登録する。※regasmのありかは、下記の通り(環境による？)
+32bit版：C:\Windows\Microsoft.NET\Framework\v4.0.30319
+64bit版：C:\Windows\Microsoft.NET\Framework64\v4.0.30319
+dllのプラットフォーム(32or64bit)により、32/64bitのあったものを使用しないと、うまく登録できない。今回は、ここからregasm.exeをコピーして、実行するConsoleApplication1.exeと同じ階層に置いた。下記のようなbatを管理者権限で実行し、作成したアプリを実行。
+(面倒だったので、ここではregasmも実行時に毎回実行している)※ここで毎回regasmするなら、上の方でやっていた「COM相互運用機能の登録」のチェックはいらないっぽい。(デバッグするうえではあった方が便利)C++からC#ラッパーに文字列を渡したいときは、下記のようにする。受け取る文字列を、マーシャリングすることが必要。
+※とりあえず文字列をラッパーに渡せることを見たいため、C#のライブラリを呼ぶ処理は割愛。コードのサンプル
+https://knowledge.rinpress.com/index.php/%EF%BC%A3%EF%BC%8B%EF%BC%8B%E3%81%AE%E3%83%A2%E3%82%B8%E3%83%A5%E3%83%BC%E3%83%AB%E3%81%8B%E3%82%89%EF%BC%A3%EF%BC%83%E3%81%AE%EF%BC%A4%EF%BC%AC%EF%BC%AC%E3%82%92%E5%91%BC%E3%81%B3%E5%87%BA%E3%81%97%E3%81%A6%E3%81%BF%E3%82%8BC++からC#を呼ぶいろんな方法
+https://kagasu.hatenablog.com/entry/2017/12/31/220239#%E2%85%A1-CCLI%E3%82%92%E4%BD%BF%E3%81%86%E6%96%B9%E6%B3%95コードのサンプル2
+https://azulean.me/2009/03/08/c%E3%81%A7com%E3%82%92%E4%BD%9C%E3%82%8B%EF%BC%88%E3%81%A8%E3%82%8A%E3%81%82%E3%81%88%E3%81%9A%E5%8B%95%E3%81%8F%E3%81%A8%E3%81%93%E3%82%8D%E3%81%BE%E3%81%A7%EF%BC%89/C++からC# DLL 超超超入門(3.の方法)
+https://qiita.com/Midori_co583826/items/58d56e202f104ebf867aGUIDの登録
+http://tech.nitoyon.com/ja/blog/2008/07/31/c-sharp-com/あまり参考にならなかったが、コードのサンプル
+https://www.84kure.com/blog/2014/07/17/c-c%E3%81%8B%E3%82%89c%E3%81%AEdll%E3%82%92%E5%91%BC%E3%81%B6%E6%96%B9%E6%B3%95/文字列を渡すときのマーシャリング(BSTR ⇒ string)
+https://docs.microsoft.com/ja-jp/dotnet/framework/interop/default-marshaling-for-stringsCOMラッパーに文字列を渡したいときに参考にしたサンプル
+https://www.acot.net/WMI/sample4.html
+
+

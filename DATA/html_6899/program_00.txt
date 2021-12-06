@@ -1,0 +1,56 @@
+public class ContextMenuExtension : IShellExtInit, IContextMenu
+{
+    public void Initialize(IntPtr pidlFolder, IntPtr pDataObj, IntPtr hKeyProgID)
+    {
+        // 選択されているファイル/ディレクトリを取得
+        if (pDataObj == IntPtr.Zero)
+        {
+            throw new ArgumentException();
+        }
+        FORMATETC fe = new FORMATETC();
+        fe.cfFormat = (short)CLIPFORMAT.CF_HDROP;
+        fe.ptd = IntPtr.Zero;
+        fe.dwAspect = DVASPECT.DVASPECT_CONTENT;
+        fe.lindex = -1;
+        fe.tymed = TYMED.TYMED_HGLOBAL;
+        STGMEDIUM stm = new STGMEDIUM();
+        IDataObject dataObject = (IDataObject)Marshal.GetObjectForIUnknown(pDataObj);
+        dataObject.GetData(ref fe, out stm);
+        try
+        {
+            IntPtr hDrop = stm.unionmember;
+            if (hDrop == IntPtr.Zero)
+            {
+                throw new ArgumentException();
+            }
+            uint nFiles = WinApi.DragQueryFile(hDrop, UInt32.MaxValue, null, 0);
+            if (nFiles == 1)
+            {
+                StringBuilder fileName = new StringBuilder(WinApi.MAX_PATH);
+                if (0 == WinApi.DragQueryFile(hDrop, 0, fileName, fileName.Capacity))
+                {
+                    Marshal.ThrowExceptionForHR(WinError.E_FAIL);
+                }
+                this.selectedFile = fileName.ToString();
+            }
+            else
+            {
+                Marshal.ThrowExceptionForHR(WinError.E_FAIL);
+            }
+        }
+        finally
+        {
+            WinApi.ReleaseStgMedium(ref stm);
+        }
+    }
+
+internal class WinApi
+{
+    public const int MAX_PATH = 260;
+
+    [DllImport("shell32", CharSet = CharSet.Unicode)]
+    public static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder pszFile, int cch);
+
+    [DllImport("ole32.dll", CharSet = CharSet.Unicode)]
+    public static extern void ReleaseStgMedium(ref STGMEDIUM pmedium);
+

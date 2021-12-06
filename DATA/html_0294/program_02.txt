@@ -1,0 +1,87 @@
+
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace RPA_Password_Alerter
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            MainAsync().Wait();
+        }
+
+        private static async Task MainAsync()
+        {
+            foreach (var item in SqlData.data.Where(d =&gt; d.ExpireDate.AddDays(-14) &lt; DateTime.Now))
+            {
+                MailManager mail = new MailManager()
+                {
+                    To = new string[] { item.PrimarySmtpAddress },
+                    Cc = new string[] { "RPA担当者@hoge.com" },
+                    Subject = $"[{item.SystemName}]のパスワードを更新してください"
+                };
+                mail.HtmlBody.AddParagraph($"{item.PersonName} さん");
+                mail.HtmlBody.AddParagraph($"RPAで利用している[{item.SystemName}]のパスワードの有効期限が残り&lt;strong&gt;{(item.ExpireDate - DateTime.Now).Days}日&lt;/strong&gt;です。");
+                mail.HtmlBody.AddParagraph($"&lt;strong&gt;{item.ExpireDate.ToShortDateString()}までに&lt;/strong&gt;下記リンクからパスワードの更新を実施してください。");
+                mail.HtmlBody.AddLink("パスワード更新フォーム", Properties.Resources.Password_Updater); // UploaderのPath
+                mail.HtmlBody.AddParagraph($"※ 本メールは前回のパスワード更新({item.UpdateDate})から{item.IntervalMonth}ヵ月後に訪れるパスワード有効期限の2週間前から発信されます。");
+                mail.HtmlBody.AddParagraph($"※ パスワード更新後、メールは配信されなくなります。");
+
+                await mail.SendEmailAsync();
+            }
+        }
+    }
+
+    static class SqlData
+    {
+        public static List&lt;Schema&gt; data = new List&lt;Schema&gt;();
+        private static DataTable dataTable { get; set; } = new DataTable();
+        private static SqlConnectionStringBuilder stringBuilder =&gt; new SqlConnectionStringBuilder() { DataSource = "localhost", InitialCatalog = "RPA_DB", UserID = "sa", Password = "hogefuga" };
+        static SqlData()
+        {
+            using (SqlConnection connection = new SqlConnection(stringBuilder.ConnectionString))
+            {
+                connection.Open();
+                using(SqlCommand command = new SqlCommand("SELECT [system_name], [person_name], [updated_at], [interval_month], [alert_date], [smtp_address] FROM [v_password]", connection))
+                {
+                    using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+                    {
+                        adapter.Fill(dataTable);
+                    }
+                }
+            }
+            dataTable.AsEnumerable().ToList().ForEach(d =&gt; data.Add(new Schema(d)));
+        }
+
+        public class Schema
+        {
+            public string SystemName { get; set; }
+            public string PersonName { get; set; }
+            public string PrimarySmtpAddress { get; set; }
+            public readonly DateTime UpdateDate;
+            public readonly int IntervalMonth;
+            public readonly DateTime ExpireDate;
+
+            public Schema(DataRow dataRow)
+            {
+                try
+                {
+                    SystemName = dataRow["system_name"].ToString();
+                    PersonName = dataRow["person_name"].ToString();
+                    DateTime.TryParse(dataRow["updated_at"].ToString(), out UpdateDate);
+                    int.TryParse(dataRow["interval_month"].ToString(), out IntervalMonth);
+                    DateTime.TryParse(dataRow["alert_date"].ToString(), out ExpireDate);
+                    PrimarySmtpAddress = dataRow["smtp_address"].ToString();
+                }
+                catch { }
+            }
+        }
+    }
+
+}
+

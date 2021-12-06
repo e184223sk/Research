@@ -1,0 +1,67 @@
+
+using System.Security.Claims;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using Newtonsoft.Json;
+
+/// &lt;summary&gt;
+/// トークンプロバイダー。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TPayload"&gt;ペイロードの型&lt;/typeparam&gt;
+public class MsJwtProvider&lt;TPayload&gt; : ITokenProvider&lt;TPayload&gt;
+{
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    /// &lt;param name="key"&gt;RSA秘密鍵&lt;/param&gt;
+    public MsJwtProvider(RsaSecurityKey key)
+    {
+        m_Key = key;
+    }
+
+    private readonly RsaSecurityKey m_Key;
+    private readonly JwtSecurityTokenHandler m_TokenHandler = new JwtSecurityTokenHandler();
+
+    /// &lt;summary&gt;
+    /// 発行者を取得または設定します。
+    /// &lt;/summary&gt;
+    public string Issuer { get; set; }
+
+    /// &lt;summary&gt;
+    /// トークンを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="claim"&gt;クレーム&lt;/param&gt;
+    /// &lt;param name="payload"&gt;ペイロード&lt;/param&gt;
+    /// &lt;param name="expiration"&gt;有効期限&lt;/param&gt;
+    /// &lt;returns&gt;トークン&lt;/returns&gt;
+    public string CreateToken(IClaim claim, TPayload payload, DateTimeOffset expiration)
+    {
+        var credentials = new SigningCredentials(m_Key, "RS256");
+
+        var descriptor = new SecurityTokenDescriptor { };
+
+        descriptor.SigningCredentials = credentials;
+        descriptor.Issuer = Issuer;
+        descriptor.Audience = claim.Audience;
+        descriptor.Expires = expiration.UtcDateTime;
+        descriptor.NotBefore = DateTime.UtcNow.AddSeconds(-5);
+        descriptor.IssuedAt = DateTime.UtcNow;
+
+        // 定義済でない項目をクレームに含めるには、Claims ではなく Subject に格納します。
+
+        //descriptor.Claims = new Dictionary&lt;string, object&gt; {
+        //    { "userpayload", JsonConvert.SerializeObject(payload) }
+        //    { "jti", claim.ID }
+        //};
+        descriptor.Subject = new ClaimsIdentity(new Claim[] {
+                new Claim("userpayload", JsonConvert.SerializeObject(payload)),
+                new Claim("jti", claim.ID)
+            });
+
+        var token = m_TokenHandler.CreateJwtSecurityToken(descriptor);
+        var tokenString = m_TokenHandler.WriteToken(token);
+
+        return tokenString;
+    }
+}
+

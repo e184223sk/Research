@@ -1,0 +1,35 @@
+
+public void ProcessAgents(UIApplication app, NSUrl url)
+{
+    if (url.Host != "x-callback-url")
+    {
+        return;
+    }
+
+    ParseUrl(url,
+        out string action,
+        out string xSuccess, out string xError, out string xCancel,
+        out Dictionary&lt;string, string&gt; parameters);
+    var onSuccess = dict =&gt;
+        app.OpenUrl(CreateUrl(xSuccess, dict), new NSDictionary(), null);
+    var onCancel = () =&gt;
+        app.OpenUrl(new NSUrl(xCancel), new NSDictionary(), null);
+    var onError = (message, code, domain) =&gt;
+        app.OpenUrl(CreateErrorUrl(xError, message, code, domain), new NSDictionary(), null);
+
+    try
+    {
+        var supportedAgent agents.FirstOrDefault(agent =&gt; agent(action));
+        if (supportedAgent == null)
+        {
+            var callbackUrl = CreateErrorUrl(xError, "NotFoundAction", "1", "Client");
+            app.OpenUrl(callbackUrl, new NSDictionary(), null);
+            return;
+        }
+        supportedAgent(action, parameters, onSuccess, onCancel, onError);
+    } catch(Exception e) {
+        var callbackUrl = CreateErrorUrl(xError, e.Message, "1", "XCManager");
+        app.OpenUrl(callbackUrl, new NSDictionary(), null);
+    }
+}
+

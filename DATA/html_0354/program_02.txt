@@ -1,0 +1,50 @@
+
+// センサーアプリから渡された座標に、オブジェクトを生成する
+public class Spawner : MonoBehaviour
+{
+    Mutex mutex; // 排他制御
+    // 下記のSampleObjectコンポーネントを取り付けたゲームオブジェクトのプレハブ
+    [SerializeField] GameObject sampleObject; 
+
+    void Start() {
+        string mutexName = "SensorAppMutex";
+        bool createdNew = false;
+        mutex = new Mutex(false, mutexName, out createdNew);
+    }
+    void OnDestroy() {
+        mutex?.Dispose();
+    }
+
+    void Update() {
+        System.Xml.Serialization.XmlSerializer serializer =
+            new System.Xml.Serialization.XmlSerializer(typeof(SensorData));
+        // センサーから取得した結果
+        SensorData data = null;
+        bool getMutex = false;
+        try {
+            if (getMutex = mutex.WaitOne(3000)) {
+                using (MemoryMappedFile mmfile = MemoryMappedFile.OpenExisting("SensorAppData"))
+                using (MemoryMappedViewStream stream = mmfile.CreateViewStream()) {
+                    result = (SensorData)serializer.Deserialize(stream);
+                }
+            }
+            catch (Exception ex) {
+                // なにかまずいことが起こった場合、ログに残す
+                Debug.LogError($"exception type: {ex.GetType()} msg: {ex.Message}"); 
+                throw ex;
+            }
+            finally {
+                if (getMutex) mutex.ReleaseMutex();
+            }
+        }
+
+        // データが取得できたので、その位置にオブジェクトを生成する
+        if (data != null) {
+            foreach (var point in data.points) {
+                Vector3 pos = new Vector3(point.x, point.y, 0);
+                GameObject obj = Instantiate&lt;GameObject&gt;(samplePrefab, pos, Quaternion.identity, this.transform);
+            }
+        }
+    }
+}
+

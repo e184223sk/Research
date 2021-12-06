@@ -1,0 +1,62 @@
+
+private HeartRateConnection OH1;
+
+public MainPage()
+{
+    InitializeComponent();
+
+    var mapper = Mappers.Xy&lt;MeasureModel&gt;()
+        .X(model =&gt; DateTime.Now.Ticks)   //X軸の設定　nullなら現在時刻
+        .Y(model =&gt; model.Value);           //Y軸の設定　nullなら0
+
+
+    Charting.For&lt;MeasureModel&gt;(mapper);
+
+
+    ChartValues = new ChartValues&lt;MeasureModel&gt;();
+
+    //軸ラベルの設定
+    DateTimeFormatter = value =&gt; new DateTime((long)(value)).ToString("mm:ss");
+    BPMFormatter = value =&gt; ((long)value).ToString("D");
+
+    //X軸の目盛りの設定
+    AxisStep = TimeSpan.FromSeconds(30).Ticks;
+    SetAxisLimits(DateTime.Now);
+
+    //Y軸の目盛りの設定
+    BPMAxisStep = 10;
+    BPMAxisMax = 150;
+    BPMAxisMin = 50;
+
+
+    DataContext = this;
+
+    //BLE通信
+    OH1 = new HeartRateConnection();
+    OH1.ConnectBLE += ShowGraph;
+    OH1.Start();
+
+
+}
+
+private void ShowGraph(object sender, object e) //BLE通信が確立したときに呼ばれる
+{
+
+    OH1.GetHeartRate += AddPlot;
+}
+private async void AddPlot(object sender, object e) //センサから値を受け取った時に呼ばれる
+{
+    MeasureModel mm = new MeasureModel();
+    mm.DateTime = ((HeartRateEventArgs)e).datetime;
+    mm.Value = ((HeartRateEventArgs)e).heart_rate;
+
+    ChartValues.Add(mm);//ここにプロットされる値が保持されている
+
+
+    SetAxisLimits(((HeartRateEventArgs)e).datetime);    //X軸を更新
+
+    if(ChartValues[0].DateTime.Ticks &lt; AxisMin)
+        ChartValues.RemoveAt(0); 
+
+}
+

@@ -1,0 +1,474 @@
+
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
+using static UnityEngine.InputSystem.Keyboard;
+
+//***************************************************************
+// DefaultPlayer.cs
+//***************************************************************
+// デフォルト設定のプレイヤー
+public class DefaultPlayer : Player
+{ }
+
+//***************************************************************
+// IPlayer.cs
+//***************************************************************
+// プレイヤーに対する操作一覧
+public interface IPlayer
+{
+    // 足が地面についているかどうかを取得
+    public bool isGrounded ();
+    // どちらを見ているかを取得
+    public To direction ();
+    // to方向 に deltaTime秒間 移動する
+    public void move (To to, float deltaTime);
+    // ジャンプ
+    public void jump ();
+    // to方向 に 体を向ける
+    public void turn (To to);
+    // 上方を見る deltaTime秒間
+    public void lookU (float deltaTime);
+    // 左方を見る deltaTime秒間
+    public void lookL (float deltaTime);
+    // 下方を見る deltaTime秒間
+    public void lookD (float deltaTime);
+    // 右方を見る deltaTime秒間
+    public void lookR (float deltaTime);
+}
+
+public enum To
+{
+    // Forward
+    F,
+    // Left
+    L,
+    // Right
+    R,
+    // Back
+    B
+}
+
+//***************************************************************
+// Input.cs
+//***************************************************************
+public interface Input
+{
+    // key for input
+    public KeyControl key ();
+    // start of pushing
+    public void onStart (IPlayer player);
+    // pushing
+    public void onMiddle (IPlayer player, float deltaTime);
+    // end of pushing
+    public void onEnd (IPlayer player);
+}
+
+//***************************************************************
+// Player.cs
+//***************************************************************
+// abstract Player
+public abstract partial class Player : MonoBehaviour
+{
+    // CACHE
+    CharacterController controller;
+    Input[] inputs;
+    float ySpeed = 0;
+    Camera mainCamera;
+    Transform fAnchorTransform;
+    Animator animator; // ToDo: - enable to access animator
+
+    // SETTING
+    virtual public float moveSpeed ()
+    {
+        return 5.0f;
+    }
+    virtual public float jumpHeight ()
+    {
+        return 1.0f;
+    }
+    virtual public float gravity ()
+    {
+        return 9.8f;
+    }
+    virtual public float lookSpeed ()
+    {
+        return 50.0f;
+    }
+    virtual public float height ()
+    {
+        return 1.0f;
+    }
+
+    // keys to input
+    virtual public Input[] keyInputs ()
+    {
+        return new Input[]
+        {
+            new DefaultW (),
+                new DefaultA (),
+                new DefaultS (),
+                new DefaultD (),
+                new DefaultSpace (),
+                new DefaultI (),
+                new DefaultL (),
+                new DefaultJ (),
+                new DefaultK ()
+        };
+    }
+    // anchor object for definition the forward derection
+    virtual public GameObject forwardAnchor ()
+    {
+        return Camera.main.gameObject;
+    }
+
+    /// MonoBehaviour Start()
+    void Start ()
+    {
+        this.controller = this.gameObject.AddComponent&lt;CharacterController&gt; ();
+        this.controller.center = new Vector3 (0, this.height () / 2, 0);
+        this.controller.height = this.height ();
+        this.inputs = this.keyInputs ();
+        this.fAnchorTransform = this.forwardAnchor ().transform;
+        this.mainCamera = Camera.main;
+        this.animator = this.GetComponent&lt;Animator&gt; ();
+    }
+
+    /// MonoBehaviour Update()
+    void Update ()
+    {
+
+        // refresh ySpeed
+        if (this.isGrounded () &amp;&amp; this.ySpeed &lt; 0)
+        {
+            this.ySpeed = 0;
+        }
+        else
+        {
+            this.ySpeed -= this.gravity () * Time.deltaTime;
+        }
+
+        // use gravity
+        var v3 = new Vector3 (0, this.ySpeed, 0);
+        this.controller.Move (v3 * Time.deltaTime);
+
+        // check input
+        foreach (var input in this.inputs)
+        {
+            if (input.key ().wasPressedThisFrame)
+            {
+                input.onStart (this);
+            }
+            if (input.key ().isPressed)
+            {
+                input.onMiddle (this, Time.deltaTime);
+            }
+            if (input.key ().wasReleasedThisFrame)
+            {
+                input.onEnd (this);
+            }
+        }
+    }
+}
+
+//***************************************************************
+// Player+IPlayer.cs
+//***************************************************************
+public abstract partial class Player : IPlayer
+{
+    public bool isGrounded ()
+    {
+        return this.controller.isGrounded;
+    }
+    public To direction ()
+    {
+        var form = this.transform;
+        var diffF = (-(this.fAnchorTransform.forward) - form.forward).sqrMagnitude;
+        var diffL = (this.fAnchorTransform.right - form.forward).sqrMagnitude;
+        var diffB = (this.fAnchorTransform.forward - form.forward).sqrMagnitude;
+        var diffR = (-(this.fAnchorTransform.right) - form.forward).sqrMagnitude;
+        var minDiff = diffF;
+        var minTo = To.F;
+        if (diffL &lt; minDiff)
+        {
+            minDiff = diffL;
+            minTo = To.L;
+        }
+        if (diffB &lt; minDiff)
+        {
+            minDiff = diffB;
+            minTo = To.B;
+        }
+        if (diffR &lt; minDiff)
+        {
+            minDiff = diffR;
+            minTo = To.R;
+        }
+        return minTo;
+    }
+    public void move (To to, float dTime)
+    {
+        var direction = Vector3.zero;
+        switch (to)
+        {
+            case To.F:
+                direction = this.fAnchorTransform.forward;
+                break;
+            case To.L:
+                direction = -(this.fAnchorTransform.right);
+                break;
+            case To.B:
+                direction = -(this.fAnchorTransform.forward);
+                break;
+            case To.R:
+                direction = this.fAnchorTransform.right;
+                break;
+        }
+        var v3 = direction * this.moveSpeed ();
+        this.controller.Move (v3 * dTime);
+    }
+    public void jump ()
+    {
+        if (this.isGrounded ())
+        {
+            this.ySpeed += Mathf.Sqrt (this.jumpHeight () * 3.0f * this.gravity ());
+        }
+    }
+    public void turn (To to)
+    {
+        var direction = Vector3.zero;
+        switch (to)
+        {
+            case To.F:
+                direction = this.fAnchorTransform.forward;
+                break;
+            case To.L:
+                direction = -(this.fAnchorTransform.right);
+                break;
+            case To.B:
+                direction = -(this.fAnchorTransform.forward);
+                break;
+            case To.R:
+                direction = this.fAnchorTransform.right;
+                break;
+        }
+        var v3 = new Vector3 (direction.x, 0, direction.z);
+
+        this.mainCamera.transform.parent = null;
+        this.transform.forward = -(v3);
+        this.mainCamera.transform.parent = this.transform;
+    }
+    public void lookL (float deltaTime)
+    {
+        this.mainCamera.transform.RotateAround (this.transform.position, -(Vector3.up), this.lookSpeed () * deltaTime);
+    }
+    public void lookR (float deltaTime)
+    {
+        this.mainCamera.transform.RotateAround (this.transform.position, Vector3.up, this.lookSpeed () * deltaTime);
+    }
+    public void lookU (float deltaTime)
+    {
+        this.mainCamera.transform.RotateAround (this.transform.position, -(this.fAnchorTransform.right), this.lookSpeed () * deltaTime);
+    }
+    public void lookD (float deltaTime)
+    {
+        this.mainCamera.transform.RotateAround (this.transform.position, this.fAnchorTransform.right, this.lookSpeed () * deltaTime);
+    }
+}
+
+//***************************************************************
+// DefaultW.cs
+//***************************************************************
+// W (default)
+public class DefaultW : Input
+{
+    public KeyControl key ()
+    {
+        return current.wKey;
+    }
+    public void onStart (IPlayer player)
+    {
+        player.turn (To.F);
+    }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.move (To.F, deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    {
+
+    }
+}
+
+//***************************************************************
+// DefaultA.cs
+//***************************************************************
+// A (default)
+public class DefaultA : Input
+{
+    public KeyControl key ()
+    {
+        return current.aKey;
+    }
+    public void onStart (IPlayer player)
+    {
+        player.turn (To.L);
+    }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.move (To.L, deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    {
+
+    }
+}
+
+//***************************************************************
+// DefaultS.cs
+//***************************************************************
+// S (default)
+public class DefaultS : Input
+{
+    public KeyControl key ()
+    {
+        return current.sKey;
+    }
+    public void onStart (IPlayer player)
+    {
+        player.turn (To.B);
+    }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.move (To.B, deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultD.cs
+//***************************************************************
+// D (default)
+public class DefaultD : Input
+{
+    public KeyControl key ()
+    {
+        return current.dKey;
+    }
+    public void onStart (IPlayer player)
+    {
+        player.turn (To.R);
+    }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.move (To.R, deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultSpace.cs
+//***************************************************************
+// Space (default)
+public class DefaultSpace : Input
+{
+    public KeyControl key ()
+    {
+        return current.spaceKey;
+    }
+    public void onStart (IPlayer player)
+    {
+        player.jump ();
+    }
+    public void onMiddle (IPlayer player, float deltaTime)
+    { }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultI.cs
+//***************************************************************
+// I (default)
+public class DefaultI : Input
+{
+    public KeyControl key ()
+    {
+        return current.iKey;
+    }
+    public void onStart (IPlayer player)
+    { }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.lookU (deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultK.cs
+//***************************************************************
+// K (default)
+public class DefaultK : Input
+{
+    public KeyControl key ()
+    {
+        return current.kKey;
+    }
+    public void onStart (IPlayer player)
+    { }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.lookD (deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultL.cs
+//***************************************************************
+// L (default)
+public class DefaultL : Input
+{
+    public KeyControl key ()
+    {
+        return current.lKey;
+    }
+    public void onStart (IPlayer player)
+    { }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.lookR (deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+//***************************************************************
+// DefaultJ.cs
+//***************************************************************
+// J (default)
+public class DefaultJ : Input
+{
+    public KeyControl key ()
+    {
+        return current.jKey;
+    }
+    public void onStart (IPlayer player)
+    { }
+    public void onMiddle (IPlayer player, float deltaTime)
+    {
+        player.lookL (deltaTime);
+    }
+    public void onEnd (IPlayer player)
+    { }
+}
+
+

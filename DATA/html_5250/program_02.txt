@@ -1,0 +1,81 @@
+
+// usingは省略
+
+namespace DotNetKafkaExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("please input bootstrap servers.");
+
+            var bootstrapServers = Console.ReadLine();
+
+            // Taskキャンセルトークン
+            var tokenSource = new CancellationTokenSource();
+
+            Console.WriteLine($"start .Net Kafka Example. Ctl+C to exit");
+
+            // コンシューマータスク
+            var cTask = Task.Run(() =&gt; new Action&lt;string, CancellationToken&gt;((bs, cancel) =&gt;
+            {
+                var cf = new Dictionary&lt;string, object&gt; {
+                    { "bootstrap.servers", bs },
+                    { "group.id", "test" },
+                    { "enable.auto.commit", false },
+                    { "default.topic.config", new Dictionary&lt;string, object&gt;()
+                        {
+                            { "auto.offset.reset", "earliest" }
+                        }
+                    }
+                };
+
+                using (var consumer = new Consumer&lt;string, string&gt;(cf, new StringDeserializer(Encoding.UTF8), new StringDeserializer(Encoding.UTF8)))
+                {
+                    consumer.OnError += (_, error) =&gt; Console.WriteLine($"consumer error. reason: {error.Reason}");
+
+                    consumer.OnConsumeError += (_, error) =&gt; Console.WriteLine($"fail consume. reason: {error.Error}");
+
+                    consumer.OnPartitionsAssigned += (_, partitions) =&gt; consumer.Assign(partitions);
+
+                    consumer.OnPartitionsRevoked += (_, partitions) =&gt; consumer.Unassign();
+
+                    consumer.Subscribe("test.C");
+
+                    while (true)
+                    {
+                        if (cancel.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        Message&lt;string, string&gt; msg;
+                        if (!consumer.Consume(out msg, TimeSpan.FromMilliseconds(100)))
+                        {
+                            continue;
+                        }
+
+                        var cm = JsonConvert.DeserializeObject&lt;ConsumedMessage&gt;(msg.Value);
+                        Console.WriteLine($"success consumed. message: {cm.Message}, timestamp: {cm.Timestamp}");
+
+                        consumer.CommitAsync(msg);
+                    }
+                }
+            })(bootstrapServers, tokenSource.Token), tokenSource.Token);
+
+            // Ctl+C待機
+            Console.CancelKeyPress += (_, e) =&gt;
+            {
+                e.Cancel = true;
+                tokenSource.Cancel(); // Taskキャンセル
+            };
+
+            Task.WaitAll(pTask, cTask);
+
+            Console.WriteLine("stop .Net Kafka Example. press any key to close.");
+
+            Console.ReadKey();
+        }
+    }
+}
+

@@ -1,0 +1,40 @@
+
+public void ConfigureServices(IServiceCollection services)
+{
+    services.AddControllersWithViews();
+
+    services.AddAuthentication(options =&gt;
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+    })
+    .AddCookie()
+    .AddOpenIdConnect(async options =&gt;
+    {
+        options.ClientId = "ServiceID をいれます";
+        options.CallbackPath = "/signin-apple";
+        options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.ResponseType = OpenIdConnectResponseType.Code;
+        options.Scope.Clear();
+
+        options.Configuration = new OpenIdConnectConfiguration
+        {
+            AuthorizationEndpoint = "https://appleid.apple.com/auth/authorize",
+            TokenEndpoint = "https://appleid.apple.com/auth/token",
+        };
+
+        options.Events.OnAuthorizationCodeReceived = context =&gt;
+        {
+            context.TokenEndpointRequest.ClientSecret = TokenGenerator.CreateNewToken();
+            return Task.CompletedTask;
+        };
+
+        options.TokenValidationParameters.ValidIssuer = "https://appleid.apple.com";
+
+        var jwks = await new HttpClient().GetStringAsync("https://appleid.apple.com/auth/keys");
+        options.TokenValidationParameters.IssuerSigningKeys = new JsonWebKeySet(jwks).Keys;
+
+        options.ProtocolValidator.RequireNonce = false;
+    });
+}
+

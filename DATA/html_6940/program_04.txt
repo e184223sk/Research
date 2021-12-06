@@ -1,0 +1,106 @@
+
+/// &lt;summary&gt;
+/// カット面を埋める
+/// &lt;/summary&gt;
+/// &lt;param name="vertices"&gt;ポリゴンを形成する頂点リスト&lt;/param&gt;
+static void FillCap(List&lt;Vector3&gt; vertices)
+{
+    // center of the cap
+    // カット平面の中心点を計算する
+    Vector3 center = Vector3.zero;
+
+    // 引数で渡された頂点位置をすべて合計する
+    foreach(Vector3 point in vertices)
+    {
+        center += point;
+    }
+
+    // それを頂点数の合計で割り、中心とする
+    center = center / vertices.Count;
+
+    // you need an axis based on the cap
+    // カット平面をベースにしたupward
+    Vector3 upward = Vector3.zero;
+
+    // 90 degree turn
+    // カット平面の法線を利用して、「上」方向を求める
+    // 具体的には、平面の左側を上として利用する
+    upward.x =  blade.normal.y;
+    upward.y = -blade.normal.x;
+    upward.z =  blade.normal.z;
+
+    // 法線と「上方向」から、横軸を算出
+    Vector3 left = Vector3.Cross(blade.normal, upward);
+
+    Vector3 displacement = Vector3.zero;
+    Vector3 newUV1 = Vector3.zero;
+    Vector3 newUV2 = Vector3.zero;
+
+    // 引数で与えられた頂点分ループを回す
+    for (int i = 0; i &lt; vertices.Count; i++)
+    {
+        // 計算で求めた中心点から、各頂点への方向ベクトル
+        displacement = vertices[i] - center;
+
+        // 新規生成するポリゴンのUV座標を求める。
+        // displacementが中心からのベクトルのため、UV的な中心である0.5をベースに、内積を使ってUVの最終的な位置を得る
+        newUV1 = Vector3.zero;
+        newUV1.x = 0.5f + Vector3.Dot(displacement, left);
+        newUV1.y = 0.5f + Vector3.Dot(displacement, upward);
+        newUV1.z = 0.5f + Vector3.Dot(displacement, blade.normal);
+
+        // 次の頂点。ただし、最後の頂点の次は最初の頂点を利用するため、若干トリッキーな指定方法をしている（% vertices.Count）
+        displacement = vertices[(i + 1) % vertices.Count] - center;
+
+        newUV2 = Vector3.zero;
+        newUV2.x = 0.5f + Vector3.Dot(displacement, left);
+        newUV2.y = 0.5f + Vector3.Dot(displacement, upward);
+        newUV2.z = 0.5f + Vector3.Dot(displacement, blade.normal);
+
+        // uvs.Add(new Vector2(relativePosition.x, relativePosition.y));
+        // normals.Add(blade.normal);
+
+        // 左側のポリゴンとして、求めたUVを利用してトライアングルを追加
+        left_side.AddTriangle(
+            new Vector3[]{
+                vertices[i],
+                vertices[(i + 1) % vertices.Count],
+                center
+            },
+            new Vector3[]{
+                -blade.normal,
+                -blade.normal,
+                -blade.normal
+            },
+            new Vector2[]{
+                newUV1,
+                newUV2,
+                new Vector2(0.5f, 0.5f)
+            },
+            -blade.normal,
+            left_side.subIndices.Count - 1 // カット面。最後のサブメッシュとしてトライアングルを追加
+        );
+
+        // 右側のトライアングル。基本は左側と同じだが、法線だけ逆向き。
+        right_side.AddTriangle(
+            new Vector3[]{
+                vertices[i],
+                vertices[(i + 1) % vertices.Count],
+                center
+            },
+            new Vector3[]{
+                blade.normal,
+                blade.normal,
+                blade.normal
+            },
+            new Vector2[]{
+                newUV1,
+                newUV2,
+                new Vector2(0.5f, 0.5f)
+            },
+            blade.normal,
+            right_side.subIndices.Count - 1 // カット面。最後のサブメッシュとしてトライアングルを追加
+        );
+    }
+}
+

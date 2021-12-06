@@ -1,0 +1,479 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Net.Http.Headers;
+using System.Collections.Generic;
+using System.Web.Http;
+using System.Net;
+using System.Net.Http;
+using Newtonsoft.Json;
+using ***.WebApi.Model;
+using ***.WebApi.Common;
+using System.Threading.Tasks;
+
+namespace ***.WebApi.Controller
+{
+    #region *** Jsonデータ保持用Publicクラス ***
+
+    public class CodeNameObject
+    {
+        public string Code = null;
+        public string Name = null;
+    }
+
+    /// &lt;summary&gt;
+    /// Httpリクエスト情報保持クラス
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;RequestKey型&lt;/typeparam&gt;
+    public class ModelRequest&lt;T&gt; where T : BaseApiController.BaseRequestKeys
+    {
+        public T data;
+        public string token = "";
+    }
+
+    /// &lt;summary&gt;
+    /// Httpレスポンス情報保持クラス
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;ResponseKey型&lt;/typeparam&gt;
+    public class ModelResponse&lt;T&gt; where T : BaseApiController.BaseResponseKeys
+    {
+        public string resultCode = Common.resultCode.Error_Fatal;
+        public object validationMessage = null;
+        public T data;
+        public string message = CommonStrings.DataBase.Fatal.NeverSetMessage;
+        public string token = "";
+    }
+
+    #endregion
+
+    #region *** BaseApiControllerクラス ***
+
+    /// &lt;summary&gt;
+    /// /WebAPI用の基底クラスです。
+    /// &lt;/summary&gt;
+#if !DEBUG
+    [Authorize]
+#endif
+    public abstract class BaseApiController : ApiController
+    {
+        #region *** 内部変数 ***
+
+        /// &lt;summary&gt;
+        /// DBエンティティモデルクラス
+        /// &lt;/summary&gt;
+        protected static ***Entities db;
+
+        /// &lt;summary&gt;
+        ///  ロガー設定クラス
+        /// &lt;/summary&gt;
+        protected static NLog.Logger logger;
+
+        private object _ResponseData;
+
+        #endregion
+
+        #region *** プロパティ ***
+
+        protected object ResponseData
+        {
+            get { return _ResponseData; }
+        }
+
+        #endregion
+
+        #region *** 基底クラス ***
+
+        /// &lt;summary&gt;
+        /// Httpリクエスト展開用基底クラス
+        /// &lt;/summary&gt;
+        public abstract class BaseRequestKeys
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// Httpレスポンス展開用基底クラス
+        /// &lt;/summary&gt;
+        public abstract class BaseResponseKeys
+        {
+        }
+
+        #endregion
+
+        #region *** コンストラクタ ***
+
+        protected BaseApiController()
+        {
+            if (db == null)
+            {
+                db = new ***Entities();
+                db.Configuration.LazyLoadingEnabled = false;    // 遅延書き込み禁止
+                db.Configuration.ProxyCreationEnabled = false;  // 動的プロキシ禁止
+            }
+
+            if (logger == null)
+            {
+                logger = NLog.LogManager.GetCurrentClassLogger();
+            }
+        }
+
+        #endregion
+
+        #region *** protected メソッド ***
+
+        #region *** Json変換メソッド ***
+
+        /// &lt;summary&gt;
+        /// エンティティクラスをHttpResponceのJsonデータに変換します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="obj"&gt;変換元データ&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected HttpResponseMessage SerializeJson(dynamic obj)
+        {
+            var response = Request.CreateResponse(HttpStatusCode.OK);
+            response.Content = new StringContent(JsonConvert.SerializeObject(obj), Encoding.UTF8, "application/json");
+            return response;
+        }
+
+        /// &lt;summary&gt;
+        /// HttpリクエストのJsonデータをエンティティクラスに変換します。
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="request"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected dynamic DeserializeJson&lt;T&gt;(HttpRequestMessage request) where T : BaseRequestKeys
+        {
+            string jsonString = request.Content.ReadAsStringAsync().Result;
+            return JsonConvert.DeserializeObject&lt;ModelRequest&lt;T&gt;&gt;(jsonString); ;
+        }
+
+        #endregion
+
+        #region *** 認証用 ***
+
+        /// &lt;summary&gt;
+        /// ワンタイムトークンを発行します
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected string GenerateToken()
+        {
+            return "";
+        }
+
+        /// &lt;summary&gt;
+        /// トークンが正規であるか否かを判定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="token"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected bool IsAuthrizeToken(string token)
+        {
+            return true;
+        }
+
+        #endregion
+
+        #region *** ユーリティ関数 ***
+        /// &lt;summary&gt;
+        /// 空の配列を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected System.Collections.Generic.List&lt;string&gt; GetBlank()
+        {
+            return new List&lt;string&gt;();
+        }
+
+        protected ModelResponse&lt;T&gt; InitializeResponseKey&lt;T&gt;() where T:BaseResponseKeys, new()
+        {
+            ModelResponse&lt;T&gt; ret = new ModelResponse&lt;T&gt;();
+            ret.data = new T();
+            return ret;
+        }
+
+        #endregion
+
+
+        #region *** 実処理 ***
+
+        /// &lt;summary&gt;
+        /// Httpレスポンスデータを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T1"&gt;ResponseKeyクラス&lt;/typeparam&gt;
+        /// &lt;typeparam name="T2"&gt;RequestKeyクラス&lt;/typeparam&gt;
+        /// &lt;param name="request"&gt;Httpリクエストデータ&lt;/param&gt;
+        /// &lt;returns&gt;Httpレスポンスデータ&lt;/returns&gt;
+        /// &lt;remarks&gt;トランザクションは使用しません。使用する場合はオーバーロードの第二引数にtrueを設定してください。&lt;/remarks&gt;
+        protected Task AsyncCreateResponseData&lt;T1, T2&gt;(HttpRequestMessage request) where T1 : BaseResponseKeys where T2 : BaseRequestKeys
+        {
+            return Task.Run(() =&gt;
+            {
+                _ResponseData = CreateResponseData&lt;T1, T2&gt;(request, false);
+            });
+        }
+
+        /// &lt;summary&gt;
+        /// Httpレスポンスデータを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T1"&gt;ResponseKeyクラス&lt;/typeparam&gt;
+        /// &lt;typeparam name="T2"&gt;RequestKeyクラス&lt;/typeparam&gt;
+        /// &lt;param name="request"&gt;Httpリクエストデータ&lt;/param&gt;
+        /// &lt;param name="IsUseTransaction"&gt;true:トランザクション使用 false:トランザクション不使用&lt;/param&gt;
+        /// &lt;returns&gt;Httpレスポンスデータ&lt;/returns&gt;
+        protected Task AsyncCreateResponseData&lt;T1, T2&gt;(HttpRequestMessage request, bool IsUseTransaction) where T1 : BaseResponseKeys where T2 : BaseRequestKeys
+        {
+            return Task.Run(() =&gt;
+            {
+                _ResponseData = CreateResponseData&lt;T1, T2&gt;(request, IsUseTransaction);
+            });
+        }
+
+        /// &lt;summary&gt;
+        /// Httpレスポンスデータを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T1"&gt;ResponseKeyクラス&lt;/typeparam&gt;
+        /// &lt;typeparam name="T2"&gt;RequestKeyクラス&lt;/typeparam&gt;
+        /// &lt;param name="request"&gt;Httpリクエストデータ&lt;/param&gt;
+        /// &lt;param name="IsUseTransaction"&gt;true:トランザクション使用 false:トランザクション不使用&lt;/param&gt;
+        /// &lt;returns&gt;Httpレスポンスデータ&lt;/returns&gt;
+        private ModelResponse&lt;T1&gt; CreateResponseData&lt;T1, T2&gt;(HttpRequestMessage request, bool IsUseTransaction)
+            where T1 : BaseResponseKeys
+            where T2 : BaseRequestKeys
+        {
+            // 戻り値生成
+            ModelResponse&lt;T1&gt; ret = new ModelResponse&lt;T1&gt;();
+
+            // トークンの設定
+            ret.token = this.GenerateToken();
+
+            //検索用パラメータの取得
+            ModelRequest&lt;T2&gt; req = (ModelRequest&lt;T2&gt;)DeserializeJson&lt;T2&gt;(request);
+
+            try
+            {
+                // 検証
+                if(req != null){
+                    object Checker = null;
+                    ret.message = CheckValidate(req.data, out Checker);
+
+                    if (ret.message != string.Empty)
+                    {
+                        // 検証失敗時
+                        ret.resultCode = resultCode.Select_WithInfo;
+                        ret = (ModelResponse&lt;T1&gt;)Checker;
+                        return ret;
+                    }
+                }
+
+                // 処理実行
+                {
+                    object Records = null;
+                    int ResultCodeOrSelectCount = 0;
+
+                    // トランザクションを使用する場合
+                    if (IsUseTransaction)
+                    {
+                        using (var tran = db.Database.BeginTransaction())
+                        {
+                            try
+                            {
+                                ResultCodeOrSelectCount = Execute(req.data, out Records);
+
+                                // 更新実行
+                                if (this.SaveChanges())
+                                {
+                                    //更新正常終了
+                                    tran.Commit();
+                                    ResultCodeOrSelectCount = DBParameters.ResultCode.UpdateSuccess;
+                                }
+                                else
+                                {
+                                    //更新失敗(検証失敗、検証以外は例外をスロー)
+                                    tran.Rollback();
+                                    ResultCodeOrSelectCount = DBParameters.ResultCode.UpdateValidateError;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                // 検証以外の例外時は例外を再スロー
+                                tran.Rollback();
+                                throw ex;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ResultCodeOrSelectCount = Execute(req.data, out Records);
+                    }
+                    // 取得レコードが存在する場合、レスポンスデータに設定
+                    if (Records != null)
+                    {
+                        logger.Info("");
+                        ret = (ModelResponse&lt;T1&gt;)Records;
+                    }
+
+                    // 戻り値の設定
+                    {
+                        // 返却メッセージ初期化
+                        ret.message = CommonStrings.DataBase.EmptyMessage;
+
+                        // 戻り値によって返却値、メッセージを設定
+                        switch (ResultCodeOrSelectCount)
+                        {
+                            case DBParameters.Parameter.SelectMin:
+                                ret.resultCode = resultCode.Select_NotFoundResult;
+                                ret.message = CommonStrings.DataBase.Warning.Select_RecordNotExist;
+                                break;
+
+                            case DBParameters.Parameter.SelectMax:
+                                ret.resultCode = resultCode.Select_WithInfo;
+                                ret.message = CommonStrings.DataBase.Question.Select_OverRecords;
+                                break;
+
+                            case DBParameters.ResultCode.UpdateSuccess:
+                                ret.resultCode = resultCode.Update_Success;
+                                break;
+
+                            case DBParameters.ResultCode.UpdateValidateError:
+                                ret.resultCode = resultCode.Update_WithWarinig;
+                                break;
+
+                            default:
+                                ret.resultCode = resultCode.Select_Success;
+                                break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Fatal(ex.Message);
+                ret.resultCode = resultCode.Error_Fatal;
+                ret.message = ex.Message;
+            }
+
+            return ret;
+        }
+
+        #endregion
+
+        #region *** DB更新 ***
+
+        /// &lt;summary&gt;
+        /// EntityFrameworkの更新情報を確定します。
+        /// &lt;/summary&gt;
+        protected bool SaveChanges()
+        {
+            bool ret = false;
+
+            try
+            {
+                //db.Configuration.ValidateOnSaveEnabled = false;
+                db.SaveChanges();
+                return true;
+            }
+            catch (System.Data.Entity.Infrastructure.DbUpdateConcurrencyException ex)
+            {
+                // オプティミスティック同時実行制御違反
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+            catch (System.Data.Entity.Infrastructure.DbUpdateException ex)
+            {
+                // データベースへの更新送信エラー
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+            catch (System.Data.Entity.Validation.DbEntityValidationException ex)
+            {
+                // エンティティ検証エラー
+                foreach (var errors in ex.EntityValidationErrors)
+                {
+                    foreach (var error in errors.ValidationErrors)
+                    {
+                        //ログ出力
+                        logger.Fatal(error.ErrorMessage);
+                    }
+                }
+            }
+            catch (NotSupportedException ex)
+            {
+                // 非サポートコマンド実施
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+            catch (ObjectDisposedException ex)
+            {
+                // コンテキスト破棄エラー
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+            catch (InvalidOperationException ex)
+            {
+                // コマンド送信時コンテキスト内部処理エラー
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+            catch (Exception ex)
+            {
+                logger.Fatal(ex.Message);
+                throw ex;
+            }
+
+            logger.Fatal(System.Reflection.MethodBase.GetCurrentMethod().Name);
+
+            return ret;
+        }
+
+        #endregion
+
+        #region *** Pdf返却 ***
+
+        /// &lt;summary&gt;
+        /// Pdfを作成、ストリームとして返却します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="openFilePath"&gt;&lt;/param&gt;
+        /// &lt;param name="returnFileName"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected HttpResponseMessage GetHttpResponseMessageByPdf(string openFilePath, string returnFileName)
+        {
+            // 作成したファイルをストリーム送信用に変換
+            HttpResponseMessage result = Request.CreateResponse(HttpStatusCode.OK);
+            result.Content = new StreamContent(new FileStream(openFilePath, FileMode.Open));
+            result.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment");
+            result.Content.Headers.ContentDisposition.FileName = returnFileName;
+
+            return result;
+        }
+
+        #endregion
+
+        #endregion
+
+        #region*** 抽象メソッド ***
+
+        /// &lt;summary&gt;
+        /// 入力値の検証結果を取得します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="objRequestKeys"&gt;検索条件&lt;/param&gt;
+        /// &lt;param name="objRecords"&gt;(out)検索結果&lt;/param&gt;
+        /// &lt;returns&gt;空文字:検証OK 空文字以外:異常内容の説明文字列&lt;/returns&gt;
+        /// &lt;remarks&gt;検証が必要な場合のみオーバーライドして定義されます。&lt;/remarks&gt;
+        protected virtual string CheckValidate(object RequestKeys, out object records)
+        {
+            records = null;
+            return string.Empty;
+        }
+
+        /// &lt;summary&gt;
+        /// 要求された処理を実行します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="objRequestKeys"&gt;検索条件&lt;/param&gt;
+        /// &lt;param name="objRecords"&gt;(out)検索結果&lt;/param&gt;
+        /// &lt;returns&gt;処理結果 検索時:レコード件数 / 更新時処理:結果&lt;/returns&gt;
+        protected abstract int Execute(object objRequestKeys, out object records);
+
+        #endregion
+    }
+
+    #endregion
+}
+

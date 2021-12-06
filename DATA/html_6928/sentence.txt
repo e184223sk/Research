@@ -1,0 +1,70 @@
+記憶力の悪い自分のために、C# における非同期処理の書き方を記述しておきたいと思います。
+専門家ではないので、不出来な内容でもあしからず。皆さんおなじみの、非同期操作を表すクラスです。
+生成および実行の方法が何通りかあります。次のようにして Task を生成、実行します。上記コードは、下記と同じ意味のようです。TaskCreationOptions については、次節で触れます。
+TaskScheduler.Default は、ThreadPool を使用してスケジューリングするという意味になります。StartNew より記述が短いですね。上記コードは、下記と同じ意味です。前節の StartNew との違いは、第 3 引数の TaskCreationOptions.DenyChildAttach の部分です。
+Run は子スレッドに親へのアタッチを禁止します。
+前節の StartNew は禁止しません。
+親スレッドへのアタッチは、StartNew メソッドに TaskCreationOptions.AttachedToParent を指定することで実現できます。実際の動作を比較してみましょう。StartNew の場合。Run の場合。Run の場合は、子スレッドの終了を待たずに親スレッドが終了していることがわかります。
+Run の子スレッドは親にアタッチできていないということですね。コンストラクタから生成する場合です。
+Start メソッドで起動されます。この場合、Task は TaskScheduler.Current というものを使用してスケジューリングされます。TaskScheduler について少し見てみましょう。
+TaskScheduler は、Task の実行を管理する役割を持つクラスです。
+現在の TaskScheduler オブジェクトは、TaskScheduler.Current によって取得できます。
+既定では、TaskScheduler.Default という、ThreadPool を使ってスケジューリングするものが設定されています。Task.Factory.StartNew の他、前節の Start メソッドにも TaskScheduler を指定することが可能です。下記は、TaskScheduler.Current の値を調べるサンプルです。TaskScheduler.FromCurrentSynchronizationContext() により、現在の SynchronizationContext をもとにスケジューリングを行なう TaskScheduler を生成できます。
+SynchronizationContext については、async / await の章で述べます。Task#IsCompleted となった Task は、Task#Status が次のいずれかに落ち着きます。正常終了した際、Task が Generic 型であれば、処理結果の戻り値を Task#Result により取得できます。
+同様に、例外発生で完了した Task であれば、Task#Exception から例外を取得できます。
+キャンセルを発生させる場合については次節で見てみることにしましょう。なお、完了済み Task を以下のようにして取得することが可能です。また、指定ミリ秒後に正常終了する Task を Task.Delay により取得できます。Task のキャンセルには、CancellationToken を使用します。
+CancellationToken は、まず CancellationTokenSource を生成した上で、CancellationTokenSource#Token より取得します。キャンセルを要求するには CancellationTokenSource#Cancel を呼びます。
+Task 内でキャンセル要求を受理するには、CancellationToken#ThrowIfCancellationRequested メソッドを呼び、キャンセル要求を受信している場合に OperationCanceledException 例外を発生させることで Task を終了させます。
+Task は、OperationCanceledExceptionを確認すると、Task をキャンセル状態に移行させます。
+このとき、Task#Wait、Task&lt;T&gt;#Result、await などの操作を行なうと、TaskCanceledException をラップした AggregateException が発生します。また、Task 開始前に CancellationTokenSource#Cancel が呼ばれた場合、Task が開始と同時に終了するようにするために、Task.Run などの引数として CancellationToken を渡しておきましょう。実際の例です。Task#Wait を呼ぶと、現在のスレッドをブロックして Task の完了を待ちます。Task.WaitAll は、渡された Task 配列に格納された全ての Task が完了するまで、現在のスレッドをブロックします。Task.WaitAny は、全てではなくどれか 1 つの Task の完了を待ちます。Task#WaitXX は現在のスレッドをブロックして Task の完了を待ちますが、対して Task#WhenXX は、渡された複数の Task が完了するのを待つ Task を生成します。
+複数の Task を 1 つにまとめる感じですね。
+Task#WhenAll は全ての Task を、Task#WhenAny はどれか 1 つの Task を待ちます。ここで使用している Enumerable.ForEach は、System.Interactive のものです。Task#ContinueWith は、自身の Task に付加される継続 Task を生成します。
+返される Task は、元の Task 完了後に継続 Task が実行される Task です。ContinueWith の引数に指定するデリゲートには、元の Task が渡されます。継続 Task は、元の Task と同じスレッドになるとは限らないことに注意してください。
+ここでも TaskScheduler が使用されています。
+既定では TaskScheduler.Default が使われます。
+また、TaskScheduler を使用せず、元の Task と同じスレッドで継続 Task を実行するには、TaskContinuationOptions.ExecuteSynchronously を指定します。この TaskContinuationOptions ですが、指定することで、条件によって継続 Task を実行するかどうかを決めることができます。
+以下に例を示します。TaskCompletionSource は、何らかの結果を返す外部の（非同期）処理に対し、Task によるアクセスを提供します。
+非同期処理を記述する側と、非同期処理の結果を取得する側を、Task によって仲介する感じですね。非同期処理の結果を取得する側では、TaskCompletionSource#Task で Task を取得し、この Task を使って待機したり結果を得たりすることができます。非同期処理を記述する側では、以下のメソッドを使用して、TaskCompletionSource に結果を通知します。下記のコードは、ThreadPool により生成したスレッドへのアクセスを TaskCompletionSource によって管理している例です。async メソッドは、最初の await に達すると制御を返します。await でメソッドが返るため、呼び出し側のメソッドと待機した Task が非同期に実行されている、という状況が生まれます。次は、await が実行されたとき、および await 実行後に、各処理がどのスレッドで動作しているか見てみましょう。
+スレッド ID を表示させてみます。コンソールアプリケーションとして実行したところ、このような結果になりました。最初は 9 というスレッドで実行されており、その後の Task.Run で生成された Task は 6 というスレッドになっています。
+ここまでは普通ですね。
+しかし、await から復帰した部分のスレッドが 9 ではなく 6 になっています。
+元のスレッドに戻らず、Task のスレッドが使いまわされていますね。では、GUI アプリケーションとして同様の処理を実行したらどうなるでしょう？今度は先程とは対照的に、await 後の処理が最初と同じスレッドで実行されていることがわかります。
+この現象には、SynchronizationContext というものが関係しています。SynchronizationContext は、await から復帰するタイミングなど、スレッドが同期をとる際に必要となるコンテキストです。コンソールアプリケーションでは、SynchronizationContext.Current が null になっています。
+この場合、スレッドは ThreadPool から割り当てられます。
+よって、どのスレッドで実行されるかは特に保証がありません。
+前述の例で、元のスレッドに復帰できなかったのは、SynchronizationContext.Current が復帰のための知識を有していなかったのが理由です。一方で、GUI アプリケーションでは、SynchronizationContext.Current に同期コンテキストが設定されています。Windows Forms の場合、同期コンテキストには System.Windows.Forms.WindowsFormsSynchronizationContext が設定されます。
+WPF の場合、System.Windows.Threading.DispatcherSynchronizationContext が設定されます。
+UWP の場合、System.Threading.WinRTSynchronizationContext が設定されます。これらの同期コンテキストが、await から復帰するための情報を持っています。
+従って、GUI アプリケーションの場合は、前述の例の通り await 後に元のスレッドへと復帰することができるのです。Task.Yield メソッドを await することにより、async メソッドは制御を返し、await 自体は即座に待機を終了して同期コンテキストにより復帰する、という処理を記述することが可能です。参考 : http://ufcpp.net/study/csharp/sp5_awaitable.html
+上記ページによると、await は以下のように動作しているそうです。ポイントはこの部分です。
+awaiter.OnCompleted(a);
+a というのは、await が記述されているメソッド自身です。
+Task が未完のとき、自身のメソッドが OnCompleted(a) により、継続として登録されます。
+すると、Task が完了した際に自身のメソッドが再度呼び出されますが、このときには状態 state が State1 変化しており、case State1: から処理が再開されるというわけです。並列処理を簡単に行なう方法として、System.Threading.Tasks.Parallel と Parallel LINQ があります。Parallel.For は、for 文のような繰り返し処理の各ループを並列に実行することができます。for 文というと break を使うことがあると思います。
+Parallel.For でも Break を使うことは可能です。
+下記のようにします。state は ParalellLoopState 型で、Break を呼び出すことにより、Parallel.For をできるだけ早く終了させるようにします。
+result は ParallelLoopResult 型で、IsComplete でループが全て完了したか途中で中断したかを取得できます。紹介しませんが、foreach を並列処理する Parallel.ForEach もあります。
+また、複数の Action を並列実行する Parallel.Invoke もあります。みんな大好き LINQ の並列実行版です。
+AsParallel メソッドを挟むだけで並列化されます。これですと、当然順序がバラバラになります。
+順序を保持したいときは、AsOrdered メソッドを挟みます。非同期から同期処理に切り替えるには、AsSequential メソッドを挟みます。基本型の簡単な演算をスレッドセーフに行なえます。
+以下のようなメソッドがあります。ThreadLocal クラスは、各スレッドに対してローカルなストレージを提供します。
+コンストラクタに Func を渡すと、その戻り値が ThreadLocal#Value を遅延初期化します。
+また、コンストラクタに true を渡すと、全ローカル値の一覧である ThreadLocal#Values を取得できるようになります。
+以下のように使います。一方 AsyncLocal クラスは、現在のスレッドが await から復帰する際、スレッド ID が変化してしまっても同一スレッドとみなし、ストレージにアクセスできるようにしたものです。
+以下に例を示します。スレッド ID が変化しても値が保持されていることがわかります。所有権を持つスレッドだけが処理を実行し、他のスレッドは Mutex を所有できるまで待機する、といった動作を可能にします。
+プロセス間の同期にも使えます。
+Mutex#WaitOne により、Mutex を取得、または取得できるまで待機します。全ての参加スレッドが信号を発信するまで、参加スレッドが待機する、という動作を可能にします。
+コンストラクタで参加者数を設定しておきます。
+そして Barrier#SignalAndWait により、信号を発信して待機します。保持しているカウント値が 0 になるまで待機する動作を可能にします。
+コンストラクタでカウント値を与え、CountdownEvent#Signal によりカウントをデクリメントします。Mutex に似ていますが、こちらは同時に複数のスレッドが動作できる点が異なります。
+コンストラクタで動作可能なスレッドの数を指定します。
+現在の動作可能スレッド数は、CurrentCount で取得できます。
+Wait または WaitAsync を呼び出すと、CurrentCount が 0 なら待機し、0 でなくなったら CurrentCount をデクリメントして待機を抜けます。
+Release メソッドは、一度に複数のカウントをリリースできます。信号が Set 状態であれば待機せず、Reset 状態であれば待機するという動作を可能にします。
+信号の設定は Set および Reset メソッドを使用します。
+複数のスレッドを交互に動かす、などができます。データベースのような読み取り・書き込み用ロックを実現できます。
+読み取りは EnterReadLock および ExitReadLock、書き込みは EnterWriteLock および ExitWriteLock です。System.Threading.Tasks.Dataflow については、不勉強のため今回は紹介を見送りました。
+また、System.Reactive でも非同期に関する面白い機能がありますが、今回は割愛です。
+長々と失礼しました。
+
+

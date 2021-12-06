@@ -1,0 +1,1605 @@
+自分で型を定義した時、可能な限り定義済みの型と同じように扱えるのが理想です。
+一方で余りに自由過ぎればユーザーが混乱しかねません。
+よく比較されるJavaに対してC#はその点で比較的自由寄りで、ユーザー定義の値型であるstruct、そして演算子のオーバーロードという機能があります。演算子のオーバーロードとは単純に演算子、つまり+とか*とか&gt;とか==とかを自分で定義できる機能です。
+結構楽しい機能なんですが、あまり利用シーンがありません。
+ですから、今回はちょっと遊んでみよう、そういう企画です。同時公開の記事「【逆アセ】 C#でlongに代入してみる 」もどうぞ。
+間に合わなければこっちが今日のアドベントカレンダーネタでした。ちなみにこの時期ですが.NET 5とは何の関係もありません。ちょっとSourceGeneratorは使っています。遊ぶ前に「演算子のオーバーロード」について簡単に解説します。
+最低限の解説に加えて今回気になった点も少し触れます。C#における演算子のオーバーロードについてはいくつか素晴らしい記事があり、私自身そうした記事から学びました。
+詳しく知りたい方は以下の記事などを参照してください。
+知っている方はこの章をスキップしてください。演算子のオーバーロードは以下の形式で書きます。演算子には単項演算子と2項演算子があります。これらの引数の少なくとも一つは演算子の宣言が含まれる型でなければいけません。戻り値はその制限はありません。現時点で、演算子オーバーロードはジェネリックメソッドとしては使えません。演算子オーバーロードはstaticですから、interfaceでは判断できません。組み込み型の場合、リフレクションを使っても判断できません。
+これは組み込み型の場合は専用命令に変換されることがあるからのようです。オーバーロード可/不可な演算子をMicrosoft Docsから借りて示します。気になるのはtrueとfalse、コンパクトな書き方ができる++と--でしょうか。演算子のオーバーロードが可能ということは以下も意味します。よく言われるのは、value == nullのようなコードは前者がnullでなくともtrueになる事があり得る、ということです(「C# の null 判定の話」、「自称null」)。
+そうした場合は、value is nullやvalue is {}を使うと良いらしいです。
+個人的には(パフォーマンスが気にならない状況では)value == nullを使うことが多いです。もう一つ言われるのは「悪用/濫用はするな」ということです。
+演算子のオーバーロードを使いすぎると直観に反した動作をさせることができます。
+矛盾したような挙動、意図が分からない動作も容易にできてしまいます。しかしそんなことを言っていれば演算子のオーバーロードなんて利用シーンは大してありません。
+では節度を持って悪用を始めましょう。C# の組み込みの参照型の一つ(他はobjectとdynamic)であるStringは不変(immutable)です。文字列を操作しているに見えるメソッドも実際は新しいStringを返しています。そのため、文字列操作を頻繁に繰り返す操作はパフォーマンスの低下を招きます。
+その対処として使われるのがStringBuilderです。StringBuilderは以下のように扱えます。問題はStringBuilderはStringとは扱いが違う点です。sb.Append();を一々書き込むのは、若干ですが怠いです。
+というわけで演算子のオーバーロードを使いましょう。GitHub: kurema/qiitaSamples/.../StringBuilderProvider基本的な実装は以下です(sharplab.io)。中身は単純な連結リスト(片方向リスト)です。
+後方向からの+のみサポートしています。StringBuilderは大抵Append()しか使いませんし (GitHubの最終版では前方向もサポートしています)。使い方は以下の通りです。普通。ちなみにここでは「ユーザー定義の変換演算子」を利用しています。文法は以下の通りです。最近よく見るStringBuilderの利用シーンはSourceGeneratorです。
+ソースコードを書くのにStringBuilder.AppendLine()を使うシーンをよく見ます。
+元々これに使おうと思ったのもSourceGenerator用です。ソースコードに限らず+で自動改行した方が便利なシーンは時折あります。基本のAppend()をAppendLine()にするだけです。
+ただ、+の挙動としてはちょっと変ですね。ちなみにsb+= "hello, " + "World!";は一行で"hello, World!"になります。右辺で一度結合される点は注意が必要です。
+できるだけStringの結合を減らそうと思う場合は注意が必要です。インデントも自動でやってくれると便利ですね。
+ソースコードを見る前に利用シーンを考えてみましょう。できればこんな形で書きたいですね。
+ここで注意する点が2つあります。だとすればインデントレベルが伝播する方が便利ですね。ではこうします (sharplab.io)。インデント分バイナリサイズが節約できるので、元が極端に多ければこちらの方が節約になる可能性もないわけではないです。ソースコードと言えばBrainFuckですね。
+わざわざC#を使う理由はコメントを書ける程度しか思い浮かびませんが、まぁやってみましょう。
+基本は、それっぽい演算子に追記の仕方を定義していくだけです。私の好みで今回は以下のように定義していました。=なしで使えるのはx++とx--だけなので、連想より使い勝手を優先する場合は割り当てを変えても良いかもしれません。Quineはこうなります。全文
+
+sb--;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 22;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 33;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 4;
+sb += 3;
+sb &gt;&gt;= 3;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 7;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 3;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 7;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 3;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 2;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 3;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 3;
+sb += 2;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 3;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 1;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 2;
+sb += 3;
+sb &gt;&gt;= 2;
+sb++;
+sb &amp;= 2;
+sb &gt;&gt;= 2;
+sb++;
+sb = !sb;
+sb &gt;&gt;= 1;
+sb = ~sb;
+sb++;
+sb &gt;&gt;= 1;
+sb++;
+sb = !sb;
+sb &lt;&lt;= 1;
+sb = ~sb;
+sb &lt;&lt;= 1;
+sb--;
+sb = ~sb;
+sb &gt;&gt;= 2;
+sb = !sb;
+sb &gt;&gt;= 1;
+sb = ~sb;
+sb &lt;&lt;= 1;
+sb++;
+sb &lt;&lt;= 1;
+sb += 3;
+sb = !sb;
+sb &lt;&lt;= 1;
+sb = ~sb;
+sb &lt;&lt;= 2;
+sb++;
+sb = ~sb;
+sb &gt;&gt;= 3;
+sb = !sb;
+sb &gt;&gt;= 1;
+sb = ~sb;
+sb += 3;
+sb &gt;&gt;= 1;
+sb++;
+sb = !sb;
+sb++;
+sb = !sb;
+sb &lt;&lt;= 1;
+sb += 16;
+sb &gt;&gt;= 1;
+sb--;
+sb = ~sb;
+sb &lt;&lt;= 1;
+sb += 10;
+sb *= 1;
+sb &lt;&lt;= 1;
+sb = ~sb;
+
+
+ソースコード
+
+public class TextChainBrainfuck : TextChain
+{
+    public TextChainBrainfuck()
+    {
+    }
+
+    public TextChainBrainfuck(IStringBuilderProvider? origin, string appended) : base(origin, appended)
+    {
+    }
+
+    public static TextChainBrainfuck operator +(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "+");
+    public static TextChainBrainfuck operator -(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "-");
+
+    public static TextChainBrainfuck operator ++(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "+");
+    public static TextChainBrainfuck operator --(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "-");
+
+    public static TextChainBrainfuck operator !(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "[");
+    public static TextChainBrainfuck operator ~(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "]");
+
+
+    public static TextChainBrainfuck operator +(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '+', '-');
+
+    public static TextChainBrainfuck operator -(TextChainBrainfuck origin, int count) =&gt; origin + (-count);
+
+    public static TextChainBrainfuck operator &gt;(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '&gt;', '&lt;');
+    public static TextChainBrainfuck operator &lt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; (-count);
+
+    public static TextChainBrainfuck operator &gt;&gt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; count;
+    public static TextChainBrainfuck operator &lt;&lt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; (-count);
+
+
+    public static TextChainBrainfuck operator *(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '.');
+    public static TextChainBrainfuck operator /(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, ',');
+
+    public static TextChainBrainfuck operator &amp;(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '[');
+    public static TextChainBrainfuck operator |(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, ']');
+
+    public static TextChainBrainfuck operator +(TextChainBrainfuck origin, string text) =&gt; new TextChainBrainfuck(origin, text);
+
+
+    private static TextChainBrainfuck RepeatText(TextChainBrainfuck origin, int count, char positiveChar, char? negativeChar = null)
+    {
+        if (count &gt; 0)
+        {
+            return new TextChainBrainfuck(origin, new string(positiveChar, count));
+        }
+        else if (count &lt; 0)
+        {
+            return new TextChainBrainfuck(origin, new string(negativeChar ?? throw new ArgumentNullException(), -count));
+        }
+        else return origin;
+    }
+
+    public static string GenerateCodeFromBrainfuck(string brainfuck, string varName)
+    {
+        string? GetCode(char character, int count)
+        {
+            switch (character)
+            {
+                case '&gt;': return $"{varName} &gt;&gt;= {count};";
+                case '&lt;': return $"{varName} &lt;&lt;= {count};";
+                case '.': return $"{varName} *= {count};";
+                case ',': return $"{varName} /= {count};";
+                case '+' when count == 1: return $"{varName} ++;";
+                case '+': return $"{varName} += {count};";
+                case '-' when count == 1: return $"{varName} --;";
+                case '-': return $"{varName} -= {count};";
+                case '[' when count == 1: return $"{varName} = !{varName};";
+                case '[': return $"{varName} &amp;= {count};";
+                case ']' when count == 1: return $"{varName} = ~{varName};";
+                case ']': return $"{varName} |= {count};";
+                default: return null;
+            }
+        }
+
+        char? lastChar = null;
+        int lastCharCount = 0;
+
+        var result = new TextChainAutoBreak();
+
+        void appendCode()
+        {
+            if (lastChar != null)
+            {
+                var code = GetCode(lastChar ?? ' ', lastCharCount);
+                if (code != null) result += code;
+            }
+        }
+
+        foreach (var character in brainfuck)
+        {
+            if (lastChar == character)
+            {
+                lastCharCount++;
+                continue;
+            }
+
+            appendCode();
+
+            lastChar = character;
+            lastCharCount = 1;
+        }
+        appendCode();
+
+        return result.GetStringBuilder().ToString();
+    }
+}
+
+
+Stringと同じ感覚で使うなら後方に+だけでは不十分です。実はStringBuilderにだってInsert()はあります。
+前方へのstring追加、TextChain*どうしの結合は必須ですね。
+できればStringBuilderのいろんな機能も対応したいです。
+以下の機能を実装しましょう。新しいGetStringBuilder()は以下のようになります。TextChainCombinedは単純にRight.GetStringBuilder(Left.GetStringBuilder())をするだけ。TextChainExはvoid Operate(StringBuilder stringBuilder)を持つintarfaceを持つクラスです。
+Action(StringBuilder stringBuilder)を利用する手もあります。この場合、前方へのStringの追加は以下の二通り考えられます。今回は後者にします。最終結果は以下の通りです。GitHub: kurema/qiitaSamples/.../StringBuilderProvider.csソースコード
+
+using System;
+using System.Text;
+
+namespace kurema.StringBuilderProvider
+{
+    public interface IStringBuilderProvider
+    {
+        StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null);
+    }
+
+
+    public abstract class TextChainBase&lt;T&gt; : IStringBuilderProvider where T : IStringBuilderProvider
+    {
+        protected TextChainBase()
+        {
+        }
+
+        protected TextChainBase(T? origin, string appended)
+        {
+            Origin = origin;
+            Appended = appended ?? throw new ArgumentNullException(nameof(appended));
+        }
+
+        public abstract StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null);
+
+        public T? Origin { get; protected set; } = default(T);
+        public string? Appended { get; protected set; } = null;
+    }
+
+    public class TextChain : TextChainBase&lt;IStringBuilderProvider&gt;
+    {
+        public TextChain() : base() { }
+        public TextChain(IStringBuilderProvider? origin, string appended) : base(origin, appended) { }
+
+        public override StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+        {
+            var sb = Origin?.GetStringBuilder(stringBuilder) ?? stringBuilder ?? new StringBuilder();
+            if (!string.IsNullOrEmpty(Appended)) sb.Append(Appended);
+            return sb;
+        }
+
+        public static TextChain operator +(TextChain origin, string append) =&gt; new TextChain(origin, append);
+        public static TextChainCombined operator +(TextChain left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+        public static TextChainEx operator +(string append, TextChain origin) =&gt; new TextChainEx(origin, new TextChainEx.Operations.Insert(0, append));
+
+
+        public static explicit operator string(TextChain from) =&gt; from.ToString();
+        public override string ToString() =&gt; this.GetStringBuilder().ToString();
+    }
+
+    public class TextChainCombined : IStringBuilderProvider
+    {
+        public TextChainCombined(IStringBuilderProvider left, IStringBuilderProvider right)
+        {
+            Left = left ?? throw new ArgumentNullException(nameof(left));
+            Right = right ?? throw new ArgumentNullException(nameof(right));
+        }
+
+        public IStringBuilderProvider Left { get; private set; }
+        public IStringBuilderProvider Right { get; private set; }
+
+        public StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+        {
+            var sb = Left?.GetStringBuilder();
+            sb = Right?.GetStringBuilder(sb);
+            return sb ?? new StringBuilder();
+        }
+
+        public static TextChain operator +(TextChainCombined origin, string append) =&gt; new TextChain(origin, append);
+        public static TextChainEx operator +(string append, TextChainCombined origin) =&gt; new TextChainEx(origin, new TextChainEx.Operations.Insert(0, append));
+        public static TextChainCombined operator +(TextChainCombined left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+
+        public static explicit operator string(TextChainCombined from) =&gt; from.ToString();
+        public override string ToString() =&gt; this.GetStringBuilder().ToString();
+
+    }
+
+    public class TextChainEx : IStringBuilderProvider
+    {
+        public TextChainEx(IStringBuilderProvider? origin, TextChainEx.IOperation operation)
+        {
+            Origin = origin;
+            Operation = operation ?? throw new ArgumentNullException(nameof(operation));
+        }
+
+        public IStringBuilderProvider? Origin { get; protected set; } = null;
+
+        public IOperation Operation { get; private set; }
+
+        public StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+        {
+            var sb = Origin?.GetStringBuilder(stringBuilder) ?? stringBuilder ?? new StringBuilder();
+            Operation?.Operate(sb);
+            return sb;
+        }
+
+        public interface IOperation
+        {
+            void Operate(StringBuilder stringBuilder);
+        }
+
+        public static TextChain operator +(TextChainEx origin, string append) =&gt; new TextChain(origin, append);
+        public static TextChainEx operator +(string append, TextChainEx origin) =&gt; new TextChainEx(origin, new Operations.Insert(0, append));
+        public static TextChainCombined operator +(TextChainEx left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+
+
+        public static explicit operator string(TextChainEx from) =&gt; from.ToString();
+        public override string ToString() =&gt; GetStringBuilder().ToString();
+
+        public static TextChainEx Append(IStringBuilderProvider stringBuilder, string text) =&gt; new TextChainEx(stringBuilder, new Operations.Append(text));
+        public static TextChainEx AppendLine(IStringBuilderProvider stringBuilder, string text) =&gt; new TextChainEx(stringBuilder, new Operations.AppendLine(text));
+        public static TextChainEx Insert(IStringBuilderProvider stringBuilder, string text, int index) =&gt; new TextChainEx(stringBuilder, new Operations.Insert(index, text));
+        public static TextChainEx ReplaceString(IStringBuilderProvider stringBuilder, string oldValue, string newValue) =&gt; new TextChainEx(stringBuilder, new Operations.ReplaceString(oldValue, newValue));
+
+
+        public class Operations
+        {
+            public class Append : IOperation
+            {
+                public string Appended { get; private set; }
+
+                public Append(string appended)
+                {
+                    Appended = appended ?? throw new ArgumentNullException(nameof(appended));
+                }
+
+                public void Operate(StringBuilder stringBuilder)
+                {
+                    stringBuilder.Append(Appended);
+                }
+            }
+
+            public class AppendLine : IOperation
+            {
+                public string Appended { get; private set; }
+
+                public AppendLine(string appended)
+                {
+                    Appended = appended ?? throw new ArgumentNullException(nameof(appended));
+                }
+
+                public void Operate(StringBuilder stringBuilder)
+                {
+                    stringBuilder.AppendLine(Appended);
+                }
+            }
+
+            public class Insert : IOperation
+            {
+                public Insert(int index, string value)
+                {
+                    Value = value ?? throw new ArgumentNullException(nameof(value));
+                    Index = index;
+                }
+
+                public string Value { get; private set; }
+                public int Index { get; private set; }
+
+                public void Operate(StringBuilder stringBuilder)
+                {
+                    stringBuilder.Insert(Index, Value);
+                }
+            }
+
+            public class ReplaceString : IOperation
+            {
+                public ReplaceString(string oldValue, string newValue, int? startIndex, int? count)
+                {
+                    OldValue = oldValue ?? throw new ArgumentNullException(nameof(oldValue));
+                    NewValue = newValue ?? throw new ArgumentNullException(nameof(newValue));
+                    StartIndex = startIndex;
+                    Count = count;
+                }
+
+                public ReplaceString(string oldValue, string newValue)
+                {
+                    OldValue = oldValue ?? throw new ArgumentNullException(nameof(oldValue));
+                    NewValue = newValue ?? throw new ArgumentNullException(nameof(newValue));
+                }
+
+                public string OldValue { get; private set; }
+                public string NewValue { get; private set; }
+                public int? StartIndex { get; private set; }
+                public int? Count { get; private set; }
+
+                public void Operate(StringBuilder stringBuilder)
+                {
+                    if (StartIndex is null || Count is null) stringBuilder.Replace(OldValue, NewValue);
+                    else stringBuilder.Replace(OldValue, NewValue, StartIndex ?? 0, Count ?? 0);
+                }
+            }
+        }
+    }
+
+    public class TextChainBrainfuck : TextChain
+    {
+        public TextChainBrainfuck()
+        {
+        }
+
+        public TextChainBrainfuck(IStringBuilderProvider? origin, string appended) : base(origin, appended)
+        {
+        }
+
+        public static TextChainBrainfuck operator +(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "+");
+        public static TextChainBrainfuck operator -(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "-");
+
+        public static TextChainBrainfuck operator ++(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "+");
+        public static TextChainBrainfuck operator --(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "-");
+
+        public static TextChainBrainfuck operator !(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "[");
+        public static TextChainBrainfuck operator ~(TextChainBrainfuck origin) =&gt; new TextChainBrainfuck(origin, "]");
+
+
+        public static TextChainBrainfuck operator +(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '+', '-');
+
+        public static TextChainBrainfuck operator -(TextChainBrainfuck origin, int count) =&gt; origin + (-count);
+
+        public static TextChainBrainfuck operator &gt;(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '&gt;', '&lt;');
+        public static TextChainBrainfuck operator &lt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; (-count);
+
+        public static TextChainBrainfuck operator &gt;&gt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; count;
+        public static TextChainBrainfuck operator &lt;&lt;(TextChainBrainfuck origin, int count) =&gt; origin &gt; (-count);
+
+
+        public static TextChainBrainfuck operator *(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '.');
+        public static TextChainBrainfuck operator /(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, ',');
+
+        public static TextChainBrainfuck operator &amp;(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, '[');
+        public static TextChainBrainfuck operator |(TextChainBrainfuck origin, int count) =&gt; RepeatText(origin, count, ']');
+
+        public static TextChainBrainfuck operator +(TextChainBrainfuck origin, string text) =&gt; new TextChainBrainfuck(origin, text);
+
+
+        private static TextChainBrainfuck RepeatText(TextChainBrainfuck origin, int count, char positiveChar, char? negativeChar = null)
+        {
+            if (count &gt; 0)
+            {
+                return new TextChainBrainfuck(origin, new string(positiveChar, count));
+            }
+            else if (count &lt; 0)
+            {
+                return new TextChainBrainfuck(origin, new string(negativeChar ?? throw new ArgumentNullException(), -count));
+            }
+            else return origin;
+        }
+
+        public static string GenerateCodeFromBrainfuck(string brainfuck, string varName)
+        {
+            string? GetCode(char character, int count)
+            {
+                switch (character)
+                {
+                    case '&gt;': return $"{varName} &gt;&gt;= {count};";
+                    case '&lt;': return $"{varName} &lt;&lt;= {count};";
+                    case '.': return $"{varName} *= {count};";
+                    case ',': return $"{varName} /= {count};";
+                    case '+' when count == 1: return $"{varName} ++;";
+                    case '+': return $"{varName} += {count};";
+                    case '-' when count == 1: return $"{varName} --;";
+                    case '-': return $"{varName} -= {count};";
+                    case '[' when count == 1: return $"{varName} = !{varName};";
+                    case '[': return $"{varName} &amp;= {count};";
+                    case ']' when count == 1: return $"{varName} = ~{varName};";
+                    case ']': return $"{varName} |= {count};";
+                    default: return null;
+                }
+            }
+
+            char? lastChar = null;
+            int lastCharCount = 0;
+
+            var result = new TextChainAutoBreak();
+
+            void appendCode()
+            {
+                if (lastChar != null)
+                {
+                    var code = GetCode(lastChar ?? ' ', lastCharCount);
+                    if (code != null) result += code;
+                }
+            }
+
+            foreach (var character in brainfuck)
+            {
+                if (lastChar == character)
+                {
+                    lastCharCount++;
+                    continue;
+                }
+
+                appendCode();
+
+                lastChar = character;
+                lastCharCount = 1;
+            }
+            appendCode();
+
+            return result.GetStringBuilder().ToString();
+        }
+    }
+
+    public class TextChainAutoBreak : TextChainBase&lt;IStringBuilderProvider&gt;
+    {
+        public TextChainAutoBreak() : base() { }
+        public TextChainAutoBreak(IStringBuilderProvider? origin, string appended) : base(origin, appended) { }
+
+
+        public override StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+        {
+            var sb = Origin?.GetStringBuilder(stringBuilder) ?? stringBuilder ?? new StringBuilder();
+            if (Appended is not null) sb.AppendLine(Appended);
+            return sb;
+        }
+
+        public static TextChainAutoBreak operator +(TextChainAutoBreak origin, string append) =&gt; new TextChainAutoBreak(origin, append);
+
+        public static explicit operator string(TextChainAutoBreak from) =&gt; from.ToString();
+        public override string ToString() =&gt; this.GetStringBuilder().ToString();
+
+        public static TextChainCombined operator +(TextChainAutoBreak left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+    }
+
+    public class TextChainAutoIndent : TextChainBase&lt;IStringBuilderProvider&gt;
+    {
+        public TextChainAutoIndent() : base() { }
+        public TextChainAutoIndent(TextChainAutoIndent? origin, string appended) : base(origin, appended) { }
+
+        public int IndentShift { get; set; } = 0;
+        public string? IndentText { get; set; } = null;
+
+        public const string IndentTextDefault = "    ";
+
+        public override StringBuilder GetStringBuilder(StringBuilder? stringBuilder = null)
+        {
+            var result = GetStringBuilderAndInfo(stringBuilder);
+            return result.Builder;
+        }
+
+        public void Indent() =&gt; IndentShift++;
+        public void Unindent() =&gt; IndentShift--;
+
+        public (StringBuilder Builder, int IndentLevel, string IndentText) GetStringBuilderAndInfo(StringBuilder? stringBuilder = null)
+        {
+            switch (Origin)
+            {
+                case TextChainAutoIndent originIndent:
+                    {
+                        var currentResult = originIndent.GetStringBuilderAndInfo(stringBuilder);
+                        if (Appended is not null)
+                        {
+                            for (int i = 0; i &lt; currentResult.IndentLevel; i++) currentResult.Builder.Append(currentResult.IndentText);
+                            currentResult.Builder.AppendLine(Appended);
+                        }
+                        return IndentText is null ?
+                            (currentResult.Builder, currentResult.IndentLevel + IndentShift, currentResult.IndentText) :
+                            (currentResult.Builder, IndentShift, IndentText);
+                    }
+                default:
+                    {
+                        var sb = Origin?.GetStringBuilder(stringBuilder) ?? stringBuilder ?? new StringBuilder();
+                        if (Appended is not null) sb.AppendLine(Appended);
+                        return (sb, IndentShift, IndentText ?? IndentTextDefault);
+                    }
+            }
+        }
+
+        public static TextChainAutoIndent operator +(TextChainAutoIndent origin, string append) =&gt; new TextChainAutoIndent(origin, append);
+
+        public static explicit operator string(TextChainAutoIndent from) =&gt; from.ToString();
+        public override string ToString() =&gt; this.GetStringBuilder().ToString();
+
+        public static TextChainCombined operator +(TextChainAutoIndent left, IStringBuilderProvider right) =&gt; new TextChainCombined(left, right);
+    }
+
+}
+
+
+C#には三項比較(a &lt; b &lt; c→a &lt; b &amp;&amp; b &lt; c)はありません。
+今後の実装予定もAnyTime(コミュニティ貢献は受け入れる)だそうです。では演算子のオーバーロードを利用して三項比較っぽいものを作ってみましょう。
+ただ三項比較そのものの実装はおそらく不可能なので、以下のような書き方にします。GitHub: kurema/qiitaSamples/.../TernaryComparisonOperator三項比較に必要な情報を考えます。
+処理の流れとしては下のようになりますね。右に条件を追加していくと考えれば、そこまで評価(3.でtrue)と最後に評価した値(3.での3)ですね。
+左に条件を追加する場合を想定すれば右辺値・左辺値・評価、で良いでしょう。
+なおC#の仕様上、if (2 &lt; 3.ToComp() &lt; 4){ }はできてもif (2 &lt; 3 &lt; 4.ToComp()){ }は無理ですね。boolだけ渡されてもどうしようもないです。したがって基本は以下です。後は大量の演算子のオーバーロードを実装するだけですね。
+大量の…。面倒ですね。
+ここはあれの出番です。そう、SourceGeneratorです。真面目な話、この状況でSourceGeneratorを使うのは良いアイデアとは言えません。
+適当な環境でテキストとして出力しコピペする方が扱いやすいでしょう。
+一度やってみたかった、TextChainAutoIndentを使ってみたかったというのが実際の理由です。
+一応double以外のオーバーロードや型の組み合わせを想定したという理由もあります。
+扱いやすかったので以下の記事と当該レポジトリを大変参考にさせていただきました。TextChainAutoIndentを使うとStringBuilderを使うより結構すっきりしてますね。
+まぁおすすめはしませんが。生成されるコードはクラス名以外は固定でこうです。
+手書きはしたくないけど、SourceGeneratorを使う程ではない、というレベルですね。
+というかこれくらい手軽にいろんな場所で使われるようになるとコード保守は悲惨なことになりそうですね。GitHub: kurema/qiitaSamples/.../OperatorOverloadingAttacher.csちなみにSourceGenerator側を以下の構成にしてもVisualStudioのエディタでは警告が出ました。ビルド・実行はうまくいきます。
+Visual Studio 自身が.NetFrameworkで動いているからだそうですが、動作している元記事とほぼ同じ構成で原因はよく分かりません。
+期限までの時間がないですし、動いているので放置することにしました。
+(別に上のコードを保存すればいいだけですし。)
+さらにComparisonValueDouble間の演算子も定義しましょう。
+右辺の左辺値と左辺の右辺値間で演算子を適用するだけの作業です。
+しかし問題もあります。
+==と!=の扱いです。具体的には( 2.ToComp() &lt; 3 ) == ( 3.ToComp() &lt; 4)は以下のどちらでも解釈が可能です。
+どちらが直観的でしょうか。今回は後者にして実装しました。ちなみに==と!=を実装するとEquals()やGetHashCode()を実装しろと警告されます。4.0.ToComp()のような記法を実現するには拡張メソッドを使います。
+拡張メソッドの解説は割愛しますが、既存の型に対してメソッドを追加できるものです。
+下のように書けます。要するに適当なstaticメソッドにthisを付けるだけです。利用側では当該名前空間をusingに追加する必要があります。上の拡張メソッドをdouble以外の数字型に実装します。new Comparison() &lt; 2 &lt; 3 &lt; 4を可能にするのは簡単です。
+何と比較しても右辺値・左辺値とも比較対象で評価がtrueになるようにすればいいだけです。最終結果は以下の通りです。GitHub: kurema/qiitaSamples/.../TernaryComparisonOperator.csソースコード
+
+using System;
+using kurema.TernaryComparisonOperator;
+
+namespace kurema.TernaryComparisonOperator
+{
+    public class Comparison
+    {
+        public static ComparisonValueDouble operator ==(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator ==(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+        public static ComparisonValueDouble operator !=(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator !=(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+        public static ComparisonValueDouble operator &lt;(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator &lt;(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+        public static ComparisonValueDouble operator &gt;(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator &gt;(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+        public static ComparisonValueDouble operator &lt;=(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator &lt;=(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+        public static ComparisonValueDouble operator &gt;=(Comparison left, double right) =&gt; new ComparisonValueDouble(true, right, right);
+        public static ComparisonValueDouble operator &gt;=(double left, Comparison right) =&gt; new ComparisonValueDouble(true, left, left);
+
+        public override bool Equals(object? obj)
+        {
+            return Equals(obj as ComparisonValueDouble);
+        }
+
+        public bool Equals(ComparisonValueDouble? other)
+        {
+            return other is not null;
+        }
+
+        //new Comparison()よりComparison.NewCompの方が書きやすい場合。
+        public static Comparison NewComp =&gt; new Comparison();
+
+        public override int GetHashCode()
+        {
+            return base.GetHashCode();
+        }
+    }
+
+    [kurema.TernaryComparisonOperator.OperatorOverloadingAttacher.OperatorOverloadingAttachTarget]
+    public partial class ComparisonValueDouble : IEquatable&lt;ComparisonValueDouble?&gt;
+    {
+        internal ComparisonValueDouble(bool status, double valueLeft, double valueRight)
+        {
+            Status = status;
+            ValueLeft = valueLeft;
+            ValueRight = valueRight;
+        }
+
+        public double ValueLeft { get; private set; }
+        public double ValueRight { get; private set; }
+        public bool Status { get; private set; }
+
+        public static bool operator true(ComparisonValueDouble value) =&gt; value.Status;
+        public static bool operator false(ComparisonValueDouble value) =&gt; !value.Status;
+
+        public static ComparisonValueDouble operator &lt;(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; Combine(left, right, left.ValueRight &lt; right.ValueLeft);
+        public static ComparisonValueDouble operator &gt;(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; Combine(left, right, left.ValueRight &gt; right.ValueLeft);
+        public static ComparisonValueDouble operator &lt;=(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; Combine(left, right, left.ValueRight &lt;= right.ValueLeft);
+        public static ComparisonValueDouble operator &gt;=(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; Combine(left, right, left.ValueRight &gt;= right.ValueLeft);
+        //ここは判断に迷う。
+        //( 2.ToComp() &lt; 3 ) == ( 3.ToComp() &lt; 4) を 2 &lt; 3 &amp;&amp; 3 == 3 &amp;&amp; 3 &lt; 4 と解釈するか ( 2 &lt; 3 ) == ( 3 &lt; 4 ) と解釈するか。後者かな。
+        public static bool operator ==(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; left?.Equals(right) ?? right is null;
+        public static bool operator !=(ComparisonValueDouble left, ComparisonValueDouble right) =&gt; !(left == right);
+
+        public static implicit operator bool(ComparisonValueDouble from) =&gt; from.Status;
+
+
+        public static ComparisonValueDouble Combine(ComparisonValueDouble left, ComparisonValueDouble right, bool condition)
+            =&gt; new ComparisonValueDouble(condition &amp;&amp; left.Status &amp;&amp; right.Status, left.ValueLeft, right.ValueRight);
+
+        public override bool Equals(object? obj)
+        {
+            return Equals(obj as ComparisonValueDouble);
+        }
+
+        public bool Equals(ComparisonValueDouble? other)
+        {
+            return other is not null &amp;&amp; Status == other.Status;
+        }
+
+        public override int GetHashCode()
+        {
+            int hashCode = -1462305666;
+            hashCode = hashCode * -1521134295 + ValueLeft.GetHashCode();
+            hashCode = hashCode * -1521134295 + ValueRight.GetHashCode();
+            hashCode = hashCode * -1521134295 + Status.GetHashCode();
+            return hashCode;
+        }
+    }
+
+    public static class Extensions
+    {
+        public static ComparisonValueDouble ToComp(this double from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this float from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this sbyte from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this byte from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this short from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this ushort from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this int from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this uint from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this long from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+
+        public static ComparisonValueDouble ToComp(this ulong from)
+        {
+            return new ComparisonValueDouble(true, from, from);
+        }
+    }
+}
+
+
+
+この実装には以下の問題があります。これはtrueを期待したいのですが、falseになります。
+要するに丸め誤差です。intだと正しく動作します。加えて、以下もあります。1つ目の対処: IComparableが持つCompareTo()を利用する。
+この対処は良さそうですが、そもそも演算子とCompareTo()は別です。
+例えば、int.CompareTo(double)はArgumentExceptionを返します。double.CompareTo(int)なら問題ありません。2つ目の対処: 右辺値・左辺値をGenericsで持つ。
+これは演算子オーバーロードはジェネリックメソッドとしては使えないという制限のせいで、かなり厳しいです。
+特に2つも型を持つわけですからうまくいきません。
+下のようにしても意図に合いません。3つ目の対処: 型スイッチを使って、組み込み型全パターンに対処。
+現実的にはこれが無難だと思います。SourceGeneratorを使ってみたのもこういう状況を想定してのことです。
+ただ、かなり面倒ですしコードもきれいにはなりません。
+おそらくジェネリックメソッドと二段階の型スイッチの組み合わせでしょう。
+演算子のオーバーロードを実装しているユーザー定義型には別の対策が必要です。4つ目の対処: 右辺値・左辺値をObjectで持ち、リフレクションで対策。
+リフレクションは重いのでできるだけ使いたくはありませんが、汎用的な対策としてはこれが確実です。
+しかしリフレクションだけでは演算子の保持は判定できません。結論から言えば、大変面倒なのでやりません。
+結局doubleに変換して満足することにしました。
+私自身使うつもりはありませんし、使う人もあまりいなそうなのでこれ以上はやりません。
+大変な理由は下に述べます。演算子オーバーロードは例えば==はop_Equalityと定義されています。
+doubleなら普通に持ちます。しかし、記事冒頭に書きましたがintには見当たりません。何が起きているのか気になりますね。
+こういう時はsharplab.ioです。
+こうなりました。(ここでlongで試してldc.i4.2とかが気になってできた記事が「【逆アセ】 C#でlongに代入してみる 」です)。ceqですね。
+そりゃそうですね。ILに専用命令があるに決まってます。ランタイム側にあるわけがないです。
+他はこんな感じです(sharplab.io)。ceq
+Push 1 (of type int32) if value1 equals value2, else push 0 (0xFE 0x01)※ clt.unはcltに加え、整数型の場合は符号なしで評価した場合小さい、浮動小数点型の場合はどちらか一方がNaNの場合(unordered)もtrueclt.un
+Push 1 (of type int32) if value1 &lt; value2, unsigned or unordered, else push 0 (0xFE 0x05)decimalだとメソッドが呼ばれます。
+doubleとintなら似たようなIL命令が出てきます(上の表)。
+…でもdoubleにop_Equalityがありましたよね。
+なぜでしょう？
+それは以下の記事で議論されています。関連するソースコードは以下です。ランタイムのソースコードを見ればdoubleには==の演算子オーバーロードが定義されています。intにはありません。
+C#で普通に書けば呼ばれない演算子のオーバーロードです。
+実装は以下の通り。一見循環定義になりそうですよね。でもそうはなりません。
+以下のように普通にコンパイルされるそうです。これは普通に関数を書いた場合と同じです。(ちなみにNonVersionableはSystem.Runtime.Versioning.NonVersionableAttributeで、「壊れるのでメンバーの実装やstructのレイアウトを非互換に変更するな」という属性です。)ただしこれはC#だけの話です。
+C#以外のdoubleが組み込み型でなく特殊対応もない言語が存在すればランタイム側で対処されているのは便利なのでしょう。
+ランタイムに演算子のオーバーロードが実装されているのはdoubleに特殊対応をしないコンパイラがあっても問題ないようにです。結論から言えば、C#コンパイラーは組み込み型に対しては特殊対応していて、専用のILを出力するわけです。
+そして、実際のコードではこんなテーブルを使って判断しています。
+「きちんとやる」ならこれと同じようなことをしないといけないわけですね。
+おそらく、2段階のswitchで各型ごとにa &lt; bみたいなのを大量に書くコピペコードが一番確実だと思います。さらに言えば冒頭に書いた「可能な限り定義済みの型と同じように扱える」ってのは、まぁ嘘なわけですね。
+最終的にCPUの命令に変換すると考えれば当たり前っちゃ当たり前ですが。演算子のオーバーロードの解説で使われる典型的な例は数学ライブラリです。
+ここまで来て解説することも大してありませんが、昔作った例を示します (他のソースコードにも依存しています)。GitHub: kurema/CalcApp/.../Valuesソースコード
+
+
+IValue.cs
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+using System.Numerics;
+
+namespace kurema.Calc.Helper.Values
+{
+    public interface IValue: IEquatable&lt;IValue&gt;
+    {
+        IValue Add(IValue value);
+        IValue Multiply(IValue value);
+        IValue Substract(IValue value);
+        IValue Divide(IValue value);
+        IValue Power(int y);
+        ConversionResult&lt;int&gt; GetInt();
+        ConversionResult&lt;BigInteger&gt; GetBigInteger();
+        IValue Remainder(IValue value);
+    }
+
+    public struct ConversionResult&lt;T&gt;
+    {
+        public T Value;
+        public bool Precise;
+        public bool WithinRange;
+
+        public ConversionResult(T value, bool precise, bool withinRange)
+        {
+            Value = value;
+            Precise = precise;
+            WithinRange = withinRange;
+        }
+
+        public bool Healthy =&gt; Precise &amp;&amp; WithinRange;
+        public T HealthyValueOrDefault =&gt; this.Healthy ? Value : default(T);
+    }
+}
+
+
+
+
+NumberDecimal.cs
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+using System.Numerics;
+
+namespace kurema.Calc.Helper.Values
+{
+    public class NumberDecimal : IValue, IEquatable&lt;NumberRational&gt;, IEquatable&lt;NumberDecimal&gt;
+    {
+        public readonly BigInteger Significand;
+        public readonly BigInteger Exponent;
+
+        public static NumberDecimal Zero =&gt; new NumberDecimal(0, 0);
+        public static NumberDecimal One =&gt; new NumberDecimal(1, 0);
+        public static NumberDecimal MinusOne =&gt; new NumberDecimal(-1, 0);
+
+        public NumberDecimal(BigInteger significand, BigInteger exponent)
+        {
+            (Significand, Exponent) = FixExponent(significand, exponent);
+        }
+
+        public static (BigInteger significand, BigInteger exponent) FixExponent(BigInteger significand, BigInteger exponent)
+        {
+            if (significand == 0) return (0, 0);
+            while (significand % 10 == 0)
+            {
+                significand /= 10;
+                exponent++;
+            }
+            return (significand, exponent);
+        }
+
+        public NumberDecimal(double value) : this(value.ToString())
+        {
+        }
+
+        public NumberDecimal(string value)
+        {
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(value, @"^([\-\+]?)(\d+)\.?(\d*)$");
+                if (m.Success)
+                {
+                    this.Significand = BigInteger.Parse(m.Groups[2].Value + m.Groups[3].Value);
+                    this.Exponent = -m.Groups[3].Length;
+                    (Significand, Exponent) = FixExponent(Significand, Exponent);
+                    return;
+                }
+            }
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(value, @"^([\-\+]?)(\d+)\.?(\d*)[eE]([\-\+]?)(\d+)$");
+                if (m.Success)
+                {
+                    this.Significand = BigInteger.Parse(m.Groups[1].Value + m.Groups[2].Value + m.Groups[3].Value);
+                    this.Exponent = -m.Groups[3].Length + BigInteger.Parse(m.Groups[4].Value + m.Groups[5].Value);
+                    (Significand, Exponent) = FixExponent(Significand, Exponent);
+                    return;
+                }
+            }
+            throw new Exception("Failed to Parse.");
+        }
+
+        public MathEx.ShiftResult ShiftExponent(BigInteger exponent)
+        {
+            return MathEx.ShiftExponent(this.Significand, this.Exponent, exponent);
+        }
+
+        public NumberDecimal Add(NumberDecimal number) =&gt; this + number;
+
+        public NumberDecimal Substract(NumberDecimal number) =&gt; this - number;
+
+        public NumberDecimal Multiply(NumberDecimal number) =&gt; this * number;
+
+        public IValue Divide(NumberDecimal number) =&gt; this / number;
+
+        public (BigInteger, NumberDecimal, bool) DivideDecimal(NumberDecimal number)
+        {
+            var (a, b, e) = (NormalizeExponent(this, number));
+            if (!a.HasValue) return (int.MaxValue, new NumberDecimal(-1, 0), false);//a is too large.
+            if (!b.HasValue) return (0, this, true);//b is too large
+            var div = BigInteger.DivRem(a.Value, b.Value, out BigInteger remainder);
+            return (div, new NumberDecimal(remainder, e), true);
+        }
+
+        public static (BigInteger? a, BigInteger? b, BigInteger exponent) NormalizeExponent(NumberDecimal a, NumberDecimal b)
+        {
+            var exp = BigInteger.Min(a.Exponent, b.Exponent);
+            return (a.ShiftExponent(exp).GetNullable(), b.ShiftExponent(exp).GetNullable(), exp);
+        }
+
+        public static implicit operator NumberDecimal(BigInteger value)
+        {
+            return new NumberDecimal(value, 0);
+        }
+
+        public static NumberDecimal operator +(NumberDecimal a, NumberDecimal b)
+        {
+            if (a == null || b == null) return null;
+            var (ta, tb, e) = (NormalizeExponent(a, b));
+            //指数部がint.MaxValue違う値を加算しても変化は0とみなせます。
+            if (ta == null) return a;
+            if (tb == null) return b;
+            return new NumberDecimal(ta.Value + tb.Value, e);
+        }
+        public static NumberDecimal operator -(NumberDecimal a, NumberDecimal b) =&gt; a + (-b);
+
+        public static NumberDecimal operator *(NumberDecimal a, NumberDecimal b)
+        {
+            if (a == null || b == null) return null;
+            return new NumberDecimal(a.Significand * b.Significand, a.Exponent + b.Exponent);
+        }
+        public static IValue operator /(NumberDecimal a, NumberDecimal b)
+        {
+            if (a == null || b == null) return null;
+            if (b.IsZero())
+            {
+                return ErrorValue.ErrorValues.DivisionByZeroError;
+            }
+            else
+            {
+                return new NumberRational(a.Significand, b.Significand, a.Exponent - b.Exponent);
+            }
+        }
+
+        public static NumberDecimal operator +(NumberDecimal a) =&gt; a;
+        public static NumberDecimal operator -(NumberDecimal a) =&gt; a == null ? null : new NumberDecimal(-a.Significand, a.Exponent);
+
+        public bool IsZero()
+        {
+            return this.Significand == 0;
+        }
+
+        public override string ToString()
+        {
+            return Helper.GetString(Significand, 1, Exponent);
+        }
+
+        public static IValue Power(NumberDecimal x, int exponent)
+        {
+            if (exponent &gt; 0)
+            {
+                return new NumberDecimal(
+                    BigInteger.Pow(x.Significand, exponent),
+                    x.Exponent * exponent);
+            }else if (exponent == 0)
+            {
+                return One;
+            }
+            else
+            {
+                return new NumberRational(1, BigInteger.Pow(x.Significand, -exponent), x.Exponent * exponent);
+            }
+        }
+
+        public ConversionResult&lt;int&gt; GetInt()
+        {
+            var target = this.ShiftExponent(0);
+            bool precise = (this.Exponent &gt;= 0);
+            if (MathEx.WithinIntRange(target.GetNullable()))
+            {
+                return new ConversionResult&lt;int&gt;((int)target.Value, precise, true);
+            }
+            else
+            {
+                return new ConversionResult&lt;int&gt;(0, precise, false);
+            }
+        }
+
+        public ConversionResult&lt;BigInteger&gt; GetBigInteger()
+        {
+            var target = this.ShiftExponent(0);
+            bool precise = (this.Exponent &gt;= 0);
+            if (target.HasValue)
+                return new ConversionResult&lt;BigInteger&gt;(target.Value, precise, true);
+            else
+                return new ConversionResult&lt;BigInteger&gt;(0, precise, false);
+        }
+
+
+        #region
+        public IValue Add(IValue value)
+        {
+            switch (value)
+            {
+                case NumberDecimal number: return Add(number);
+                case NumberRational number: return ((NumberRational)this).Add(number);
+                case ErrorValue error:return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Multiply(IValue value)
+        {
+            switch (value)
+            {
+                case NumberDecimal number: return Multiply(number);
+                case NumberRational number: return ((NumberRational)this).Multiply(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Substract(IValue value)
+        {
+            switch (value)
+            {
+                case NumberDecimal number: return Substract(number);
+                case NumberRational number: return ((NumberRational)this).Substract(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Divide(IValue value)
+        {
+            switch (value)
+            {
+                case NumberDecimal number: return Divide(number);
+                case NumberRational number: return ((NumberRational)this).Divide(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+
+        public IValue Power(int y)
+        {
+            return Power(this, y);
+        }
+
+        public bool Equals(NumberDecimal other)
+        {
+            return !Equals(other,null) &amp;&amp;
+                this.Significand.Equals(other.Significand) &amp;&amp;
+                this.Exponent.Equals(other.Exponent);
+        }
+
+        public bool Equals(NumberRational other)
+        {
+            return other?.Equals(this) ?? false;
+        }
+
+        public bool Equals(IValue other)
+        {
+            return this.Equals(other as NumberDecimal) || this.Equals(other as NumberRational);
+        }
+
+        public IValue Remainder(IValue value)
+        {
+            return NumberRational.Remainder(this, value);
+        }
+        #endregion
+    }
+}
+
+
+
+
+NumberRational.cs
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+using System.Numerics;
+
+namespace kurema.Calc.Helper.Values
+{
+    public class NumberRational : IValue, IEquatable&lt;NumberRational&gt;, IEquatable&lt;NumberDecimal&gt;
+    {
+        public readonly BigInteger Numerator;
+        public readonly BigInteger Denominator;
+        public readonly BigInteger Exponent;
+
+        public NumberRational(BigInteger numerator, BigInteger denominator, BigInteger? exponent = null)
+        {
+            Numerator = numerator;
+            Denominator = denominator;
+            Exponent = exponent ?? 1;
+            if (Denominator &lt; 0)
+            {
+                Denominator = BigInteger.Negate(Denominator);
+                Numerator = BigInteger.Negate(Numerator);
+            }
+            var gcd = MathEx.EuclideanAlgorithm(this.Denominator, this.Numerator);
+            this.Denominator /= gcd;
+            this.Numerator /= gcd;
+            while (Denominator % 2 == 0)
+            {
+                Denominator /= 2;
+                Exponent -= 1;
+                Numerator *= 5;
+            }
+            while (Denominator % 5 == 0)
+            {
+                Denominator /= 5;
+                Exponent -= 1;
+                Numerator *= 2;
+            }
+            while (Numerator % 10 == 0)
+            {
+                Numerator /= 10;
+                Exponent++;
+            }
+        }
+
+        public NumberRational Add(NumberRational value) =&gt; this + value;
+        public IValue Divide(NumberRational value) =&gt; this / value;
+        public NumberRational Multiply(NumberRational value) =&gt; this * value;
+        public NumberRational Substract(NumberRational value) =&gt; this - value;
+
+        public IValue Reciprocal()
+        {
+            if (this.Numerator == 0)
+            {
+                return ErrorValue.ErrorValues.DivisionByZeroError;
+            }
+            else
+            {
+                return new NumberRational(this.Denominator, this.Numerator, BigInteger.Negate(this.Exponent));
+            }
+        }
+
+        public static implicit operator NumberRational(NumberDecimal value)
+        {
+            return new NumberRational(value.Significand, 1, value.Exponent);
+        }
+
+        public static NumberRational operator +(NumberRational a, NumberRational b)
+        {
+            if (a == null || b == null) return null;
+            var ad = a.Denominator;
+            var an = new NumberDecimal(a.Numerator, a.Exponent);
+            var bd = b.Denominator;
+            var bn = new NumberDecimal(b.Numerator, b.Exponent);
+            var d = an.Multiply(bd).Add(bn.Multiply(ad));
+            return new NumberRational(d.Significand, ad * bd, d.Exponent);
+        }
+
+        public static NumberRational operator -(NumberRational a, NumberRational b)
+        {
+            if (a == null || b == null) return null;
+            return a + (-b);
+        }
+
+        public static NumberRational operator *(NumberRational a, NumberRational b)
+        {
+            if (a == null || b == null) return null;
+            return new NumberRational(a.Numerator * b.Numerator, a.Denominator * b.Denominator, a.Exponent + b.Exponent);
+        }
+
+        public static IValue operator /(NumberRational a, NumberRational b)
+        {
+            if (a == null) return null;
+            switch (b?.Reciprocal())
+            {
+                case ErrorValue value: return value;
+                case NumberRational value: return a * value;
+                case null: return null;
+                default: throw new Exception("This line should not be called");
+            }
+        }
+
+        public static NumberRational operator +(NumberRational a) =&gt; a;
+
+        public static NumberRational operator -(NumberRational a) =&gt; a == null ? null : new NumberRational(-a.Numerator, a.Denominator, a.Exponent);
+
+        //public static bool operator ==(NumberRational a, NumberRational b)
+        //{
+        //    if (Equals(a, null) &amp;&amp; Equals(b, null)) return true;
+        //    if (Equals(a, null) || Equals(b, null)) return false;
+        //    return a.Equals(b);
+        //}
+
+        //public static bool operator !=(NumberRational a, NumberRational b)
+        //{
+        //    return !(a == b);
+        //}
+
+        public static IValue Remainder(NumberRational ar, IValue b)
+        {
+            if(ar==null || b == null)
+            {
+                return new ErrorValue(new NullReferenceException());
+            }
+            NumberRational br;
+            switch (b)
+            {
+                case NumberRational number: br = number; break;
+                case NumberDecimal number: br = number; break;
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+            var exp = BigInteger.Min(ar.Exponent, br.Exponent);
+            var an = MathEx.ShiftExponent(ar.Numerator, ar.Exponent, exp);
+            var bn = MathEx.ShiftExponent(br.Numerator, br.Exponent, exp);
+            if (!bn.HasValue) return ar;
+            if (!an.HasValue) return ErrorValue.ErrorValues.ExponentTooLargeError;
+#if DEBUG
+            System.Diagnostics.Debug.Assert(an.Precise);
+            System.Diagnostics.Debug.Assert(bn.Precise);
+#endif
+            var lcmDen = MathEx.LeastCommonMultiple(ar.Denominator, br.Denominator);
+            BigInteger.DivRem(an.Value * lcmDen / ar.Denominator, bn.Value * lcmDen / ar.Denominator, out var remainNum);
+
+            if (lcmDen == 1) return new NumberDecimal(remainNum, exp);
+            else return new NumberRational(remainNum, lcmDen,  exp);
+        }
+
+        public static IValue Power(NumberRational x, int exponent)
+        {
+            if (exponent == 0)
+            {
+                return NumberDecimal.One;
+            }
+            else if (exponent &gt; 0)
+            {
+                return new NumberRational(
+                    BigInteger.Pow(x.Numerator, exponent),
+                    BigInteger.Pow(x.Denominator, exponent),
+                    x.Exponent * exponent);
+            }
+            else
+            {
+                return new NumberRational(
+                    BigInteger.Pow(x.Denominator, -exponent),
+                    BigInteger.Pow(x.Numerator, -exponent),
+                    x.Exponent * exponent);
+            }
+        }
+
+        public override string ToString()
+        {
+            return Helper.GetString(Numerator, Denominator, Exponent);
+        }
+
+#region
+        public IValue Add(IValue value)
+        {
+            switch (value)
+            {
+                case NumberRational number: return Add(number);
+                case NumberDecimal number: return Add(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Multiply(IValue value)
+        {
+            switch (value)
+            {
+                case NumberRational number: return Multiply(number);
+                case NumberDecimal number: return Multiply(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Substract(IValue value)
+        {
+            switch (value)
+            {
+                case NumberRational number: return Substract(number);
+                case NumberDecimal number: return Substract(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+        public IValue Divide(IValue value)
+        {
+            switch (value)
+            {
+                case NumberRational number: return Divide(number);
+                case NumberDecimal number: return Divide(number);
+                case ErrorValue error: return error;
+                default: return ErrorValue.ErrorValues.UnknownValueError;
+            }
+        }
+
+        public IValue Power(int y)
+        {
+            return Power(this, y);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return Equals(obj as NumberRational) || Equals(obj as NumberDecimal);
+        }
+
+        public bool Equals(NumberRational other)
+        {
+            return !Equals(other,null) &amp;&amp;
+                   Numerator.Equals(other.Numerator) &amp;&amp;
+                   Denominator.Equals(other.Denominator) &amp;&amp;
+                   Exponent.Equals(other.Exponent);
+        }
+
+        public override int GetHashCode()
+        {
+            var hashCode = -547078731;
+            hashCode = hashCode * -1521134295 + EqualityComparer&lt;BigInteger&gt;.Default.GetHashCode(Numerator);
+            hashCode = hashCode * -1521134295 + EqualityComparer&lt;BigInteger&gt;.Default.GetHashCode(Denominator);
+            hashCode = hashCode * -1521134295 + EqualityComparer&lt;BigInteger&gt;.Default.GetHashCode(Exponent);
+            return hashCode;
+        }
+
+        public bool Equals(NumberDecimal other)
+        {
+            return Equals(other, null) &amp;&amp;
+                   Numerator.Equals(other.Significand) &amp;&amp;
+                   Denominator.Equals(1) &amp;&amp;
+                   Exponent.Equals(other.Exponent);
+        }
+
+        public bool Equals(IValue other)
+        {
+            switch (other)
+            {
+                case NumberDecimal number:return Equals(number);
+                case NumberRational number:return Equals(number);
+                default:return Object.Equals(this, other);
+            }
+        }
+#endregion
+
+        public ConversionResult&lt;int&gt; GetInt()
+        {
+            var result = GetBigInteger();
+
+            if (MathEx.WithinIntRange(result.Value))
+            {
+                return new ConversionResult&lt;int&gt;((int)result.Value, result.Precise, result.WithinRange);
+            }
+            else
+            {
+                return new ConversionResult&lt;int&gt;(0, result.Precise, false);
+            }
+        }
+
+        public ConversionResult&lt;BigInteger&gt; GetBigInteger()
+        {
+            if (this.Denominator == 1)
+            {
+                return new NumberDecimal(this.Numerator, this.Exponent).GetBigInteger();
+            }
+            else
+            {
+                var asBI = new NumberDecimal(this.Numerator, this.Exponent).GetBigInteger();
+                if (!asBI.WithinRange) return new ConversionResult&lt;BigInteger&gt;(0, false, false);
+                var result = asBI.Value / this.Denominator;
+                return new ConversionResult&lt;BigInteger&gt;(result, false, true);
+            }
+        }
+
+        public IValue Remainder(IValue value)
+        {
+            return Remainder(this, value);
+        }
+    }
+}
+
+
+
+
+ErrorValue.cs
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+using System.Numerics;
+
+namespace kurema.Calc.Helper.Values
+{
+    public class ErrorValue : IValue
+    {
+        public readonly string Message;
+        public readonly Exception Exception;
+
+        public ErrorValue(string message) =&gt; Message = message;
+        public ErrorValue(Exception exception)
+        {
+            this.Message = exception.Message;
+            this.Exception = exception;
+        }
+
+        public IValue Add(IValue value) =&gt; this;
+        public IValue Divide(IValue value) =&gt; this;
+        public IValue Multiply(IValue value) =&gt; this;
+        public IValue Power(int y) =&gt; this;
+        public IValue Remainder(IValue value) =&gt; this;
+        public IValue Substract(IValue value) =&gt; this;
+
+        public bool Equals(IValue other)
+        {
+            if (other is ErrorValue e) return this.Message == e.Message;
+            return false;
+        }
+
+        public ConversionResult&lt;int&gt; GetInt() =&gt;new ConversionResult&lt;int&gt;(0, false, false);
+
+        public ConversionResult&lt;BigInteger&gt; GetBigInteger() =&gt; new ConversionResult&lt;BigInteger&gt;(0, false, false);
+
+
+        public static class ErrorValues
+        {
+            public static ErrorValue UnknownValueError =&gt; new ErrorValue("Unknown value.");
+            public static ErrorValue DivisionByZeroError =&gt; new ErrorValue("Division by zero error.");
+            public static ErrorValue ExponentTooLargeError =&gt; new ErrorValue("Exponent is too large.");
+        }
+
+        public override string ToString()
+        {
+            return Message.ToString();
+        }
+    }
+}
+
+
+
+これを含めて私は今まで二度数学ライブラリの実装を挫折しています。
+「演算子のオーバーロード」と聞いて、「数学ライブラリを作ろう！」「数式をC#上で操作できれば便利」「値は全部BigIntegerで有理数型とか浮動小数点型とか作る！」「微分積分したい！」とか思いがちですが、結構しんどいです。
+まぁ「有理数型とか浮動小数点型」程度なら普通にできますし上が一例ですが、数式処理をオブジェクト指向でやるのは相当長い道のりです。
+オブジェクト指向ではなく文字列で表現して操作するライブラリは既にたくさんありますから、素直にそういうのを使った方が良いです。
+誰かが作るにしても、きちんとした管理ができる組織とかでがっちりと作りこむべきものだと思います。.Net 6でstatic abstractが追加され、演算子オーバーロード系も標準でinterfaceが準備されるようです。またこの時知らなかったのですが、source generatorはライブラリを参照した場合も伝播(感染)するようです。
+と考えると利用するべきではなかったですね。
+
+

@@ -1,0 +1,148 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Windows.Forms;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Reflection;
+using System.CodeDom.Compiler;
+
+class MainForm:Form
+{
+    TextBox txt;
+    PictureBox pct;
+
+    public class SimpleParser
+    {
+        dynamic m_evaluator = null;
+
+        private SimpleParser(){}
+
+        public static SimpleParser CreateParser(string s)
+        {
+            Regex r = new Regex(@"^(\bMath\.[a-z][a-z0-9_]*\b)|[-+*/()x0-9. ]+$");
+
+            if ( r.IsMatch(s) ) { // 簡易チェック (チェックしないと 文字列 s 次第で何でもありになってしまうので。)
+                SimpleParser sp = new SimpleParser();
+
+                string source = @"package Evaluator{class Evaluator{public function MyExpr(x){return "+ s +@";}}}";
+                CodeDomProvider prov = new Microsoft.JScript.JScriptCodeProvider();
+                CompilerParameters cparam = new CompilerParameters();
+                cparam.GenerateInMemory = true;
+                CompilerResults result = prov.CompileAssemblyFromSource(cparam, source);
+                if ( result.Errors.Count &gt; 0 ) { // https://dobon.net/vb/dotnet/programing/incodecompiler.html
+                    foreach (CompilerError compErr in result.Errors) {
+                        Console.WriteLine("FileName:{0}", compErr.FileName);
+                        Console.WriteLine("Line:{0}", compErr.Line);
+                        Console.WriteLine("Column:{0}", compErr.Column);
+                        Console.WriteLine("ErrorNumber:{0}", compErr.ErrorNumber);
+                        Console.WriteLine("ErrorText:{0}", compErr.ErrorText);
+                    }
+                    return null;
+                }
+                else {
+                    Assembly asm = result.CompiledAssembly;
+                    sp.m_evaluator = Activator.CreateInstance(asm.GetType("Evaluator.Evaluator"));
+
+                    return sp;
+                }
+            }
+            else {return null;}
+        }
+
+        public object eval(double t)
+        {
+            try {
+                return m_evaluator.MyExpr(t); // CompileAssemblyFromSource に渡した source の中の function の名前(MyExpr)をメソッド名として指定
+            }
+            catch ( Microsoft.JScript.JScriptException e ) { // コンパイルにするには Microsoft.Vsa.dll を参照に追加する必要がある
+                Console.WriteLine(e);
+            }
+            return null;
+        }
+    }
+
+
+    const int WIDTH  = 300;
+    const int HEIGHT = 300;
+
+    MainForm()
+    {
+        txt = new TextBox();
+        txt.Size = new System.Drawing.Size(200, 30);
+        txt.Text = "(x*x)/10";
+        Controls.Add(txt);
+
+        Button btn = new Button();
+        btn.Location = new Point(200, 0);
+        btn.Click += (sender,e)=&gt;{CompileAndDraw(txt.Text);};
+        Controls.Add(btn);
+
+        pct = new PictureBox();
+        pct.Location = new Point(0, 50);
+        pct.Size = new System.Drawing.Size(WIDTH, HEIGHT);
+        pct.Image = new Bitmap(WIDTH, HEIGHT);
+        Controls.Add(pct);
+
+        ClientSize = new System.Drawing.Size(pct.Right, pct.Bottom);
+    }
+
+
+    void CompileAndDraw(string s)
+    {
+        var sp = SimpleParser.CreateParser(s);
+
+        if ( sp != null ) {
+            double x;
+
+            Graphics g = Graphics.FromImage(pct.Image);
+            g.FillRectangle(Brushes.White, 0, 0, WIDTH, HEIGHT);
+            g.DrawLine(Pens.Blue, 0, HEIGHT/2, WIDTH , HEIGHT/2); // x axis
+            g.DrawLine(Pens.Blue, WIDTH/2, 0, WIDTH/2 , HEIGHT); // y axis
+
+            try {
+                double xPrev =0;
+                double yPrev =0;
+                bool validRangePrev = false;
+                for ( x = -10.0 ; x&lt;=10.0 ; x+=0.125 ) {
+                    double y = (double)sp.eval(x);
+
+                    Console.WriteLine(y);
+
+                    bool validRange = true;
+                    if ( !(y &gt;= -20.0 &amp;&amp; y &lt;= 20.0) ) { // !でとることで0除算での不定値をはじく
+                        validRange = false;
+                    }
+
+                    if ( validRangePrev &amp;&amp; validRange ) {
+                        g.DrawLine(Pens.Black, (int)(WIDTH*(1.0+(xPrev/10.0))/2.0) ,(int)(HEIGHT*(1.0-(yPrev/10.0))/2.0)
+                                             , (int)(WIDTH*(1.0+(    x/10.0))/2.0) ,(int)(HEIGHT*(1.0-(    y/10.0))/2.0));
+                    }
+                    xPrev = x;
+                    yPrev = y;
+                    validRangePrev = validRange;
+                }
+            }
+            finally {
+                g.Dispose();
+            }
+            pct.Refresh();
+        }
+    }
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        Application.Run(new MainForm());
+    }
+}
+
+

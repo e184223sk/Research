@@ -1,0 +1,54 @@
+
+var executer = new DynamicRDBService(new SQLiteCreator(), new SqliteRepository(new SqliteDBConfig().OpendSQLiteConnection()));
+var startupPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+jObject = ReadJsonFile(Path.Combine(startupPath, "test2.json"));
+info = CreateInfo(jObject);
+executer.DynamicInsert(info.Item1, info.Item2);
+
+//AddColumn
+jObject = ReadJsonFile(Path.Combine(startupPath, "test3.json"));
+info = CreateInfo(jObject);
+executer.DynamicInsert(info.Item1, info.Item2);
+
+//xml（XMLを読込んで、Jsonに変換）
+XmlDocument doc = new XmlDocument();
+var str = ReadFile(Path.Combine(startupPath, "test4.xml"));
+doc.LoadXml(str);
+string jsonText = JsonConvert.SerializeXmlNode(doc);
+var jObjectTemp = JObject.Parse(jsonText);
+jObject = new JObject();
+
+foreach (var j in jObjectTemp["xml"].Children())
+    jObject.Add(j);
+
+info = CreateInfo(jObject);
+executer.DynamicInsert(info.Item1, info.Item2);
+
+
+private static JObject ReadJsonFile(string path)
+{
+    var jsonStr = ReadFile(path);
+    return JObject.Parse(jsonStr);
+}
+
+private static string ReadFile(string path)
+{
+    string str = string.Empty;
+    using (StreamReader sr = new StreamReader(path))
+    {
+        str = sr.ReadToEnd();
+    }
+    return str;
+}
+
+private static (IEnumerable&lt;DBObject&gt;, string) CreateInfo(JObject json)
+{
+    string tableName = json["category"].ToString();
+    json.Remove("category");
+
+    var dbobjects = new DBobjectConverter().JsonToDBObject(json);
+
+    return (dbobjects, tableName);
+}
+

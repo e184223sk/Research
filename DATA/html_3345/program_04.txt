@@ -1,0 +1,53 @@
+
+        static async void FindSimilarRequest(List&lt;FaceInfo&gt; faceInfoList)
+        {
+            var client = new HttpClient();
+
+            // リクエストヘッダー
+            client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", ConfigurationManager.AppSettings["subscriptionKey"]);
+
+            string uri = ConfigurationManager.AppSettings["requestUrl"] + "findsimilars";
+
+            HttpResponseMessage response;
+
+            List&lt;string&gt; targetFaceIdList = new List&lt;string&gt;();
+
+            // FindSimilarの第二引数（faceIds）作成
+            foreach (FaceInfo faceInfoTarget in faceInfoList.FindAll(x =&gt; x.faceDivision == DIVISION_TARGET))
+            {
+                targetFaceIdList.Add(faceInfoTarget.faceId);
+            }
+
+            foreach (FaceInfo faceInfoBase in faceInfoList.FindAll(x =&gt; x.faceDivision == DIVISION_BASE))
+            {
+                Console.WriteLine("■FaceID：[" + faceInfoBase.faceId + "] との類似度判定");
+
+                // リクエストボディをJSON形式にする
+                MatchFaceSimilar matchFaceSimilar = new MatchFaceSimilar(faceInfoBase.faceId, targetFaceIdList.ToArray());
+                var json = JsonConvert.SerializeObject(matchFaceSimilar);
+
+                byte[] byteData = Encoding.UTF8.GetBytes(json);
+
+                using (var content = new ByteArrayContent(byteData))
+                {
+                    // リクエストヘッダーの作成
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                    response = await client.PostAsync(uri, content);
+
+                    // 実行結果からJSONの取得
+                    var contentString = await response.Content.ReadAsStringAsync();
+                    //Console.WriteLine(contentString);
+
+                    // JSONを整形して出力
+                    List&lt;FaceConfidence&gt; faceConfidence = JsonConvert.DeserializeObject&lt;List&lt;FaceConfidence&gt;&gt;(contentString);
+                    faceConfidence.ForEach((face) =&gt;
+                    {
+                        decimal confidence = Math.Round(decimal.Parse(face.confidence) * 100, 2, MidpointRounding.AwayFromZero);
+                        Console.WriteLine("　" + face.faceId + " : " + confidence.ToString() + "％");
+                    });
+                }
+            }
+
+            Console.WriteLine("処理終了");
+        }
+

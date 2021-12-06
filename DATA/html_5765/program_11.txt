@@ -1,0 +1,104 @@
+
+using UnityEngine;
+using System.IO;
+
+namespace UniDAO
+{
+    // テキストの存在確認・読み込み・保存・削除
+    public class TextDao : IDataAccessObject&lt;string&gt;
+    {
+        private readonly string basePath;
+        private readonly string fileName;
+
+
+        private string Path
+        {
+            get
+            {
+                return basePath + fileName;
+            }
+        }
+
+
+        public TextDao( string basePath, string fileName )
+        {
+            this.basePath = basePath;
+            this.fileName = fileName;
+        }
+
+
+        public bool Exists()
+        {
+            return File.Exists( Path );
+        }
+
+        public string Read()
+        {
+            if( !Exists() )
+                return null;
+
+            return File.ReadAllText( Path );
+        }
+
+        public void Save( string text )
+        {
+            if( !Directory.Exists( basePath ) )
+                Directory.CreateDirectory( basePath );
+
+            Delete();
+            File.WriteAllText( Path, text );
+        }
+
+        public void Delete()
+        {
+            if( Exists() )
+                File.Delete( Path );
+        }
+    }
+
+
+                // シリアライズしたテキストを保存
+    // テキストをデシリアライズして読み込み
+    // テキストの存在確認・削除 ← 委譲しているだけ！
+    public class SerializeDao&lt;T&gt; : IDataAccessObject&lt;T&gt;
+    {
+        private readonly IDataAccessObject&lt;string&gt; stringDao;
+
+
+        public SerializeDao( IDataAccessObject&lt;string&gt; stringDao )
+        {
+            this.stringDao = stringDao;
+        }
+
+
+        public bool Exists()
+        {
+            // 委譲しているだけ
+            return stringDao.Exists();
+        }
+
+        public T Read()
+        {
+            string text = stringDao.Read();
+
+            if( string.IsNullOrEmpty( text ) )
+                return default(T);
+
+            return JsonUtility.FromJson&lt;T&gt;( text );
+        }
+
+        public void Save( T data )
+        {
+            string json = JsonUtility.ToJson( data );
+            stringDao.Save( json );
+        }
+
+        public void Delete()
+        {
+            // 委譲しているだけ
+            stringDao.Delete();
+        }
+    }
+}
+
+

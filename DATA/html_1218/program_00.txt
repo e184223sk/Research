@@ -1,0 +1,160 @@
+using System;
+using System.Drawing;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace DataGridViewSample
+{
+    public partial class Form1 : Form
+    {
+        private Random _Random = new Random();
+
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            try
+            {
+                this.InitDataGridView();
+
+                var cellToolTip = new ToolTip();
+                cellToolTip.OwnerDraw = true;
+                cellToolTip.ShowAlways = true;
+                cellToolTip.Draw += new DrawToolTipEventHandler(this.CellToolTip_Draw);
+                cellToolTip.Popup += new PopupEventHandler(this.CellToolTip_Popup);
+
+                var toolTipControl = this.dataGridView1.GetType().GetField(
+                    "toolTipControl",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                    ).GetValue(this.dataGridView1);
+
+                var toolTip = toolTipControl.GetType().GetField(
+                    "toolTip",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+                    );
+                toolTip.SetValue(toolTipControl, cellToolTip);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private void TargetDataGridView_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            try
+            {
+                if (e.ColumnIndex &gt;= 0 &amp;&amp; e.RowIndex &gt;= 0)
+                {
+                    var cell = this.dataGridView1.Rows[e.RowIndex].Cells[e.ColumnIndex];
+                    cell.ToolTipText = $"(X={e.ColumnIndex}, Y={e.RowIndex}){Environment.NewLine}";
+                    cell.ToolTipText += $"Value={e.Value}";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private void CellToolTip_Popup(object sender, PopupEventArgs e)
+        {
+            e.ToolTipSize = new Size(e.ToolTipSize.Width + 30, e.ToolTipSize.Height + 9);
+        }
+
+        private void CellToolTip_Draw(object sender, DrawToolTipEventArgs e)
+        {
+            try
+            {
+                Color backColor = Color.Black;
+                Color borderColor = Color.White;
+                Color foreColor = Color.White;
+
+                //塗りつぶし
+                using (SolidBrush brush = new SolidBrush(backColor))
+                    e.Graphics.FillRectangle(brush, e.Bounds);
+                //枠線
+                using (Pen pen = new Pen(borderColor))
+                    e.Graphics.DrawRectangle(
+                        pen,
+                        new Rectangle(
+                            e.Bounds.X,
+                            e.Bounds.Y,
+                            e.Bounds.Width - 1,
+                            e.Bounds.Height - 1
+                            )
+                        );
+                //テキスト描画
+                using (Font font = new Font("Meiryo UI", 10f))
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        e.ToolTipText,
+                        font,
+                        e.Bounds,
+                        foreColor,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                        );
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// DataGridViewの初期設定
+        /// &lt;/summary&gt;
+        private void InitDataGridView()
+        {
+            try
+            {
+                int colCount = 20;
+                int rowCount = 20;
+                int cellWidth = 20;
+
+                this.dataGridView1.ReadOnly = true;
+                this.dataGridView1.AllowUserToAddRows = false;
+                this.dataGridView1.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                this.dataGridView1.RowHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                this.dataGridView1.RowHeadersWidth = 50;
+
+                //列追加
+                var cols = Enumerable.Range(0, colCount).Select(idx =&gt;
+                 new DataGridViewTextBoxColumn
+                 {
+                     Name = idx.ToString(),
+                     Width = cellWidth,
+                 });
+
+                this.dataGridView1.Columns.AddRange(cols.ToArray());
+
+                //行追加
+                foreach (int rowIdx in Enumerable.Range(0, rowCount))
+                {
+                    this.dataGridView1.Rows.Add(this.RandomString(rowCount).Cast&lt;object&gt;().ToArray());
+                    this.dataGridView1.Rows[rowIdx].HeaderCell.Value = rowIdx.ToString();
+                }
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// ランダムな文字列を作成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="length"&gt;文字列長&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public string RandomString(int length)
+        {
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            return new string(Enumerable.Repeat(chars, length)
+                .Select(s =&gt; s[this._Random.Next(s.Length)]).ToArray());
+        }
+    }
+}
+

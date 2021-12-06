@@ -1,0 +1,28 @@
+More than 5 years have passed since last update.Gitリポジトリの簡単なビュワーとクローンツールを作った時のTipsをまとめました。
+ローカルサーバーにある中央リポジトリの閲覧・検索をするために作成したものです。
+最初はC++とLibGit2の組み合わせで始めたのですが、最終形はWindows/GUIにしたかったので途中でC#とLibGit2Sharpに乗り換えました。
+C#初心者です。LINQやらIEnumerableやらTaskやらあって刺激的。C#おもしろい。この記事では VisualStudio 2013 を使っています。LibGit2Sharp のバージョンは 0.22.0です。LibGit2とはその字面通りGitリポジトリを操作するライブラリ(API)です。C言語用です。"2"というからには不出来な兄または姉が居たと想像しています。
+後ろに"Sharp"がついたものがC#言語用です。この他、Python,Ruby,Goなどいろいろな言語用のバインディングがあります。
+LibGit2のページVisualStudioのパッケージマネージャーコンソールで次のように打ち込んで NuGet から取得します。
+PM&gt;Install-Package LibGit2Sharp -Version 0.22.0
+・・・こんな仕組みがあったのね。リポジトリを開いて中身を触れるようにします。pathはGitリポジトリのあるパス名です。成功するとrepoにリポジトリオブジェクトが入ります。
+指定したpathにリポジトリがない場合はLibGit2Sharp.RepositoryNotFoundExceptionがthrowされます。
+サブディレクトリは探しに行きません。リポジトリオブジェクトからパス名を取得するのはこれ。リポジトリに含まれるブランチを調べるには次のようにします。正式な名前はCanonicalNameを使います。ブランチに含まれるコミットを調べるには次のようにします。英語の質問サイトでこんなやり取りがありました。質問者：コミットの時刻はどうやって調べるんだ？
+回答者：そりゃ、commitの中のAuthorにあるよ。
+質問者：本当だ。誰だこんなところに入れた奴は！質問者に一票。比較する２つのコミットのTreeをLibGit2Sharp.Repository.DIFF.Copmpare&lt;&gt;()関数に渡します。
+コミットとその親コミットの差分を取る場合は次のようになります。ここではLibGit2Sharp.TreeChangesを返すCompare()を使いました。差のあったパス名と、ファイルに対して行った操作（変更・追加・削除のいづれか）の情報が得られます。
+さらに詳細な情報が必要な場合はLibGit2Sharp.Patchを返すCompare()を使います。変更されたパス名と削除・追加された行数、追加した行、削除した行、その他差分情報が得られます。
+ただ、詳細取得には明らかに処理に時間がかかります。場合によっては秒オーダー。中央（リモート）リポジトリからクローンします。
+最初にオプションを設定します。ここでは開始時のコールバック、進行状況通知コールバック、チェックアウトするブランチ名を指定しています。（外部サーバーからクローンする場合は、ここにユーザー情報も設定するようです。）
+最後にLibGit2Sharp.Repository.Clone()でクローンを実行します。オプションの OnCheckoutProgress に指定する進行状況コールバックの型は、
+delegate void CheckoutProgressHandler(string path, int completedSteps, int totalSteps);
+引数のpathは処理したファイルのパス、completedStepsは処理済みのファイル数、totalStepsはファイル総数です。オプションの RepositoryOperationStarting に指定する処理開始コールバックの型は、
+delegate bool RepositoryOperationStarting(RepositoryOperationContext context);
+引数のcontextはクローンするリポジトリに関する情報が含まれています。
+戻り値trueを返せばクローンが開始されます。falseを返すとClone()は処理中断しLibGit2Sharp.UserCancelledExceptionをthrowします。他にも、Clone完了時に呼ばれる RepositoryOperationCompleted があります。
+OnProgress,OnTransferProgress といったコールバックも用意されているようですが、Cloneでは動作しませんでした。今回作成したツールで使った機能はこれで全部です。しかしこれはLibGit2のほんの一部です。
+LibGit2関連の日本語ドキュメントが少ないので参考になればと思っています。いつもお世話になっているので。ところで、LibGit2Sharpを使って作ったアプリケーションは、実行時にEXEファイルの他にLibGit2Sharp.dll、ネイティブDLL、合計３個のファイルが必要です。
+ファイル３個を配布するのは面倒なので、LibGit2Sharp.dllはILMergeツールを使ってEXEファイルにまとめました（下記リンク）。しかしネイティブDLLをまとめるには簡単な方法が見つからず（あんまりややこしいことはやりたくなかった）結局ファイル２個、ということになりました。
+実行ファイルとDLLを一つにまとめる
+
+

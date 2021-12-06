@@ -1,0 +1,207 @@
+
+/// &lt;summary&gt;
+/// Kafka にメッセージを送信します。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TKey"&gt;キーの型&lt;/typeparam&gt;
+/// &lt;typeparam name="TMessage"&gt;メッセージの型&lt;/typeparam&gt;
+public class MessagePublisher&lt;TKey, TMessage&gt; : IMessagePublisher&lt;TMessage&gt;
+{
+    /// &lt;summary&gt;
+    /// インスタンスを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="keySerializer"&gt;キーに対するシリアライザ&lt;/param&gt;
+    /// &lt;param name="messageSerializer"&gt;メッセージに対するシリアライザ&lt;/param&gt;
+    /// &lt;param name="setting"&gt;プロデューサーの動作設定&lt;/param&gt;
+    /// &lt;param name="keyGenerator"&gt;キーの生成処理&lt;/param&gt;
+    /// &lt;param name="topic"&gt;トピック&lt;/param&gt;
+    /// &lt;param name="logger"&gt;ロガー&lt;/param&gt;
+    public MessagePublisher(ISerializer&lt;TKey&gt; keySerializer, ISerializer&lt;TMessage&gt; messageSerializer, MessagePublisherSetting setting, string topic, Func&lt;TKey&gt; keyGenerator, ILogger logger)
+    {
+        KeySerializer = keySerializer;
+        MessageSerializer = messageSerializer;
+        Topic = topic;
+        KeyGenerator = keyGenerator;
+        Logger = logger;
+        Producer = BuildProducer(GetProducerConfig(setting));
+    }
+
+    /// &lt;summary&gt;
+    /// 使用しているリソースを解放します。
+    /// &lt;/summary&gt;
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// &lt;summary&gt;
+    /// 使用しているリソースを解放します。
+    /// &lt;/summary&gt;
+    protected virtual void Dispose(bool disposing)
+    {
+        TerminateProducer();
+    }
+
+    /// &lt;summary&gt;
+    /// キーに対するシリアライザを取得します。
+    /// &lt;/summary&gt;
+    private ISerializer&lt;TKey&gt; KeySerializer { get; }
+
+    /// &lt;summary&gt;
+    /// メッセージに対するシリアライザを取得します。
+    /// &lt;/summary&gt;
+    private ISerializer&lt;TMessage&gt; MessageSerializer { get; }
+
+    /// &lt;summary&gt;
+    /// ロガーを取得します。
+    /// &lt;/summary&gt;
+    private ILogger Logger { get; }
+
+    /// &lt;summary&gt;
+    /// トピックを取得します。
+    /// &lt;/summary&gt;
+    private string Topic { get; }
+
+    /// &lt;summary&gt;
+    /// キーの生成処理を取得します。
+    /// &lt;/summary&gt;
+    private Func&lt;TKey&gt; KeyGenerator { get; }
+
+    #region プロデューサー
+
+    /// &lt;summary&gt;
+    /// プロデューサーを取得します。
+    /// &lt;/summary&gt;
+    private IProducer&lt;TKey, TMessage&gt; Producer { get; }
+
+    /// &lt;summary&gt;
+    /// プロデューサーを解放します。
+    /// &lt;/summary&gt;
+    private void TerminateProducer()
+    {
+        if (Producer == null) { return; }
+        Producer.Flush(TimeSpan.FromMilliseconds(10000));
+        Producer.Dispose();
+    }
+
+    /// &lt;summary&gt;
+    /// プロデューサーを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="config"&gt;動作設定&lt;/param&gt;
+    /// &lt;returns&gt;プロデューサー&lt;/returns&gt;
+    protected virtual IProducer&lt;TKey, TMessage&gt; BuildProducer(IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; config)
+    {
+        var producerBuilder = new ProducerBuilder&lt;TKey, TMessage&gt;(config)
+            .SetKeySerializer(KeySerializer)
+            .SetValueSerializer(MessageSerializer)
+            .SetErrorHandler(OnError)
+            ;
+
+        return producerBuilder.Build();
+    }
+
+    /// &lt;summary&gt;
+    /// プロデューサーの動作設定を取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="producerSetting"&gt;プロデューサーの動作設定&lt;/param&gt;
+    /// &lt;returns&gt;動作設定のキーと値の組み合わせ&lt;/returns&gt;
+    protected virtual IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; GetProducerConfig(MessagePublisherSetting producerSetting)
+    {
+        if (producerSetting.BootstrapServers == null || producerSetting.BootstrapServers == "")
+        {
+            throw new NullReferenceException("ブートストラップサーバーが設定されていません。");
+        }
+
+        return new ProducerConfig()
+        {
+            BootstrapServers = producerSetting.BootstrapServers,
+        };
+    }
+
+    /// &lt;summary&gt;
+    /// エラーが発生したときの処理を行います。
+    /// &lt;/summary&gt;
+    /// &lt;param name="producer"&gt;&lt;/param&gt;
+    /// &lt;param name="error"&gt;&lt;/param&gt;
+    protected virtual void OnError(IProducer&lt;TKey, TMessage&gt; producer, Error error)
+    {
+        WriteLog(LogLevel.Error, () =&gt; BuildLogMessage(error));
+    }
+
+    #endregion
+
+    #region メッセージ発行
+
+    /// &lt;summary&gt;
+    /// 指定されたメッセージを発行します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;メッセージ&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public Task PublishAsync(TMessage message, CancellationToken cancellationToken)
+    {
+        var kafkaMessage = new Message&lt;TKey, TMessage&gt;()
+        {
+            Key = GenerateNewKey(),
+            Value = message,
+            Timestamp = new Timestamp(DateTimeOffset.UtcNow)
+        };
+
+        return Producer.ProduceAsync(Topic, kafkaMessage, cancellationToken)
+            .ContinueWith(t =&gt; OnPublished(t.Result));
+    }
+
+    /// &lt;summary&gt;
+    /// メッセージを発行したときの処理を行います。
+    /// &lt;/summary&gt;
+    /// &lt;param name="result"&gt;発行の結果&lt;/param&gt;
+    protected virtual void OnPublished(DeliveryResult&lt;TKey, TMessage&gt; result)
+    {
+        WriteLog(LogLevel.Debug, () =&gt; BuildLogMessage(result));
+    }
+
+    /// &lt;summary&gt;
+    /// 新しいキーを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;キー&lt;/returns&gt;
+    private TKey GenerateNewKey()
+    {
+        return KeyGenerator();
+    }
+
+    #endregion
+
+    #region ロギング
+
+    /// &lt;summary&gt;
+    /// 指定されたログを出力します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="level"&gt;ログレベル&lt;/param&gt;
+    /// &lt;param name="messageBuilder"&gt;ログメッセージを生成するメソッド&lt;/param&gt;
+    /// &lt;param name="exception"&gt;例外&lt;/param&gt;
+    private void WriteLog(LogLevel level, Func&lt;string&gt; messageBuilder, Exception? exception = null)
+    {
+        if (!Logger.IsEnabled(level)) { return; }
+
+        if (exception == null)
+        {
+            Logger.Log(level, messageBuilder());
+        }
+        else
+        {
+            Logger.Log(level, exception, messageBuilder());
+        }
+    }
+
+    private string BuildLogMessage(DeliveryResult&lt;TKey, TMessage&gt; result)
+    {
+        return $"メッセージを発行しました。[{result.Topic}:{result.Offset}] {result.Message.Value}";
+    }
+
+    private string BuildLogMessage(Error error)
+    {
+        return error.Reason;
+    }
+
+    #endregion
+}
+

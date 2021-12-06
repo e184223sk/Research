@@ -1,0 +1,70 @@
+
+namespace Rein.Functions.Set{
+    public class Max: UnaryFunction{
+        private int Axis;
+        private int[] ExtractIndex;
+        private bool KeepDim;
+        public Max(int axis, bool keepDim = true):base("Max"){
+            this.Axis = axis;
+            this.KeepDim = keepDim;
+        }
+
+        protected override Tensor UnaryForward(Tensor inTensor){
+            List&lt;int&gt; shape = new List&lt;int&gt;(inTensor.Shape);
+            int biggerStep, step, vecSize, outSize;
+            R[] data;
+            int[] extractIndex;
+
+            vecSize = shape[this.Axis];
+            outSize = this.In.Size / vecSize;
+            step = this.In.Size / shape.GetRange(0, this.Axis + 1).Aggregate((now, next) =&gt; now * next);
+            biggerStep = step * vecSize;
+            data = new R[this.In.Size / vecSize];
+            extractIndex = new int[this.In.Size / vecSize];
+
+            for (int i = 0; i &lt; outSize; i+=step){
+                for (int k = 0; k &lt; step; k++){
+                    R maxR = this.In.Data[vecSize * i + k];
+                    int index = 0;
+                    for (int j = 0; j &lt; biggerStep; j+=step){
+                        if (maxR &lt; this.In.Data[vecSize * i + j + k]){
+                            maxR = this.In.Data[vecSize * i + j + k];
+                            index = j;
+                        }
+                        data[i + k] += this.In.Data[vecSize * i + j + k] / vecSize;
+                    }
+                    data[i + k] = maxR;
+                    extractIndex[i + k] = index;
+                }
+            }
+
+            if (this.KeepDim){
+                shape[Axis] = 1;
+            }else{
+                shape.RemoveAt(Axis);
+            }
+
+            this.ExtractIndex = extractIndex;
+
+            return new Tensor(data, shape);
+        }
+
+
+        protected override void UnaryBackward(){
+            int step, repNum;
+            R[] grad;
+            grad = this.Out.Grad;
+
+            step = this.Out.Size / this.Out.Shape.GetRange(0, this.Axis + 1).Aggregate((now, next) =&gt; now * next);
+            repNum = this.In.Shape[this.Axis];
+            grad = new R[this.In.Size];
+
+            for (int i = 0; i &lt; this.Out.Size; i+=step){
+                for (int k = 0; k &lt; step; k++){
+                    this.In.Grad[repNum * i + this.ExtractIndex[i + k] + k] += this.Out.Grad[i + k];
+                }
+            }
+        }
+    }
+}
+

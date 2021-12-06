@@ -1,0 +1,87 @@
+using UnityEngine;
+using UnityEngine.UI;
+using System;
+using System.Runtime.InteropServices;
+
+public class OcrFromTexture : MonoBehaviour
+{
+    [SerializeField]
+    RawImage source;
+    Texture2D texture;
+    [SerializeField]
+    GameObject output;
+
+    IntPtr ocrHandle = IntPtr.Zero;
+
+    [DllImport ("tesseract41")]
+    public static extern IntPtr TessBaseAPICreate ();
+    [DllImport ("tesseract41")]
+    public static extern void TessBaseAPIDelete (IntPtr ocrHandle);
+    [DllImport ("tesseract41")]
+    public static extern int TessBaseAPIInit3 (IntPtr ocrHandle, string dataPath, string language);
+    [DllImport ("tesseract41")]
+    public static extern void  TessBaseAPISetImage (IntPtr ocrHandle, byte[] imagedata, int width, int height,
+                                                     int bytes_per_pixel, int bytes_per_line);
+    [DllImport ("tesseract41")]
+    public static extern void  TessBaseAPISetImage2 (IntPtr ocrHandle, IntPtr pix);
+    [DllImport ("tesseract41")]
+    public static extern IntPtr  TessBaseAPIGetInputImage (IntPtr ocrHandle);
+    [DllImport ("tesseract41")]
+    public static extern IntPtr  TessBaseAPIGetThresholdedImage (IntPtr ocrHandle);
+    [DllImport ("tesseract41")]
+    public static extern int TessBaseAPIRecognize (IntPtr ocrHandle, IntPtr monitor);
+    [DllImport ("tesseract41")]
+    public static extern string  TessBaseAPIGetUTF8Text (IntPtr ocrHandle);
+    [DllImport ("tesseract41")]
+    public static extern void  TessDeleteText (IntPtr text);
+    [DllImport ("tesseract41")]
+    public static extern void  TessBaseAPIEnd (IntPtr ocrHandle);
+    [DllImport ("tesseract41")]
+    public static extern void  TessBaseAPIClear (IntPtr ocrHandle);
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        /* OCRハンドラの作成と初期化 */
+        ocrHandle = IntPtr.Zero;
+        ocrHandle = TessBaseAPICreate();
+        if(ocrHandle.Equals(IntPtr.Zero)) Debug.Log("Error:Cannot Create");
+        string dataPath = Application.dataPath + "/tessdata";
+        if(TessBaseAPIInit3(ocrHandle, dataPath, "eng") != 0) Debug.Log("Error:Cannot Init");
+        /* テクスチャから文字を認識する */
+        string recognition = RecognizeFromTexture();
+        output.GetComponent&lt;Text&gt;().text = recognition;
+    }
+    public string RecognizeFromTexture()
+    {
+        /* 画像をTexture2D型として読み込む */
+        texture = source.texture as Texture2D;
+        Color32[] colors = texture.GetPixels32();
+
+        /* 画像データをbyte[]型にする */
+        int width = texture.width;
+        int height = texture.height;
+        int area = width * height;
+        byte[] bytes = new byte[area * 4];
+        int point = 0;
+        int index = area - 1;
+        for(int y = height - 1; y &gt;= 0; --y){
+            for(int x = 0; x &lt; width; ++x){
+                index = x + y * width;
+                bytes[point] = colors[index].r;
+                bytes[point+1] = colors[index].g;
+                bytes[point+2] = colors[index].b;
+                bytes[point+3] = colors[index].a;
+                point += 4;
+            }
+        }
+
+        /* byte[]をtesseractに渡して文字認識をする */
+        TessBaseAPISetImage(ocrHandle, bytes, width, height, 4, width * 4);
+        if(TessBaseAPIRecognize(ocrHandle, IntPtr.Zero) != 0) return null;
+        string result = TessBaseAPIGetUTF8Text(ocrHandle);
+        Debug.Log(result);
+        return result;
+    }
+}
+

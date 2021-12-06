@@ -1,0 +1,118 @@
+
+// File.ReadLines(string path)辺りを引数で渡すつもりで作成
+public IEnumerable&lt;List&lt;string&gt;&gt; ReadCsvData(IEnumerable&lt;string&gt; data)
+{
+    // 返却用リスト
+    List&lt;string&gt; retLine = new List&lt;string&gt;();
+    // データの改行有無フラグ
+    bool hasNewLine = false;
+
+    foreach(string line in data)
+    {
+        int iStart = 0;
+
+        // 前の読み取り行に改行付きデータがあれば、ダブルクォートの終点探し
+        if (hasNewLine)
+        {
+            retLine[retLine.Count - 1] += Environment.NewLine;
+            int iEnd = SearchCloseQuot(line, iStart);
+            if (iEnd == -1)
+            {
+                retLine[retLine.Count - 1] += line.Replace("\"\"", "\"");
+                continue;
+            }
+            retLine[retLine.Count - 1] += line.Substring(iStart, iEnd).Replace("\"\"", "\""); 
+            hasNewLine = false;
+
+            iStart = line.IndexOf(',', ++iEnd);
+
+            if(iStart == -1)
+            {
+                yield return retLine;
+                retLine = new List&lt;string&gt;();
+                continue;
+            }
+
+            iStart++;
+        }
+
+        // 行始まりか、前行からの改行データ終わりから読み取り開始
+        for (; iStart &lt; line.Length; iStart++)
+        {
+            //始点がダブルクォートなら、終点のダブルクォートの探索
+            if(line[iStart] == '"')
+            {
+                int iEnd = SearchCloseQuot(line, iStart + 1);
+                if (iEnd == -1)
+                {
+                    retLine.Add(line.Substring(iStart));
+                    hasNewLine = true;
+                    break;
+                }
+                retLine.Add(line.Substring(iStart + 1, iEnd - iStart - 1).Replace("\"\"", "\""));
+                if(iEnd == line.Length - 1)
+                {
+                    break;
+                }
+                else
+                {
+                    iStart = line.IndexOf(',', iEnd + 1);
+                    continue;
+                }
+            }
+            // 始点がカンマなら、空文字データがあるとして処理
+            else if (line[iStart] == ',')
+            {
+                retLine.Add("");
+                continue;
+            }
+            // 始点がそれ以外なら、次のカンマを探索
+            else
+            {
+                int iEnd = line.IndexOf(',', iStart);
+                if(iEnd == -1)
+                {
+                    retLine.Add(line.Substring(iStart).Trim());
+                    break;
+                }
+                else
+                {
+                    retLine.Add(line.Substring(iStart, iEnd - iStart));
+                    iStart = iEnd;
+                    continue;
+                }
+            }
+        }
+
+        // 行内のデータに改行がなければ、リストを返却してリセット
+        if (!hasNewLine)
+        {
+            if (line.Length == 0 || line[line.Length - 1] == ',')
+            {
+                retLine.Add("");
+            }
+            yield return retLine;
+            retLine = new List&lt;string&gt;();
+        }
+    }
+
+    // 読み取りが終わった時に改行があれば異常処理
+    if (hasNewLine)
+        throw new InvalidDataException();
+}
+
+// データ終端のダブルクォートを探すサブ関数
+private int SearchCloseQuot(string data, int startIndex)
+{
+    for (int i = startIndex; i &lt; data.Length; i += 2)
+    {
+        i = data.IndexOf('"', i);
+        if (i == data.Length - 1 || data[i + 1] != '"' || i == -1)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+

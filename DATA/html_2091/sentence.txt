@@ -1,0 +1,77 @@
+More than 1 year has passed since last update.こんなコード書いたら不具合になるよなーと思ったコードを羅列してみようと思ったが、
+あまりネタがなかった＆不具合再現させようとしたら案外面倒だったので記事作成が進まない。。。
+が、せっかく書いたので投稿してみる。何がダメか考えてから解説に行ってみましょう。
+C#で書いていますが、大体の言語で当てはまるかと。現在時刻を取得して文字列にしようとしている。解説へユーザーからの文字列入力に対して、文字数制限を設けている。以下のシーンを想定してください。
+「ユーザが今日パパと𩸽を食べたという文字列を入力したとき。」※上記文字列は意図的に危ない文字データを含んでいるので取り扱い注意。
+（考慮がされていないソフトやウェブサイト、会社のシステムなどに入力すると危険な動作をする恐れがあります。メモリ破壊して想定できない動作をする可能性もあります。）解説へダメな点：DateTime.Nowが2回呼ばれる間に、DateTime.Nowの値が変化してしまう。
+何が起きるか：例えば 12.999～13.000秒の間でこのメソッドを実行したとき、"12.000" を出力してしまう可能性がある。修正前コードの不具合再現用コード
+
+
+不具合発生再現用コード
+
+using System;
+using System.Diagnostics;
+using System.Threading;
+
+class DateTimeTest
+{
+    static string GetNow(out int os, out int oms)
+    {
+        int s = DateTime.Now.Second;
+        int ms = DateTime.Now.Millisecond;
+        os = s;
+        oms = ms;
+        return string.Format("{0:00}.{1:000}", s, ms);
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        string prevStr = "no data";
+        int prevTs;
+        int prevTms;
+        int ts;
+        int tms;
+
+        Console.WriteLine("started.");
+        for (int i=0;i&lt;1000;i++) {
+            string nowStr = GetNow(out ts, out tms);
+            prevStr = nowStr;
+            while ( true ) {
+                prevTs = ts;
+                prevTms = tms;
+                nowStr = GetNow(out ts, out tms);
+                Console.Write(tms);
+                Console.Write("\r");
+                if ( (ts!=prevTs) &amp;&amp; tms == 0 ) { // xx.xxx から yy.000 になったときに表示
+                    Console.Write("i:");
+                    Console.WriteLine(i);
+
+                    Console.WriteLine(prevStr);
+                    Console.WriteLine(nowStr);
+                    break;
+                }
+                prevStr = nowStr;
+            }
+        }
+    }
+}
+
+
+
+変化するデータを使うときは、一時変数なりに一度代入しよう。
+※マルチスレッドや割り込みなどで値が変化するデータを扱う場合は、これだけでは不十分。例で挙げた文字列は、サロゲートペアと、結合文字を含んでおり、
+"今日パパと𩸽を食べた".Lengthは見かけは10文字だが、12を返す。C#(.NET)を含め、Windowsの文字列の内部表現はUTF-16となっている(Unicodeの符号化方式のうちの1つ)。
+UTF-16では、通常2byteで1文字を表現する1が、2byte(0～65535)では世の中の文字を表現しきれず、2文字分2(4byte)を使用する文字がある。(サロゲートペア)
+今回の例の𩸽(ほっけ)は、"\uD867\uDE3D"。
+絵文字もサロゲートペアだったりする。Unicodeでは、見かけ上は１文字（例：「パ」）であっても、2つの文字「ハ」＋「゜」3を表示上1文字に見えるように扱っている場合がある。
+UTF-16では：
+パ："\u30D1"
+パ(ハ＋゜)："\u30CF\u309A" ("\u30CF"はハ)ユーザが上記のようなデータを入力し得る場合、下記のような点に注意が必要になると思います。
++ バッファサイズ(StringBuilderや保存先のレコード長)は、実際の内部表現に必要なサイズを確保する必要がある。（当然ではあるが。）
++ Stringクラスのメソッド(Length,Substring,IndexOfなど)は、内部の文字配列に対する操作であり、人が認識する「文字」単位ではない。（Regexクラスも同様のはず。）サロゲートペアや結合文字を含む処理のしかた：
+https://dobon.net/vb/dotnet/string/substring.html#substringbytextelements文字数制限については、ユーザー側に特殊な文字は使わないように喚起するなどもありかもしれないが（システムや想定ユーザーによるが。。）、入力できてしまう以上は、考慮した設計・実装が必要である。・浮動小数点数
+・メモリ関係
+・マルチスレッド(書けない気がする)半角・全角問わず。 ↩「2文字」という表現は適切ではないかも。（サロゲートペアの上下各2byteは「文字」ではないので。） ↩独立した半濁点「゜」と、結合文字に使われる半濁点は区別されます。便宜上、説明文では独立した半濁点「゜」を使っています。 ↩
+
+

@@ -1,0 +1,61 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using IvyFEM;
+using IvyFEMProtoApp;
+using OxyPlot;
+using OxyPlot.Axes;
+using OxyPlot.Series;
+using Microsoft.SolverFoundation.Solvers;
+using Microsoft.SolverFoundation.Services;
+
+namespace IvyFEMProtoApp
+{
+    partial class Problem
+    {
+        public void Optimize1Problem(MainWindow mainWindow)
+        {
+            int paramCnt = 5;
+            double[] ds = new double[paramCnt];
+            double[] minds = new double[paramCnt];
+            double[] maxds = new double[paramCnt]; 
+            for (int i = 0; i &lt; paramCnt; i++)
+            {
+                // 直角コーナー
+                double theta = (i + 1) / (double)paramCnt * Math.PI / 4.0;
+                double x = 1.0;
+                double y = x * Math.Tan(theta);
+                ds[i] = Math.Sqrt(x * x + y * y);
+                minds[i] = 0.1;
+                maxds[i] = 2.0;
+            }
+            double totalS11;
+            WaveguideProblemToBeOptimized(mainWindow, paramCnt, ds, out totalS11);
+
+            int maxItr = 50;
+            NonlinerOptimizingProblem.Solve(paramCnt, ds, minds, maxds, maxItr, ValueFunctionToBeOptimized, mainWindow);
+        }
+
+        private double ValueFunctionToBeOptimized(INonlinearModel model, int rowVId,
+                ValuesByIndex values, bool newValues, object arg)
+        {
+            MainWindow mainWindow = arg as MainWindow;
+
+            System.Diagnostics.Debug.Assert(model.GetKeyFromIndex(rowVId) as string == "obj");
+            int paramCnt = model.VariableCount;
+            double[] ds = new double[paramCnt];
+            for (int i = 0; i &lt; paramCnt; i++)
+            {
+                string vKey = "v" + i;
+                int vId = model.GetIndexFromKey(vKey);
+                ds[i] = values[vId];
+            }
+
+            double totalS11;
+            WaveguideProblemToBeOptimized(mainWindow, paramCnt, ds, out totalS11);
+            return totalS11;
+        }
+

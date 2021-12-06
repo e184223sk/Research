@@ -1,0 +1,8 @@
+More than 1 year has passed since last update.Addressables を用いて3Dアセット等をダウンロードする際に、少し時間が掛かるのでダウンロード進捗を表示したかった。公式で AsyncOperationHandle#PercentComplete から取得できそうだったが、これは現バージョンだとダウンロード処理の段階では0%になってしまっていたので、 AssetBundleProvider 内部で利用している UnityWebRequest#downloadProgress から取得することにした。AssetBundleProvider で利用している UnityWebRequest を取得するメソッドは公式には無い。
+内部で WebRequestQueue に UnityWebRequest を渡しているのでここから取得できそうだが、
+残念ながら WebRequestQueue は internal なので開発者側からは取得が出来ない。また、Addressables のコードは直接編集することも出来なかった。
+(そもそもライブラリコード改変はアップデート時に辛くなるのでやりたくない)そこで、リフレクション (C#) | Microsoft Docs を利用して実行時に無理やり取得した。WebRequestQueue.cs は Addressables で利用する通信処理のキュー。
+アクティブな通信は s_ActiveRequests に追加されるので、こちらから取得する。実際に使ってみればわかるがリフレクションはかなり動作が遅く、Profiler を直接確認したわけでは無いがゲーム本体のパフォーマンスに影響を与える可能性も考えられる。また、こちらも未検証ではあるが ios 環境で動作するかどうかも不明なので、本来であれば公式でダウンロード進捗が取得出来るようになるのが理想である。(見落としているだけでもしかしたら可能かもしれない)改善の余地はあるが、下記のコードで正常にダウンロード進捗が取得出来ることが確認できた。参考: .net - How do I get class of an internal static class in another assembly? - Stack OverflowEditor拡張で作成。
+Tools -&gt; Addressables Cache Clear からキャッシュ削除が可能。カスタムプロバイダを作れば解決出来るかもしれないと思いましたが、AssetBundleResource が internal で面倒さを感じたのでリフレクションで実装しました。不完全なコードではありますが、Addressables の Load 時のプログレスバーを実装しているエンジニアさんの力になれましたら幸いです。Addressabels 初心者なので間違ってたらマサカリ下さい。
+
+

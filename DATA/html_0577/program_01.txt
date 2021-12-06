@@ -1,0 +1,92 @@
+
+using System;
+using static System.Console;
+using System.Threading.Tasks;
+
+namespace TimerSample
+{
+    class Program
+    {
+        static readonly Random Random = new Random();
+
+        static async Task Main(string[] args)
+        {
+            while (true)
+            {
+                if (ReadKey().Key == ConsoleKey.Escape)
+                    break;
+
+                Clear();
+
+                WriteLine("インターバル時間をミリ秒で指定");
+
+                if (!double.TryParse(ReadLine(), out var interval))
+                    continue;
+
+                WriteLine("繰り返し回数を指定");
+                if (!int.TryParse(ReadLine(), out var n))
+                    continue;
+
+                WriteLine("不具合の起こる確率を指定");
+                if (!double.TryParse(ReadLine(), out var p))
+                    continue;
+
+                bool timeout = false;
+                bool isRunning = false;
+
+                async Task AsyncMethod()
+                {
+                    int delay = 0;
+
+                    if (Random.NextDouble() &gt; p)
+                    {
+                        delay = (int)(0.5 * interval);
+                    }
+                    else
+                    {
+                        delay = (int)(2 * interval);
+                    }
+
+                    isRunning = true;
+                    await Task.Delay(delay);
+                    isRunning = false;
+                }
+
+                using (var intervalTimer = new AwaitableTimer(TimeSpan.FromMilliseconds(interval), true))
+                {
+                    intervalTimer.Elapsed += (s, e) =&gt;
+                    {
+                        if (isRunning)
+                        {
+                            timeout = true;
+                        }
+                    };
+
+                    intervalTimer.Start();
+                    var startTime = DateTime.Now;
+                    var previous = startTime;
+
+                    for (var i = 0; i &lt; n; i++)
+                    {
+                        await AsyncMethod();
+
+                        if (timeout)
+                        {
+                            WriteLine("インターバル時間内に処理が終わりませんでした！");
+                            timeout = false;
+                            break;
+                        }
+
+                        var now = await intervalTimer.WaitElapsedAsync();
+                        var period = now - previous;
+                        previous = now;
+                        WriteLine($"ラップ{i + 1:000}　経過時間(トータル)：{(now - startTime).TotalMilliseconds:f2} ms　経過時間(インターバル)：{period.TotalMilliseconds:f2} ms");
+                    }
+                }
+
+                WriteLine("終了");
+            }
+        }
+    }
+}
+

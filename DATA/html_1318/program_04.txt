@@ -1,0 +1,34 @@
+
+using var channel = new InMemoryChannel();
+try
+{
+    IServiceCollection services = new ServiceCollection();
+    services.Configure&lt;TelemetryConfiguration&gt;(config =&gt; config.TelemetryChannel = channel);
+    services.AddLogging(builder =&gt;
+    {
+        builder.AddApplicationInsights(InstrumentationKey);
+        builder.AddJsonConsole(options =&gt; options.IncludeScopes = true);
+    });
+    IServiceProvider serviceProvider = services.BuildServiceProvider();
+    ILogger&lt;Program&gt; logger = serviceProvider.GetService&lt;ILogger&lt;Program&gt;&gt;();
+    using (logger.BeginScope("DI enabled"))
+    using (logger.BeginScope("start console"))
+    {
+        logger.LogInformation(AppLogEvents.Details, "Start Program with {Id} at {RunTime}", 1, DateTime.Now);
+        try
+        {
+            throw new CustomException("tsushi's exception thrown.");
+        }
+        catch (CustomException e)
+        {
+            logger.LogError(AppLogEvents.Error, e, "Check the host.json configuration.");
+        }
+    }
+    logger.LogInformation(AppLogEvents.Details, "out of scope");
+}
+finally
+{
+    channel.Flush();
+    await Task.Delay(TimeSpan.FromMilliseconds(1000));
+}
+

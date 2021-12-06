@@ -1,0 +1,87 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Xml;
+using System.Xml.Linq;
+using System.Xml.Serialization;
+
+namespace ConsoleApp1
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            // ファイルを読み込んで XDocument に置換 → XDocument をカスタムモデルにデシリアライズ
+            XDocument xml = XDocument.Load(Path.Combine(Directory.GetCurrentDirectory(), @"XMLFile1.xml"));
+            var myModel = XmlConvert.DeserializeObject&lt;MyModel&gt;(xml);
+
+            // カスタムモデルを XDocument にシリアライズ → XDocument を XML 形式でファイルに書き込み
+            var doc = XmlConvert.SerializeXDocument(myModel);
+            doc.Save("@"XMLFile2.xml");
+
+            // カスタムモデルを文字列にシリアライズ
+            var str = XmlConvert.SerializeObject(myModel);
+        }
+    }
+
+    public static class XmlConvert
+    {
+        public static string SerializeObject(object value, XmlSerializerNamespaces namespaces = null, XmlWriterSettings settings = null)
+        {
+            return SerializeXDocument(value, namespaces, settings).ToString();
+        }
+
+        public static XDocument SerializeXDocument(object value, XmlSerializerNamespaces namespaces = null, XmlWriterSettings settings = null)
+        {
+            if (namespaces == null)
+            {
+                namespaces = new XmlSerializerNamespaces();
+                namespaces.Add(string.Empty, string.Empty);
+            }
+
+            var doc = new XDocument();
+
+            using (var writer = XmlWriter.Create(doc.CreateWriter(), settings))
+            {
+                var xs = new XmlSerializer(value.GetType());
+                xs.Serialize(writer, value, namespaces);
+            }
+
+            return doc;
+        }
+
+        public static T DeserializeObject&lt;T&gt;(string xml, XmlReaderSettings settings = null)
+            where T : class
+        {
+            return DeserializeObject&lt;T&gt;(XDocument.Parse(xml), settings);
+        }
+
+        public static T DeserializeObject&lt;T&gt;(XDocument document, XmlReaderSettings settings = null)
+            where T : class
+        {
+            return DeserializeObject&lt;T&gt;(document.Root, settings);
+        }
+
+        public static T DeserializeObject&lt;T&gt;(XElement element, XmlReaderSettings settings = null)
+            where T : class
+        {
+            using (var reader = XmlReader.Create(element.CreateReader(), settings))
+            {
+                var xs = new XmlSerializer(typeof(T));
+                return (T)xs.Deserialize(reader);
+            }
+        }
+    }
+
+    [XmlRoot("Root")]
+    public class MyModel
+    {
+        [XmlElement("FirstElement")]
+        public string FirstElement { get; set; }
+
+        [XmlArray("SecondElements")]
+        [XmlArrayItem("SecondElement")]
+        public List&lt;string&gt; SecondElements { get; set; }
+    }
+}
+
+

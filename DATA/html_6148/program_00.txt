@@ -1,0 +1,132 @@
+using Microsoft.Azure;
+using Microsoft.Azure.Management.DataFactories;
+using Microsoft.Azure.Management.DataFactories.Models;
+using Microsoft.IdentityModel.Clients.ActiveDirectory;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace DataFactory
+{
+    class Program
+    {
+
+
+        static void Main(string[] args)
+        {
+            new Program().DummyAllMessagesAsync();
+            Console.ReadLine();
+
+        }
+
+        public async Task DummyAllMessagesAsync()
+
+        {
+            var subscriptionId = "YOUR_SUBSCRIPTION_ID";
+            var tenantId = "YOUR_TENANT_ID";
+            var applicationId = "YOUR_CLIENT_ID";
+            var applicationKey = "YOUR_CLIENT_SECRET";
+
+            var tokenCredentails = new TokenCloudCredentials(
+                subscriptionId,
+                await GetAuthorizationHeader(tenantId, applicationId, applicationKey)
+                );
+
+            var client = new DataFactoryManagementClient(tokenCredentails);
+            var dataFactory = "YOUR_DATA_FACTORY_NAME";
+            var resourceGroup = "YOUR_RESOURCE_GROUP_NAME";
+            var dataPipeline = "YOUR_PIPELINE_NAME";
+            var dataset = "YOUR_DATASET_NAME"; 
+            // var dataSliceRunListParameters = new DataSliceRunListParameters("2017-08-02T23:00:00.0000000");
+
+
+
+            var pipelineResponse = await client.Pipelines.GetAsync(resourceGroup, dataFactory, dataPipeline);
+
+            var PipelineActivePeriodStartTime = pipelineResponse.Pipeline.Properties.Start ?? DateTime.Now;
+            var PipelineActivePeriodEndTime = pipelineResponse.Pipeline.Properties.End ?? new DateTime(2099, 12, 32, 23, 59, 0, 0, DateTimeKind.Utc);
+
+            // DateTime PipelineActivePeriodStartTime = new DateTime(2017, 8, 2, 22, 41, 0, 0, DateTimeKind.Utc);
+            // DateTime PipelineActivePeriodEndTime = new DateTime(2017, 8, 4, 22, 57, 0, 0, DateTimeKind.Utc);
+
+
+            var slices = await client.DataSlices.ListAsync(resourceGroup, dataFactory, dataset, new DataSliceListParameters() {
+                DataSliceRangeStartTime = PipelineActivePeriodStartTime.ConvertToISO8601DateTimeString(),
+                DataSliceRangeEndTime = PipelineActivePeriodEndTime.ConvertToISO8601DateTimeString()
+            }
+                );
+
+            var sliceRunStartTimes = slices.DataSlices.Select(s =&gt; s.Start);
+
+            foreach (var startTime in sliceRunStartTimes)
+            {
+                var dataSliceRunListParameters = new DataSliceRunListParameters(startTime.ConvertToISO8601DateTimeString());
+                DataSliceRunListResponse sliceRuns;
+                try
+                {
+                    sliceRuns = await client.DataSliceRuns.ListAsync(resourceGroup, dataFactory, dataset, dataSliceRunListParameters);
+                    foreach (var sliceRun in sliceRuns.DataSliceRuns)
+                    {
+
+                        GetDataSliceRunSummary(sliceRun);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.ToString());
+                }
+            }
+
+
+        }
+        private void GetDataSliceRunSummary(DataSliceRun run)
+        {
+
+            var properties = typeof(DataSliceRun).GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Where(p =&gt; p.CanRead &amp;&amp; p.CanWrite)
+                .Where(p =&gt; p.PropertyType == typeof(string));
+            foreach (var p in properties)
+            {
+                Console.WriteLine(p.GetValue(run));
+            }
+        }
+
+        private const string ActiveDirectoryEndpoint = "https://login.windows.net/";
+        private const string WindowsManagementUri = "https://management.core.windows.net/";
+
+        public async Task&lt;string&gt; GetAuthorizationHeader(string tenantId, string applicationId, string applicationKey)
+        {
+
+
+
+            var context = new AuthenticationContext(ActiveDirectoryEndpoint + tenantId);
+            var credential = new ClientCredential(
+                applicationId,
+                applicationKey);
+            AuthenticationResult result = null;
+            try
+            {
+
+                result = await context.AcquireTokenAsync(
+                  resource: WindowsManagementUri,
+                  clientCredential: credential);
+            } catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+            }
+
+
+            if (result != null)
+                return result.AccessToken;
+
+            throw new InvalidOperationException("Failed to acquire token");
+        }
+    }
+
+
+}
+
+

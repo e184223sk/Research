@@ -1,0 +1,32 @@
+    public class CachedHogeRepository : HogeRepository
+    {
+        private static readonly object CacheLockObject = new object();
+        private const string cacheKey = "CachedHogeRepository:ToList";
+        public override IList&lt;Hoge&gt; ToList()
+        {
+            IList&lt;Hoge&gt; result = HttpRuntime.Cache[cacheKey] as List&lt;Hoge&gt;;
+            // キャッシュにないの場合
+            if (result == null)
+            {
+                lock (CacheLockObject)
+                {
+                    result = HttpRuntime.Cache[cacheKey] as List&lt;Hoge&gt;;
+                    if (result == null)
+                    {
+                        result = base.ToList();
+                        HttpRuntime.Cache.Insert(cacheKey, result,
+                            null, DateTime.Now.AddHours(12), TimeSpan.Zero);
+                    }
+                }
+            }
+            return result;
+        }
+        // 作成更新削除があったらこのメソッドでキャッシュをクリアします。
+        public override int SaveChanges()
+        {
+            var ret = base.SaveChanges();
+            HttpRuntime.Cache.Remove(cacheKey);
+            return ret;
+        }
+    }
+

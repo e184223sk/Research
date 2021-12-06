@@ -1,0 +1,41 @@
+
+_micClient = SpeechRecognitionServiceFactory.CreateDataClient(SpeechRecognitionMode.LongDictation, _recog_lang_set, _keyBingSAPI1);
+
+_micClient.OnPartialResponseReceived += this.OnPartialResponseReceivedHandler;
+_micClient.OnResponseReceived += this.OnMicDictationResponseReceivedHandler;
+_micClient.OnConversationError += this.OnConversationErrorHandler;
+_micClient.SendAudioFormat(SpeechAudioFormat.create16BitPCMFormat(16000));
+
+var recorder = new RecordModel();
+recorder.RecordDataAvailabled += (sender2, e2) =&gt; {
+    if (0 &lt; e2.Length) {
+        try {
+            lock (recorder) {
+                _micClient.SendAudio(e2.Buffer, e2.Length);
+            }
+        } catch (InvalidOperationException w_e4) {
+        }
+    }
+};
+recorder.Start();
+
+// Bing Speech API1回14秒までなので、14秒まできたら打ち切る
+timer = new System.Timers.Timer(13800);
+timer.Start();
+timer.Elapsed += (sender2, e2) =&gt; {
+    try {
+        recorder.Stop();
+    } catch (TaskCanceledException w_e4) {
+    }
+};
+do {
+    if (this.Worker.CancellationPending || cToken.IsCancellationRequested) {
+        e.Cancel = true;
+        break;
+    }
+    Thread.Sleep(Convert.ToInt32(Math.Round(_threadwaitsec/4)));
+} while (!recorder.isStoped);
+
+timer.Stop();
+timer.Dispose();
+

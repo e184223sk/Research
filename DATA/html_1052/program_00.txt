@@ -1,0 +1,102 @@
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using FFmpeg.AutoGen;
+
+using OpenCvSharp;
+using OpenCvSharp.Extensions;
+
+namespace FFmpegAutoGenApp
+{
+    public partial class FormMain : Form
+    {
+        private CancellationTokenSource _cancel;
+
+        public FormMain()
+        {
+            InitializeComponent();
+        }
+
+        public unsafe void FFmpeg_OpenCV(CancellationToken token)
+        {
+            AVFormatContext *camera;
+            AVPacket packet;
+
+            ffmpeg.avdevice_register_all();
+            ffmpeg.avformat_open_input(&amp;camera, "video=YOUR-WEBCAM", ffmpeg.av_find_input_format("dshow"), null);
+            ffmpeg.av_init_packet(&amp;packet);
+
+            var codec = camera-&gt;streams[0]-&gt;codec;
+            Mat dest = new Mat(codec-&gt;height, codec-&gt;width, MatType.CV_8UC3);
+
+            while (token.IsCancellationRequested == false &amp;&amp; ffmpeg.av_read_frame(camera, &amp;packet) &gt;= 0)
+            {
+                Mat source = new Mat(codec-&gt;height, codec-&gt;width, MatType.CV_8UC2, (IntPtr)packet.data);
+                Cv2.CvtColor(source, dest, ColorConversionCodes.YUV2BGR_YUY2);
+
+                Invoke(new Action(() =&gt;
+                {
+                    pboxView.Image = BitmapConverter.ToBitmap(dest); 
+                    pboxView.Update();
+                }));
+
+                ffmpeg.av_packet_unref(&amp;packet);
+            }
+
+            ffmpeg.avformat_close_input(&amp;camera);
+        }
+
+        public unsafe void Only_FFmpeg(CancellationToken token)
+        {
+            AVFormatContext* camera;
+            AVPacket packet;
+
+            ffmpeg.avdevice_register_all();
+            ffmpeg.avformat_open_input(&amp;camera, "video=YOUR-WEBCAM", ffmpeg.av_find_input_format("dshow"), null);
+            ffmpeg.av_init_packet(&amp;packet);
+
+            var codec = camera-&gt;streams[0]-&gt;codec;
+            var dataSize = ffmpeg.av_image_get_buffer_size(AVPixelFormat.AV_PIX_FMT_BGR24, codec-&gt;width, codec-&gt;height, 1);
+            var dataBGR = ffmpeg.av_malloc((ulong)dataSize);
+            var sws = ffmpeg.sws_getContext(codec-&gt;width, codec-&gt;height, codec-&gt;pix_fmt, codec-&gt;width, codec-&gt;height, AVPixelFormat.AV_PIX_FMT_BGR24, ffmpeg.SWS_FAST_BILINEAR, null, null, null);
+
+            while (token.IsCancellationRequested == false &amp;&amp; ffmpeg.av_read_frame(camera, &amp;packet) &gt;= 0)
+            {
+                var linesize = ffmpeg.av_image_get_linesize(codec-&gt;pix_fmt, codec-&gt;width, 0);
+                var linesizeBGR = ffmpeg.av_image_get_linesize(AVPixelFormat.AV_PIX_FMT_BGR24, codec-&gt;width, 0);
+                ffmpeg.sws_scale(sws, new[] { packet.data }, new[] { linesize }, 0, codec-&gt;height, new[] { (byte*)dataBGR }, new[] { linesizeBGR });
+
+                Invoke(new Action(() =&gt;
+                {
+                    pboxView.Image = new Bitmap(codec-&gt;width, codec-&gt;height, linesizeBGR, PixelFormat.Format24bppRgb, (IntPtr)dataBGR);
+                    pboxView.Update();
+                }));
+
+                ffmpeg.av_packet_unref(&amp;packet);
+            }
+
+            ffmpeg.av_free(dataBGR);
+            ffmpeg.sws_freeContext(sws);
+            ffmpeg.avformat_close_input(&amp;camera);
+        }
+
+        private void btnRun_Click(object sender, EventArgs e)
+        {
+            _cancel = new CancellationTokenSource();
+            var token = _cancel.Token;
+
+            Task.Run(() =&gt; FFmpeg_OpenCV(token), token);
+            //Task.Run(() =&gt; Only_FFmpeg(token), token);
+        }
+
+        private void btnStop_Click(object sender, EventArgs e)
+        {
+            _cancel.Cancel();
+        }
+    }
+}
+

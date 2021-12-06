@@ -1,0 +1,61 @@
+
+    public class NetlifyAuthService : IAuthService
+    {
+        private readonly IJSRuntime _JSRuntime;
+        private readonly AuthenticationStateProvider _authenticationStateProvider;
+
+        public NetlifyAuthService(AuthenticationStateProvider authenticationStateProvider, IJSRuntime jSRuntime)
+        {
+            _authenticationStateProvider = authenticationStateProvider;
+            _JSRuntime = jSRuntime;
+        }
+
+        public async Task InitAsync()
+        {
+            await _JSRuntime.InvokeVoidAsync("initAuth");
+            var user = await _JSRuntime.InvokeAsync&lt;NetlifyLoginResult&gt;("getCurrentUser");
+            if (user == null)
+            {
+                await LogoutAsync();
+            }
+        }
+
+        public async Task&lt;LoginResult&gt; LoginAsync(LoginModel loginModel)
+        {
+            try
+            {
+                var result = await _JSRuntime.InvokeAsync&lt;NetlifyLoginResult&gt;("loginAsync", new object[] { loginModel.UserID, loginModel.Password }).ConfigureAwait(false);
+                // トークンを取得
+                var res = new LoginResult()
+                {
+                    IsSuccessful = true,
+                    IDToken = result.AccessToken
+                };
+                await ((SpaAuthticateProvider)_authenticationStateProvider).MarkUserAsAuthenticated(loginModel.UserID, res.IDToken);
+                return res;
+            }
+            catch (Exception e)
+            {
+                return new LoginResult()
+                {
+                    IsSuccessful = false,
+                    Error = e
+                };
+            }
+        }
+
+        public async Task LogoutAsync()
+        {
+            await _JSRuntime.InvokeAsync&lt;string&gt;("logoutAsync", new object[] { }).ConfigureAwait(false);
+            await ((SpaAuthticateProvider)_authenticationStateProvider).MarkUserAsLoggedOut();
+        }
+    }
+
+    [JsonObject(NamingStrategyType = typeof(CamelCaseNamingStrategy))]
+    public class NetlifyLoginResult
+    {
+        public string UserId { get; set; }
+        public string AccessToken { get; set; }
+    }
+
+

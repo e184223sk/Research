@@ -1,0 +1,23 @@
+
+// Action&lt;UserSaveData&gt; callback = xxx //何かコールバック関数を定義
+//UIスレッドを触る可能性があるので、コールバックを渡すためのコンテキストを退避しておく
+var context = System.Threading.SynchronizationContext.Current;
+
+DatabaseRoot.Child("users").Child(userId).Child("backup").GetValueAsync().ContinueWith(task =&gt;
+{
+    context.Post((obj) =&gt;
+    {
+        if (task.IsFaulted)
+        {
+            Debug.LogError($"firebase error: {obj} : {task.Exception}");
+            callback(null);
+        }
+        else if (task.IsCompleted)
+        {
+            UserSaveData restoreData = JsonUtility.FromJson&lt;UserSaveData&gt;(task.Result.GetRawJsonValue());
+            Debug.Log("Complete save data restore");
+            callback(restoreData);
+        }
+    }, callback);
+});
+

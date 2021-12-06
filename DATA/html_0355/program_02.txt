@@ -1,0 +1,27 @@
+
+    /// &lt;summary&gt;
+    /// 'IAsyncAction' は、参照されていないアセンブリに定義されていますと言われるので自前で定義
+    /// https://www.moonmile.net/blog/archives/8584
+    /// &lt;/summary&gt;
+    public static class TaskEx
+    {
+        public static Task&lt;T&gt; AsTask&lt;T&gt;(this IAsyncOperation&lt;T&gt; operation)
+        {
+            var tcs = new TaskCompletionSource&lt;T&gt;();
+            operation.Completed = delegate  //--- コールバックを設定
+            {
+                switch (operation.Status)   //--- 状態に合わせて完了通知
+                {
+                    case AsyncStatus.Completed: tcs.SetResult(operation.GetResults()); break;
+                    case AsyncStatus.Error: tcs.SetException(operation.ErrorCode); break;
+                    case AsyncStatus.Canceled: tcs.SetCanceled(); break;
+                }
+            };
+            return tcs.Task;  //--- 完了が通知されるTaskを返す
+        }
+        public static TaskAwaiter&lt;T&gt; GetAwaiter&lt;T&gt;(this IAsyncOperation&lt;T&gt; operation)
+        {
+            return operation.AsTask().GetAwaiter();
+        }
+    }
+

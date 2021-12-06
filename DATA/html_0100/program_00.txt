@@ -1,0 +1,97 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Newtonsoft.Json;
+
+namespace ConsoleApp1
+{
+    public class Trend
+    {
+        public string name { get; set; }
+        public string url { get; set; }
+        public object promoted_content { get; set; }
+        public string query { get; set; }
+        public int? tweet_volume { get; set; }
+    }
+
+    public class Location
+    {
+        public string name { get; set; }
+        public int woeid { get; set; }
+    }
+
+    public class JsonData
+    {
+        public List&lt;Trend&gt; trends { get; set; }
+        public DateTime as_of { get; set; }
+        public DateTime created_at { get; set; }
+        public List&lt;Location&gt; locations { get; set; }
+    }
+
+    public class Root
+    {
+        public List&lt;JsonData&gt; json_data { get; set; }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            //API key
+            string apiKey = "＜APIキー＞";
+            //API secret key
+            string apiSecretKey = "＜APIシークレットキー＞";
+            //Access token
+            string accessToken = "＜アクセストークン＞";
+            //Access token secret
+            string accessTokenSecret = "＜アクセストークンシークレット＞";
+
+            //認証情報
+            var tokens = CoreTweet.Tokens.Create(apiKey, apiSecretKey, accessToken, accessTokenSecret);
+            //大阪のトレンド情報取得
+            var TrendsJson = tokens.Trends.Place(15015370); //Osaka
+
+            //JSONデータを取得
+            string JsonData = TrendsJson.Json.ToString();
+            //うまくデシリアライズできないので、ちょとデータ加工。。
+            JsonData = "{ json_data: " + JsonData + "}";
+
+            //URLデコードする
+            string UrlDec = System.Web.HttpUtility.UrlDecode(JsonData);
+            //JSON文字列をデシリアライズ
+            Root TrendData = JsonConvert.DeserializeObject&lt;Root&gt;(UrlDec);
+
+            //練習数
+            int DataCnt = 3;
+
+            //ツイート
+            tokens.Statuses.Update(status =&gt; DataCnt + "単語のフリック練習スタート！😤");
+            //1秒待つ
+            Thread.Sleep(1000);
+
+            for (int idx = 0; idx &lt; DataCnt; idx++)
+            {
+                //取得トレンド総数
+                int TrendCnt = TrendData.json_data[0].trends.Count;
+
+                //ランダム数値生成
+                Random Rnd = new Random();
+                int TrendRdm = Rnd.Next(0, TrendCnt);
+
+                //トレンド文字列取得
+                string TrendText = TrendData.json_data[0].trends[TrendRdm].query;
+                //#はいらないので置換
+                TrendText = TrendText.Replace("#","");
+
+                //ツイート
+                tokens.Statuses.Update(status =&gt; "【" + (idx + 1) + "】" + TrendText);
+                //1秒待つ
+                Thread.Sleep(1000);
+            }
+
+            //ツイート
+            tokens.Statuses.Update(status =&gt; "終了🥴");
+        }
+    }
+}
+

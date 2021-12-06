@@ -1,0 +1,135 @@
+
+namespace FickerBrowser
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Globalization;
+    using System.Linq;
+    using System.Net;
+    using System.Reactive.Linq;
+    using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
+    using System.Windows;
+    using System.Xml.Linq;
+    using ReactiveUI;
+
+    public class AppViewModel : ReactiveObject
+    {
+        // ↓ こいつらはクラスメンバとして隠匿される
+
+        private string searchTerm;
+
+        private ObservableAsPropertyHelper&lt;List&lt;FickerPhoto&gt;&gt; searchResults;
+
+        private ObservableAsPropertyHelper&lt;Visibility&gt; spinnerVisibility;
+
+        // ↑ こいつらはクラスメンバとして隠匿される
+
+        // 基本的にコンストラクタでイベントやプロパティの変更処理を定義するのが慣わし・・・なのか？
+        public AppViewModel()
+        {
+            // コマンドに実装を結びつける
+            this.ExecuteSearch = ReactiveCommand.CreateFromTask&lt;string, List&lt;FickerPhoto&gt;&gt;(searchTerm =&gt; GetSearchResultsFromFicker(searchTerm));
+
+            // SearchTermの観測
+            // Throttleは入力完了を待つための遅延だよね？
+            // DistinctUntilChangedは”Returns an observable sequence that contains only distinct contiguous elements.”とのこと
+            // 最終的にExecuteSearchを呼ぶ
+            this.WhenAnyValue(x =&gt; x.SearchTerm)
+                .Throttle(TimeSpan.FromMilliseconds(800), RxApp.MainThreadScheduler)
+                .Select(x =&gt; x?.Trim())
+                .DistinctUntilChanged()
+                .Where(x =&gt; !string.IsNullOrWhiteSpace(x))
+                .InvokeCommand(this.ExecuteSearch);
+
+            // スピナーはExecuteSearchが実行されている間（IsExecuting）、プロパティを変化させる
+            // ExecuteSearchを観測しているとも言える
+            this.spinnerVisibility = this.ExecuteSearch.IsExecuting
+                .Select(x =&gt; x ? Visibility.Visible : Visibility.Collapsed)
+                .ToProperty(this, x =&gt; x.SpinnerVisibility, Visibility.Hidden);
+
+            // 検索結果にExecuteSearchの結果（List&lt;FickerPhoto&gt;）を渡す
+            // こちらもまたExecuteSearchを観測しているとも言える
+            this.searchResults = this.ExecuteSearch.ToProperty(this, x =&gt; x.SearchResults, new List&lt;FickerPhoto&gt;());
+
+            // ExecuteSearchのエラーはこうやってハンドルするらしい
+            // 解放処理（Unsbscribe）はいらんのだろうか？
+            this.ExecuteSearch.ThrownExceptions.Subscribe(ex =&gt; {/* Handle errors here */});
+        }
+
+        /// &lt;summary&gt;
+        /// 検索フレーズ
+        /// &lt;/summary&gt;
+        public string SearchTerm
+        {
+            get
+            {
+                return this.searchTerm;
+            }
+
+            set
+            {
+                // 変更の通知が起きる = Reactive
+                this.RaiseAndSetIfChanged(ref this.searchTerm, value);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 検索結果
+        /// &lt;/summary&gt;
+        public List&lt;FickerPhoto&gt; SearchResults =&gt; this.searchResults.Value;
+
+        /// &lt;summary&gt;
+        /// スピナー（"..."というTextBlock）の表示プロパティ
+        /// &lt;/summary&gt;
+        public Visibility SpinnerVisibility =&gt; this.spinnerVisibility.Value;
+
+        /// &lt;summary&gt;
+        /// 検索実行コマンド
+        /// &lt;/summary&gt;
+        public ReactiveCommand&lt;string, List&lt;FickerPhoto&gt;&gt; ExecuteSearch { get; protected set; }
+
+        /// &lt;summary&gt;
+        /// Ficker検索（非同期）
+        /// &lt;/summary&gt;
+        /// &lt;param name="searchTerm"&gt;検索フレーズ&lt;/param&gt;
+        /// &lt;returns&gt;検索結果&lt;/returns&gt;
+        private static async Task&lt;List&lt;FickerPhoto&gt;&gt; GetSearchResultsFromFicker(string searchTerm)
+        {
+            var doc = await Task.Run(() =&gt; XDocument.Load(string.Format(
+                CultureInfo.InvariantCulture,
+                "http://api.flickr.com/services/feeds/photos_public.gne?tags={0}&amp;format=rss_200",
+                WebUtility.UrlEncode(searchTerm))));
+
+            if (doc.Root == null)
+            {
+                return null;
+            }
+
+            var titles = doc.Root.Descendants("{http://search.yahoo.com/mrss/}title")
+                .Select(x =&gt; x.Value);
+
+            var tagRegex = new Regex("&lt;[^&gt;]+&gt;", RegexOptions.IgnoreCase);
+            var descriptions = doc.Root.Descendants("{http://search.yahoo.com/mrss/}description")
+                .Select(x =&gt; tagRegex.Replace(WebUtility.HtmlDecode(x.Value), string.Empty));
+
+            var items = titles.Zip(descriptions, (t, d) =&gt; new FickerPhoto()
+            {
+                Title = t,
+                Description = d,
+            }).ToArray();
+
+            var urls = doc.Root.Descendants("{http://search.yahoo.com/mrss/}thumbnail")
+                .Select(x =&gt; x.Attributes("url").First().Value);
+
+            var ret = items.Zip(urls, (item, url) =&gt;
+            {
+                item.Url = url;
+                return item;
+            }).ToList();
+
+            return ret;
+        }
+    }
+}
+

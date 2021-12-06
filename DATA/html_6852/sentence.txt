@@ -1,0 +1,26 @@
+More than 3 years have passed since last update.Nugetへのライブラリの公開は以下のような手順になります。
+1.nuspecファイルを作成（XML形式）
+2.nupkgファイルを作成（zip形式）
+3.コマンドでNugetへアップロードという順番です。割と単純ですが公開するライブラリが20個とかあるとXMLの作成、nupkgファイルの作成を20回繰り返すのが大変面倒です。この記事ではC#のコンソールアプリケーションでアップロードを自動化する方法について解説します。まずはnuspecファイルを作成する必要があります。XML形式なので文字列を独自で組み立てても良いのですが、Nuget.CoreというC#のライブラリがあるのでそれを利用しましょう。Nuget.Coreを使用するとnuspecをメモリ上に生成→nupkgファイルをフォルダに出力という手順でnupkgファイルを作成できます。nuspecファイルの作成にはManifestMetadataクラス、nupkgファイルの出力にはPackageBuilderクラスを使用します。
+ManifestMetadataクラスのサンプルコードは以下のようになります。PackageBuilderクラスのサンプルコードは以下のようになります。nuspecファイルの中身は以下のようになっています。XML形式のテキストファイルです。このうちid,version,authors,descriptionが必須項目です。このXMLの情報を自動で生成することを考えてみます。それぞれの項目をどこからとってくるかを考えてみます。id---&gt; .csprojファイルの名前。HigLabo.Core.csprojならHigLabo.Core
+version---&gt; Assembly.csの[assembly: AssemblyVersion("1.0.0.0")]
+authors---&gt; コードの直書き
+description---&gt; [assembly: AssemblyDescription("...")]から。空文字なら直書きで既定値。
+copyright---&gt; [assembly: AssemblyCopyright("...")]C#で上記の値を取得するには以下のような感じになります。武骨な感じですがよいでしょう。もっと別のところから取りたければカスタマイズしてもよいかもしれません。ExtractStringはちょっとした拡張メソッドです。囲まれた内部の文字列を抽出します。その他には以下の値が必要です。
+・パッケージに含めるDLLが置いてあるフォルダのパス（例：\bin\Release\）
+・TargetFrameworkVersion
+・依存するDLLこれらの値は.csprojからとってきます。.csprojはXML形式のファイルで以下のようになっています。・DLLフォルダのパス---&gt; /propertygroup/outputpathから取得
+・TargetFrameworkVersion---&gt; /propertygroup/targetframeworkversionから取得
+・依存するDLL---&gt; itemgroup//projectreferenceを解析して取得。プロジェクト参照とNugetパッケージの場合に対応する解析にはHtmlAgilityPackを使用します。HTMLの解析用のライブラリですがXML形式であれば使用できます。DLLのフォルダのパスを取得するには以下のように書きます。あとは依存するDLLへの対応です。プロジェクト参照の場合、XMLは以下のようになっています。HigLabo.Coreが参照しているHigLabo.Converter.csprojファイルのパスを取得するサンプルは以下のようになります。Nugetで参照したパッケージ場合はXMLは以下のようになります。値を取得するには以下のように書きます。依存関係のところは少し緩めの取得方法になります。別途設定ファイルでNugetのIDと依存するDLLの情報を管理してそこから取ってくるのもありかもしれません。これは各自の要求に応じてカスタマイズの余地がありそうです。以上を踏まえコンソールアプリケーションを作ります。このコンソールアプリケーションを実行すると指定したフォルダ以下（孫も含む）にある.csprojファイルを全て検索し、それぞれの.csprojファイルからnupkgファイルを生成し指定したフォルダに出力します。また出力された全てのnupkgをNugetにアップロードするUploadPackage.cmdファイルも出力します。クラスはたったの３つです。
+・Program.cs
+・NugetPackageInfo.cs（Nugetのnupkgファイルを作成するためのクラス）
+・ProjectReferenceInfo.cs（参照しているNugetパッケージの情報を保持するクラス）コンソールアプリケーションを実行すると指定したフォルダにnupkgファイルとUploadPackage.cmdファイルが出力されますUploadPackage.cmdを実行するとNugetにパッケージがアップロードされます。UploadPackage.cmdの中身は以下のような感じです。APIキーはプロジェクトのコマンドライン引数からセットできるようにしてあります。APIキー自体はhttps://nuget.org にログインして管理画面から取得できます。これで
+→ライブラリを修正
+→Assmbly.csのバージョンを更新
+→コンソールアプリを実行
+→UploadPackage.cmdを実行
+でNugetにパッケージをアップできるようになりました。プロジェクトの数が増えても手間は変わりません。ソースコードはGitHubにアップしておきました。
+https://github.com/higty/higlabo/tree/master/HigLabo.NugetManagementApplication
+IDの決定方法や各種プロパティの取得の仕方などを自分がやりたい形にカスタマイズすれば簡単に利用できるようにしてあります。ご利用はご自由にどうぞ。何か間違いなどあればまたコメントにてご指摘ください。
+
+

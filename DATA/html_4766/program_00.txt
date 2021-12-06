@@ -1,0 +1,55 @@
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Dialogflow.v2;
+using Google.Apis.Dialogflow.v2.Data;
+using Google.Apis.Services;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+namespace ConsoleApp1
+{
+    class Program
+    {
+        private static readonly string PROJECT_ID = "yourProjectId";
+        private static readonly string CREDENTIAL_PATH = @"Your\Credential\Path.json";
+
+        static void Main(string[] args)
+        {
+            var sessionId = Guid.NewGuid().ToString();
+            var message = "hoge";
+            var response = RequestAsync(sessionId, message).Result;
+        }
+
+        private static async Task&lt;GoogleCloudDialogflowV2DetectIntentResponse&gt; RequestAsync(string sessionId, string message)
+        {
+            ServiceAccountCredential credential;
+            using (var stream = new FileStream(CREDENTIAL_PATH, FileMode.Open, FileAccess.Read))
+            {
+                credential = GoogleCredential.FromStream(stream)
+                                             .CreateScoped(DialogflowService.Scope.CloudPlatform)
+                                             .UnderlyingCredential as ServiceAccountCredential;
+            }
+
+            var service = new DialogflowService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = credential,
+            });
+
+            var request = service.Projects.Agent.Sessions.DetectIntent(new GoogleCloudDialogflowV2DetectIntentRequest
+            {
+                QueryInput = new GoogleCloudDialogflowV2QueryInput
+                {
+                    Text = new GoogleCloudDialogflowV2TextInput
+                    {
+                        Text = message,
+                        LanguageCode = "ja",
+                    },
+                },
+            }, $"projects/{PROJECT_ID}/agent/sessions/{sessionId}");
+
+            return await request.ExecuteAsync();
+        }
+    }
+}
+
+

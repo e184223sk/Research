@@ -1,0 +1,76 @@
+class SampleServiceImpl : SampleService.SampleServiceBase
+{
+    internal SampleServiceImpl() : base()
+    {
+    }
+
+    public async override Task&lt;SampleResponseList&gt; Unary(SampleRequest request, ServerCallContext context)
+    {
+        SampleResponseList list = new SampleResponseList();
+
+        foreach (SampleResponse response in GetResponses(request))
+        {
+            await RamdomDelayAsync();
+            list.Items.Add(response);
+        }
+
+        return list;
+    }
+
+    public async override Task&lt;SampleResponseList&gt; ClientStream(IAsyncStreamReader&lt;SampleRequest&gt; requestStream, ServerCallContext context)
+    {
+        SampleResponseList list = new SampleResponseList();
+
+        while (await requestStream.MoveNext())
+        {
+            foreach (SampleResponse response in GetResponses(requestStream.Current))
+            {
+                await RamdomDelayAsync();
+                list.Items.Add(response);
+            }
+        }
+
+        return list;
+    }
+
+    public async override Task ServerStream(SampleRequest request, IServerStreamWriter&lt;SampleResponse&gt; responseStream, ServerCallContext context)
+    {
+        foreach (SampleResponse response in GetResponses(request))
+        {
+            await RamdomDelayAsync();
+            await responseStream.WriteAsync(response);
+        }
+    }
+
+    public async override Task DuplexStream(IAsyncStreamReader&lt;SampleRequest&gt; requestStream, IServerStreamWriter&lt;SampleResponse&gt; responseStream, ServerCallContext context)
+    {
+        while (await requestStream.MoveNext())
+        {
+            foreach (SampleResponse response in GetResponses(requestStream.Current))
+            {
+                await RamdomDelayAsync();
+                await responseStream.WriteAsync(response);
+            }
+        }
+    }
+
+    private IEnumerable&lt;SampleResponse&gt; GetResponses(SampleRequest request)
+    {
+        for (int i = 0; i &lt; request.Count; ++i)
+        {
+            yield return new SampleResponse()
+            {
+                Name = string.Format("{0} {1}", request.Name, i + 1),
+                UpdateTime = Timestamp.FromDateTimeOffset(DateTimeOffset.Now)
+            };
+        }
+    }
+
+    private Task RamdomDelayAsync()
+    {
+        return Task.Delay(random.Next(1000));
+    }
+    static Random random = new Random();
+
+}
+

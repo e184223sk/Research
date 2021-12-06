@@ -1,0 +1,99 @@
+    public class Control
+    {
+        public string Name { get; set; }
+        public string Id { get; set; }
+    }
+
+    internal class Program
+    {
+        private static void Main(string[] args)
+        {
+            var filepath = args[0];
+            var nameSpaceName = args[1];
+
+            var xml = File.ReadAllText(filepath);
+            var xdoc = XDocument.Parse(xml);
+
+            var reader = xdoc.CreateReader();
+            var controls = new List&lt;Control&gt;();
+            while (reader.Read())
+            {
+                var control = new Control();
+                control.Name = reader.Name;
+                if (reader.MoveToAttribute("android:id"))
+                {
+                    control.Id = reader.Value.Split('/')[1];
+                    controls.Add(control);
+                }
+            }
+
+            var sb = new StringBuilder();
+            var classname = Path.GetFileNameWithoutExtension(filepath) + "_holder";
+
+            sb.AppendLine(@"using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Android.App;
+using Android.Content;
+using Android.OS;
+using Android.Runtime;
+using Android.Views;
+using Android.Widget;");
+
+            sb.AppendLine($"public class {classname} : IDisposable");
+            sb.AppendLine("{");
+
+            foreach (var control in controls)
+            {
+                sb.Append("\t");
+                sb.Append($"public {control.Name} {control.Id} ");
+                sb.Append("{ get; }");
+                sb.AppendLine();
+            }
+            sb.AppendLine();
+
+            sb.Append("\t");
+            sb.Append($"public {classname}(View view)");
+            sb.AppendLine();
+
+            sb.AppendLine("\t{");
+
+            foreach (var control in controls)
+            {
+                sb.Append("\t");
+                sb.Append("\t");
+                sb.Append($"{control.Id} = view.FindViewById&lt;{control.Name}&gt;({nameSpaceName}.Resource.Id.{control.Id});");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("\t}");
+
+            sb.AppendLine($"\tpublic void Dispose()");
+            sb.AppendLine("\t{");
+
+            foreach (var control in controls)
+            {
+                sb.Append("\t");
+                sb.Append("\t");
+                sb.Append($"{control.Id}.Dispose();");
+                sb.AppendLine();
+            }
+            sb.AppendLine("\t}");
+
+            sb.AppendLine("}");
+
+            Console.Write(sb);
+
+            var file = File.Create($"{classname}.cs");
+
+            TextWriter text = new StreamWriter(file);
+            text.Write(sb.ToString());
+
+            text.Flush();
+            text.Dispose();
+
+            Console.Read();
+        }
+    }
+

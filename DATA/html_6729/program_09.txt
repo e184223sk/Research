@@ -1,0 +1,270 @@
+
+/// &lt;summary&gt;
+/// The Encoder for MIME Base64 (RFC 2045).
+/// &lt;/summary&gt;
+public struct NativeBase64Encoder : IDisposable
+{
+    private Base64EncodeMap _map;
+    private PtrHandle&lt;Base64Info&gt; _info;
+
+    /// &lt;summary&gt;
+    /// convert bytes into chars in Base64 format.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    /// &lt;param name="byte_ptr"&gt;source ptr&lt;/param&gt;
+    /// &lt;param name="byte_len"&gt;source length&lt;/param&gt;
+    /// &lt;param name="splitData"&gt;additional bytes will be input or not. (false: call Terminate() internally.&lt;/param&gt;
+    public unsafe void GetChars(NativeList&lt;char&gt; buff, byte* byte_ptr, int byte_len, bool splitData = false)
+    {
+        if (byte_len &lt; 0) throw new ArgumentOutOfRangeException("invalid bytes length.");
+
+        uint store = _info.Target-&gt;store;
+        int bytePos = _info.Target-&gt;bytePos;
+
+        int charcount = 0;
+        for(uint i=0; i&lt;byte_len; i++)
+        {
+            if (_info.Target-&gt;insertLF)
+            {
+                if (charcount == Base64Const.LineBreakPos)
+                {
+                    buff.Add('\r');
+                    buff.Add('\n');
+                    charcount = 0;
+                }
+            }
+
+            store = (store &lt;&lt; 8) | byte_ptr[i];
+            bytePos++;
+
+            // encoding 3 bytes -&gt; 4 chars
+            if(bytePos == 3)
+            {
+                buff.Add(_map[(store &amp; 0xfc0000) &gt;&gt; 18]);
+                buff.Add(_map[(store &amp; 0x03f000) &gt;&gt; 12]);
+                buff.Add(_map[(store &amp; 0x000fc0) &gt;&gt;  6]);
+                buff.Add(_map[(store &amp; 0x00003f)]);
+                charcount += 4;
+
+                store = 0;
+                bytePos = 0;
+            }
+        }
+
+        _info.Target-&gt;store = store;
+        _info.Target-&gt;bytePos = bytePos;
+
+        if (!splitData) this.Terminate(buff);
+    }
+    /// &lt;summary&gt;
+    /// apply termination treatment.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    public unsafe void Terminate(NativeList&lt;char&gt; buff)
+    {
+        uint tmp = _info.Target-&gt;store;
+        switch (_info.Target-&gt;bytePos)
+        {
+            case 0:
+            // do nothing
+            break;
+            case 1:
+            // two character padding needed
+            buff.Add(_map[(tmp &amp; 0xfc) &gt;&gt; 2]);
+            buff.Add(_map[(tmp &amp; 0x03) &lt;&lt; 4]);
+            buff.Add(_map[64]);  // pad
+            buff.Add(_map[64]);  // pad
+            break;
+            case 2:
+            // one character padding needed
+            buff.Add(_map[(tmp &amp; 0xfc00) &gt;&gt; 10]);
+            buff.Add(_map[(tmp &amp; 0x03f0) &gt;&gt;  4]);
+            buff.Add(_map[(tmp &amp; 0x000f) &lt;&lt;  2]);
+            buff.Add(_map[64]);  // pad
+            break;
+        }
+        _info.Target-&gt;store = 0;
+        _info.Target-&gt;bytePos = 0;
+    }
+    public void Dispose()
+    {
+        _map.Dispose();
+        _info.Dispose();
+    }
+}
+/// &lt;summary&gt;
+/// The Decoder for MIME Base64 (RFC 2045).
+/// &lt;/summary&gt;
+public struct NativeBase64Decoder : IDisposable
+{
+    private Base64DecodeMap _map;
+    private PtrHandle&lt;Base64Info&gt; _info;
+
+    /// &lt;summary&gt;
+    /// convert Base64 format chars into bytes.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    /// &lt;param name="char_ptr"&gt;source ptr&lt;/param&gt;
+    /// &lt;param name="char_len"&gt;source length&lt;/param&gt;
+    /// &lt;returns&gt;convert successfull or not&lt;/returns&gt;
+    public unsafe bool GetBytes(NativeList&lt;byte&gt; buff, char* char_ptr, int char_len)
+    {
+        if (char_len &lt; 0)
+        {
+#if UNITY_EDITOR
+            throw new ArgumentOutOfRangeException("invalid chars length.");
+#else
+            return false;
+#endif
+        }
+
+        uint store = _info.Target-&gt;store;
+        int bytePos = _info.Target-&gt;bytePos;
+
+        for(int i=0; i&lt;char_len; i++)
+        {
+            char c = char_ptr[i];
+            if (this.IsWhiteSpace(c)) continue;
+
+            if(c == '=')
+            {
+                switch (bytePos)
+                {
+                    case 0:
+                    case 1:
+#if UNITY_EDITOR
+                    throw new ArgumentException("invalid padding detected.");
+#else
+                    return false;
+#endif
+                    case 2:
+                    // pick 1 byte from "**==" code
+                    buff.Add((byte)((store &amp; 0x0ff0) &gt;&gt; 4));
+                    bytePos = 0;
+                    break;
+                    case 3:
+                    // pick 2 byte from "***=" code
+                    buff.Add((byte)((store &amp; 0x03fc00) &gt;&gt; 10));
+                    buff.Add((byte)((store &amp; 0x0003fc) &gt;&gt;  2));
+                    bytePos = 0;
+                    break;
+                }
+                return true;
+            }
+            else
+            {
+                uint b = _map[c];
+                if (b != 255)
+                {
+                    store = (store &lt;&lt; 6) | (b &amp; 0x3f);
+                    bytePos++;
+                }
+            }
+
+            if(bytePos == 4)
+            {
+                buff.Add((byte)((store &amp; 0xff0000) &gt;&gt; 16));
+                buff.Add((byte)((store &amp; 0x00ff00) &gt;&gt;  8));
+                buff.Add((byte)((store &amp; 0x0000ff)));
+                store = 0;
+                bytePos = 0;
+            }
+        }
+        _info.Target-&gt;store = store;
+        _info.Target-&gt;bytePos = bytePos;
+
+        return true;
+    }
+    private bool IsWhiteSpace(char c)
+    {
+        return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+    }
+}
+
+internal struct Base64EncodeMap : IDisposable
+{
+    private NativeArray&lt;byte&gt; _map;
+
+    public Base64EncodeMap(Allocator alloc)
+    {
+        _map = new NativeArray&lt;byte&gt;(65, alloc);
+
+        int i = 0;
+        for(byte j=65; j&lt;=90; j++)  // 'A' ~ 'Z'
+        {
+            _map[i] = j;
+            i++;
+        }
+        for(byte j=97; j&lt;=122; j++) // 'a' ~ 'z'
+        {
+            _map[i] = j;
+            i++;
+        }
+        for(byte j=48; j&lt;=57; j++)  // '0' ~ '9'
+        {
+            _map[i] = j;
+            i++;
+        }
+        _map[i] = 43; i++; // '+'
+        _map[i] = 47; i++; // '/'
+        _map[i] = 61;      // '='
+    }
+
+    public char this[uint index]
+    {
+        get
+        {
+            if (index &gt; 65) throw new ArgumentOutOfRangeException("input byte must be in range [0x00, 0x40].");
+            return (char)_map[(int)index];
+        }
+    }
+}
+internal struct Base64DecodeMap : IDisposable
+{
+    private NativeArray&lt;byte&gt; _map;
+    public Base64DecodeMap(Allocator alloc)
+    {
+        _map = new NativeArray&lt;byte&gt;(80, alloc);
+
+        int i = 0;
+        _map[i] = 62; i++;       // 0x2b, '+'
+        for(int j=0; j&lt;3; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        _map[i] = 63; i++;       // 0x2f, '/'
+        for(byte j=52; j&lt;=61; j++)
+        {
+            _map[i] = j; i++;    // '0' ~ '9'
+        }
+        for(byte j=0; j&lt;7; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        for(byte j=0; j&lt;=25; j++)
+        {
+            _map[i] = j; i++;    // 'A' ~ 'Z'
+        }
+        for(byte j=0; j&lt;6; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        for (byte j = 26; j &lt;= 51; j++)
+        {
+            _map[i] = j; i++;    // 'a' ~ 'z'
+        }
+    }
+
+    public byte this[uint index]
+    {
+        get
+        {
+            if (index &lt; 0x2b) return 255;
+            if (index &gt; 0x7a) return 255;
+
+            return _map[(int)(index - 0x2b)];
+        }
+    }
+}
+
+

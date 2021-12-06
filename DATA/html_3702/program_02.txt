@@ -1,0 +1,140 @@
+
+        public void ElasticProblem(MainWindow mainWindow)
+        {
+            CadObject2D cad2D = new CadObject2D();
+            {
+                IList&lt;OpenTK.Vector2d&gt; pts = new List&lt;OpenTK.Vector2d&gt;();
+                pts.Add(new OpenTK.Vector2d(0.0, 0.0));
+                pts.Add(new OpenTK.Vector2d(5.0, 0.0));
+                pts.Add(new OpenTK.Vector2d(5.0, 1.0));
+                pts.Add(new OpenTK.Vector2d(0.0, 1.0));
+                var res = cad2D.AddPolygon(pts);
+            }
+
+            double eLen = 0.1;
+            Mesher2D mesher2D = new Mesher2D(cad2D, eLen);
+
+            FEWorld world = new FEWorld();
+            world.Mesh = mesher2D;
+            uint quantityId;
+            {
+                uint dof = 2; // Vector2
+                uint feOrder = 1;
+                quantityId = world.AddQuantity(dof, feOrder);
+            }
+            world.TriIntegrationPointCount = TriangleIntegrationPointCount.Point3;
+
+            {
+                world.ClearMaterial();
+                uint maId = 0;
+                {
+                    var ma = new LinearElasticMaterial();
+                    ma.SetYoungPoisson(10.0, 0.3);
+                    ma.GravityX = 0;
+                    ma.GravityY = 0;
+                    ma.MassDensity = 1.0;
+                    maId = world.AddMaterial(ma);
+                }
+
+                uint lId = 1;
+                world.SetCadLoopMaterial(lId, maId);
+            }
+
+            uint[] zeroEIds = { 4 };
+            var zeroFixedCads = world.GetZeroFieldFixedCads(quantityId);
+            zeroFixedCads.Clear();
+            foreach (uint eId in zeroEIds)
+            {
+                uint dof = 2; // Vector2
+                var fixedCad = new FieldFixedCad(eId, CadElementType.Edge, FieldValueType.Vector2, dof);
+                zeroFixedCads.Add(fixedCad);
+            }
+
+            FieldFixedCad fixedCadXY;
+            {
+                // FixedDofIndex 0: X 1: Y
+                var fixedCadDatas = new[]
+                {
+                    new { CadId = (uint)2, CadElemType = CadElementType.Edge,
+                        FixedDofIndexs = new List&lt;uint&gt; { 0, 1 }, Values = new double[] { 0.0, 0.0 } }
+                };
+                IList&lt;FieldFixedCad&gt; fixedCads = world.GetFieldFixedCads(quantityId);
+                fixedCads.Clear();
+                foreach (var data in fixedCadDatas)
+                {
+                    uint dof = 2; // Vector2
+                    var fixedCad = new ConstFieldFixedCad(data.CadId, data.CadElemType,
+                        FieldValueType.Vector2, dof, data.FixedDofIndexs, data.Values);
+                    fixedCads.Add(fixedCad);
+                }
+                fixedCadXY = world.GetFieldFixedCads(quantityId)[0];
+            }
+
+            world.MakeElements();
+
+            uint valueId = 0;
+            var fieldDrawerArray = mainWindow.FieldDrawerArray;
+            {
+                uint dof = 2; // Vector2
+                world.ClearFieldValue();
+                valueId = world.AddFieldValue(FieldValueType.Vector2, FieldDerivativeType.Value,
+                    quantityId, dof, false, FieldShowType.Real);
+                mainWindow.IsFieldDraw = true;
+                fieldDrawerArray.Clear();
+                {
+                    IFieldDrawer faceDrawer = new FaceFieldDrawer(valueId, FieldDerivativeType.Value, false, world);
+                    fieldDrawerArray.Add(faceDrawer);
+                }
+                IFieldDrawer edgeDrawer = new EdgeFieldDrawer(valueId, FieldDerivativeType.Value, false, world);
+                fieldDrawerArray.Add(edgeDrawer);
+                IFieldDrawer edgeDrawer2 = new EdgeFieldDrawer(valueId, FieldDerivativeType.Value, true, world);
+                fieldDrawerArray.Add(edgeDrawer2);
+                mainWindow.Camera.Fit(fieldDrawerArray.GetBoundingBox(mainWindow.Camera.RotMatrix33()));
+                mainWindow.glControl_ResizeProc();
+                //mainWindow.glControl.Invalidate();
+                //mainWindow.glControl.Update();
+                //WPFUtils.DoEvents();
+            }
+
+            double t = 0;
+            double dt = 0.05;
+            for (int iTime = 0; iTime &lt;= 200; iTime++)
+            {
+                double[] fixedValueXY = fixedCadXY.GetDoubleValues();
+                fixedValueXY[0] = 0;
+                fixedValueXY[1] = Math.Sin(t * 2.0 * Math.PI * 0.1);
+
+                var FEM = new Elastic2DFEM(world);
+                {
+                    //var solver = new IvyFEM.Linear.LapackEquationSolver();
+                    //solver.Method = IvyFEM.Linear.LapackEquationSolverMethod.Dense;
+                    //solver.Method = IvyFEM.Linear.LapackEquationSolverMethod.Band;
+                    //solver.Method = IvyFEM.Linear.LapackEquationSolverMethod.PositiveDefiniteBand;
+                    //FEM.Solver = solver;
+                }
+                {
+                    //var solver = new IvyFEM.Linear.LisEquationSolver();
+                    //solver.Method = IvyFEM.Linear.LisEquationSolverMethod.Default;
+                    //FEM.Solver = solver;
+                }
+                {
+                    var solver = new IvyFEM.Linear.IvyFEMEquationSolver();
+                    solver.Method = IvyFEM.Linear.IvyFEMEquationSolverMethod.NoPreconCG;
+                    //solver.Method = IvyFEM.Linear.IvyFEMEquationSolverMethod.CG;
+                    //solver.Method = IvyFEM.Linear.IvyFEMEquationSolverMethod.ICCG;
+                    //solver.Method = IvyFEM.Linear.IvyFEMEquationSolverMethod.NoPreconBiCGSTAB;
+                    FEM.Solver = solver;
+                }
+                FEM.Solve();
+                double[] U = FEM.U;
+
+                world.UpdateFieldValueValuesFromNodeValues(valueId, FieldDerivativeType.Value, U);
+
+                fieldDrawerArray.Update(world);
+                mainWindow.glControl.Invalidate();
+                mainWindow.glControl.Update();
+                WPFUtils.DoEvents();
+                t += dt;
+            }
+        }
+

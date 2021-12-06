@@ -1,0 +1,117 @@
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Dynamic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+
+namespace DynamicObjectSample
+{
+    class DynamicXmlElement : DynamicObject
+    {
+        public string Name { get; }
+
+        Dictionary&lt;string, string&gt; _attributes = new Dictionary&lt;string, string&gt;();
+        public IReadOnlyDictionary&lt;string, string&gt; Attributes { get; }
+
+        List&lt;DynamicXmlElement&gt; _children = new List&lt;DynamicXmlElement&gt;();
+        public IReadOnlyList&lt;DynamicXmlElement&gt; Children { get; }
+
+        public string Text { get; private set; } = "";
+
+        DynamicXmlElement _next = null;
+
+        public DynamicXmlElement(string name)
+        {
+            if (name == null)
+            {
+                throw new ArgumentNullException(nameof(name));
+            }
+
+            Name = name;
+            Attributes = new ReadOnlyDictionary&lt;string, string&gt;(_attributes);
+            Children = new ReadOnlyCollection&lt;DynamicXmlElement&gt;(_children);
+        }
+
+        public override bool TryBinaryOperation(BinaryOperationBinder binder, object arg, out object result)
+        {
+            switch (binder.Operation)
+            {
+                case ExpressionType.LeftShift:
+
+                    if (arg is DynamicXmlElement)
+                    {
+                        var child = (DynamicXmlElement)arg;
+                        _children.Add(child);
+                        result = this;
+                        return true;
+                    }
+                    else
+                    {
+                        return base.TryBinaryOperation(binder, arg, out result);
+                    }
+
+                case ExpressionType.Multiply:
+
+                    if (arg is Tuple&lt;string, string&gt;)
+                    {
+                        var attr = (Tuple&lt;string, string&gt;)arg;
+                        _attributes[attr.Item1] = attr.Item2;
+                        result = this;
+                        return true;
+                    }
+                    else if (arg is string)
+                    {
+                        Text = (string)arg;
+                        result = this;
+                        return true;
+                    }
+                    else
+                    {
+                        return base.TryBinaryOperation(binder, arg, out result);
+                    }
+
+                case ExpressionType.Add:
+
+                    if (arg is DynamicXmlElement)
+                    {
+                        GetBrothers().Last()._next = (DynamicXmlElement)arg;
+                        result = this;
+                        return true;
+                    }
+                    else
+                    {
+                        return base.TryBinaryOperation(binder, arg, out result);
+                    }
+
+                default:
+
+                    return base.TryBinaryOperation(binder, arg, out result);
+            }
+        }
+
+        public XElement ToXElement()
+        {
+            var element = new XElement(Name);
+            element.Add(_attributes.Select(pair =&gt; new XAttribute(pair.Key, pair.Value)).ToArray());
+            element.Add(Text);
+            element.Add(_children.SelectMany(elms =&gt; elms.GetBrothers()).Select(elm =&gt; elm.ToXElement()).ToArray());
+
+            return element;
+        }
+
+        IEnumerable&lt;DynamicXmlElement&gt; GetBrothers()
+        {
+            DynamicXmlElement last;
+            for (last = this; last != null; last = last._next)
+            {
+                yield return last;
+            }
+        }
+    }
+}
+

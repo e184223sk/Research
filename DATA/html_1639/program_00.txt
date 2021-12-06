@@ -1,0 +1,91 @@
+using System;
+using System.Linq;
+using System.Reflection;
+
+    /// &lt;summary&gt;
+    /// .Net Coreで消えた PrivateObjectの代替クラス。
+    /// プライベートメソッドのテストに使用する
+    /// &lt;/summary&gt;
+    public class PrivateObject
+    {
+        private readonly object _instance;
+        private readonly Type _testTargetType;
+
+        /// &lt;summary&gt;
+        /// コンストラクタの引数が存在しないパターン
+        /// &lt;/summary&gt;
+        /// &lt;param name="testTargetClass"&gt;テスト対象のクラス&lt;/param&gt;
+        public PrivateObject(object testTargetClass)
+        {
+            _testTargetType = testTargetClass.GetType();   // テスト対象のタイプを取得            
+            var c = _testTargetType.GetConstructor(Type.EmptyTypes);   // コンストラクタ情報を取得して            
+            _instance = c.Invoke(null);  // インスタンス化（コンストラクタの引数なし）            
+            SetAllPropertiesToInstance(testTargetClass);  // プロパティ類を全部コピー
+        }
+
+        /// &lt;summary&gt;
+        /// コンストラクタの引数が存在するパターンはこちら。
+        /// 引数は可変長になっているからいくつ引数があっても大丈夫。
+        /// &lt;/summary&gt;
+        /// &lt;param name="testTargetClass"&gt;&lt;/param&gt;
+        /// &lt;param name="constArg"&gt;&lt;/param&gt;
+        public PrivateObject(object testTargetClass, params object[] constArg)
+        {            
+            _testTargetType = testTargetClass.GetType();  // テスト対象のタイプを取得
+
+            // コンストラクタ情の引数の型情報を取得する
+            var ctors = _testTargetType.GetConstructors();
+            var ctor = ctors[0];
+            var t = ctor.GetParameters().Select(a =&gt; a.ParameterType).ToArray();
+
+            var c = _testTargetType.GetConstructor(t);   // コンストラクタ情報を引数を含めて取得して            
+            _instance = c.Invoke(constArg);  // 引数込みでインスタンス化            
+            SetAllPropertiesToInstance(testTargetClass);  // プロパティ類を全部コピー
+        }
+
+        /// &lt;summary&gt;
+        /// インスタンスに全てのプロパティ情報をセットする
+        /// &lt;/summary&gt;
+        /// &lt;param name="testTargetClass"&gt;&lt;/param&gt;
+        private void SetAllPropertiesToInstance(object testTargetClass)
+        {
+            foreach (var t in _testTargetType.GetProperties())
+            {
+                SetPropertyToInstance(testTargetClass, t.Name);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// インスタンスにプロパティ情報をセットする
+        /// &lt;/summary&gt;
+        /// &lt;param name="obj"&gt;&lt;/param&gt;
+        /// &lt;param name="PropertyName"&gt;&lt;/param&gt;
+        private void SetPropertyToInstance(object obj, string PropertyName)
+        {            
+            var prop = _testTargetType.GetProperty(PropertyName); // プロパティ名からプロパティ情報を取得する          
+            var value = prop.GetValue(obj);   // プロパティ値を抜き出して、            
+            prop.SetValue(_instance, value);  // セットする
+        }
+
+        /// &lt;summary&gt;
+        /// プライベートメソッドを実行する
+        /// &lt;/summary&gt;
+        /// &lt;param name="methodName"&gt;&lt;/param&gt;
+        /// &lt;param name="arg"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public object Invoke(string methodName, params object[] arg)
+        {
+            // メソッド名からメソッド情報を取得する。
+            var method = _testTargetType.GetMethod(methodName, BindingFlags.InvokeMethod | BindingFlags.NonPublic | BindingFlags.Instance);
+            try
+            {                
+                return method.Invoke(_instance, arg);  // メソッドを実行する
+            }
+            catch (Exception e)
+            {
+                // エラーが発生したら「ここ」のエラー情報じゃなくて発生元のエラーを投げる
+                throw e.InnerException;
+            }
+        }
+    }
+

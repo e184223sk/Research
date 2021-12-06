@@ -1,0 +1,35 @@
+
+        public static async  Task ExecuteAsync()
+        {
+            List&lt;int&gt; list = Enumerable.Range(1, 30).ToList();
+            IReadOnlyList&lt;int&gt; col = new ReadOnlyCollection&lt;int&gt;(list);
+            var dictionary = new ConcurrentDictionary&lt;int, ValueTuple&lt;int,DateTime&gt;&gt;();
+
+            // 実行順序は保証できない
+
+            await col.IndexedParallelForEachAsync(10, async (x, index) =&gt;
+            {
+                Console.WriteLine($"{index}: Accepted.");
+                await Task.Delay(TimeSpan.FromSeconds(5));
+
+                // 成果物があれば、ディクショナリに詰める
+
+                var dateTime = DateTime.Now;
+                ValueTuple&lt;int, DateTime&gt; artifact = (x, dateTime);
+                dictionary.TryAdd(index, artifact);
+                Console.WriteLine($"{index}: Done by {artifact.Item2}");
+           });
+
+            Console.WriteLine("---ordered");
+
+            // 順番は保証されている。
+
+            foreach ( var elm  in col.Select((item, index) =&gt; new { item, index }))
+            {
+                ValueTuple&lt;int, DateTime&gt; result = default(ValueTuple&lt;int, DateTime&gt;);
+                dictionary.TryGetValue(elm.index, out result);
+                Console.WriteLine($"index : {elm.index} x: {elm.item} time: {result.Item2} ");
+            }
+        }
+    }
+

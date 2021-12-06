@@ -1,0 +1,148 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace ConsoleApp1
+{
+    class Program
+    {
+        static void Main()
+        {
+            using var handle = NativeMethods.LoadLibraryExW(
+                "user32.dll",
+                IntPtr.Zero,
+                NativeMethods.DONT_RESOLVE_DLL_REFERENCES
+                | NativeMethods.LOAD_LIBRARY_AS_DATAFILE
+                | NativeMethods.LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            if (handle.IsInvalid)
+            {
+                throw new Win32Exception();
+            }
+
+            var strings = GetStringResources(handle.DangerousGetHandle());
+        }
+
+        /// &lt;summary&gt;
+        /// ある型のリソースのIDをすべて取得します。
+        /// &lt;/summary&gt;
+        private static ushort[] GetResourceIDs(IntPtr moduleHandle, IntPtr resourceType)
+        {
+            var resnames = new List&lt;ushort&gt;();
+            NativeMethods.EnumResourceNamesW(
+                moduleHandle,
+                resourceType,
+                (IntPtr hModule, IntPtr lpszType, IntPtr lpszName, nint lParam) =&gt;
+                {
+                    var id = lpszName.ToInt64();
+                    if (id &gt;&gt; 16 != 0)
+                        throw new Exception();
+                    resnames.Add((ushort)id);
+                    return true;
+                },
+                0);
+            return resnames.ToArray();
+        }
+
+        /// &lt;summary&gt;
+        /// モジュールの文字列リソースをすべて取得します。
+        /// &lt;/summary&gt;
+        private static string[] GetStringResources(IntPtr moduleHandle)
+        {
+            var stringResIds = GetResourceIDs(moduleHandle, NativeMethods.RT_STRING);
+            Array.Sort(stringResIds);
+            var strings = new List&lt;string&gt;();
+            foreach (var strResId in stringResIds)
+            {
+                var resHandle = NativeMethods.FindResourceW(moduleHandle,
+                    new IntPtr(strResId), NativeMethods.RT_STRING);
+                var memoryHandle = NativeMethods.LoadResource(moduleHandle, resHandle);
+                var size = NativeMethods.SizeofResource(moduleHandle, resHandle);
+                // pointerの中身は2バイト（文字数N）＋N*2バイト（UTF-16文字列）の配列
+                var pointer = NativeMethods.LockResource(memoryHandle);
+                for (int offset = 0; offset &lt; size;)
+                {
+                    uint len = (ushort)Marshal.ReadInt16(pointer + offset);
+                    strings.Add(Marshal.PtrToStringUni(pointer + offset + sizeof(ushort), (int)len));
+                    offset += sizeof(ushort) + (int)len * 2;
+                }
+            }
+            return strings.ToArray();
+        }
+
+        private static class NativeMethods
+        {
+            [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true, CharSet = CharSet.Unicode)]
+            public static extern SafeModuleHandle LoadLibraryExW(
+                [In] string lpLibFileName,
+                IntPtr hFile,
+                uint dwFlags);
+
+            [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true, CharSet = CharSet.Unicode)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool EnumResourceNamesW(
+                IntPtr hModule,
+                IntPtr lpType,
+                EnumResNameProcW lpEnumFunc,
+                nint lParam);
+
+            public const uint DONT_RESOLVE_DLL_REFERENCES = 0x00000001;
+            public const uint LOAD_LIBRARY_AS_DATAFILE = 0x00000002;
+            public const uint LOAD_LIBRARY_SEARCH_DEFAULT_DIRS = 0x00001000;
+
+            [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public delegate bool EnumResNameProcW(IntPtr hModule, IntPtr lpszType, IntPtr lpszName, nint lParam);
+
+            public static readonly IntPtr RT_STRING = new IntPtr(6);
+
+            [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true, CharSet = CharSet.Unicode)]
+            public static extern IntPtr FindResourceW(
+                IntPtr hModule,
+                IntPtr lpName,
+                IntPtr lpType);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr LoadResource(
+                IntPtr hModule,
+                IntPtr hResInfo);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr LockResource(
+                IntPtr hResData);
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern uint SizeofResource(
+                IntPtr hModule,
+                IntPtr hResInfo);
+        }
+    }
+
+    public sealed class SafeModuleHandle : SafeHandle
+    {
+        private static class NativeMethods
+        {
+            [DllImport("kernel32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool FreeLibrary(IntPtr hLibModule);
+        }
+
+        public SafeModuleHandle()
+            : base(IntPtr.Zero, true)
+        {
+        }
+
+        public SafeModuleHandle(IntPtr handle, bool ownsHandle)
+            : base(handle, ownsHandle)
+        {
+        }
+
+        public override bool IsInvalid =&gt; handle == IntPtr.Zero;
+
+        protected override bool ReleaseHandle()
+        {
+            return NativeMethods.FreeLibrary(handle);
+        }
+    }
+}
+

@@ -1,0 +1,10 @@
+More than 1 year has passed since last update.Azure AD とか Azure AD B2C とか IdentityService4 とかを使うといい感じにはできます。
+でも、例えば API Key での認証にしたいとか、なんらかの独自の認証の仕組みがあって、それに依存しないといけないとかいろんな事情が世の中にはあると思います。ASP.NET Core の API のプロジェクトを作成します。認証などはとりあえず無しで。普段は Visual Studio 2019 を使うのですがファンが壊れていて発火したら怖いので VS Code on Macbook Pro でやりたいと思いますということで dotnet コマンドで作成して Visual Studio Code で開きましょう。そうすると以下のようなものが作成されます。VS Code に C# 拡張機能を入れていたら .vscode のフォルダーを生成するか？と聞いてくるので便利です。では、早速 Startup.cs を編集して認証認可を有効にしましょう。そして、独自認証の処理を実装します。AuthenticationHandler を継承して作ります。サクッといきましょう。継承してクイックフィックス(Ctrl + . か電球マークをクリック)で、コンストラクターと中小メソッドのインプリメントができるので以下のようなコードまでは、ほぼ打たなくても生成できます。HandleAuthenticateAsync を実装します。とりあえず今回は HTTP ヘッダーに API_KEY という名前で A か B が入ってたら OK というざるロジックでいきます。API_KEY をちゃんと実装するなら何処かに発行した API_KEY を保存しておきましょうね。そして、ConfigureServices で、このハンドラーを設定します。
+デフォルトのスキーマの名前を Api にして、Api というスキーマで MyAuthHandler を使うようにしています。そして、デフォルトで生成される WeatherForecastController.cs に Authorize 属性を追加して認証必須にして、返すデーターに認証されたユーザーの名前も入れるようにしました。ここまでできたら dotnet run コマンドで実行しましょうVisual Studio Code の REST API 拡張機能を使って叩いてみましょう。
+まずは、ヘッダー無しの状態401 ですね。いい感じ。API_KEY に A を設定して呼んでみましょう。ちゃんと 200 で、名前も a さんになってますね。B でやっても OKC にすると、401 にちゃんと戻ります。認証してるのはわかった、じゃぁちゃんと API を呼んでいい人なのかどうかはどうするのか？というのをやってみようと思います。とりあえず Claim にロールを追加します。
+API_KEY が A だと Admin で、B だと User というロールになるように AuthenticationHandler の HandleAuthenticateAsync を変えました。そして、WeatherForecastController の Authorize 属性に Roles で Admin じゃないと呼べないように構成します。実行してみましょう。
+まずは、API Key が A の場合です。うまく呼べています。B にすると 403 ですね。いい感じ。ロールが複数個になってくるとカンマ区切りにしたりとかめんどくさくなってくるので、ポリシーにしてしまうこともできます。その場合は Startup.cs の ConfigureServices に、AddAuthorization を追加してポリシーを追加するとすっきりします。
+(今回の例は Admin ロールしかやってないので、あまりありがたみはないですが…）Controller とかにつける Authorize 属性は、以下のように第一引数にポリシー名を受け取るので AdminOnly という名前のポリシーに合致する人（今回の場合はロールが Admin の人）だけが呼べる API には以下のような属性を追加します。ということで認証の動きをカスタマイズしてみました。
+意外と簡単に API Key での認証ができました。今回は HTTP ヘッダーでやりましたが同じ要領でクエリーパラメーターや、クッキーでもできます。もし、認証をカスタマイズしたい！という人は参考にしてみてください。あ、ちなみに Azure 使う場合は API Key みたいなものでの認証は API Management 使うとプログラムに実装しなくてもいいので、そっちが使えるならそっちを使った方がいいと思います。
+
+

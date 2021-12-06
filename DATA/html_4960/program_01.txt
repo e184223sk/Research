@@ -1,0 +1,172 @@
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+using System.IO;
+using System.IO.Pipes;
+using System.Threading;
+
+namespace NamedPipeMng
+{
+    /// &lt;summary&gt;
+    /// 名前つきパイプ サーバ
+    /// &lt;/summary&gt;
+    public class NamedPipeServerMng : NamedPipeCommon
+    {
+        /// &lt;summary&gt;
+        /// 受信文字列転送デリゲート
+        /// &lt;/summary&gt;
+        /// &lt;param name="msg"&gt;受信文字列/メッセージ&lt;/param&gt;
+        /// &lt;param name="iscontrol"&gt;true:=制御メッセージ, false:=受信文字列&lt;/param&gt;
+        public delegate void ReceiveMsg(string msg, bool iscontrol = false);
+        /// &lt;summary&gt;
+        /// パイプサーバ待ち受け処理スレッド
+        /// &lt;/summary&gt;
+        Thread _Thread { set; get; }
+        /// &lt;summary&gt;
+        /// パイプサーバ待ち受け中フラグ
+        /// &lt;/summary&gt;
+        bool IsListen { set; get; }
+        /// &lt;summary&gt;
+        /// 受信文字列転送処理
+        /// &lt;/summary&gt;
+        ReceiveMsg _ReceiveMsg { set; get; }
+        /// &lt;summary&gt;
+        /// パイプサーバ待ち受け時間
+        /// &lt;/summary&gt;
+        int _TimeoutCount { get { return 60 * 1000; } }
+        /// &lt;summary&gt;
+        /// パイプ通信終了メッセージ
+        /// &lt;/summary&gt;
+        string _CloseMsg { get { return "CloseMsg"; } }
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public NamedPipeServerMng()
+        {
+            this._Thread = null;
+            this.IsListen = false;
+            this._ReceiveMsg = null;
+        }
+        /// &lt;summary&gt;
+        /// 待ちうけ処理開始
+        /// &lt;/summary&gt;
+        /// &lt;param name="putmsg"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public bool Start(ReceiveMsg putmsg)
+        {
+            this._ReceiveMsg = putmsg;
+            return Start();
+        }
+        /// &lt;summary&gt;
+        /// 待ちうけ処理開始
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public bool Start()
+        {
+            try
+            {
+                this._Thread = new Thread(new ThreadStart(this.ThreadMethod));
+                this._Thread.IsBackground = true;
+                this._Thread.Start();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            return true;
+        }
+        /// &lt;summary&gt;
+        /// 待ちうけ処理終了
+        /// &lt;/summary&gt;
+        public void Stop()
+        {
+            this.IsListen = false;
+        }
+        /// &lt;summary&gt;
+        /// 待ちうけ処理スレッド
+        /// &lt;/summary&gt;
+        private void ThreadMethod()
+        {
+            string input = string.Empty;
+
+            this.IsListen = true;
+            var timeout = false;
+
+            // パイプサーバ作成
+            Func&lt;NamedPipeServerStream&gt; createpipe = delegate() {
+                var ps = new PipeSecurity();
+                ps.AddAccessRule(new PipeAccessRule("Everyone", PipeAccessRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+                return new NamedPipeServerStream(this._PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, 1024, 1024, ps); 
+            };
+
+            var pipe = createpipe();
+            while (this.IsListen)
+            {
+                var aresult = pipe.BeginWaitForConnection((ar) =&gt; { this.SendMessage("Connection now!", true); Console.WriteLine("Connection now!"); }, null);
+                this.SendMessage("start wait for connection.", true);
+
+                var connected = aresult.AsyncWaitHandle.WaitOne(this._TimeoutCount);
+                if (!connected)
+                {
+                    this.ConnectionTimeout();
+                    this.SendMessage("TimeOut!!.", true);
+                }
+                pipe.EndWaitForConnection(aresult);
+                try
+                {
+                    if (pipe.IsConnected)
+                    {
+                        using (var sr = new StreamReader(pipe))
+                        {
+                            this.SendMessage("Wait For Input from Client.", true); ;
+                            input = sr.ReadToEnd();
+                            this.SendMessage(string.Format("ReceiveMessage[[{0}]]", input),true);
+                            if (input == this._CloseMsg) { timeout = true; }
+                            else
+                            {
+                                this.SendMessage(input);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) { this.SendMessage(ex.Message, true); }
+                if (!timeout) pipe = createpipe(); 
+            }
+            if (pipe.IsConnected) pipe.Disconnect();
+            pipe.Close();
+        }
+        /// &lt;summary&gt;
+        /// パイプサーバ待ちうけタイムアウト
+        /// &lt;/summary&gt;
+        private void ConnectionTimeout()
+        {
+            var pipe = new NamedPipeClientStream(this._PipeName);
+            pipe.Connect(100);
+            if (pipe.IsConnected)
+            {
+                using (var sw = new StreamWriter(pipe))
+                {
+                    sw.WriteLine(this._CloseMsg);
+                    pipe.WaitForPipeDrain();
+                }
+            }
+            pipe.Close();
+        }
+        /// &lt;summary&gt;
+        /// 文字列を呼び出し元へ送信
+        /// &lt;/summary&gt;
+        /// &lt;param name="msg"&gt;&lt;/param&gt;
+        /// &lt;param name="iscontrol"&gt;&lt;/param&gt;
+        private void SendMessage(string msg, bool iscontrol = false)
+        {
+            if (this._ReceiveMsg != null)
+            {
+                this._ReceiveMsg(msg, iscontrol);
+            }
+            Console.WriteLine(msg);
+        }
+    }
+}
+

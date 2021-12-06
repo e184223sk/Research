@@ -1,0 +1,57 @@
+using UnityEngine;
+using UnityEngine.UI;
+using System;
+using System.Runtime.InteropServices;
+using System.Linq;
+using System.Collections.Generic;
+
+public class OcrTest : MonoBehaviour
+{
+    [SerializeField]
+    Image source;
+
+    [DllImport ("libtesseract", EntryPoint="TessBaseAPICreate")]
+    private static extern IntPtr Create();
+
+    [DllImport ("libtesseract", EntryPoint="TessBaseAPIInit3")]
+    private static extern int Init(IntPtr handle, string datapath, string language);
+
+    [DllImport ("libtesseract", EntryPoint="TessBaseAPISetImage")]
+    private static extern int SetImage(IntPtr handle, byte[] imagedata, int width, int height, int bytes_per_pixel, int bytes_per_line );
+
+    [DllImport ("libtesseract", EntryPoint="TessBaseAPIGetUTF8Text")]
+    private static extern string GetText(IntPtr handle);
+
+    void Start()
+    {
+        var originalData = source.sprite.texture.GetRawTextureData().Reverse().ToArray();
+
+        var tmp = new List&lt;byte&gt;();
+        var destination = new List&lt;byte&gt;();
+        for(var i = 0;i &lt; originalData.Length;i += 3)
+        {
+            tmp.Add(originalData[i]);
+            tmp.Add(originalData[i + 1]);
+            tmp.Add(originalData[i + 2]);
+            if (tmp.Count &gt;= 3 * source.sprite.texture.width) 
+            {
+                tmp.Reverse();
+                destination.AddRange(tmp);
+                tmp.Clear();
+            }
+        }
+
+        var handle = Create();
+        Init(handle, null, "eng");
+
+        SetImage(handle, destination.ToArray(),
+            source.sprite.texture.width, 
+            source.sprite.texture.height, 
+            3, 
+            3 * source.sprite.texture.width);
+
+        Debug.Log(GetText(handle));
+    }
+}
+
+

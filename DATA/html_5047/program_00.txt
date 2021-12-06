@@ -1,0 +1,143 @@
+namespace TcpServer
+{
+    // 使い方
+
+    //宣言
+    //TcpServer.ClassTcpServer classTcpServer = new TcpServer.ClassTcpServer();
+
+    // 初期化、スタート
+    //    classTcpServer.ipaddress = "0.0.0.0";
+    //    classTcpServer.port = 49152;
+    //    classTcpServer.timerinterval = 100;
+    //    classTcpServer.DataReceived += new TcpServer.ClassTcpServer.DataReceivedEventHandler(TcpServer_DataReceived);
+    //    classTcpServer.Start();
+
+    // 停止
+    //    classTcpServer.Stop();
+
+    // イベントハンドラ
+    //private void TcpServer_DataReceived(object sender, TcpServer.DataReceivedEventArgs e)
+    //{
+    //    //イベントが発生したとき
+    //    textBox1.AppendText(e.Message + Environment.NewLine);
+    //}
+
+
+    public class DataReceivedEventArgs : EventArgs
+    {
+        public string Message;
+    }
+
+    class ClassTcpServer
+    {
+        public string ipaddress { get; set; }
+        public int port { get; set; }
+        public int timerinterval { get; set; }
+
+        private System.Net.Sockets.TcpListener listener;
+        private System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
+
+        public delegate void DataReceivedEventHandler(object sender, DataReceivedEventArgs e);
+        public event DataReceivedEventHandler DataReceived;
+
+        public ClassTcpServer()
+        {
+        }
+
+        public void Start()
+        {
+            //TcpListenerオブジェクトを作成する
+            listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Parse(ipaddress), port);
+
+            //Listenを開始する
+            listener.Start();
+
+            // タイマスタート
+            timer.Interval = timerinterval;
+            timer.Tick += new EventHandler(timer_Tick);
+            timer.Start();
+        }
+
+        public void Stop()
+        {
+            // タイマストップ
+            timer.Stop();
+
+            if (listener != null)
+            {
+                //リスナを閉じる
+                listener.Stop();
+            }
+            listener = null;
+        }
+
+        private void timer_Tick(object sender, EventArgs e)
+        {
+            //接続要求が無かったら return
+            if (!listener.Pending())
+            {
+                return;
+            }
+
+            //接続要求があったら受け入れる
+            System.Net.Sockets.TcpClient client = listener.AcceptTcpClient();
+
+            //NetworkStreamを取得
+            System.Net.Sockets.NetworkStream ns = client.GetStream();
+
+            //読み取り、書き込みのタイムアウト
+            //デフォルトはInfiniteで、タイムアウトしない
+            //(.NET Framework 2.0以上が必要)
+            ns.ReadTimeout = 10000;
+            ns.WriteTimeout = 10000;
+
+            //クライアントから送られたデータを受信する
+            System.Text.Encoding enc = System.Text.Encoding.UTF8;
+            bool disconnected = false;
+            System.IO.MemoryStream ms = new System.IO.MemoryStream();
+            byte[] resBytes = new byte[256];
+            int resSize = 0;
+            do
+            {
+                //データの一部を受信する
+                resSize = ns.Read(resBytes, 0, resBytes.Length);
+                //Readが0を返した時はクライアントが切断したと判断
+                if (resSize == 0)
+                {
+                    disconnected = true;
+                    break;
+                }
+                //受信したデータを蓄積する
+                ms.Write(resBytes, 0, resSize);
+                //まだ読み取れるデータがあるか、データの最後が\nでない時は、
+                // 受信を続ける
+            } while (ns.DataAvailable || resBytes[resSize - 1] != '\n');
+            //受信したデータを文字列に変換
+            string resMsg = enc.GetString(ms.GetBuffer(), 0, (int)ms.Length);
+            ms.Close();
+            //末尾の\nを削除
+            resMsg = resMsg.TrimEnd('\n');
+
+            // イベント発生して呼び出し元にデータを返す
+            DataReceivedEventArgs ee = new DataReceivedEventArgs();
+            ee.Message = resMsg;
+            DataReceived(this, ee);
+
+            if (!disconnected)
+            {
+                //クライアントにデータを送信する
+                //クライアントに送信する文字列を作成
+                string sendMsg = resMsg.Length.ToString();
+                //文字列をByte型配列に変換
+                byte[] sendBytes = enc.GetBytes(sendMsg + '\n');
+                //データを送信する
+                ns.Write(sendBytes, 0, sendBytes.Length);
+            }
+
+            //閉じる
+            ns.Close();
+            client.Close();
+        }
+    }
+}
+

@@ -1,0 +1,66 @@
+
+        private void btn_SetStartup_Click(object sender, RoutedEventArgs e)
+        {
+            //スタートアップに自身のショートカットを作成する
+
+            //WshShellを作成
+            var t = Type.GetTypeFromCLSID(new Guid("72C24DD5-D70A-438B-8A42-98424B88AFB8"));
+            dynamic shell = Activator.CreateInstance(t);
+
+            //ショートカット作成先（startupフォルダパス＋ショートカット名）
+            var shortcutPath = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu) + "\\Programs\\Startup\\Bootrecorder.lnk";
+
+            //実行ファイルパス（なるべくならFromsは使いたくないのでAssenblyを利用）
+            Assembly myAssembly = Assembly.GetEntryAssembly();
+            string thisAppPath = myAssembly.Location;
+
+            //ショートカットを指定先に作成
+            object shortcut = t.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell,new object[] { shortcutPath });
+            t.InvokeMember("TargetPath",System.Reflection.BindingFlags.SetProperty, null, shortcut,new object[] { thisAppPath });
+            t.InvokeMember("IconLocation",System.Reflection.BindingFlags.SetProperty, null, shortcut,new object[] { thisAppPath + ",0" });
+            t.InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null, shortcut, null);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut);
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);
+
+            //フォルダを開けて見せてあげる
+            System.Diagnostics.Process.Start("EXPLORER.EXE", "/select,\"" + shortcutPath + "\"");
+            MessageBox.Show("set start-up.", "BootRecorder:confirm", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void btn_RemoveStartup_Click(object sender, RoutedEventArgs e)
+        {
+
+            //起動開始解除。自身のショートカットをスタートアップフォルダから削除
+
+            var shortcutPath = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu) + "\\Programs\\Startup\\Bootrecorder.lnk";
+            if(File.Exists(shortcutPath) == true)
+            {
+                File.Delete(shortcutPath);
+                //フォルダを開けて見せてあげる
+                var StartupFolder = Environment.GetFolderPath(Environment.SpecialFolder.StartMenu) + "\\Programs\\Startup\\";
+                System.Diagnostics.Process.Start("EXPLORER.EXE", StartupFolder);
+                MessageBox.Show("Remove start-up.", "BootRecorder:confirm", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void btn_SetLocateLog_Click(object sender, RoutedEventArgs e)
+        {
+            //ログファイルの個別指定
+
+            var dialog = new OpenFileDialog();
+
+            dialog.Title = "Select Log File";
+            dialog.Filter = "Log files (*.log)|*.log|All files (*.*)|*.*";
+            if (File.Exists(G.Pref.LogPath) == true) dialog.FileName = System.IO.Path.GetFileName(G.Pref.LogPath);
+            {
+                dialog.InitialDirectory = System.IO.Path.GetDirectoryName(G.Pref.LogPath);
+                dialog.FileName = System.IO.Path.GetFileName(G.Pref.LogPath);
+            }
+            dialog.CheckFileExists = false;
+            if (dialog.ShowDialog() == true) G.Pref.LogPath = dialog.FileName;
+            else return;
+            G.Pref.Save(this);
+
+            ReadLog();
+        }
+

@@ -1,0 +1,195 @@
+// １．コントロール（panel）上で左クリックしたときにコンテキストメニューを開き、コンテキストメニューを開いた時にあったマウスの先端に動的に新たにコントロールを作る。
+// ２．新たに作ったコントロールは、左クリックによりコンテキストメニューを開き削除できる。
+// 参考資料
+// https://docs.microsoft.com/ja-jp/dotnet/api/system.windows.forms.contextmenustrip?view=netframework-4.8
+
+// https://dobon.net/vb/dotnet/control/cmclickpoint.html
+
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.ComponentModel;
+
+namespace TestSourceControl
+{
+    class Form3 : Form
+    {
+        public static void Main()
+        {
+            Application.Run(new Form3());
+        }
+        private Panel panel;
+
+        // panelを左クリックしたときのContextMenuStripコントロールの宣言
+        private ContextMenuStrip contextMenuStripOnPanel;
+        private ContextMenuStrip contextMenuStripOnAdditionalControl;
+
+        public Form3()
+        {
+            this.Size = new Size(800, 800);
+
+            // panelのコンテキストメニューを宣言とコンテキストメニューを開いた時のイベントハンドラーの定義
+            contextMenuStripOnPanel = new ContextMenuStrip();
+
+            contextMenuStripOnPanel.Opening += new CancelEventHandler(cms_Opening); // 必ずForm3()で宣言する
+
+            panel = new Panel();
+            panel.Location = new Point(100, 100);
+            panel.Size = new Size(600, 600);
+            panel.BorderStyle = BorderStyle.FixedSingle;
+            panel.BackColor = Color.SkyBlue;
+            panel.Parent = this;
+            panel.ContextMenuStrip = contextMenuStripOnPanel;
+
+            Label labelOnForm = new Label();
+            labelOnForm.Text = "　水色のパネルの上で、右クリックをして、" + "\r\n" + "コンテキストメニューからコントロールを選択すると、" + "\r\n" + "パネル上の右クリックした際のマウスポインタの先の位置に、選択したコントロールを追加できます。" + "\r\n" + "　またその追加したコントロールの上で左クリックをすると削除できます。";
+            labelOnForm.AutoSize = true; ;
+            labelOnForm.Location = new Point(0, 0);
+            labelOnForm.Parent = this;
+
+            contextMenuStripOnAdditionalControl = new ContextMenuStrip();   // 必ずForm3()で宣言する
+
+            // 追加したコントロールを左クリックした時に表示するコンテキストメニュー（contextMenuStripOnAdditionalControlMenuItems()に記述したものと同じ。メニューの内容を共通にするなら以下のコメントアウトを外す
+            //contextMenuStripOnAdditionalControl.Items.Clear();
+            //contextMenuStripOnAdditionalControl.Items.Add("削除");
+            //contextMenuStripOnAdditionalControl.Items.Add("追加コンソールのメニューアイテム２");
+            //contextMenuStripOnAdditionalControl.Items.Add("追加コンソールのメニューアイテム３");
+            //contextMenuStripOnAdditionalControl.Items[0].Click += AdditionalControlItems0_Click;
+            //contextMenuStripOnAdditionalControl.Items[1].Click += AdditionalControlItems1_Click;
+            //contextMenuStripOnAdditionalControl.Items[2].Click += AdditionalControlItems2_Click;
+            // ここまで
+        }
+
+        private Point cp;
+        void cms_Opening(object sender, CancelEventArgs e)
+        {
+            ContextMenuStrip menu = (ContextMenuStrip)sender;
+            //マウスカーソルの位置を画面座標で取得
+            Point mp = MousePosition;
+            //ContextMenuStripを表示しているコントロールのクライアント座標に変換
+            cp = menu.SourceControl.PointToClient(mp);
+            //結果を表示
+            Console.WriteLine(cp);
+
+            // コンテキストメニューの表示
+            contextMenuStripOnPanel.Items.Clear();
+            contextMenuStripOnPanel.Items.Add("ピクチャーボックスを追加");
+            contextMenuStripOnPanel.Items.Add("テキストボックスを追加");
+            contextMenuStripOnPanel.Items.Add("ラベルを追加");
+
+            contextMenuStripOnPanel.Items[0].Click += PanelMenuItems0_Click;
+            contextMenuStripOnPanel.Items[1].Click += PanelMenuItems1_Click;
+            contextMenuStripOnPanel.Items[2].Click += PanelMenuItems2_Click;
+
+            // キャンセルをfalseに設定します。(イベントをキャンセルするかどうかの設定）
+            // 空のエントリに基づいてtrueに最適化されます。
+            e.Cancel = false;   //trueにするとコンテキスメニューが表示されない
+        }
+
+
+
+
+        // PictureBoxをつくるイベントハンドラ
+        private void PanelMenuItems0_Click(object sender, EventArgs e)
+        {
+            PictureBox pictureBox = new PictureBox();
+            pictureBox.Location = cp;
+            pictureBox.BackColor = Color.White;
+            pictureBox.Size = new Size(50, 50);
+            pictureBox.Image = Image.FromFile("testPicture.bmp");
+            pictureBox.Parent = panel;
+
+            contextMenuStripOnAdditionalControlMenuItems();     // 追加したコントロールのコンテキストメニューのアイテムを作る
+
+            pictureBox.ContextMenuStrip = contextMenuStripOnAdditionalControl;
+        }
+
+
+
+        // テキストボックスを作るイベントハンドラー 
+        private void PanelMenuItems1_Click(object sender, EventArgs e)
+        {
+            TextBox textBox = new TextBox();
+            textBox.Location = cp;
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+            textBox.Text = "これはテキストボックスです。";
+            textBox.Multiline=true;
+            textBox.Size = new Size(100, 100);
+            textBox.BackColor = Color.Yellow;
+            textBox.Parent = panel;
+
+            contextMenuStripOnAdditionalControlMenuItems();     // 追加したコントロールのコンテキストメニューのアイテム
+            textBox.ContextMenuStrip = contextMenuStripOnAdditionalControl;
+        }
+
+        //
+        // ラベルを作るイベントハンドラー
+        private void PanelMenuItems2_Click(object sender, EventArgs e)
+        {
+            Label label = new Label();
+            label.Location = cp;
+            label.BorderStyle = BorderStyle.FixedSingle;
+            label.BackColor = Color.Pink;
+            label.Text = "これはラベルです。";
+            label.Parent = panel;
+
+            contextMenuStripOnAdditionalControlMenuItems();     // 追加したコントロールのコンテキストメニューのアイテム
+
+            label.ContextMenuStrip = contextMenuStripOnAdditionalControl;
+
+        }
+
+        // 追加したコントロールのコンテキストメニューのアイテム  （メニューアイテムを分けたいときは、これをさんこうにして別のメソッドを作るといい）
+        private void contextMenuStripOnAdditionalControlMenuItems()
+        {
+            contextMenuStripOnAdditionalControl.Items.Clear();  // 前回作ったアイテムを削除して作り直す。
+            contextMenuStripOnAdditionalControl.Items.Add("削除");
+            contextMenuStripOnAdditionalControl.Items.Add("追加コンソールのメニューアイテム２");
+            contextMenuStripOnAdditionalControl.Items.Add("追加コンソールのメニューアイテム３");
+
+            contextMenuStripOnAdditionalControl.Items[0].Click += AdditionalControlItems0_Click;
+            contextMenuStripOnAdditionalControl.Items[1].Click += AdditionalControlItems1_Click;
+            contextMenuStripOnAdditionalControl.Items[2].Click += AdditionalControlItems2_Click;
+        }
+
+
+        // 追加したコンソールのメニューアイテム０番（削除）を選択した時のイベントハンドラ
+        private void AdditionalControlItems0_Click(object sender, EventArgs e)
+        {
+            if (contextMenuStripOnAdditionalControl.SourceControl == null) return;
+
+            Control c = contextMenuStripOnAdditionalControl.SourceControl as Control;
+
+            Console.WriteLine("SourceControl={0}", contextMenuStripOnAdditionalControl.SourceControl);
+            //Console.WriteLine("Source:" + c.GetType().ToString());
+            Console.WriteLine();
+
+            if (c != null)
+            {
+                panel.Controls.Remove(c);  // フォームに登録されたコントロールのオブジェクトを消す
+            }
+            else MessageBox.Show("これは削除できません！");
+        }
+
+
+        // 追加したコンソールのメニューアイテム１番を選択した時のイベントハンドラ
+        private void AdditionalControlItems1_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine("items1_Click");
+            Console.WriteLine();
+        }
+
+
+        // 追加したコンソールのメニューアイテム２番を選択した時のイベントハンドラ
+        private void AdditionalControlItems2_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine("items2_Click");
+            Console.WriteLine();
+        }
+
+
+    }
+}
+
+
+

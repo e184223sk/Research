@@ -1,0 +1,43 @@
+
+private async void Start() 
+{
+    var asset = Addressables.LoadAssetAsync&lt;GameObject&gt;("address");
+    StartCoroutine(ShowProgress());
+    var prefab = await asset.Task;
+}
+
+// AddressablesのPercentCompleteは正確じゃないので、内部のUnityWebRequestで進捗を表示
+private IEnumerator ShowProgress()
+{
+    // 通信処理がアクティブになる前に実行される可能性があるので、アクティブになるまで取得し続ける
+    UnityWebRequest request;
+    while ((request = FetchUnityWebRequestForProvider()) == null)
+    {
+        yield return new WaitForSeconds(.1f);
+    }
+
+    // TODO: Provider内部でDisposeされるため、通信終了後に必ずArgumentExceptionが発生する
+    while (!request.isDone)
+    {
+        Debug.Log("Now Loading... " + (request.downloadProgress * 100).ToString("g2") + "%");
+        yield return new WaitForSeconds(.1f);
+    }
+}
+
+// リフレクションでWebRequestQueueからUnityWebRequestを取得
+private UnityWebRequest FetchUnityWebRequestForProvider()
+{
+    var libAssembly = Assembly.GetAssembly(typeof(AssetBundleProvider));
+    var type = libAssembly.GetType("UnityEngine.ResourceManagement.WebRequestQueue");
+    var field = type.GetField("s_ActiveRequests", BindingFlags.Static | BindingFlags.NonPublic);
+    var requests = (List&lt;UnityWebRequestAsyncOperation&gt;)field?.GetValue(type);
+    if (requests == null) return null;
+
+    // 初回はカタログファイルのダウンロードが入るので、bundleファイルの通信のみ取得するようにする
+    foreach (var request in requests)
+    {
+        if (request.webRequest.url.EndsWith(".bundle")) return request.webRequest;
+    }
+    return null;
+}
+

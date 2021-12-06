@@ -1,0 +1,104 @@
+
+using System;
+using System.Linq;
+using System.Speech.Recognition;
+
+namespace test
+{
+    public class VoiceCommand : IDisposable
+    {
+        SpeechRecognitionEngine engine1;
+        SpeechRecognitionEngine engine2;
+
+        static string[] AwakeWord = new string[] { "佐藤さん", "田中さん", "佐々木さん" };
+        static string[] SilentWords = new string[] { "静かにして", "黙って" };
+        static string[] TalkWords = new string[] { "喋っていいよ", "声出していいよ" };
+
+        public VoiceCommand()
+        {
+        }
+
+        public void Open()
+        {
+            // 呼び出し
+            Choices awake = new Choices(AwakeWord);
+            this.engine1 = Open(new GrammarBuilder(awake));
+
+            // 指示
+            Choices actions = new Choices();
+            actions.Add(SilentWords);
+            actions.Add(TalkWords);
+            GrammarBuilder gb = new GrammarBuilder();
+            gb.Append(awake);
+            gb.Append(actions);
+            this.engine2 = Open(gb);
+        }
+
+        private SpeechRecognitionEngine Open(GrammarBuilder gb)
+        {
+            var engine = new SpeechRecognitionEngine();
+
+            // 音声認識が認識処理を終えたときのイベントハンドラを設定する。
+            engine.SpeechRecognized += recogEngine_SpeechRecognized;
+
+            // 音声認識が推定処理を終えたときのイベントハンドラを設定する。
+            engine.SpeechHypothesized += recogEngine_SpeechHypothesized;
+
+            // SystemSpeech を利用したディクテーションを行う場合には、
+            engine.LoadGrammar(new Grammar(gb));
+
+            // 実行環境の標準の入力を音声認識エンジンの入力とする。
+            engine.SetInputToDefaultAudioDevice();
+
+            // 非同期の認識を継続して実行するようにして音声認識を開始する。
+            engine.RecognizeAsync(RecognizeMode.Multiple);
+
+            return engine;
+        }
+
+        public void Close()
+        {
+            if (this.engine2 != null)
+            {
+                this.engine2.SpeechRecognized -= recogEngine_SpeechRecognized;
+                this.engine2.SpeechHypothesized -= recogEngine_SpeechHypothesized;
+                this.engine2.Dispose();
+                this.engine2 = null;
+            }
+
+            if (this.engine1 != null)
+            {
+                this.engine1.SpeechRecognized -= recogEngine_SpeechRecognized;
+                this.engine1.SpeechHypothesized -= recogEngine_SpeechHypothesized;
+                this.engine1.Dispose();
+                this.engine1 = null;
+            }
+        }
+
+        public void Dispose()
+        {
+            this.Close();
+        }
+
+        private void recogEngine_SpeechHypothesized(object sender, SpeechHypothesizedEventArgs e)
+        {
+            System.Console.WriteLine("○" + e.Result.Text + "(" + e.Result.Confidence + ")");
+        }
+
+        private void recogEngine_SpeechRecognized(object sender, SpeechRecognizedEventArgs e)
+        {
+            System.Console.WriteLine("●" + e.Result.Text + "(" + e.Result.Confidence + ")");
+
+            // 処理を分ける
+            bool isSilent = SilentWords.Any(x =&gt; e.Result.Text.Contains(x));
+            bool isTalk = TalkWords.Any(x =&gt; e.Result.Text.Contains(x));
+            if (isSilent)
+                System.Console.WriteLine("☆静かにしよう！");
+            else if (isTalk)
+                System.Console.WriteLine("☆話してOK！");
+            else
+                System.Console.WriteLine("☆呼ばれましたよ");
+        }
+    }
+}
+

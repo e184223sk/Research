@@ -1,0 +1,131 @@
+More than 1 year has passed since last update.Dictionary&lt;string, XXX&gt;のように、Keyとしてstringを使うことはよくやると思うが、
+Dictionary&lt;自作クラス, XXX&gt;みたいに、Keyとしてstringやintなど以外を使いたい場面があり、落とし穴がありそうな気がしたので調べてみた。（C#ではstringは==で内容比較をするが、通常のクラスは==は（演算子をoverrideしなければ）C言語でいうポインタを比較しているようなイメージになる。とかでKeyの一意性に問題がでそうな予感がしたため。）結果だけ知りたい場合は、結論もしくは参考サイト参照this[TKey]で取得設定するときに、Keyの一致性をどう判定しているか。
+ILSpyで内部処理を覗いてみる。内部では、entries[num] (numはint型)に格納されるらしい。
+numを算出しているFindEntry(key)を調べればよさそう。int num = comparer.GetHashCode(key) &amp; int.MaxValue;で設定しているので、まずはcomparerを調べる。Dictionaryクラスの
+メンバcomparerの宣言は、
+private IEqualityComparer&lt;TKey&gt; comparer;であり、のようにした場合、以下のようにコンストラクタで設定される。つまり、下記のコンストラクタが、capacityが0で、comparerがnullとして実行される。つまり、（引数なしのコンストラクタを使った場合は、）
+comparerには、EqualityComparer&lt;TKey&gt;.Default が設定される。えぐいコードきた。。ちゃんと解析できてないけど、
+DictionaryのKeyとする自作クラスが、以下
+- IEquatable&lt;T&gt;を実装している（Stringは実装しているようである。）
+- ジェネリックを使用している
+- 数値型
+のいずれでもない場合は、
+return new ObjectEqualityComparer&lt;T&gt;();
+が呼ばれると思われる。ちょっと自信がないが。■おさらい
+Step2で、int num = comparer.GetHashCode(key) &amp; int.MaxValue;を調査対象としていた。
+Step3で、comparerがObjectEqualityComparer&lt;T&gt;らしいことを見た。なので、ここでは、comparer.GetHashCode(key)が何を返すかを見る。結局、KeyのクラスのGetHashCode()が呼ばれる。飛躍している感が否めないが、Step2の処理の以下の部分が肝であり、以下２点を満たせればよい。KeyのクラスのGetHashCode()が、
+【１】. 「同じ」とみなしたいデータのGetHashCode()が、同じ値を返すこと1。かつ、Equals()が同じ結果を返すこと。
+【２】. 「違う」とみなしたいデータのEquals()が、異なる値を返すこと。GetHashCode()の計算内容はどういう点を考えてつくればよいのか？
+→ Equalsより処理が軽くて、できるだけ衝突しないようにするのがよい。参考サイト参照。。。引数なしのコンストラクタを呼んだだけではnullのままであり、
+Key(とValue)が追加されるときに初期化されるっぽい。 HashHelpers.GetPrime(capacity) 
+
+
+HashHelpersクラス内部
+
+    [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+    public static int GetPrime(int min)
+    {
+        if (min &lt; 0)
+        {
+            throw new ArgumentException(Environment.GetResourceString("Arg_HTCapacityOverflow"));
+        }
+        for (int i = 0; i &lt; primes.Length; i++)
+        {
+            int num = primes[i];
+            if (num &gt;= min)
+            {
+                return num;
+            }
+        }
+        for (int j = min | 1; j &lt; int.MaxValue; j += 2)
+        {
+            if (IsPrime(j) &amp;&amp; (j - 1) % 101 != 0)
+            {
+                return j;
+            }
+        }
+        return min;
+    }
+
+    public static readonly int[] primes = new int[72]
+    {
+        3,
+        7,
+        11,
+        17,
+        23,
+        29,
+        37,
+        47,
+        59,
+        71,
+        89,
+        107,
+        131,
+        163,
+        197,
+        239,
+        293,
+        353,
+        431,
+        521,
+        631,
+        761,
+        919,
+        1103,
+        1327,
+        1597,
+        1931,
+        2333,
+        2801,
+        3371,
+        4049,
+        4861,
+        5839,
+        7013,
+        8419,
+        10103,
+        12143,
+        14591,
+        17519,
+        21023,
+        25229,
+        30293,
+        36353,
+        43627,
+        52361,
+        62851,
+        75431,
+        90523,
+        108631,
+        130363,
+        156437,
+        187751,
+        225307,
+        270371,
+        324449,
+        389357,
+        467237,
+        560689,
+        672827,
+        807403,
+        968897,
+        1162687,
+        1395263,
+        1674319,
+        2009191,
+        2411033,
+        2893249,
+        3471899,
+        4166287,
+        4999559,
+        5999471,
+        7199369
+    };
+
+
+
+ハッシュのテーブルの処理が結構複雑で、見る気力がなくなった。。内部構造調べた後に見つけた。まだ見きれていない。
+http://mocotan.hatenablog.com/entry/2017/10/31/064738GetHashCode()はObject型であればメンバとして持っているので、これをoverrideしてやればよい。 ↩
+
+

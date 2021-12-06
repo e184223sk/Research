@@ -1,0 +1,107 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+public class Gacha {
+
+    // 確率分布の中で、 rに対応する要素のインデックスを返す
+    public static int BinarySearchInOdds(double[] odds, double r) {
+        if (r &lt; 0) return -1;
+        if (odds.Length == 0) return -1;
+
+        // 確率分布の部分和をあらかじめ求めておく
+        double[] sum_from_left = new double[odds.Length];
+        double[] sum_from_right = new double[odds.Length];
+        double odd_total = odds.Sum();
+        sum_from_left[0] = 0;
+        sum_from_right[0] = odd_total;
+        for (int i = 1; i &lt; odds.Length; i++) {
+            sum_from_left[i] = sum_from_left[i-1] + odds[i-1];
+            sum_from_right[i] = sum_from_right[i-1] - odds[i-1];
+        }
+
+        int left = 0;
+        int right = odds.Length - 1;
+        int mid = left + (right - left) / 2;
+        double L_mid = sum_from_left[mid];
+
+        while (right &gt;= left) {
+            double R_mid = L_mid + odds[mid];
+            if ((L_mid &lt;= r &amp;&amp; r &lt; R_mid) || (r == R_mid &amp;&amp; mid == odds.Length - 1)) {
+                // キーがmid番目の要素の範囲内にある場合
+                return mid;
+            } else if (r &lt; L_mid) {
+                // キーがmid番目の要素の範囲より小さい範囲にある場合
+                right = mid - 1;
+                mid = left + (right - left) / 2;
+                R_mid = L_mid - (odd_total - sum_from_left[mid + 1] - sum_from_right[right + 1]);
+                L_mid = R_mid - odds[mid];
+            } else {
+                // キーがmid番目の要素の範囲より大きい範囲にある場合
+                left = mid + 1;
+                mid = left + (right - left) / 2;
+                if (mid &gt;= odds.Length) break;
+                L_mid = R_mid + (odd_total - sum_from_left[left] - sum_from_right[mid]);
+                R_mid = L_mid + odds[mid];
+            }
+        }
+        return -1;
+    }
+
+    // 確率分布にしたがって、ランダムに決定した要素のインデックスを返す
+    public static int Draw(double[] odds) {
+        Random rnd = new Random();
+        double r = rnd.NextDouble() * odds.Sum();
+        return BinarySearchInOdds(odds, r);
+    }
+
+    public static void Main() {
+        double[] odds1 = { 0.5, 3.0, 0, 2.0, 1.5, 0.1, 0.9 };
+        Console.WriteLine("odds1 = [" + string.Join(", ", odds1) + "]");
+        Console.WriteLine("r = 0.0  ---&gt;  " + BinarySearchInOdds(odds1, 0.0));
+        Console.WriteLine("r = 0.1  ---&gt;  " + BinarySearchInOdds(odds1, 0.1));
+        // rがちょうど境目にある時、大きいほうのインデックスが返ってくる
+        Console.WriteLine("r = 0.5  ---&gt;  " + BinarySearchInOdds(odds1, 0.5));
+        Console.WriteLine("r = 2.0  ---&gt;  " + BinarySearchInOdds(odds1, 2.0));
+        Console.WriteLine("r = 4.0  ---&gt;  " + BinarySearchInOdds(odds1, 4.0));
+        Console.WriteLine("r = 6.0  ---&gt;  " + BinarySearchInOdds(odds1, 6.0));
+        Console.WriteLine("r = 7.08  ---&gt;  " + BinarySearchInOdds(odds1, 7.08));
+        Console.WriteLine("r = 7.7  ---&gt;  " + BinarySearchInOdds(odds1, 7.7));
+        // rが確率分布の合計と等しい場合、最後の要素のインデックスが返ってくる
+        Console.WriteLine("r = 8.0  ---&gt;  " + BinarySearchInOdds(odds1, 8.0));
+        // rが範囲外の場合、-1が返ってくる
+        Console.WriteLine("r = 10.0  ---&gt;  " + BinarySearchInOdds(odds1, 10.0));
+        // rが負の場合も同様
+        Console.WriteLine("r = -1.0  ---&gt;  " + BinarySearchInOdds(odds1, -1.0));
+        Console.WriteLine("");
+
+        double[] odds2 = { 1.0 };
+        Console.WriteLine("odds2 = [" + string.Join(", ", odds2) + "]");
+        // 確率分布の要素が1つでも問題ない
+        Console.WriteLine("r = 0.0  ---&gt;  " + BinarySearchInOdds(odds2, 0.0));
+        Console.WriteLine("r = 0.5  ---&gt;  " + BinarySearchInOdds(odds2, 0.5));
+        Console.WriteLine("r = 1.0  ---&gt;  " + BinarySearchInOdds(odds2, 1.0));
+        Console.WriteLine("");
+
+        double[] odds3 = {};
+        // 確率分布の要素がない場合、-1が返ってくる
+        Console.WriteLine("odds3 = [" + string.Join(", ", odds3) + "]");
+        Console.WriteLine("r = 0.0  ---&gt;  " + BinarySearchInOdds(odds3, 0.0));
+        Console.WriteLine("");
+
+        double[] odds4 = { 0.5, 0.35, 0.15, 0.05 };
+        Console.WriteLine("odds4 = [" + string.Join(", ", odds4) + "]");
+        // 100万回ガチャを引いて、排出確率を調べてみる
+        int[] receivedCounts = new int[4];
+        for (int i = 0; i &lt; 1000000; i++) {
+            int received = Draw(odds4);
+            receivedCounts[received]++;
+        }
+        for (int i = 0; i &lt; 4; i++) {
+            Console.WriteLine("要素" + i + "  " + receivedCounts[i] + " / 1000000  ( " + receivedCounts[i] / 10000 + " %)");
+        }
+    }
+
+}
+

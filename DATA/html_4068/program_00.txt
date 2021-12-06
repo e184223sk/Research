@@ -1,0 +1,160 @@
+using Unity.Burst;
+
+using NativeStringCollections;
+using NativeStringCollections.Utility;
+
+public struct YourDataElem
+{
+    public ReadOnlyStringEntity text;
+    public int somethingData;
+}
+
+public class YourDataParser : ITextFileParser, IDisposable
+{
+    // 処理したいデータの実体
+    public NativeList&lt;YourDataElem&gt; data_list;
+
+    private NativeStringList text_field_list;
+
+    // ReadOnlyStringEntity.Split() の一時結果格納用
+    private NativeList&lt;ReadOnlyStringEntity&gt; str_list; 
+
+    private bool _allocated;
+
+    // Burst に処理対象を渡すためのデータパック
+    // ref struct で渡す必要があるのでまとめておくと楽
+    public struct DataPack
+    {
+        // コンテナに対する UnsafeReference (NativeContainer はそのままでは渡せない)
+        //   NativeStringCollections.Utility に定義済みの UnsafeRefTo**** を利用するか、
+        //   Unity.Collections.LowLevel.Unsafe にある Unsafe なコンテナを使用、
+        //   またはそれらをもとに自作する
+        public UnsafeRefToNativeList&lt;YourDataElem&gt; data_list;
+        public UnsafeRefToNativeStringList text_field_list;
+
+        public UnsafeRefToNativeList&lt;ReadOnlyStringEntity&gt; str_list;
+    }
+    private DataPack pack;
+
+    public void Init()
+    {
+        data_list = new NativeList&lt;YourDataElem&gt;(Allocator.Persistent);
+        text_field_list = new NativeStringList(Allocator.Persistent);
+
+        str_list = new NativeList&lt;ReadOnlyStringEntity&gt;(Allocator.Persistent);
+
+        // DataPack に UnsafeRef を作成
+        //   NativeStringCollections.Utility に定義済みの支援関数を利用するか、
+        //   Unity.Collections.LowLevel.Unsafe にある Unsafe なコンテナを使用、
+        //   またはそれらをもとに自作する
+        pack.data_list = data_list.GetUnsafeRef();
+        pack.text_field_list = text_field_list.GetUnsafeRef();
+        pack.str_list = str_list.GetUnsafeRef();
+
+        _allocated = true;
+    }
+    public void Clear()
+    {
+        data_list.Clear();
+        text_field_list.Clear();
+    }
+    public bool ParseLines(NativeStringList lines)
+    {
+        // Burst でコンパイルされた関数の呼び出し
+        var input_lines = lines.GetUnsafeRef();
+        return YourDataParserBurst.ParseLines(ref pack, ref input_lines);
+    }
+    public void PostReadProc()
+    {
+        // Burst 実装例は割愛 ParseLines() と同様に
+
+        // NativeStringList にテキストを保存する場合は
+        // StringEntity の取り出しはデータの追加が終わったこのタイミングで行う
+        // (内部バッファの再確保でそれまで生成した StringEntity が無効な参照になる)
+    }
+    public void UnLoad()
+    {
+        // 略
+    }
+
+    public void Dispose()
+    {
+        if (_allocated)
+        {
+            data_list.Dispose();
+            text_field_list.Dispose();
+            str_list.Dispose();
+            _allocated = false;
+        }
+    }
+    ~YourDataParser()
+    {
+        this.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
+
+// Burst でコンパイルされる関数を実装する static class
+[BurstCompile]
+public static class YourDataParserBurst
+{
+    private delegate void ParseLinesDelegate(ref YourDataParser.DataPack pack,
+                                             ref UnsafeRefToNativeStringList lines,
+                                             out bool continueRead);
+    private static ParseLinesDelegate _parseLinesDelegate;
+
+    // Player 開始時にBurstでコンパイルしdelegateに格納
+    [RuntimeInitializeOnLoadMethod]
+    public static void Initialize()
+    {
+        _parseLinesDelegate = BurstCompiler.
+            CompileFunctionPointer&lt;ParseLinesDelegate&gt;(ParseLinesBurstEntry).Invoke;
+    }
+
+    // Burst でコンパイルされた関数を呼ぶためのインターフェイス
+    //   普通の C# 関数でラップすれば ref 渡しや void にこだわる必要はない
+    public static bool ParseLines(ref YourDataParser.DataPack pack,
+                                  ref UnsafeRefToNativeStringList lines)
+    {
+        _parseLinesDelegate(ref pack, ref lines, out bool continueRead);
+        return continueRead;
+    }
+
+    // Burst でコンパイルされる関数の実装
+    //   返値は void,
+    //   引数は ref struct, struct*, out struct のいずれか
+    //   (Burst &lt;-&gt; C# script の境界の制約)
+    [BurstCompile]
+    [AOT.MonoPInvokeCallback(typeof(ParseLinesDelegate))]
+    private static void ParseLinesBurstEntry(ref YourDataParser.DataPack pack,
+                                             ref UnsafeRefToNativeStringList lines,
+                                             out bool continueRead)
+    {
+        continueRead = true;
+        for(int i=0; i&lt;lines.Length; i++)
+        {
+            continueRead = ParseLineImpl(ref pack, lines[i]);
+        }
+    }
+    // Burst でコンパイルされる関数 の中で呼ばれる関数は
+    // 参照型さえ使わなければ普通の書き方でよい
+    private static bool ParseLineImpl(ref YourDataParser.DataPack pack,
+                                      ReadOnlyStringEntity line)
+    {
+        if (line.Length &lt; 1) return true; // 空行
+
+        line.Split(',', pack.str_list);   // CSVとして ',' 区切りで分割
+
+
+        // 以下は "ElemName,IntValue" な CSV の場合の実装例
+        pack.text_field_list.Add(pack.str_list[0]);
+
+        var elem = new YourDataElem();
+        pack.str_list[1].TryParse(out elem.somethingData);
+
+        pack.data_list.Add(elem);
+
+        return true;
+    }
+}
+

@@ -1,0 +1,49 @@
+
+    //AudioUtil型
+    static readonly Type tAudioUtil = typeof(Editor).Assembly.GetType("UnityEditor.AudioUtil");
+    //コンパイル済みメソッドのキャッシュ
+    static readonly ConcurrentDictionary&lt;Method, Func&lt;object[], object&gt;&gt; 
+        compiled = new ConcurrentDictionary&lt;Method, Func&lt;object[], object&gt;&gt;();
+
+    //キャッシュからメソッドを取得する。コンパイル済みでなければコンパイルしてキャッシュし、それを返す。
+    static Func&lt;object[], object&gt; GetOrCompile(Method method)
+    {
+        return compiled.GetOrAdd(method, _m =&gt;
+        {
+            //キャッシュが存在しなければここに来る
+
+            //MethodInfo取得
+            var m = tAudioUtil.GetMethod(_m.ToString(), BindingFlags.Static | BindingFlags.Public);
+
+            //voidメソッドのためのreturn先ラベルを定義
+            var voidTarget = Expression.Label(typeof(object));
+
+            //引数はobject[]
+            var args = Expression.Parameter(typeof(object[]), "args");
+            //MethodInfoのパラメータの型に引数をキャストするExpressionの束
+            var parameters = m.GetParameters()
+                .Select((x, index) =&gt;
+                    Expression.Convert(
+                        Expression.ArrayIndex(args, Expression.Constant(index)),
+                    x.ParameterType))
+                .ToArray();
+            //式木構築
+            var lambda = Expression.Lambda&lt;Func&lt;object[], object&gt;&gt;(
+                m.ReturnType == typeof(void)
+                    //voidメソッドの場合、ブロックにしてreturn default(object)する必要がある
+                    ? (Expression)Expression.Block(
+                        Expression.Call(null, m, parameters),
+                        Expression.Return(voidTarget, Expression.Default(typeof(object))),
+                        Expression.Label(voidTarget, Expression.Constant(null))
+                    )
+                    //返り値がある場合はCallして結果をobjectにキャストするだけ
+                    : Expression.Convert(
+                        Expression.Call(null, m, parameters),
+                        typeof(object)),
+                args);
+
+            //コンパイルしてキャッシュしつつ返す
+            return lambda.Compile();
+        });
+    }
+

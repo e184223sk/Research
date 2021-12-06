@@ -1,0 +1,26 @@
+17年プログラマをやっていて、いまさら i++ がスレッドセーフじゃないことを知った 1 ことを反省しての記事です。以下のMSTestを実行してみたところ、テストはエラーになりました。結果
+Assert.AreEqual に失敗しました。&lt;250&gt; が必要ですが、&lt;247&gt; が指定されました。次のように修正したところ、テストは成功しました。この時点で、なにかしらLockを使ってるんだろうなぁと考えたのですが、どのポインタに対してLockを取っているのかが気になりました。それを知っておかないと、安全には使えませんよね。というわけで、ソースを覗いてみました。
+Microsoft Reference Source - Interlocked.csソースを見ても、Lockをかけているような実装は見当たりません。
+どうやらカギは、外部メソッド ExchangeAdd にあるようです。でも、うーん、それ以上のヒントは見当たりません。.NETのドキュメントを読んでも、次のように書かれているだけ。
+Microsoft Docs - Interlocked Class
+The Add method atomically adds an integer value to an integer variable and returns the new value of the variable.
+↓Google翻訳
+Addメソッドは、整数値を整数変数にアトミックに追加し、変数の新しい値を返します。「アトミックに」できている理由を知りたいんだよこっちは。。。こんなやり取りを見つけました。
+How does Interlocked work and why is it faster than lock? [duplicate]
+↓
+Reed Copseyさんの回答によると:
+Interlocked has support at the CPU level, which can do the atomic operation directly.
+↓Google翻訳 注：カッコ内は私の意訳
+InterlockedはCPUレベルでサポートされており、(これを利用することで)アトミック操作を直接実行できます。CPUレベルで！？続けて、こうおっしゃっています。
+For example, Interlocked.Increment is effectively an XADD
+↓Google翻訳
+たとえば、Interlocked.Incrementは事実上XADDですなるほど、XADDね！(・∀・)いや、なんですか、XADDて。。。(;´･ω･)探すのが難しかったのですが、私の結論は以下の記事で行きつきました。atomic fetch-and-add vs compare-and-swap - An Oracle blog about Transactional locks - Dave's Blog
+↓
+The x86 architecture exposes LOCK:XADD which I'll use in the discussion below.
+↓Google翻訳
+x86アーキテクチャは、以下の説明で使用するLOCK：XADDを公開します。そしてWikipediaの以下のあたりの記述。
+Fetch-and-add - wikipedia.orgつまり、x86アーキテクチャは、加算をアトミックに(つまり一連の操作として)行うことをサポートしていると。なるほど、Interlocked.Incrementはこれを利用しているから、加算している間に他スレッドの割り込みを受けることがなく、スレッドセーフになっていると。納得！まとめてくださっている記事がありました。
+マルチスレッドで高速なC#を書くためのロック戦略 - @tadokoroスレッドセーフの中では、Interlocked.Incrementが最速ですね。さすがCPUレベル。私の中のエンジニアが「それを知っておかないと、安全には使えませんよね。」とか言い出したために、思ってたよりもめんどくさ大変な調査になりましたが、いろいろ有意義な情報にたどり着くことが出来ました。但し、CPUレベルな部分について殆ど知識がない中、公開されている情報や回答をつなぎ合わせて推論し出した結論ですので、理解が間違っている部分があるかもしれません。その場合はご教授いただけると有り難いです。うん、力尽きた。( ;∀;)
+どなたかご教授いただけましたら、ありがたいです。。。（情報のソースもあると嬉しいです）今までそんな実装の需要がなかったんだもの。。。 ↩
+
+

@@ -1,0 +1,33 @@
+
+#if UNITY_EDITOR
+using System;
+using System.Reflection;
+using UnityEditor;
+
+[InitializeOnLoad]
+public class OVRInputReplacer
+{
+    static OVRInputReplacer()
+    {
+        // タッチパッド上の座標
+        ReplaceMethod(typeof(OVRInput), typeof(OVRInputEmulator), "Get", new System.Type[] { typeof(OVRInput.Axis2D), typeof(OVRInput.Controller) });
+    }
+
+    static void ReplaceMethod(System.Type originType, System.Type replaceType, string methodName, System.Type[] types)
+    {
+        var origin = originType.GetMethod(methodName, types);
+        var replace = replaceType.GetMethod(methodName, types);
+        ReplaceFunctionPointer(origin, replace);
+    }
+    static void ReplaceFunctionPointer(MethodInfo originalMethod, MethodInfo replaceMethod)
+    {
+        unsafe
+        {
+            var originalPointer = originalMethod.MethodHandle.Value.ToPointer();
+            var replacePointer = replaceMethod.MethodHandle.Value.ToPointer();
+            *((int*)new IntPtr(((int*)originalPointer + 1)).ToPointer()) = *((int*)new IntPtr(((int*)replacePointer + 1)).ToPointer());
+        }
+    }
+}
+#endif
+

@@ -1,0 +1,79 @@
+
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+namespace ConsoleApp1
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // トップレベルウインドウを列挙
+            NativeMethods.EnumWindows(
+                (h, p) =&gt; {
+                    var count = NativeMethods.GetWindowTextLength(h);
+                    var sb = new StringBuilder(count + 1);
+                    var ret = NativeMethods.GetWindowText(h, sb, sb.Capacity);
+
+                    Console.WriteLine("0x{0:X8} - {1}", h.ToInt32(), sb.ToString());
+
+                    // 子ウインドウを列挙
+                    NativeMethods.EnumChildWindows(h, EnumChildWindowsProc, new IntPtr(1));
+
+                    return true;
+                },
+                IntPtr.Zero);
+
+            Console.Read();
+        }
+
+        static bool EnumChildWindowsProc(IntPtr hWnd, IntPtr lParam)
+        {
+            var count = NativeMethods.GetWindowTextLength(hWnd);
+            var sb = new StringBuilder(count + 1);
+            var ret = NativeMethods.GetWindowText(hWnd, sb, sb.Capacity);
+
+            Console.WriteLine("{0} 0x{1:X8} - {2}", new string('+', lParam.ToInt32()), hWnd.ToInt32(), sb.ToString());
+
+            // さらに自身の子ウインドウを列挙
+            NativeMethods.EnumChildWindows(hWnd, EnumChildWindowsProc, new IntPtr(lParam.ToInt32() + 1));
+
+            return true;
+        }
+
+        class NativeMethods
+        {
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool EnumWindows(
+                EnumWindowsProc lpEnumFunc,
+                IntPtr lParam
+            );
+
+            [DllImport("user32.dll", SetLastError = true)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool EnumChildWindows(
+                IntPtr hWndParent,
+                EnumWindowsProc lpEnumFunc,
+                IntPtr lParam
+            );
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern Int32 GetWindowTextLength(
+                IntPtr hWnd
+            );
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern Int32 GetWindowText(
+                IntPtr hWnd,
+                StringBuilder lpString,
+                Int32 nMaxCount
+            );
+        }
+    }
+}
+

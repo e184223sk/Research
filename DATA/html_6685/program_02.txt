@@ -1,0 +1,67 @@
+
+    public class MyAsyncProxy : RealProxy
+    {
+        private MarshalByRefObject _target;
+        private const string MQ_NAME = @".\private$\MyQueue";
+
+        public MyAsyncProxy(MarshalByRefObject target, Type t) : base(t)
+        {
+            this._target = target;
+        }
+
+        public override IMessage Invoke(IMessage msg)
+        {
+            IMethodCallMessage call = (IMethodCallMessage)msg;
+            IMethodReturnMessage res;
+            IConstructionCallMessage ctor = call as IConstructionCallMessage;
+
+            if (ctor != null)
+            {
+                //以下、コンストラクタを実行する処理
+
+                RealProxy rp = RemotingServices.GetRealProxy(this._target);
+                res = rp.InitializeServerObject(ctor);
+                MarshalByRefObject tp = this.GetTransparentProxy() as MarshalByRefObject;
+                res = EnterpriseServicesHelper.CreateConstructionReturnMessage(ctor, tp);
+            }
+            else
+            {
+                //以下、コンストラクタ以外のメソッドを実行する処理
+
+                string execFlag = ConfigurationManager.AppSettings["ASYNC_EXEC_FLAG"];
+                if(execFlag == "EXECUTE")
+                {
+                    //メソッド実行
+                    res = RemotingServices.ExecuteMessage(this._target, call);
+                }
+                else
+                {
+                    //メソッド前処理
+                    Console.WriteLine("非同期キューにSEND：start");
+                    SendAsyncQueue(call);
+                    Console.WriteLine("非同期キューにSEND：end");
+
+                    //メソッド実行
+                    res = new ReturnMessage(0, null, 0, null, call);
+                }
+            }
+
+            return res;
+        }
+
+        private void SendAsyncQueue(IMethodCallMessage call)
+        {
+            using (MemoryStream stream = new MemoryStream())
+            {
+                BinaryFormatter bf = new BinaryFormatter();
+                bf.Serialize(stream, call);
+
+                Message message = new Message(stream.ToArray(), 
+                                              new BinaryMessageFormatter());
+
+                MessageQueue queue = new MessageQueue(MQ_NAME);
+                queue.Send(message);
+            }
+        }
+    }
+

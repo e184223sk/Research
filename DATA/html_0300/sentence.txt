@@ -1,0 +1,257 @@
+   本記事に従って実験を行うにはFT245が必要です。まずはこのFT245が何物なのかを説明します。イギリスの半導体メーカーFuture Technology Devices International社（通称FTDI社）が販売している型名がFT245で始まる半導体チップ（IC）の総称です。本記事ではその中のFT245RLを使用しています。FT245はパソコンから出るUSB信号を8bitのデジタル出力信号に変換したり、8bitのデジタル入力信号をUSB信号としてパソコンで受け取る事ができます（8bit中の5bitを入力、3bitを出力にする等、入出力の割当ては自由です）。FT245の出力として割り当てたbitにLEDを接続し、入力として割り当てたbitにはスイッチを接続することにより「ソフトウェアからハードウエア制御をする入門素材」としても最適です。
+一例としては「信号機付き横断歩道の模擬」などが考えられます。車両用の信号機（赤黄緑）と歩行者用信号機（赤青）にFT245の出力5bitを割り当て、残りを横断リクエストの押しボタンスイッチに入力として割り当てる電子工作です。FT245自体は非常に小さなICで周辺部品も多く、ハンダづけの未経験者や初心者がFT245を利用するのは極めて困難です。しかし幸いにも秋月電子通商さんから、FT245を周辺部品も含めて1つの基板に収めた物が980円（税込、2020年12月現在）で販売されています。画像は秋月電子さんのHPより これを利用すると、面倒な配線を回避できます。LEDやスイッチは含まれておりませんので、それらは自分で配線する必要があります。しかしハンダ付けが苦手な方もブレッドボードを利用することによりハンダ付け自体を回避できます。また電源もUSBケーブルを介してPC側から供給できますので、ACアダプター等も不要です。 回路図は以下の様に非常にシンプルです。ハンダ付けが苦手な方でもブレッドボードで容易に配線できます。
+筆者の場合はD0を入力専用、D1～D7を出力として使用しました。このためスイッチは1個しか基板上にありませんが、多くのスイッチを使いたい方は以下の回路図を参照して任意個のスイッチを追加実装して下さい。この回路図のD0は、入力bitとして使用するとスイッチの状態を読込み、出力bitとして使用するとLEDの状態を設定できます。D1～D7も同様にスイッチと抵抗を追加する事により「入出力兼用bit」とできます。本記事ではコマンドは以下の４つだけですが、LEDをサイコロの目に並べ「1～6の目を乱数で出す」などのコマンドの追加も応用問題として適していると思います。エラーコード
+未定義のコマンド名、もしくは引数がFFFFを超える16進数の場合は「unknown command」と表示します。
+また、コマンドが異常終了した場合は、エラーコード（1～18の整数値）を返します。
+主なエラーコードは以下の通りです。他のエラーコードの意味の詳細はFTDI社のHPを参照して下さい。
+FTDI社のチップを使用した他の機器が先にPCに接続されている場合などは上記以外のエラーコードも発生します。
+https://www.ftdichip.com/Support/Knowledgebase/index.html?ftd2xx_h.htmソースコードは既に紹介済みの
+RETROF-16統合開発環境の製作(1)「C# ドッキングウィンドウとRichTextBoxの継承」
+の流用になります。追加（または改変）するソースは以下に示す３本だけです。全ソースファイル（サフィックスがCSの全てのファイル）FTDI社が提供するDLLをそのままC#から制御するFT245クラスと、それを継承し本記事の目的により合う形にしたRETROF245クラスからなります。本記事はその両方をFT245.csにまとめました。FT245.csの実行にはFTDI社が提供する「ftd2xx.dll」が必要です
+このdllは「ダウンロード ftd2xx.dll」等で検索すると容易に見つかります。dllの組み込み方は色々ありますが、ここでは最も単純な「実行ファイルと同じフォルダに置く」とします。具体的には以下の場所です。なお余談ですが「dllを実行ファイルと同じフォルダに置く」方法は、個人の趣味や試作レベルでは許されますが、商品（あるいはフリソ）としてプログラムを提供する場合は、.exeと.dllをマージして提供する等の考慮が必要です。その具体的な方法は「.exeと.dllのマージ」等で検索すると良質な記事が多々みつかりますので、本記事では割愛します。FT245.csのソースコード黒三角印のクリックでFT245.csのソースコードを参照できます
+
+
+using System;
+using System.Runtime.InteropServices;  //DLLのインポートに必要
+//#####################################################################################################################
+///     RETROF-16(令和版改) 統合開発環境　FT245RLインタフェイスクラス  2020-11-26  SID.Gataro   
+//#####################################################################################################################
+namespace RETROF {
+    class RETROF245 : FT245RL {
+        private const int BUFFERSIZE = 2_500_000;       // 65536*36 = 2_400_000 送信はバッファにため一気に行なう
+        protected byte[] Buffer = new byte[BUFFERSIZE]; // ブロック転送用バッファ
+        protected uint Buffer_ptr;                      // バッファポインタ
+        private const int MAXRATE = 0x1F6_EE0;          ///要注意　2020/4/24         
+        //　レートの最大値はFTDI社のマニュアルを見ても良く判らない。BitBangモードで2.4Mbit/sでの転送が限界
+        //  0x1F6EE0 (1,260,000)より大きな値を指定するとレート設定エラーとなる
+        //  但し、レート指定値が500,000前後辺りで、それ以上の値を設定しても転送速度は変わらなくなる
+        private const int IO_MODE = 0xFE;                // D7-D1は出力、D0のみ入力
+        //-------------------------------------------------------------------------------------------------------
+        /// Open :　bitのI/Oの割当、転送速度をRETROF-16用の値に設定してオープン　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Open() { 
+            Buffer_ptr = 0;
+            Buffer[Buffer_ptr] = 0xFF;
+            uint sts;
+            if ((sts = Open(0)) != 0) goto err;
+            if ((sts = SetBaudRate(MAXRATE)) != 0) goto err;
+            //一瞬「L」信号がでるのを防ぐテク　2015-2-10
+            if ((sts = SetBitMode(0x00)) != 0) goto err;   //全bitを入力にして 
+            Buffer[0] = 0xFF;
+            if ((sts = Write(Buffer,1)) != 0) goto err;   //FFを出力してから
+            if ((sts = SetBitMode(IO_MODE)) != 0) goto err;   //改めて全ビットを設定
+            return (0);
+        err:
+            Close(); //このクローズは２重オープンエラー時以外は意味はない。
+            return sts;
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Close
+        //-------------------------------------------------------------------------------------------------------
+        new public uint Close() {return base.Close();}
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Put : バッファに1バイト書込み。　バッファサイズを超えない事は呼び出し側の責任、万一超えた場合は例外を投げる
+      　//-------------------------------------------------------------------------------------------------------
+        public void Put(uint c) {
+            //バッファサイズを超えない事は、呼び出し側の責任、万一超えた場合は、NotImplementedExceptionを投げる
+            if (Buffer_ptr &gt;= BUFFERSIZE) throw new NotImplementedException();  
+            Buffer[Buffer_ptr++] = (byte)(c &amp; 0xff);
+            return;
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Flush : 今までPutしたデータを一気に送る　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Flush() {
+            uint sts = Write(Buffer, Buffer_ptr); //書込みサイズは参照しないで捨てる
+            Buffer_ptr = 0;
+            return (sts);
+        }
+
+        //-------------------------------------------------------------------------------------------------------
+        /// Get : デバイスから1バイト直接読み込み　
+        //-------------------------------------------------------------------------------------------------------
+        public uint Get(ref int read_data) {
+            return GetBitMode(ref read_data);
+        }
+    }
+
+    class FT245RL {
+        //-------------------------------------------------------------------------------------------------------
+        // ft2xx.dllのインポート （VSのdebugフォルダとReleaseフォルダにftd2xx.dllを要す）
+        //-------------------------------------------------------------------------------------------------------
+        //binの下の.exeと同じフォルダか Windows\SysWOW64　にFTD2xx.dllを置く事
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Open(Int16 DeviceNumber, ref uint Handle);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Close(uint Handle);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_SetBaudRate(uint Handle, int BaudRate);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_SetBitMode(uint Handle, byte Mask, byte Mode);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_Write(uint Handle, byte[] buffer, uint req_size, ref uint written_size);
+        [DllImport("ftd2xx.dll")]
+        private static extern uint FT_GetBitMode(uint Handle, ref int read_data);　
+        //-------------------------------------------------------------------------------------------------------
+        // FT245RLクラス　プロパティ
+        //-------------------------------------------------------------------------------------------------------
+        private byte BIGBANGMODE = 1;
+        private uint Handle;         // FTDIチップ識別子 　
+        private uint Written_size;   // 書き込んだサイズ
+        //-------------------------------------------------------------------------------------------------------
+        // コンストラクタ・デストラクタ
+        //-------------------------------------------------------------------------------------------------------
+        public FT245RL() { }
+        ~FT245RL() { FT_Close(Handle); }  //クローズ忘れに対する保証。通常は2重クローズになるが問題はない
+        //-------------------------------------------------------------------------------------------------------
+        // オリジナル関数　
+        //-------------------------------------------------------------------------------------------------------
+        protected uint Open(short device) {return FT_Open(device, ref Handle);}
+        protected uint Close() { return FT_Close(Handle); }
+        protected uint SetBaudRate(int rate) { return FT_SetBaudRate(Handle, rate); }
+        protected uint SetBitMode(byte mask) { return FT_SetBitMode(Handle, mask, BIGBANGMODE); }
+        protected uint Write(byte[] buffer, uint size) { return FT_Write(Handle,buffer, size, ref Written_size); }
+        protected uint GetBitMode(ref int read_data) { return FT_GetBitMode(Handle, ref read_data); }
+    }
+}
+
+
+
+MainForm.cs とMainFormEx.csは、本来一つのファイルであったものをpartialで2つに分けただけです。コマンドの解析と実行処理をMainFormEx.csにまとめました。MainForm.csのソースコード黒三角印のクリックでMaimForm.csのソースコードを参照できます
+
+
+using System.Windows.Forms;
+using WeifenLuo.WinFormsUI.Docking;
+using System.Drawing;
+
+namespace RETROF {
+    public partial class MainForm : Form {
+        public MainForm() {
+            InitializeComponent();
+            //-------------------------------------------
+            //フォームをMDIコンテナにする
+            IsMdiContainer = true;
+            //ドッキングウィンドウ以外の領域（ドキュメント領域）をSDIドキュメントとする。
+            MainDock.DocumentStyle = DocumentStyle.DockingSdi;
+
+            //子パネルの生成
+            CslWin CslWin = new CslWin();
+            EmuWin EmuWin = new EmuWin();
+            ObjWin ObjWin = new ObjWin();
+            SrcWin SrcWin = new SrcWin();
+            MapWin MapWin = new MapWin();
+
+            //子パネルの表示
+            MainDock.DockRightPortion = 0.4;
+            MapWin.Show(MainDock, DockState.DockRight);
+            MainDock.DockTopPortion = 0.3;
+            SrcWin.Show(MainDock, DockState.DockTop);
+            CslWin.Show(MainDock, DockState.Document);
+            ObjWin.Show(SrcWin.Pane, DockAlignment.Right, 0.3);
+            EmuWin.Show(ObjWin.Pane, DockAlignment.Top, 0.4);
+            //-------------------------------------------
+
+
+
+            ///CslWinのデザイナー末尾でShellをpublic化する事
+
+            ///shellのプロンプト、及び各種表示色を設定する
+            //最初のプロンプトもこの関数を呼ぶタイミングで表示される
+            CslWin.Shell.Initialize("PROMPT&gt;", Color.DarkViolet, Color.Green, Color.Red);
+
+            ///Shellに入力があれば、本クラス内の OnShell() をコールする様に設定
+            CslWin.Shell.KeyEnter += new ShellTextBox.ShellEventHandler(OnShell);
+
+
+        }
+    }
+}
+
+
+
+MainFormEx.csのソースコード黒三角印のクリックでMainFormEx.csのソースコードを参照できます
+
+
+using System;
+using System.Windows.Forms;
+using System.Text.RegularExpressions; ///正規表現の比較に必要
+
+namespace RETROF {
+    public partial class MainForm /*: Form*/ {
+        RETROF245 FT245 = new RETROF245();
+
+        ///Enterキーダウン時に発生する独自イベントの処理
+        void OnShell(object sender, ShellEventArgs e) {
+            e.Result = "!Unknown command"; //仮設定、再設定しないとこれが表示される
+                                           //文字列先頭の！は特別な色（一般には赤）で表示する指定文字
+                                           //コマンドの前後の空白を取る
+            string command = e.Command.Trim();
+            //コマンドと引数に分割
+            string[] com_arg =  Regex.Split(e.Command.Trim(),@"\s+");
+            //トークン数が0なら何もしないでリターン
+            if (com_arg.Length == 1 &amp;&amp; com_arg[0] == "") { e.Result = ""; return; }
+            //トークン数が3以上なら「引数多すぎ」
+            if (com_arg.Length &gt; 3) { e.Result = "!Too many argument."; return; }
+            //「命令文字列のみ」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+$")) {e.Result = Do(com_arg[0], 0, 0); return;}
+            //「命令文字列　16進引数」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+\s+[a-fA-F0-9]{1,4}$")) {
+                e.Result = Do(com_arg[0], System.Convert.ToUInt32(com_arg[1], 16), 0);
+                return;
+            }
+            //「命令文字列　16進引数　16進引数」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+\s+[a-fA-F0-9]{1,4}\s+[a-fA-F0-9]{1,4}$")) {
+                e.Result = Do(com_arg[0], Convert.ToUInt32(com_arg[1], 16), Convert.ToUInt32(com_arg[2], 16));
+                return;
+            }
+        }
+
+        /// コマンドの実行
+        // コマンド自体は任意の文字列、コマンドの引数は0～255までの値が最大2個添付可能
+        // 但し、不要な（無意味な）引数を添付しても、エラーとはせず無視するだけとしている
+        String Do(string command, uint arg1, uint arg2) {
+
+            /// OPEN　
+            if (command == "o") {
+                uint sts = FT245.Open();
+                if (sts == 0) return ("Open Success");
+                return ("!Open error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// CLOSE
+            if (command == "c") {
+                uint sts = FT245.Close();
+                if (sts == 0) return ("Close Success");
+                return ("!Close error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// WRITE ONE BYTE (Write指定していないビットには出力しない)
+            if (command == "w") {
+                FT245.Put(arg1);
+                uint sts = FT245.Flush();
+                if (sts == 0) return ("Write Success");
+                return ("!Writr error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// READ ONE BYTE  (Read指定していないビットは0が入力される)
+            if (command == "r") {
+                int value = 0;
+                uint sts = FT245.Get(ref value);
+                if (sts == 0) return ("Get Success value = " + Convert.ToString(value));
+                return ("!Get error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// 意味不明なコマンド
+            return ("!Unknown command : " + command + " " + Convert.ToString(arg1) + " " + Convert.ToString(arg2));
+        }
+    }
+}
+
+
+
+2020 がたろう
+
+

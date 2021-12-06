@@ -1,0 +1,124 @@
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Host;
+using Newtonsoft.Json;
+using System;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+namespace TeXBot
+{
+    public static class TeXBot
+    {
+        private const string lineChannelAccessToken = "(LINE Botのアクセストークン)";
+        private const string filestackApiKey = "(FileStackのAPIキー)";
+
+        [FunctionName("TeXBot")]
+        public static async Task&lt;object&gt; Run([HttpTrigger(WebHookType = "genericJson")]HttpRequestMessage req, TraceWriter log)
+        {
+            var jsonContent = await req.Content.ReadAsStringAsync();
+            var eventObj = JsonConvert.DeserializeObject&lt;LineEventObject&gt;(jsonContent);
+            var data = eventObj.Events[0];
+
+            if (data.Type == "message")
+            {
+                // $で囲まれた部分を数式とみなす（$でSplitして奇数番目が数式化対象）
+                var replyMessages = data.Message.Text.Split('$').Where((str, idx) =&gt; idx % 2 == 1).Select(f =&gt;
+                {
+                    // ￥マークをバックスラッシュに置換したうえでURLエンコード
+                    var texText = Uri.EscapeUriString(f.Replace("\x00A5", "\x005C"));
+
+                    var url = $"https://process.filestackapi.com/{filestackApiKey}/output=format:jpg/https://chart.apis.google.com/chart?cht=tx&amp;chl={texText}";
+
+                    return new ReplyMessage()
+                    {
+                        Type = "image",
+                        OriginalContentUrl = url,
+                        PreviewImageUrl = url
+                    };
+                }).ToArray();
+
+                using (var client = new HttpClient())
+                {
+                    // 認証情報
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {{{lineChannelAccessToken}}}");
+
+                    // LINE側へメッセージ送信依頼
+                    var res = await client.PostAsJsonAsync("https://api.line.me/v2/bot/message/reply",
+                        // 送信データを作成
+                        new ReplyMessageObject()
+                        {
+                            ReplyToken = data.ReplyToken,
+                            Messages = replyMessages
+                        }
+                    );
+                }
+            }
+            return req.CreateResponse(HttpStatusCode.OK);
+        }
+    }
+
+    public class LineEventObject
+    {
+        [JsonProperty("events")]
+        public Event[] Events { get; set; }
+    }
+
+    public class Event
+    {
+        [JsonProperty("replyToken")]
+        public string ReplyToken { get; set; }
+        [JsonProperty("type")]
+        public string Type { get; set; }
+        [JsonProperty("timestamp")]
+        public long Timestamp { get; set; }
+        [JsonProperty("source")]
+        public Source Source { get; set; }
+        [JsonProperty("message")]
+        public EventMessage Message { get; set; }
+    }
+
+    public class Source
+    {
+        [JsonProperty("type")]
+        public string Type { get; set; }
+        [JsonProperty("userId")]
+        public string UserId { get; set; }
+    }
+
+    public class EventMessage
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+        [JsonProperty("type")]
+        public string Type { get; set; }
+        [JsonProperty("text")]
+        public string Text { get; set; }
+    }
+
+    public class ReplyMessageObject
+    {
+        [JsonProperty("replyToken")]
+        public string ReplyToken { get; set; }
+        [JsonProperty("messages")]
+        public ReplyMessage[] Messages { get; set; }
+    }
+
+    public class ReplyMessage
+    {
+        [JsonProperty("type")]
+        public string Type { get; set; }
+        [JsonProperty("text")]
+        public string Text { get; set; }
+        [JsonProperty("packageId")]
+        public string PackageId { get; set; }
+        [JsonProperty("stickerId")]
+        public string StickerId { get; set; }
+        [JsonProperty("originalContentUrl")]
+        public string OriginalContentUrl { get; set; }
+        [JsonProperty("previewImageUrl")]
+        public string PreviewImageUrl { get; set; }
+    }
+}
+

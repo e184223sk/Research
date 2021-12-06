@@ -1,0 +1,138 @@
+
+class MyDataGridView : System.Windows.Forms.DataGridView
+{
+#region Win32 API declare
+    private static class NativeMethods
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        internal static extern System.IntPtr SetWindowsHookEx(int hookType, HookObject.HookHandler hookDelegate, System.IntPtr module, uint threadId);
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        internal static extern bool UnhookWindowsHookEx(System.IntPtr hook);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern int CallNextHookEx(System.IntPtr hook, int code, System.IntPtr wParam, System.IntPtr lParam);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        internal static extern uint GetCurrentThreadId();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern System.IntPtr GetFocus();
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        internal static extern System.IntPtr SendMessage(System.IntPtr hWnd, int Msg, System.IntPtr wParam, System.IntPtr lParam);
+    }
+    private const int WH_KEYBOARD = 2;
+    private const int VK_CANCEL = 0x03;
+    private const int VK_RETURN = 0x0d;
+    private const int VK_ESCAPE = 0x1b;
+    private const int WM_KEYDOWN = 0x0100;
+#endregion
+#region Key Hook
+    private class HookObject
+    {
+        public delegate int HookHandler(int code, System.IntPtr wParam, System.IntPtr lParam);
+        public HookHandler hookDelegate;
+        public System.IntPtr hook;
+
+        public void SetHook(HookHandler onHook)
+        {
+            // Check this control is in Visual Studio.
+            bool inDesignMode;
+            if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime)
+            {
+                inDesignMode = true;
+            }
+            else
+            {
+                using (var p = System.Diagnostics.Process.GetCurrentProcess())
+                {
+                    inDesignMode = (
+                        p.ProcessName.Equals("DEVENV", System.StringComparison.OrdinalIgnoreCase) ||
+                        p.ProcessName.Equals("XDesProc", System.StringComparison.OrdinalIgnoreCase)
+                    );
+                }
+            }
+            // Execute only outside of Visual Studio.
+            if (!inDesignMode)
+            {
+                if (hook == System.IntPtr.Zero)
+                {
+                    hookDelegate = new HookHandler(onHook);
+                    hook = NativeMethods.SetWindowsHookEx(WH_KEYBOARD, hookDelegate, System.IntPtr.Zero, NativeMethods.GetCurrentThreadId());
+                    if (hook == System.IntPtr.Zero)
+                    {
+                        int errorCode = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                        throw new System.ComponentModel.Win32Exception(errorCode);
+                    }
+                }
+            }
+        }
+        public void Unhook()
+        {
+            if (hook != System.IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(hook);
+            }
+        }
+        public HookObject(HookHandler onHook)
+        {
+            SetHook(onHook);
+        }
+
+        ~HookObject()
+        {
+            Unhook();
+        }
+
+    }
+    private static readonly HookObject hookObject = new HookObject(OnHookKey);
+
+    private static System.IntPtr hwndKeyHook = System.IntPtr.Zero;
+
+    private static int OnHookKey(int nCode, System.IntPtr wParam, System.IntPtr lParam)
+    {
+        if (-1 &lt; nCode)
+        {
+            int vKey = (int)wParam;
+            ulong keyFlag = (ulong)lParam;
+            switch (vKey)
+            {
+                case VK_RETURN:
+                case VK_CANCEL:
+                case VK_ESCAPE:
+                    if ((keyFlag &amp; 0xc0000000) == 0 &amp;&amp; hwndKeyHook == NativeMethods.GetFocus())
+                    {
+                        NativeMethods.SendMessage(hwndKeyHook, WM_KEYDOWN, wParam, lParam);
+                        return 1;
+                    }
+                    break;
+            }
+        }
+        return NativeMethods.CallNextHookEx(hookObject.hook, nCode, wParam, lParam);
+    }
+#endregion
+#region Event
+    private static void Controls_GotFocus(object sender, System.EventArgs e)
+    {
+        if (sender is System.Windows.Forms.Control control)
+        {
+            hwndKeyHook = control.Handle;
+        }
+    }
+
+    private static void Controls_LostFocus(object sender, System.EventArgs e)
+    {
+        hwndKeyHook = System.IntPtr.Zero;
+    }
+
+    protected override void OnEditingControlShowing(System.Windows.Forms.DataGridViewEditingControlShowingEventArgs e)
+    {
+        if (e.Control is System.Windows.Forms.DataGridViewTextBoxEditingControl textBox)
+        {
+            textBox.GotFocus -= Controls_GotFocus;
+            textBox.GotFocus += Controls_GotFocus;
+            textBox.LostFocus -= Controls_LostFocus;
+            textBox.LostFocus += Controls_LostFocus;
+        }
+        base.OnEditingControlShowing(e);
+    }
+#endregion
+}
+

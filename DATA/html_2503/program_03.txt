@@ -1,0 +1,53 @@
+
+[TestMethod]
+public void SomebodyShouldGiveMeLike_WinAppDriver_ByColor()
+{
+    const string EdgeAppId = "Microsoft.MicrosoftEdge_8wekyb3d8bbwe!MicrosoftEdge";
+    const string QiitaUrl = "https://qiita.com/";
+    const string QiitaNewPostHref = "https://qiita.com/drafts/new";
+    var arrivalBackgroundArgb = ColorTranslator.FromHtml("#E14B22").ToArgb();
+
+    var remoteAddress = new Uri("http://127.0.0.1:4723");
+    var edgeCapabilities = new AppiumOptions();
+    edgeCapabilities.AddAdditionalCapability("app", EdgeAppId);
+    var edgeWinDriver = new WindowsDriver&lt;WindowsElement&gt;(remoteAddress, edgeCapabilities);
+
+    // Qiita にアクセス
+    var addressEditBox = edgeWinDriver.FindElementByAccessibilityId("addressEditBox");
+    addressEditBox.Clear();
+    addressEditBox.SendKeys(QiitaUrl);
+    // 入力候補を消して検索実行
+    Thread.Sleep(TimeSpan.FromSeconds(2));
+    addressEditBox.SendKeys(Keys.Delete + Keys.Enter);
+
+    Thread.Sleep(TimeSpan.FromSeconds(5));
+
+    // 新着はあるか
+    var qiitaPane = edgeWinDriver.FindElementByXPath(
+        $"//Pane[@ClassName=\"Internet Explorer_Server\"][@Name=\"{QiitaUrl}\"]/Pane[@Name=\"Qiita\"]");
+
+    // [投稿する] の次の要素が通知ボックス
+    var notificationGroup = qiitaPane.FindElementsByXPath("*/*").Cast&lt;WindowsElement&gt;()
+        .SkipWhile(e =&gt; e.Text != "https://qiita.com/drafts/new").Skip(1)
+        .First();
+    var notificationRect = new Rectangle(notificationGroup.Location, notificationGroup.Size);
+
+    var edgeScreen = edgeWinDriver.GetScreenshot();
+    using (var edgeScreenStream = new MemoryStream(edgeScreen.AsByteArray))
+    using (var edgeScreenBitmap = new Bitmap(edgeScreenStream))
+    using (var notificationBitmap = edgeScreenBitmap.Clone(notificationRect, edgeScreenBitmap.PixelFormat))
+    {
+        // 左上から右下に向けて赤を探す（背景が赤なら見つかるはず）
+        bool hasNew = Enumerable.Range(0, Math.Min(notificationBitmap.Width, notificationBitmap.Height))
+            .Any(xy =&gt; notificationBitmap.GetPixel(xy, xy).ToArgb() == arrivalBackgroundArgb);
+
+        if (!hasNew)
+        {
+            Assert.Fail("新着通知はありません。");
+        }
+    }
+
+    // 新着の中に「いいね」はあるかは色では判定できません。
+    // 上のテキストによる検証と同じになるので省略します。
+}
+

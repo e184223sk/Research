@@ -1,0 +1,59 @@
+
+    float _startTime, _nextTickTime;
+    void Start()
+    {
+        _startTime = 0;
+        //1Tickあたりの時間を代入する。
+        _nextTickTime = (float)_tempo.SecondsPerTick();
+        _tickReactive
+            //始めの1小節は不安定なので発行しない。
+            .Skip(_tempo.TickPerTuplet * 8)
+            .Subscribe(_ =&gt;
+        {
+            _Timing.Tick++;
+            if (_Timing.Tick % _tempo.TickPerTuplet == 0)
+            {
+                _Timing.Tuplet++;
+                if (_Timing.Tuplet % _tempo.TupletPerBeat() == 0)
+                {
+                    _Timing.Tick = 0;
+                    _Timing.Beat++;
+                    if (_Timing.Beat % _tempo.BeatPerBar() == 0)
+                    {
+                        _Timing.Bar++;
+                        _Timing.Tuplet = 0;
+                        _Timing.Beat = 0;
+                        if (_Timing.Bar % 4 == 0)
+                        {
+                            if (_Timing.Bar == 0)
+                            {
+                                _nextTickTime -= _startTime;
+                                _startTime = 0;
+                            }
+                            //4小節毎に発行する。
+                            _rhythmObserver.FourBars.OnNext(new TimingForFourBars(_Timing));
+                        }
+                        //1小節毎に発行する。
+                        _rhythmObserver.Bar.OnNext(new TimingForBar(_Timing));
+                    }
+                    //1beat毎に発行する。
+                    _rhythmObserver.Beat.OnNext(new TimingForBeat(_Timing));
+                }
+                //連符毎に発行する。
+                _rhythmObserver.Tuplet.OnNext(new TimingForTuplet(_Timing));
+            }
+            //Tick毎に発行する。
+            _rhythmObserver.Tick.OnNext(new TimingForTick(_Timing));
+        }).AddTo(this);
+    }
+    private void FixedUpdate()
+    {
+        _startTime += Time.deltaTime;
+        if(_startTime &gt; _nextTickTime - (Time.deltaTime / 2))
+        {
+            _tickReactive.OnNext(Unit.Default);
+            //1Tickあたりの時間を追加する。
+            _nextTickTime += (float)_tempo.SecondsPerTick();
+        }
+    }
+

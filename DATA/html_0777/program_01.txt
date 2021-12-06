@@ -1,0 +1,103 @@
+
+using System.Windows.Forms;
+using System.Drawing;
+
+namespace RETROF {
+    ///補助クラス、EventArgsクラスを継承するためだけに存在
+    public class ShellEventArgs : System.EventArgs {
+        public string Command;
+        public string Result;
+    }
+
+    ///独自クラス
+    public partial class ShellTextBox : RichTextBox {
+        ///プロパティ
+        private string Prompt ="RETROF&gt;";
+        private const string LFCR ="\r\n";
+        private const char CR ='\n';
+        private const char COUTIONCHER ='!';
+        private Color ResultColor;
+        private Color PromptColor;
+        private Color CommandColor;
+        private Color CoutionColor;
+
+        ///デリゲートの宣言　（独自に継承したShellEventArgs型の引数を伴う）
+        public delegate void ShellEventHandler(object sender, ShellEventArgs e);
+
+        ///上記デリゲートのインスタンスを（イベント型として）定義
+        public event ShellEventHandler KeyEnter;
+
+        ///本クラスのコンストラクタ
+        public ShellTextBox() {
+            //RichTextBoxのアジア圏のフォント化け（公認バグ？）の抑制
+            LanguageOption = RichTextBoxLanguageOptions.UIFonts;
+            Prompt = ""; //仮設定、正式な設定はInitialize()で行う
+        }
+
+        ///初期化
+        public void Initialize(string prompt, Color prompt_color = default(Color),
+            Color command_color = default(Color), Color coution_color = default(Color)) {
+            Prompt = prompt;
+            PromptColor = (prompt_color != default(Color)) ? prompt_color : SelectionColor;
+            CommandColor = (command_color != default(Color)) ? command_color : SelectionColor;
+            CoutionColor = (coution_color != default(Color)) ? coution_color : Color.Red;
+            ResultColor = SelectionColor;
+            ShowPrompt();
+        }
+
+        ///MyEnterが空（==null）ではない事を確認し、「Enterキーが押されたイベント」を発行する
+        protected virtual void OnConsole(ShellEventArgs e) {
+            //KeyEnter(this, e);　//確認しないならこちらで十分
+            KeyEnter?.Invoke(this, e);
+        }
+
+        ///（オーバーライド）マウスクリックによるカーソル移動を強制的に末尾にする
+        protected override void OnMouseUp(MouseEventArgs e) {
+            base.OnMouseUp(e);
+            SelectionStart = int.MaxValue; //領域末尾を超す値の指定は領域末尾に移動する
+        }
+
+        ///（オーバーライド）矢印キー、BSキー、Enterキーの挙動変更
+        protected override void OnKeyDown(KeyEventArgs e) {
+            //カーソル上下移動の無効化
+            if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) { e.Handled = true; return; }
+            //プロンプト文字列領域を侵すBackSpace(もしくはカーソル左移動)の無効化
+            if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Back) {
+                if (GetColumn() &lt; Prompt.Length + 1) { e.Handled = true; return; }
+            }
+            if (e.KeyCode != Keys.Enter) return; //Enterキー以外なら終わり
+            //以下はEnterキーが押下された場合
+            ShellEventArgs ee = new ShellEventArgs();
+            ee.Command = GetCommand();　　　//コマンド（入力文字列）をShellEventArgsに設定
+            OnConsole(ee);　　　            //実行　　　
+            SelectionColor = ResultColor;   //実行結果の表示色を設定
+            //表示文字列の先頭が「！」なら、その一文字を削除し、表示色をCoutionColorに変更
+            if (ee.Result != null &amp;&amp; ee.Result.Length != 0 &amp;&amp; ee.Result[0] == COUTIONCHER) {
+                ee.Result = ee.Result.Remove(0, 1);
+                SelectionColor = CoutionColor;
+            }
+            //実行結果の表示
+            AppendText(LFCR + ee.Result + LFCR);
+            ShowPrompt();
+            e.Handled = true;
+        }
+
+        ///（視認性向上目的のprivateな補助関数）プロンプトを除く現在行の取り出し
+        private string GetCommand() {
+            return (Text.Substring(Text.Length - GetColumn()).Substring(Prompt.Length));
+        }
+
+        ///（視認性向上目的のprivateな補助関数）現在のカーソルのカラム位置を返す
+        private int GetColumn() {
+            return (SelectionStart - Text.LastIndexOf(CR) - 1);
+        }
+
+        ///（視認性向上目的のprivateな補助関数）プロンプトを指定色で表示する
+        private void ShowPrompt() {
+            SelectionColor = PromptColor;
+            AppendText(Prompt);
+            SelectionColor = CommandColor;
+        }
+    }
+}
+

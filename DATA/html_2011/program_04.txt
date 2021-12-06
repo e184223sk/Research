@@ -1,0 +1,76 @@
+
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.Core;
+using BasicExtension;
+using LambdaSample.Models;
+
+[assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
+
+namespace LambdaSample
+{
+    public class Function
+    {
+        public Function()
+        {
+            _httpClient = new HttpClient();
+            _httpClient.DefaultRequestHeaders.AcceptCharset.Add(new StringWithQualityHeaderValue("utf-8"));
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                Environment.GetEnvironmentVariable("CHANNEL_ACCESS_TOKEN"));
+        }
+
+        public APIGatewayProxyResponse FunctionHandler(APIGatewayProxyRequest input, ILambdaContext context)
+        {
+            WebHookRequestModel webHookRequestModel = input.Body.ToObject&lt;WebHookRequestModel&gt;();
+
+            string replyToken = webHookRequestModel.EventModels[0].ReplyToken;
+            MessageModel message = webHookRequestModel.EventModels[0].Message;
+
+            ReplyToLine(replyToken, message.Text);
+
+            return CreateLambdaApiResponse();
+        }
+
+        private void ReplyToLine(string replyToken, string inputText)
+        {
+            string stringRequest = CreateReplyRequestModel(replyToken, inputText).ToJson();
+            StringContent stringContent = new StringContent(stringRequest, Encoding.UTF8, "application/json");
+            _httpClient.PostAsync("https://api.line.me/v2/bot/message/reply", stringContent).Wait();
+        }
+
+        private ReplyRequestModel CreateReplyRequestModel(string replyToken, string inputText)
+        {
+            ReplyRequestModel replyRequestModel = new ReplyRequestModel();
+            replyRequestModel.ReplyToken = replyToken;
+            replyRequestModel.Messages = new List&lt;MessageModel&gt;()
+            {
+                new MessageModel()
+                {
+                    Type = "text",
+                    Text = inputText
+                }
+            };
+            replyRequestModel.NotificationDisabled = false;
+
+            return replyRequestModel;
+        }
+
+        private APIGatewayProxyResponse CreateLambdaApiResponse()
+        {
+            return new APIGatewayProxyResponse
+            {
+                StatusCode = 200,
+                Body = null,
+                IsBase64Encoded = false,
+                Headers = new Dictionary&lt;string, string&gt;() { { "Content-Type", "application/json" } }
+            };
+        }
+
+        private readonly HttpClient _httpClient;
+    }
+}
+

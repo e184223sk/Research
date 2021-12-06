@@ -1,0 +1,48 @@
+
+using Npgsql;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var random = CreateData.ReadData();
+        var builder = new NpgsqlConnectionStringBuilder()
+        {
+            Host = "localhost",
+            Port = 5432,
+            Username = "postgres",
+            Password = "postgres",
+            Database = "foo",
+        };
+        using (var con = new NpgsqlConnection(builder.ConnectionString))
+        {
+            con.Open();
+
+            using (var cmd = new NpgsqlCommand())
+            {
+                cmd.Connection = con;
+                cmd.CommandText = "CREATE TABLE multi (" +
+                    "tstz TIMESTAMPTZ," +
+                    "ts TIMESTAMP," +
+                    "int BIGINT," +
+                    "text TEXT," +
+                    "json JSONB)";
+                cmd.ExecuteNonQuery();
+            }
+
+            using (var writer = con.BeginBinaryImport("COPY multi(tstz, ts, int, text, json) FROM STDIN (FORMAT BINARY)"))
+            {
+                foreach (var r in random)
+                {
+                    writer.StartRow();
+                    writer.Write(r.DateTime, NpgsqlTypes.NpgsqlDbType.TimestampTZ);
+                    writer.Write(r.DateTime, NpgsqlTypes.NpgsqlDbType.Timestamp);
+                    writer.Write(r.UnixEpoch, NpgsqlTypes.NpgsqlDbType.Bigint);
+                    writer.Write(r.TimeStamp, NpgsqlTypes.NpgsqlDbType.Text);
+                    writer.Write(r.ToTimestampOnlyJson(), NpgsqlTypes.NpgsqlDbType.Jsonb);
+                }
+            }
+        }
+    }
+}
+

@@ -1,0 +1,33 @@
+
+/// &lt;summary&gt;ひたすらシークしまくって一定時間ごとに画像抽出する&lt;/summary&gt;
+public async Task ExtractImagesAsync(string inputMoviePath, string outputImageDir, TimeSpan interval)
+{
+    var duration = GetMovieDuration(inputMoviePath); // see [Gist](https://gist.github.com/kokeiro001/a8a6194296ea7973a55c6fe3c2865cf2#file-imageextractor-cs-L176-L197)
+    // 処理対象時間を列挙する
+    var seekSecEnum = Enumerable.Range(0, (int)(duration.TotalSeconds / interval.TotalSeconds))
+                                .Select(x =&gt; new { SeekSec = x * interval.TotalSeconds, No = x });
+
+    var tasks = seekSecEnum
+        .AsParallel()
+        .Select(x =&gt; Task.Run(() =&gt;
+        {
+            var outputImagePath = Path.Combine(outputImageDir, $"{x.No:D4}.jpeg");
+            var arguments = $"-y -ss {x.SeekSec} -i \"{inputMoviePath}\" -vframes 1 -f image2 \"{outputImagePath}\"";
+
+            using (var process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = FfmpegPath,
+                    Arguments = arguments,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                process.Start();
+                process.WaitForExit();
+            }
+        }));
+
+    await Task.WhenAll(tasks);
+}
+

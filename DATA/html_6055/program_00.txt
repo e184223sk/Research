@@ -1,0 +1,102 @@
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+
+/// &lt;summary&gt;
+/// WebViewクラス
+/// &lt;/summary&gt;
+public class WebViewDemo
+{
+    /// &lt;summary&gt;
+    /// UniWebView
+    /// &lt;/summary&gt;
+    private UniWebView _uniWebView;
+
+    /// &lt;summary&gt;
+    /// WebViewを生成
+    /// &lt;/summary&gt;
+    /// &lt;param name="player"&gt;動かすオブジェクト&lt;/param&gt;
+    /// &lt;param name="backGroundColor"&gt;背景色&lt;/param&gt;
+    /// &lt;param name="url"&gt;開きたいURL&lt;/param&gt;
+    public void ShowWebViewPlayerController(string url, Transform player, Color? backGroundColor = null)
+    {
+        //既に存在している場合は開くだけ
+        if (_uniWebView != null)
+        {
+            _uniWebView.Show();
+            return;
+        }
+
+        var webViewObject = new GameObject("WebViewObject");
+        //キャッシュのクリア
+        webViewObject.OnDestroyAsObservable().Subscribe(_ =&gt; _uniWebView.CleanCache()).AddTo(webViewObject);
+        _uniWebView = webViewObject.AddComponent&lt;UniWebView&gt;();
+
+        //スキームを追加
+        _uniWebView.AddUrlScheme("web-view-demo");
+
+        //メッセージ受け取りイベント
+        _uniWebView.OnMessageReceived += (view, message) =&gt;
+        {
+            switch (message.Path)
+            {
+                //閉じるボタン押下
+                case "close":
+                    //WebViewを非表示にする
+                    if (_uniWebView != null) _uniWebView.Hide(true);
+                    break;
+
+                //↑ボタン押下
+                case "up":
+                    player.Translate(Vector3.forward);
+                    break;
+
+                //↓ボタン押下
+                case "down":
+                    player.Translate(Vector3.down);
+                    break;
+
+                //→ボタン押下
+                case "right":
+                    player.Translate(Vector3.right);
+                    break;
+
+                //←ボタン押下
+                case "left":
+                    player.Translate(Vector3.left);
+                    break;
+            }
+        };
+
+        //画面の向きが変わるたびに解像度を変更
+        _uniWebView.OnOrientationChanged += (view, orientation) =&gt;
+        {
+            _uniWebView.Frame = new Rect(0, 0, Screen.width, Screen.height);
+        };
+
+        //画面サイズを設定
+        _uniWebView.Frame = new Rect(0, 0, Screen.width, Screen.height);
+
+        //背景色
+        var color = Color.white;
+        color.a = 0.5f;
+        _uniWebView.BackgroundColor = backGroundColor ?? color;
+
+        //ツールバー非表示
+        _uniWebView.SetShowToolbar(false);
+        //横スクロールバー非表示
+        _uniWebView.SetHorizontalScrollBarEnabled(false);
+
+        //インジケータ
+        _uniWebView.SetShowSpinnerWhileLoading(true);
+        _uniWebView.SetSpinnerText("ロード中");
+
+        //内部保持してるサイトを読み込み
+        var exchangeUrl = UniWebViewHelper.StreamingAssetURLForPath(url);
+        _uniWebView.Load(exchangeUrl);
+
+        //画面表示
+        _uniWebView.Show();
+    }
+}
+

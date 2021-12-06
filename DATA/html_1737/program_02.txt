@@ -1,0 +1,59 @@
+
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using g.FIDO2.CTAP.HID;
+using g.FIDO2.Util;
+using g.FIDO2;
+
+namespace HIDTest02
+{
+    public partial class MainWindow : Window
+    {
+        private HIDAuthenticatorConnector con;
+        private byte[] creid;
+        private string pubkey;
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            con = new HIDAuthenticatorConnector();
+            con.KeepAlive += OnKeepAlive;
+        }
+
+        private void OnKeepAlive(object sender, EventArgs e)
+        {
+            // MakeCredentialAsync()、GetAssertionAsync()で
+            // PIN認証が通ってFIDOキーのタッチ待ちになるとこのイベントが発生します
+        }
+
+        private async void ButtonGetAssertion_Click(object sender, RoutedEventArgs e)
+        {
+              var rpid = "test.com";
+            var challenge = AttestationVerifier.CreateChallenge();
+            var param = new g.FIDO2.CTAP.CTAPCommandGetAssertionParam(rpid, challenge, creid);
+            param.Option_up = true;
+
+            var res = await con.GetAssertionAsync(param, "1234");
+            if (res.DeviceStatus == g.FIDO2.CTAP.DeviceStatus.NotConnected) {
+                // FIDOキーが接続されていない場合
+                return;
+            } else if (res.DeviceStatus == g.FIDO2.CTAP.DeviceStatus.Timeout) {
+                // FIDOキーのタッチ待ちでTimeoutした場合
+                return;
+            } else if (res.DeviceStatus == g.FIDO2.CTAP.DeviceStatus.Ok) {
+                string verifyResult = "";
+                if ( res.CTAPResponse.Assertion != null) {
+                    // verify
+                    var v = new AssertionVerifier();
+                    var verify = v.Verify(rpid,pubkey,challenge, res.CTAPResponse.Assertion);
+                    verifyResult = $"- Verify = {verify.IsSuccess}";
+                }
+                MessageBox.Show($"GetAssertionAsync\r\n- Status = {res.CTAPResponse.Status}\r\n- StatusMsg = {res.CTAPResponse.StatusMsg}\r\n{verifyResult}");
+            }          
+        }
+
+    }
+}
+

@@ -1,0 +1,584 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.IO;
+
+public class clsZIP
+{
+    //無圧縮でZIPにアーカイブするコード
+    //→とにかく無圧縮でいいから、Javaなどがない環境下で、ファイルをZIPにアーカイブしたい。という際での使用を想定。
+
+    //偉大な参考URL様
+    //[zipの構造に関して]
+    //https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
+    //http://www.tvg.ne.jp/menyukko/cauldron/dtzipformat.html
+    //https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
+    //他、コード中のURLは、参考サイト様です。
+
+
+    //■Local file header関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //Local file headerの識別子 4bytes(0x04034b50)
+    readonly byte[] local_file_header_signature = BitConverter.GetBytes(Convert.ToInt32(0x4034B50));
+
+    //解凍に最低必要なバージョン 2bytes 今回は、ver.1.0で、無圧縮を指定(Default value)→0x000A 
+    readonly byte[] version_needed_to_extract = BitConverter.GetBytes(Convert.ToInt16(0xA));
+
+    //オプションフラグと、圧縮方法 2+2bytes{今回はオプションもなく、圧縮もしないので、0を指定共に0x0000}
+    readonly byte[] general_purpose_and_compression_method = BitConverter.GetBytes(Convert.ToInt32(0x0));
+
+
+    //CRC-32 4bytes{アーカイブ前の生ファイルから生成するCRC32}
+    byte[] crc_32;
+    List&lt;byte[]&gt; ary_crc_32s = null; //zip内の各ファイルの、CRC-32を格納。
+
+    //圧縮後のファイルサイズ 4bytes{今回は無圧縮なので圧縮前の値と同値}
+    //圧縮前のファイルサイズ 4bytes
+    byte[] compressed_size;
+    List&lt;byte[]&gt; ary_uncompressed_sizes = null; //zip内の各ファイルの、圧縮前のファイルサイズを格納。
+
+    //アーカイブ前のファイル名のサイズを格納する 2bytes
+    string file_name; //ファイル名
+    byte[] file_name_ary; // ファイル名のバイナリ
+    List&lt;byte[]&gt; ary_file_name_arys = null; //zip内の各ファイルの、ファイル名のバイナリを格納。
+    byte[] file_name_length; //ファイル名のバイナリサイズ
+
+    //拡張フィールドのサイズ 2bytes{今回は、指定しないので0x0000}
+    readonly byte[] extra_field_length = BitConverter.GetBytes(Convert.ToInt16(0x0));
+
+
+    //■Central file header関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //Central file headerの識別子 4bytes(0x02014b50)
+    readonly byte[] central_file_header_signature = BitConverter.GetBytes(Convert.ToInt32(0x2014B50));
+
+    //作成したバージョン　1+1bytes{今回は、ver.1.0で、無圧縮を指定(Default value)→0x000A }
+    readonly byte[] version_made_by = BitConverter.GetBytes(Convert.ToInt16(0xA));
+
+    //ファイルの属性などの情報　2+2+2+4bytes　→　今回は無視するのですべて0
+    readonly byte[] file_attributes_etc = new byte[10] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    //対応するファイルのlocal file header信号のある位置　4bytes
+    //出力zipの各local_file_header signatureの、バイト開始位置を示す4バイトのバイナリ配列を格納。
+    List&lt;Int32&gt; relative_offset_of_local_header = null;
+
+
+    //■End of central directory record関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //End of central directory record 4bytes(0x06054b50)
+    readonly byte[] end_of_central_dir_signature = BitConverter.GetBytes(Convert.ToInt32(0x6054B50));
+
+    //ディスク分割情報　2+2bytes{ディスク分割はしていないのですべて0}
+    readonly byte[] number_of_this_disk = BitConverter.GetBytes(Convert.ToInt32(0x0));
+
+    //アーカイブしたファイルの個数 2+2bytes{ディスク分割はしていないので同じ内容の重複}
+    byte[] total_number_of_entries;
+
+    //全Central file headerに要したの合計バイト数 4bytes
+    byte[] size_of_the_central_directory;
+
+    //最初のCentral file headerの記述されたバイト位置 4bytes
+    long offset_of_start_of_central_directory_int;
+    byte[] offset_of_start_of_central_directory;
+
+    //zipファイルへのコメントのサイズ 2bytes{今回は、指定しないので0x0000}
+    readonly byte[] ZIP_file_comment_length = BitConverter.GetBytes(Convert.ToInt16(0x0));
+
+    //◆zipファイル入出力など、取扱関係+++++++++++++++++++++++++++++
+    //出力zipのバイナリ一時格納用。
+    List&lt;byte&gt; ary_zip_file = null;
+
+    //ファイルの各更新日時・時間を格納
+    List&lt;byte[]&gt; ary_last_mod_file_dates = null;
+    List&lt;byte[]&gt; ary_last_mod_file_times = null;
+
+    //出力zipにアーカイブするファイルのパスのリスト
+    List&lt;string&gt; Archive_List = null;
+
+
+    public async System.Threading.Tasks.Task archive_to_zip(string[] Archive_FilePath_List) {
+        //ファイルを、zipにアーカイブするルーチン
+        //※簡素記述のためメモリをガッツリ使用します。ご注意を。
+
+        //★前処理。****************************************************************************************
+        //●出力するzipファイル・フルパスの作成++++++++++++++++++++++++++++++++++++++
+        //→先頭のファイル名から、Shift_JISに統一して生成
+        string Output_zip_FileName = FileNeme_Shift_JIS_Check(
+            Path.GetFileNameWithoutExtension(Archive_FilePath_List[0])) + ".zip";
+
+        //出力パスと結合して、フルパスを生成
+        //今回は、先頭ファイルと同じ階層に作成することとする。
+        string Output_zip_Directory = Path.GetDirectoryName(Archive_FilePath_List[0]);
+        string Output_zip_Path = Path.Combine(Output_zip_Directory, Output_zip_FileName);
+
+        //作ろうとしている同名zipファイルが存在しなくなるまでループ
+        int zip_making_flg = 0;
+        while (File.Exists(Output_zip_Path)) {
+            Output_zip_Path = Path.Combine(Output_zip_Directory, Output_zip_FileName.Replace(".zip", "") + "[" + zip_making_flg.ToString() + "].zip");
+            zip_making_flg += 1; //同名ファイルがなくなるまで連番にする
+        }
+
+        //初期化
+        Archive_List = new List&lt;string&gt; { };
+        Archive_List.Clear();
+
+
+        //有効なファイルを選別＆格納するリストの生成。++++++++++++++++++++++++++++++++++++++
+        //予約したリストの中から、処理するファイルをサブフォルダ内部を含めて全て列挙する。
+        foreach (string filepath in Archive_FilePath_List) {
+            FileAry_Set(filepath);
+        }
+
+        //有効なファイルがなかった場合++++++++++++++++++++++++++++++++++++++
+        if (Archive_List.Count &lt;= 0) { return; }
+
+
+        //基準となるフォルダパスを取得++++++++++++++++++++++++++++++++++++++
+        string BaseDirName = BaseDirName_Get(
+            Path.GetDirectoryName(Archive_List[0]));
+        //Shift-JISに統一する。
+        BaseDirName = FileNeme_Shift_JIS_Check(BaseDirName);
+
+        //◎使用する各配列の初期化++++++++++++++++++++++++++
+        ary_zip_file = new List&lt;byte&gt; { };
+        ary_last_mod_file_dates = new List&lt;byte[]&gt; { };
+        ary_last_mod_file_times = new List&lt;byte[]&gt; { };
+        ary_crc_32s = new List&lt;byte[]&gt; { };
+        ary_uncompressed_sizes = new List&lt;byte[]&gt; { };
+        ary_file_name_arys = new List&lt;byte[]&gt; { };
+        relative_offset_of_local_header = new List&lt;Int32&gt; { };
+
+        //zipは、無圧縮で自分でバイナリを打っていく。
+        using (System.IO.FileStream fs = new System.IO.FileStream(Output_zip_Path, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+        {
+            //★前半戦。Local file headerとバイナリ本体の記述********************************************
+            //各ファイルごとにループする
+            foreach (string FileName in Archive_List) {
+                //アーカイブする元ファイルを開きバイナリを予め保持する。
+                byte[] moto_bs = new byte[] { 0 };
+                try { 
+                    using (FileStream moto_fs = new FileStream(FileName,
+                            System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read)) {
+                        //ファイルを読み込むバイト型配列を作成する
+                        Array.Resize(ref moto_bs, (int)moto_fs.Length);
+                        //ファイルのバイナリを一度にすべて読み込んでおく（※メモリ使用量の増大注意）
+                        moto_fs.Read(moto_bs, 0, moto_bs.Length);
+                        //ファイルを閉じる
+                        moto_fs.Close();
+                    }
+                }
+                catch { continue; }
+
+                //■Local file headerの作成------------ここから-----------------
+                //●予めlocal_file_header_signatureの記述位置を格納しておく(4バイト)
+                relative_offset_of_local_header.Add(Convert.ToInt32(fs.Length)); //つまり現在のファイルサイズ
+
+                //○local_file_header_signatureの記述(4バイト)
+                ary_zip_file.AddRange(local_file_header_signature);
+
+                //○解凍に必要なバージョンの記述(2バイト)
+                ary_zip_file.AddRange(version_needed_to_extract);
+
+                //○オプションフラグと、圧縮方法の記述(2+2バイト)
+                ary_zip_file.AddRange(general_purpose_and_compression_method);
+
+                //○ファイルの更新時刻を取得＆格納(2バイト)//////////////////////////////////
+                DateTime F_time = File.GetLastWriteTime(FileName);
+                //▽ファイル更新日時をビット記述(全部で16ビット=2バイト)
+                string F_time_str = "";
+                string fff = ""; //2進数一時格納用
+
+                //Hourの取得＆ビット化
+                fff = Convert.ToString(F_time.Hour, 2);
+                while (fff.Length != 5) { //5ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+                //Minuteの取得＆ビット化
+                fff = Convert.ToString(F_time.Minute, 2);
+                while (fff.Length != 6) { //6ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+                //Secondの取得(偶数化する)＆ビット化
+                fff = Convert.ToString((int)(F_time.Second / 2), 2);
+                while (fff.Length != 5) { //5ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+
+
+                //出来たビット文字列を2バイトに落とし込み記述する。
+                byte[] last_mod_file_time = BitConverter.GetBytes(Convert.ToInt16(F_time_str, 2));
+                ary_zip_file.AddRange(last_mod_file_time);
+
+                //再計算が面倒なので、central file headerに再利用するためにここで記憶しておく。
+                //※メモリを消費します。すみません。AddRangeでなく配列ごと格納しているのも、注意。
+                ary_last_mod_file_times.Add(last_mod_file_time);
+
+
+
+                //▽ファイルの更新年月日を取得＆格納(2バイト)//////////////////////////////////
+                F_time_str = ""; //初期化
+
+                //Year(1980年からの経過年数)の取得＆ビット化
+                fff = Convert.ToString(F_time.Year - 1980, 2);
+                while (fff.Length != 7) { //7ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+                //Monthの取得＆ビット化
+                fff = Convert.ToString(F_time.Month, 2);
+                while (fff.Length != 4) { //4ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+                //Dayの取得＆ビット化
+                fff = Convert.ToString(F_time.Day, 2);
+                while (fff.Length != 5) { //5ビットまで用意
+                    fff = "0" + fff;
+                }
+                F_time_str += fff;
+
+
+                //出来たビット文字列を2バイトに落とし込み記述する。
+                byte[] last_mod_file_date = BitConverter.GetBytes(Convert.ToInt16(F_time_str, 2));
+                ary_zip_file.AddRange(last_mod_file_date);
+
+                //再計算が面倒なので、central file headerに再利用するために記憶しておく。
+                ary_last_mod_file_dates.Add(last_mod_file_date);
+
+
+                //○CRC32(4バイト)
+                //元ファイルのバイナリからCRC-32を取得する。
+                crc_32 = await CRC_32_Checksum(moto_bs);
+                ary_zip_file.AddRange(crc_32);
+                //再計算が面倒なので、central file headerに再利用するために記憶しておく。
+                ary_crc_32s.Add(crc_32);
+
+                //○圧縮後のファイルサイズの取得(4バイト)｛無圧縮なので圧縮後のサイズと同値｝
+                compressed_size = BitConverter.GetBytes(Convert.ToInt32(moto_bs.Length));
+                ary_zip_file.AddRange(compressed_size);
+
+                //○圧縮前のファイルサイズの取得(4バイト)｛無圧縮なので圧縮後のサイズと同値｝
+                ary_zip_file.AddRange(compressed_size);
+                //再計算が面倒なので、central file headerに再利用するために記憶しておく。
+                ary_uncompressed_sizes.Add(compressed_size);
+
+                //○圧縮前のファイル名のサイズの取得(2バイト)
+                file_name = FileNeme_Shift_JIS_Check(FileName); //Shift-JISで初期化
+
+                //親元のフォルダパス部分を削除してzip内でのファイルパスを確定する
+                file_name = file_name.Replace(BaseDirName, "");
+                if (file_name.Length &gt; 1 &amp;&amp; file_name.StartsWith("\\"))
+                {   //左に余分にできる\マークを消す
+                    file_name = file_name.Substring(1, file_name.Length - 1);
+                }
+                //文字列をバイナリ化する
+                file_name_ary = System.Text.Encoding.GetEncoding("SHIFT-JIS").GetBytes(file_name);
+                //文字列長を取得する。
+                file_name_length = BitConverter.GetBytes(Convert.ToInt16(file_name_ary.Length));
+                ary_zip_file.AddRange(file_name_length); // 格納
+
+                //○拡張フィールドのサイズ指定(2バイト){今回は指定なし}
+                ary_zip_file.AddRange(extra_field_length); //格納
+
+                //○アーカイブ前のファイル名の格納
+                ary_zip_file.AddRange(file_name_ary);
+                //再計算が面倒なので、file_name_aryに再利用するために記憶しておく。
+                ary_file_name_arys.Add(file_name_ary);
+
+                try
+                { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                    fs.Write(ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                    fs.Flush();
+                }
+                catch { }
+                ary_zip_file.Clear(); //初期化
+
+                //■Local file headerの作成------------ここまで-----------------
+
+                //■ファイル本体のバイナリを書き込む
+                try
+                { //ファイルに出力する
+                    fs.Write(moto_bs, 0, moto_bs.Length);
+                    fs.Flush();
+                }
+                catch { }
+                //初期化
+                await System.Threading.Tasks.Task.Delay(10);//これがないと、書き込み途中で放棄される？？
+                Array.Clear(moto_bs, 0, moto_bs.Length);
+            }
+
+            //★中盤戦。central file headerの記述********************************************
+            //予め最初のCentral file headerの記述開始バイト位置を記憶しておく
+            offset_of_start_of_central_directory_int = fs.Length;
+            offset_of_start_of_central_directory = BitConverter.GetBytes(Convert.ToInt32(offset_of_start_of_central_directory_int));
+
+
+            //各ファイル分ループ
+            for (int i = 0; i &lt; ary_file_name_arys.Count; i++)
+            {
+                byte[] bs;
+                //■central file headerの作成------------ここから-----------------
+                //○central_file_header_signatureの記述(4バイト)
+                ary_zip_file.AddRange(central_file_header_signature);
+
+                //○zipを作った時のバージョンとOSの記述(1+1バイト)
+                ary_zip_file.AddRange(version_made_by);
+
+                //○解凍に必要なバージョンの記述(2バイト)
+                ary_zip_file.AddRange(version_needed_to_extract);
+
+                //○オプションフラグと圧縮方法の記述(2+2バイト)
+                ary_zip_file.AddRange(general_purpose_and_compression_method);
+
+                //○ファイルの更新時刻(2バイト)[固定値]
+                ary_zip_file.AddRange(ary_last_mod_file_times[i]);
+
+                //○ファイルの更新年月日(2バイト)[固定値]
+                ary_zip_file.AddRange(ary_last_mod_file_dates[i]);
+
+                //○CRC-32(4バイト)
+                ary_zip_file.AddRange(ary_crc_32s[i]);
+
+
+                //○圧縮後のファイルサイズ(4バイト) {今回は、無圧縮なので、圧縮前のファイルサイズを流用}
+                bs = ary_uncompressed_sizes[i];
+                ary_zip_file.AddRange(bs);
+
+                //○圧縮前のファイルサイズ(4バイト)
+                ary_zip_file.AddRange(bs);
+                Array.Clear(bs, 0, bs.Length);//初期化
+
+                //○ファイル名のサイズ(2バイト)
+                byte[] name_bs = ary_file_name_arys[i];
+                ary_zip_file.AddRange(BitConverter.GetBytes(Convert.ToInt16(name_bs.Length)));
+
+
+                //○拡張フィールドのサイズ(2バイト)
+                ary_zip_file.AddRange(extra_field_length);
+
+                //○ファイルの属性などの情報(2+2+2+4バイト)
+                ary_zip_file.AddRange(file_attributes_etc);
+
+                //○対応するファイルのlocal File header信号のある位置(4バイト)
+                bs = BitConverter.GetBytes(relative_offset_of_local_header[i]);
+                ary_zip_file.AddRange(bs);
+                Array.Clear(bs, 0, bs.Length);//初期化
+
+
+                //○アーカイブ前のファイル名の格納
+                ary_zip_file.AddRange(name_bs);
+                Array.Clear(name_bs, 0, name_bs.Length);//初期化
+
+                try
+                { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                    fs.Write(ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                    fs.Flush();
+                }
+                catch { }
+                ary_zip_file.Clear(); //初期化
+                //■central file headerの作成------------ここまで-----------------
+                await System.Threading.Tasks.Task.Delay(10);
+            }
+
+            //◎使用する各配列の一旦、クリア++++++++++++++++++++++++++
+            ary_crc_32s.Clear();
+            ary_uncompressed_sizes.Clear();
+            relative_offset_of_local_header.Clear();
+
+
+            //★終盤戦End of central directory recordの記述********************************************
+            //全Central file headerに要したの合計バイト数を予め算出しておく
+            size_of_the_central_directory = BitConverter.GetBytes(
+                Convert.ToInt32(fs.Length - offset_of_start_of_central_directory_int));
+
+            //■End of central directory recordの作成------------ここから-----------------
+            //○end_of_central_dir_signatureの記述(4バイト)
+            ary_zip_file.AddRange(end_of_central_dir_signature);
+
+            //○ディスク分割情報(2+2バイト)
+            ary_zip_file.AddRange(number_of_this_disk);
+
+            //○アーカイブしたファイルの個数(2+2バイト){同じ内容を重複して格納}
+            total_number_of_entries = BitConverter.GetBytes(Convert.ToInt16(ary_file_name_arys.Count));
+            ary_zip_file.AddRange(total_number_of_entries);
+            ary_zip_file.AddRange(total_number_of_entries); //※重複分
+
+            //○全Central file headerに要したの合計バイト数を格納(4バイト)
+            ary_zip_file.AddRange(size_of_the_central_directory);
+
+            //○最初のCentral file headerの記述されたバイト位置(4バイト)
+            ary_zip_file.AddRange(offset_of_start_of_central_directory);
+
+            //○ファイルへのコメントのサイズ(2バイト){今回はなし}
+            ary_zip_file.AddRange(ZIP_file_comment_length);
+
+            try
+            { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                fs.Write(ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                fs.Flush();
+                await System.Threading.Tasks.Task.Delay(10);//これがないと、書き込み途中で放棄される？？
+            }
+            catch { }
+            ary_zip_file.Clear(); //初期化
+            //■End of central directory recordの作成------------ここまで-----------------
+
+
+            //バイナリ・メモリの占有を開放する。
+            ary_zip_file.Clear();
+            ary_zip_file = null;
+
+            //初期化
+            Archive_List.Clear();
+            Archive_List = null;
+        }
+    }
+
+    private string FileNeme_Shift_JIS_Check(string Motono_FileName) {
+        //■文字コードをシフトJISに、統一して、禁止文字を削除する。
+
+        //一旦、シフトJISとしてバイナリ化
+        byte[] bytesData = Encoding.GetEncoding(932).GetBytes(Motono_FileName);
+        //Shift JISとして文字列に還元する。
+        Motono_FileName = Encoding.GetEncoding(932).GetString(bytesData);
+
+        //ファイル名に使用できない文字があれば消す
+        //http://dobon.net/vb/dotnet/file/invalidpathchars.html
+        foreach (char invalidChars in Path.GetInvalidFileNameChars()) { 
+            //パスの区切り文字は除外しておく
+            if ((invalidChars == '\\') || (invalidChars == '/')) { continue; }
+
+            if (Motono_FileName.IndexOf(invalidChars) &gt; 0)
+            {   //禁止文字はすべて_に置換しておく
+                Motono_FileName = Motono_FileName.Replace(invalidChars, '_');
+            }
+        }
+
+        //チェック後の文字列を返す
+        return Motono_FileName;
+    }
+
+
+    private string BaseDirName_Get(string DirName) {
+        //zip圧縮する際に、基準となる親フォルダのパスを検知・取得する。
+
+        //初期値
+        string BaseDirName = DirName;
+        //空白の場合はコロンを返す
+        if (DirName == "") { return ":";  }
+
+        string[] Archive_FilePath_List = Archive_List.ToArray();
+
+        foreach (string fff in Archive_FilePath_List) { 
+            //親元となるフォルダパスを検索する
+            for (int i = 1; i &lt; BaseDirName.Length; i++) { 
+                if (fff.Substring(0, i) != BaseDirName.Substring(0, i)) {
+                    //最初の親元となるフォルダパスと相違点が見つかった場合
+                    //さらに上のフォルダを親元のフォルダとする。
+                    BaseDirName = Path.GetDirectoryName(BaseDirName);
+                    break; //出る
+                }
+            }
+        }
+
+        //得られた基幹となるフォルダ名を返す
+        //空白の場合はコロンを返す。安全装置
+        if (BaseDirName == "") {
+            return ":";
+        }
+        else {
+            return BaseDirName;
+        }
+    }
+
+    private void FileAry_Set(string File_DirName) {
+        //有効なファイルをArchive_Listリストに加える。
+
+        if (Directory.Exists(File_DirName)) { 
+            //それがフォルダだった場合
+            if (Directory.GetDirectories(File_DirName).Length == 0 
+                &amp;&amp; Directory.GetFiles(File_DirName).Length == 0) {
+                //空のフォルダだった場合
+                //\記号を末尾につけて、zip追加リストに加える
+                Archive_List.Add(File_DirName + "\\");
+                return; //出る
+            }
+            //ファイルを加える
+            Archive_List.AddRange(Directory.GetFiles(File_DirName)); //zip追加リストに加える
+
+            //サブフォルダも検索する
+            foreach (string subFolder in Directory.GetDirectories(File_DirName)) {
+                //自己参照する。
+                FileAry_Set(subFolder);
+            }
+        }
+        else if (File.Exists(File_DirName))
+        {
+            //それがファイルだった場合
+            Archive_List.Add(File_DirName); //zip追加リストに加える
+        }
+    }
+    private async System.Threading.Tasks.Task&lt;byte[]&gt; CRC_32_Checksum(byte[] bytes)
+    {
+        //★CRC32の計算をするところ  
+        //UIntegerの方法では、上手くできないのですorz  
+        //また、返数をByte()でなく、Long型にすると、値が狂います。  
+
+        //https://code.msdn.microsoft.com/office/VBACRC-32-dad7d087  
+        //https://blog.csdn.net/ciaos/article/details/12490911
+        //http://sanity-free.org/12/crc32_implementation_in_csharp.html
+
+        //計算に時間がかかるので、待機させる
+        System.Threading.Tasks.Task&lt;byte[]&gt; uploadTask = System.Threading.Tasks.Task.Factory.StartNew&lt;byte[]&gt;(
+        () =&gt; {
+            //■CRC32のテーブル情報の事前生成  
+            uint[] crc32Table = new UInt32[256];
+            //CRC-32 の除数0x104c11db7を、予めビットの並び順を左右逆転させた値(0xEDB88320) を使用する。
+            uint poly = 0xedb88320;
+
+            uint temp = 0;
+            for (uint i = 0; i &lt; crc32Table.Length; ++i)
+            {
+                temp = i;
+                for (int j = 8; j &gt; 0; --j)
+                {
+                    if ((temp &amp; 1) == 1) //&amp;で、andのビット演算
+                    {
+                        temp = (uint)((temp &gt;&gt; 1) ^ poly); //^で、xorのビット演算
+                    }
+                    else
+                    {
+                        temp &gt;&gt;= 1; //÷(2の1乗)と同じ効果  
+                    }
+                }
+                crc32Table[i] = temp;
+            }
+
+
+            //初期化  
+            uint crc = 0xffffffff;
+
+            //■渡されたファイルのバイナリから、CRC-32を算出して返す 
+            for (int i = 0; i &lt; bytes.Length; ++i)
+            {   //■計算の引き合いに出すテーブルのインデックス番号の算出  
+                byte index = (byte)(((crc) &amp; 0xff) ^ bytes[i]);
+
+                //■次のビットにスライドする。  
+                //→(crc &gt;&gt; 8)は、crcを(2の8乗)で割っていることと同義  
+                crc = (uint)((crc &gt;&gt; 8) ^ crc32Table[index]);
+            }
+
+            //ビット反転後バイト配列に変換して返す
+            return BitConverter.GetBytes(~crc); //^で、notのビット演算
+        });
+
+        return await uploadTask;
+    }
+
+}
+
+

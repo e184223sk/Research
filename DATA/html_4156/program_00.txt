@@ -1,0 +1,110 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using UnityEngine;
+using UnityEngine.UI;
+using Unity.Collections;
+
+public sealed class TestManager : Button
+{
+    public Text NativeArray;
+    public Text Array;
+    public Text UnsafeArray;
+    public Text Ptr;
+    public Text UnsafePtr;
+    private const int Length = 10000;
+    Stopwatch sp;
+
+    // Start is called before the first frame update
+    protected override void Start()
+    {
+        base.Start();
+        sp = new Stopwatch();
+        NativeArray = GameObject.Find(nameof(NativeArray)).GetComponent&lt;Text&gt;();
+        Array = GameObject.Find(nameof(Array)).GetComponent&lt;Text&gt;();
+        UnsafeArray = GameObject.Find(nameof(UnsafeArray)).GetComponent&lt;Text&gt;();
+        Ptr = GameObject.Find(nameof(Ptr)).GetComponent&lt;Text&gt;();
+        UnsafePtr = GameObject.Find(nameof(UnsafePtr)).GetComponent&lt;Text&gt;();
+    }
+
+    void NativeArrayTest()
+    {
+        var array = new NativeArray&lt;int&gt;(Length, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+        for (int j = 0; j &lt; Length; j++)
+            for (int i = 0; i &lt; array.Length; i++)
+                array[i] = i;
+        array.Dispose();
+    }
+
+    void UnsafeArrayTest()
+    {
+        var array = new int[Length];
+        for (int j = 0; j &lt; Length; j++)
+        {
+            ref var item = ref array[0];
+            for (int i = 0; i &lt; Length; i++, item = ref Unsafe.Add(ref item, 1))
+                item = i;
+        }
+    }
+
+    void ArrayTest()
+    {
+        var array = new int[Length];
+        for (int j = 0; j &lt; Length; j++)
+            for (int i = 0; i &lt; array.Length; i++)
+                array[i] = i;
+    }
+
+    unsafe void UnsafePtrTest()
+    {
+        var ptr = stackalloc int[Length];
+        for (int j = 0; j &lt; Length; j++)
+        {
+            ref var item = ref ptr[0];
+            for (int i = 0; i &lt; Length; i++, item = ref Unsafe.Add(ref item, 1))
+                item = i;
+        }
+    }
+
+    unsafe void PtrTest()
+    {
+        var ptr = stackalloc int[Length];
+        var start = ptr;
+        for (int j = 0; j &lt; Length; j++)
+        {
+            ptr = start;
+            for (int i = 0; i &lt; Length; i++, ptr++)
+                *ptr = i;
+        }
+    }
+
+    public override void OnPointerClick(UnityEngine.EventSystems.PointerEventData eventData)
+    {
+        base.OnPointerClick(eventData);
+        sp.Reset();
+        sp.Start();
+        NativeArrayTest();
+        sp.Stop();
+        NativeArray.text = nameof(NativeArray) + " : " + sp.ElapsedMilliseconds.ToString();
+        sp.Reset();
+        sp.Start();
+        ArrayTest();
+        sp.Stop();
+        Array.text = nameof(Array) + " : " + sp.ElapsedMilliseconds.ToString();
+        sp.Reset();
+        sp.Start();
+        UnsafeArrayTest();
+        sp.Stop();
+        UnsafeArray.text = nameof(UnsafeArray) + " : " + sp.ElapsedMilliseconds.ToString();
+        sp.Reset();
+        sp.Start();
+        PtrTest();
+        sp.Stop();
+        Ptr.text = nameof(Ptr) + " : " + sp.ElapsedMilliseconds.ToString();
+        sp.Reset();
+        sp.Start();
+        UnsafePtrTest();
+        sp.Stop();
+        UnsafePtr.text = nameof(UnsafePtr) + " : " + sp.ElapsedMilliseconds.ToString();
+    }
+}
+

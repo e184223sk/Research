@@ -1,0 +1,61 @@
+#r "Newtonsoft.Json"
+
+using System;
+using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+
+public static async void Run(TimerInfo myTimer, ILogger log)
+{
+    // チャンネルアクセストークンを変数へ格納
+    var channelAccessToken = System.Environment.GetEnvironmentVariable("CHANNEL_ACCESS_TOKEN");
+
+    DateTime dt = DateTime.Now;
+    var mm = dt.ToString( "MM" ).TrimStart('0');
+    var dd = dt.ToString( "dd" ).TrimStart('0');
+    var HH = dt.ToString( "HH" ).TrimStart('0');
+    //リプライメッセージ作成
+    ReplyMessage rm = new ReplyMessage
+    {
+        messages = new List&lt;Message&gt;()
+        {
+            new Message(){
+                type="text",
+                text=mm + "月"+ dd　+"日の"+ HH + "時になりました。本日のタスクは完了していますか？"
+
+            }
+        }
+    };
+
+    // リプライメッセージをシリアライズ
+    string json = JsonConvert.SerializeObject(rm, Formatting.Indented);
+
+    // Line Messaging APIへのリクエストを作成する
+    var apiUrl = "https://api.line.me/v2/bot/message/broadcast";
+    var req = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+
+    // ヘッダーにチャンネルアクセストークンを追加する
+    req.Headers.Add(@"Authorization", @"Bearer {" + channelAccessToken + "}");
+
+    // リクエストをJSON形式にシリアライズする
+    req.Content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+    // リクエストを送信する
+    using (var client = new HttpClient())
+    {
+        var response = await client.SendAsync(req);
+        log.LogInformation($"{response}");
+    }
+}
+
+public class ReplyMessage
+{
+    public List&lt;Message&gt; messages { get; set; }
+}
+
+public class Message
+{
+    public string type { get; set; }
+    public string text { get; set; }
+}
+
+

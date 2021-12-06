@@ -1,0 +1,119 @@
+
+public abstract class BehaviorInfo : AstNodeInfo
+{
+    public string Type { get; }
+
+    public string Name { get; }
+
+    public string Parameters { get; }
+
+    public string NameSpace { get; }
+
+    /* 関数定義は継承先で生成 */
+    public string Definition =&gt; this.GetDefinition();
+
+    /* 関数のユニークなIDを生成 */
+    public string ID =&gt; this.GenerateBehaviorID();
+
+    public List&lt;InvokationInfo&gt; Invokations { get; } = new List&lt;InvokationInfo&gt;();
+
+    protected abstract string GetDefinition();
+
+    public BehaviorInfo(ClangCursor cursor) : base(cursor)
+    {
+        /* 関数の種別を判定 */
+        this.Type = cursor.IsDefinition ? "Definition" : "Declaration";
+
+        /* 関数名を取得 */
+        this.Name = cursor.Spelling;
+
+        /* 関数パラメータを取得 */
+        this.Parameters = cursor.DisplayName.Replace(cursor.Spelling, "");
+
+        /* 名前空間を取得 */
+        this.NameSpace = this.GetNamespace(cursor);
+    }
+
+    public void AddInvokation(InvokationInfo invokation_info)
+    {
+        this.Invokations.Add(invokation_info);
+    }
+
+    private string GenerateBehaviorID()
+    {
+        /* 関数のIDには関数定義を使用 */
+        return this.Definition;
+    }
+
+    /* 名前空間を取得 */
+    private string GetNamespace(ClangCursor cursor)
+    {
+        /* 名前空間保持用スタック */
+        var namespace_stack = new Stack&lt;string&gt;();
+
+        /* 名前空間を再帰的にパース */
+        this.ParseNamespace(cursor, namespace_stack);
+
+        /* スタックの要素数が0 */
+        if (namespace_stack.Count == 0)
+        {
+            /* 名前空間なし */
+            return string.Empty;
+        }
+        else
+        {
+            var sb = new StringBuilder();
+
+            /* 一番上の名前空間を追加 */
+            sb.Append(namespace_stack.Pop());
+
+            /* スタックが空になるまで */
+            while(namespace_stack.Count != 0)
+            {
+                /* 階層化された名前空間を連結 */
+                sb.Append("::");
+                sb.Append(namespace_stack.Pop());
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    /* 名前空間を再帰的にパース */
+    private void ParseNamespace(ClangCursor cursor, Stack&lt;string&gt; namespace_stack)
+    {
+         /* 関数の意味的な親を示すカーソルを取得 */
+        var parent = cursor.SemanticParent;
+
+        /* 親カーソルがnullでない */
+        if (parent != null)
+        {
+            /* 親カーソルがTranslation Unit */
+            if (parent.Kind == CursorKind.TranslationUnit)
+            {
+                /* 最上位のためパース終了 */
+            }
+            /* 親カーソルがNamespace */
+            else if(parent.Kind == CursorKind.Namespace)
+            {
+                /* 名前空間保持用スタックに追加 */
+                namespace_stack.Push(parent.Spelling);
+
+                /* 親カーソルの名前空間を再帰的にパース */
+                this.ParseNamespace(parent, namespace_stack);
+            }
+            /* それ以外(クラスなど) */
+            else
+            {
+                /* 親カーソルの名前空間を再帰的にパース */
+                this.ParseNamespace(parent, namespace_stack);
+            }
+        }
+    }
+
+    public override string ToString()
+    {
+        return $"[Behavior][{this.Type}] {this.Definition}";
+    }
+}
+

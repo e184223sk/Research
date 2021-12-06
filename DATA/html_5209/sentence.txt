@@ -1,0 +1,77 @@
+More than 1 year has passed since last update.条件分岐(if)の書き方として、ネストを深くしない早期リターンのテクニックをいろんなところで見かける。個人的には全て早期リターンで書くべきではないし、状況に応じて使うべきと考えている。
+尚、記事を書くきっかけとなったのはこの記事。特に、コメント欄は勉強になった。私は早期リターンはエラー処理にのみ使用するべきで、ビジネスロジックは無難に条件網羅で書くという方針をとっている。
+以下のサンプルコードでこの点を説明する。簡単な例として消費税や割引率を考慮した支払価格の計算ロジックについて考える。
+消費税は特定の条件を満たすと、消費税抜き価格になる。
+割引率も特定の条件を満たした場合に、消費税考慮後価格に対して1割引にする。
+簡単のため、消費税有無、割引の適用条件については深入りせず、適用可能かどうかのフラグで実装する。
+java
+
+
+    // 客が支払う金額を計算する
+    public BigDecimal CalculatePaymentPrice(BigDecimal price, boolean canRemoveTax, boolean canDiscount) {
+        if (price.compareTo(BigDecimal.ZERO) &lt; 0) {
+            throw new IllegalArgumentException("商品価格は0以上の数値を入力してください。");
+        } else if (canRemoveTax) {
+            // 消費税なしで割引適用
+            if (canDiscount) {
+                return price.multiply(new BigDecimal("0.9"));
+            } else {
+                return price;
+            }
+        } else {
+            // 消費税ありで割引適用
+            if (canDiscount) {
+                return price.multiply(new BigDecimal("1.08")).multiply(new BigDecimal("0.9"));
+            } else {
+                return price.multiply(new BigDecimal("1.08"));
+            }
+        }
+    }
+
+
+この例では、早期リターンとかいう前に、処理の流れがよくない。
+全て一箇所に書こうとしているため、処理の分割がしずらい。
+エラー判定=&gt;消費税率確定=&gt;割引率の確定=&gt;支払価格の計算という処理で分割した方が各処理の依存度は減る。
+尚、エラー判定は計算ロジックに入る前の処理であるため早期リターンにする。2018/05/01 追記
+コメント欄にあるように、業務エラーなのに例外をスローしている。
+通常、業務エラーでは例外をスローすべきではない。
+サンプルコードを簡単にしたがゆえの弊害であり、リファクタリング対象としない。
+この例で言いたかったのは、業務エラーはロジックに入れたくないので早期に抜ける方針でよいということである。現実的には、価格のチェック処理を事前に行い、そのチェックを抜けた先でCalculatePaymentPriceメソッドを呼ぶのが一つのリファクタリング案となる。
+java
+
+
+    public BigDecimal CalculatePaymentPriceAfterRefactoring(BigDecimal price, boolean canRemoveTax,
+            boolean canDiscount) {
+        // エラー回避
+        if (price.compareTo(BigDecimal.ZERO) &lt; 0) {
+            throw new IllegalArgumentException("商品価格は0以上の数値を入力してください。");
+        }
+
+        // 消費税率取得
+        BigDecimal taxRate;
+        if (canRemoveTax) {
+            taxRate = BigDecimal.ZERO;
+        } else {
+            taxRate = new BigDecimal("0.08");
+        }
+
+        // 割引率取得
+        BigDecimal discountRate;
+        if (canDiscount) {
+            discountRate = new BigDecimal("0.9");
+        } else {
+            discountRate = BigDecimal.ONE;
+        }
+
+        // 支払価格を計算する
+        return price.multiply(taxRate.add(BigDecimal.ONE)).multiply(discountRate);
+    }
+
+
+支払価格計算部分は処理の流れを変えたことにより、各処理が分離できている。
+taxRateやdiscountRateの一時変数が気になるなら、消費税率確定や割引率確定の部分をメソッド化すればよい。
+エラー処理については、早期リターンを適用して、それ以外のビジネスロジックについては無難に条件網羅で書けば実装方針として問題ないのではないだろうか？
+最後に、消費税確定のところをあえて早期リターンで書いてみた。このコードは簡潔であるが、if-elseで書いた方が条件網羅の確認もできて安心できる。
+一方、コードが短すぎて、どっちでも良いという人が多そうだが。。。前の記事(例外を無視する)目次
+
+

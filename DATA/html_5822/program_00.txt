@@ -1,0 +1,112 @@
+using Codeplex.Data;
+using SlackAPI;
+using SlackBotPlugin;
+using System;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using WebSocket4Net;
+
+
+internal class Program
+{
+    private static readonly List&lt;ISlackMessagePlugin&gt; SlackMessagePlugins = new List&lt;ISlackMessagePlugin&gt;();
+
+    private static void Main(string[] args)
+    {
+        ExecMainProc(args).Wait();
+    }
+
+    internal static async Task ExecMainProc(string[] args)
+    {
+        if (args.Length &lt;= 0) return;
+
+        var token = args[0];
+        Console.WriteLine("Token :" + token);
+
+        Console.WriteLine("Connectling.");
+        var client = new SlackTaskClient(token);
+        var responce = await client.ConnectAsync();
+        string webSoketUrl = responce.url;
+        if (string.IsNullOrEmpty(webSoketUrl))
+        {
+            Console.WriteLine("Error.");
+            return;
+        }
+        Console.WriteLine("Ok.");
+        Console.WriteLine("Oepn Team [{0}]", client.MyTeam.name);
+        Console.WriteLine("SocketURL [{0}]", responce.url);
+        Console.WriteLine("Connecting Server...");
+        using (var ws = new WebSocket(webSoketUrl))
+        {
+            bool isExit = false;
+
+            // 文字列受信
+            ws.MessageReceived += async (s, e) =&gt;
+            {
+                var data = DynamicJson.Parse(e.Message);
+                if (!data.IsDefined("type")) return;
+                string type = data["type"];
+                if (!string.IsNullOrEmpty(type))
+                {
+                    if (type == "goodbye")
+                    {
+                        Console.WriteLine("Slack goodbye.");
+                        isExit = true;
+                    }
+
+                    // メッセージ以外は弾く
+                    if (type != "message") return;
+                    if (data.IsDefined("subtype")) return;
+                    // 編集されたテキストは弾く
+                    if (data.IsDefined("edited")) return;
+                    var channel = data["channel"].ToString();
+                    var c = client.FindChannel(channel);
+                    if (c == null) return;
+
+                    // troomに投稿されたメッセージか確認
+                    if (c.name != "troom" &amp;&amp; channel != "troom") return;
+
+                    // 文字列に犬の鳴き声がある
+                    string text = data["text"];
+                    var mc = Regex.Matches(text, @"(わん|ワン|wan|ﾜﾝ)", RegexOptions.Multiline);
+                    if (mc.Count &lt;= 0) return;
+
+                    // shibe.online から画像URLを取得
+                    var mes = WWW.GET("http://shibe.online/api/shibes?count=1&amp;urls=true&amp;httpsUrls=false");
+                    var res = DynamicJson.Parse(mes);
+
+                    // 同じ画像でも展開されるように、現在時刻をUnixTimeで入れる
+                    var imageUrl = string.Format("{0}?{1}", res[0].ToString(), TimeUtil.GetUnixTime(DateTime.Now));
+
+                    // チャンネルに投稿
+                    await client.PostMessageAsync(channel, imageUrl, "shibainu", icon_emoji: ":shibainu:");
+                }
+            };
+
+            // サーバーから切断された
+            ws.Closed += (s, e) =&gt;
+            {
+                // 閉じられた
+                Console.WriteLine("Websocket close!");
+                isExit = true;
+            };
+
+            // サーバ接続開始
+            ws.Open();
+
+            // 送受信ループ
+            while (true)
+            {
+                Thread.Sleep(100);
+
+                if (isExit)
+                {
+                    break;
+                }
+            }
+        }
+    }
+}
+

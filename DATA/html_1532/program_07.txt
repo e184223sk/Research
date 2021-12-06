@@ -1,0 +1,88 @@
+
+public struct HsbColor
+{
+    private double _hue;
+    /// &lt;summary&gt;
+    /// 色相 0~360
+    /// &lt;/summary&gt;
+    public double Hue
+    {
+        get =&gt; _hue;
+        set =&gt; _hue = ColorExtension.ChopIn360(value);
+    }
+
+    private double saturation;
+    /// &lt;summary&gt;
+    /// 彩度 0~1
+    /// &lt;/summary&gt;
+    public double Saturation
+    {
+        get =&gt; saturation;
+        set =&gt; saturation = Math.Max(0, Math.Min(value, 1));
+    }
+
+    private double brightness;
+    /// &lt;summary&gt;
+    /// 明度 0~1 (Value)
+    /// &lt;/summary&gt;
+    public double Brightness
+    {
+        get =&gt; brightness;
+        set =&gt; brightness = Math.Max(0, Math.Min(value, 1));
+    }
+
+    public static HsbColor FromHSB(double hue, double saturation, double brightness) =&gt;
+        new HsbColor() { Hue = hue, Saturation = saturation, Brightness = brightness };
+
+    public override string ToString() =&gt; string.Format($"H:{Hue:F0}, S:{Saturation:F2}, B:{Brightness:F2}");
+}
+
+public static class HsbColorExt
+{
+    public static HsbColor ToHsb(this Color source)
+    {
+        double nR = source.NormalizedRed();
+        double nG = source.NormalizedGreen();
+        double nB = source.NormalizedBlue();
+
+        double[] nRGBs = new[] { nR, nG, nB };
+        double max = nRGBs.Max();
+        double min = nRGBs.Min();
+
+        double diff = max - min;
+
+        return new HsbColor()
+        {
+            Hue = max == min ? 0
+                : max == nR ? 60d * (nG - nB) / diff
+                : max == nG ? (60d * (nB - nR) / diff) + 120d
+                : (60d * (nR - nG) / diff) + 240d,
+            Saturation = max == 0
+                ? 0
+                : diff / max,
+            Brightness = max,
+        };
+    }
+
+    public static Color ToRgb(this HsbColor source)
+    {
+        double max = source.Brightness;
+        double min = max * (1 - source.Saturation);
+        int hueZone = (int)(source.Hue / 60d);
+        double f = source.Hue / 60d - hueZone;
+        double x0 = max * (1 - f * source.Saturation);
+        double x1 = max * (1 - (1 - f) * source.Saturation);
+
+        var (nR, nG, nB) = hueZone switch
+        {
+            0 =&gt; (max, x1, min),
+            1 =&gt; (x0, max, min),
+            2 =&gt; (min, max, x1),
+            3 =&gt; (min, x0, max),
+            4 =&gt; (x1, min, max),
+            _ =&gt; (max, min, x0),
+        };
+
+        return ColorExtension.NormalizedRgbToColor(nR, nG, nB);
+    }
+

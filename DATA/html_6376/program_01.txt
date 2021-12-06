@@ -1,0 +1,80 @@
+
+ public class NLP
+    {
+        static Dictionary&lt;string,java.lang.Class&gt; extractedElement;
+        static StanfordCoreNLP pipeline;
+        static NLP()
+        {
+            // Path to the folder with models extracted from `stanford-corenlp-3.7.0-models.jar`
+            var jarRoot = @"..\..\stanford-corenlp-3.7.0-models";
+
+            // Annotation pipeline configuration
+            var props = new Properties();
+            props.setProperty("annotators", "tokenize, ssplit, pos,lemma,ner");
+            props.setProperty("ner.useSUTime", "0");
+
+            // We should change current directory, so StanfordCoreNLP could find all the model files automatically
+            var curDir = Environment.CurrentDirectory;
+            Directory.SetCurrentDirectory(jarRoot);
+            pipeline = new StanfordCoreNLP(props);
+            Directory.SetCurrentDirectory(curDir);
+
+
+            var valueAnnotation = new CoreAnnotations.ValueAnnotation().getClass();
+            var POS = new CoreAnnotations.PartOfSpeechAnnotation().getClass();
+            var Sentence = new CoreAnnotations.SentenceIndexAnnotation().getClass();
+            var Begin = new CoreAnnotations.CharacterOffsetBeginAnnotation().getClass();
+            var End = new CoreAnnotations.CharacterOffsetEndAnnotation().getClass();
+            var Lemma = new CoreAnnotations.LemmaAnnotation().getClass();
+            //Indexは1からスタート
+            var Index = new CoreAnnotations.IndexAnnotation().getClass();
+            var NamedEntity = new CoreAnnotations.NamedEntityTagAnnotation().getClass();
+
+            extractedElement = new Dictionary&lt;string, java.lang.Class&gt;()
+            {
+                {"word",valueAnnotation},
+                {"POS", POS },
+                {"SentenceIndex", Sentence },
+                {"BeginPos",Begin },
+                {"EndPos", End },
+                {"Lemma", Lemma },
+                {"Index", Index },
+                {"NamedEntity", NamedEntity }
+            };          
+        }
+
+        public static List&lt;Dictionary&lt;string, string&gt;&gt; Run(string text)
+        {
+            List&lt;Dictionary&lt;string, string&gt;&gt; retValue = new List&lt;Dictionary&lt;string, string&gt;&gt;();
+
+            // Annotation
+            var annotation = new Annotation(text);
+            pipeline.annotate(annotation);
+            var tokens = (ArrayList)annotation.get(new CoreAnnotations.TokensAnnotation().getClass());
+            foreach (CoreMap item in tokens)
+            {
+                Dictionary&lt;string, string&gt; temp = new Dictionary&lt;string, string&gt;();
+                foreach (var element in extractedElement.Keys)
+                {
+                    temp.Add(element,item.get(extractedElement[element]).ToString());
+                }
+                retValue.Add(temp);
+            }
+
+            return retValue;
+        }
+    }
+
+     public class Program
+    {
+        static void Main(string[] args)
+        {
+            // Text for processing
+            var text = "Kosgi Santosh sent an email to Stanford University. He didn't get a reply.";
+
+            var result = NLP.Run(text);
+        }
+     }
+
+
+

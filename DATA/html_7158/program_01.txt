@@ -1,0 +1,73 @@
+
+using Ono.MVP.CustomRP;
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+
+namespace Ono.MVP.Model
+{
+    /// &lt;summary&gt;
+    /// Model
+    /// &lt;/summary&gt;
+    public class MusicPlayerModel : MonoBehaviour
+    {
+        [SerializeField] private AudioSource _bgm;
+
+        /// &lt;summary&gt;
+        /// 音楽再生モード
+        /// &lt;/summary&gt;
+        public IReadOnlyReactiveProperty&lt;MusicPlayMode&gt; MusicPlayModeRP =&gt; _musicPlayModeRP;
+
+        private readonly MusicPlayModeReactiveProperty _musicPlayModeRP =
+            new MusicPlayModeReactiveProperty(MusicPlayMode.Stop);
+
+        /// &lt;summary&gt;
+        /// 再生時間
+        /// &lt;/summary&gt;
+        public IReadOnlyReactiveProperty&lt;float&gt; MusicPlayTimeRP =&gt; _musicPlayTimeRP;
+
+        private readonly FloatReactiveProperty _musicPlayTimeRP = new FloatReactiveProperty();
+
+        private void Start()
+        {
+            this.UpdateAsObservable()
+                .Where(_ =&gt; _musicPlayModeRP.Value == MusicPlayMode.Play)
+                .Subscribe(_ =&gt; { _musicPlayTimeRP.Value = _bgm.time / _bgm.clip.length; })
+                .AddTo(this);
+        }
+
+        /// &lt;summary&gt;
+        /// 再生時間を時分として取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;再生時間&lt;/returns&gt;
+        public string GetMusicTime()
+        {
+            var totalMinute = (int) _bgm.clip.length / 60;
+            var totalSecond = (int) _bgm.clip.length % 60;
+            var currentMinute = (int) _bgm.time / 60;
+            var currentSecond = (int) _bgm.time % 60;
+            return $"{currentMinute}:{currentSecond:00} / {totalMinute}:{totalSecond}";
+        }
+
+        /// &lt;summary&gt;
+        /// 再生し再生モードに切り替え
+        /// &lt;/summary&gt;
+        /// &lt;param name="playTimeNormalizedValue"&gt;正規化された再生箇所の値&lt;/param&gt;
+        public void PlayMusic(float playTimeNormalizedValue)
+        {
+            _bgm.time = playTimeNormalizedValue * _bgm.clip.length;
+            _bgm.Play();
+            _musicPlayModeRP.Value = MusicPlayMode.Play;
+        }
+
+        /// &lt;summary&gt;
+        /// 停止し停止モードに切り替え
+        /// &lt;/summary&gt;
+        public void StopMusic()
+        {
+            _bgm.Pause();
+            _musicPlayModeRP.Value = MusicPlayMode.Stop;
+        }
+    }
+}
+

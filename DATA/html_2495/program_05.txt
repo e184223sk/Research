@@ -1,0 +1,75 @@
+
+using System.Collections.Generic;
+using UnityEngine;
+using Zenject;
+
+namespace MemoryPoolsSample.Scripts.GameObjectMemoryPool
+{
+    public class Foo : MonoBehaviour
+    {
+        private Vector3 _velocity = default;
+
+
+        public void Update()
+        {
+            transform.position += _velocity * Time.deltaTime;
+        }
+
+        private void Reset(Vector3 velocity)
+        {
+            transform.position = Vector3.zero;
+            _velocity = velocity;
+        }
+
+        public class Pool : MonoMemoryPool&lt;Vector3, Foo&gt;
+        {
+            protected override void Reinitialize(Vector3 velocity, Foo foo)
+            {
+                foo.Reset(velocity);
+            }
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Pool _fooPool = default;
+        private readonly List&lt;Foo&gt; _foos = new List&lt;Foo&gt;();
+
+        public FooSpawner(Foo.Pool fooPool)
+        {
+            _fooPool = fooPool;
+        }
+
+        public void AddFoo()
+        {
+            var maxSpeed = 10.0f;
+            var minSpeed = 1.0f;
+
+            _foos.Add(_fooPool.Spawn(
+                Random.onUnitSphere * Random.Range(minSpeed, maxSpeed)));
+        }
+
+        public void RemoveFoo()
+        {
+            var foo = _foos[0];
+            _fooPool.Despawn(foo);
+            _foos.Remove(foo);
+        }
+    }
+
+    public class TestInstaller : MonoInstaller&lt;TestInstaller&gt;
+    {
+        [SerializeField] private Foo _fooPrefab = default;
+
+        public override void InstallBindings()
+        {
+            Container.Bind&lt;FooSpawner&gt;().AsSingle();
+
+            Container.BindMemoryPool&lt;Foo, Foo.Pool&gt;()
+                .WithInitialSize(2)
+                .FromComponentInNewPrefab(_fooPrefab)
+                .UnderTransformGroup("Foos");
+        }
+    }
+}
+

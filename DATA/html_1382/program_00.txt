@@ -1,0 +1,121 @@
+using System;
+using System.Collections.Generic;
+using UniRx;
+
+namespace Assets.Scripts.StateMachine
+{
+    public abstract class State&lt;T&gt; where T: struct{
+
+
+        protected Dictionary&lt;T, State&lt;T&gt;&gt; NextState = new Dictionary&lt;T, State&lt;T&gt;&gt;();
+
+        public void Connect(T message, State&lt;T&gt; state)
+        {
+            NextState[message] = state;
+        }
+
+        public readonly string Name;
+
+        /// &lt;summary&gt;
+        /// このStateに入ったときに発行されます。イベントの値は前のStateです
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public abstract IObservable&lt;State&lt;T&gt;&gt; OnEnterAsObservable();
+
+        /// &lt;summary&gt;
+        /// このStateにから出る時に発行されます。イベントの値は次のStateです
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public abstract IObservable&lt;State&lt;T&gt;&gt; OnExitAsObservable();
+
+        protected State(string name)
+        {
+            Name = name;
+        }
+
+        public override string ToString()
+        {
+            return $"{Name} State({typeof(T)})";
+        }
+    }
+
+    public class StateMachine&lt;T&gt; where T : struct
+    {
+        private class InnerState : State&lt;T&gt;
+        {
+
+
+            public Subject&lt;State&lt;T&gt;&gt; OnEnter;
+            public Subject&lt;State&lt;T&gt;&gt; OnExit;
+
+            public override IObservable&lt;State&lt;T&gt;&gt; OnEnterAsObservable() =&gt; OnEnter = OnEnter ?? new Subject&lt;State&lt;T&gt;&gt;();
+
+            public override IObservable&lt;State&lt;T&gt;&gt; OnExitAsObservable() =&gt; OnExit = OnExit ?? new Subject&lt;State&lt;T&gt;&gt;();
+
+            public InnerState(string name) : base(name)
+            {
+            }
+
+            public InnerState SendMessage(T message)
+            {
+                return (InnerState)NextState[message];
+            }
+        }
+
+        public readonly State&lt;T&gt; Entry;
+
+        private InnerState current;
+        public State&lt;T&gt; CurrentState =&gt; current;
+
+        public string CurrentStateName =&gt; current?.Name;
+
+        public StateMachine()
+        {
+            Entry = current = new InnerState(default);
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージを送出します
+        /// &lt;/summary&gt;
+        /// &lt;param name="message"&gt;&lt;/param&gt;
+        public void SendMessage(T message)
+        {
+            var next = current.SendMessage(message);
+            var prev = current;
+
+            current.OnExit?.OnNext(next);
+            current = next;
+            next.OnEnter?.OnNext(current);
+        }
+
+        private Dictionary&lt;string, InnerState&gt; states = new Dictionary&lt;string, InnerState&gt;();
+
+        public State&lt;T&gt; Create(string name)
+        {
+            var c = new InnerState(name);
+
+            states.Add(name, c); // 例外出すため
+
+            return c;
+        }
+
+        public void Jump(string name)
+        {
+            var next = states[name];
+            var prev = current;
+
+            current.OnExit?.OnNext(next);
+            current = next;
+            next.OnEnter.OnNext(current);
+        }
+
+        public State&lt;T&gt; GetState(string name)
+        {
+            return states[name];
+        }
+
+
+
+    }
+}
+

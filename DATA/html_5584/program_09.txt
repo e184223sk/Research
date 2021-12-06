@@ -1,0 +1,79 @@
+
+//ケースC：SQLクエリ、1行INSERT
+class Program
+{
+    static void Main(string[] args)
+    {
+        var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = ":memory:" };
+
+        using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+        {
+            cn.Open();
+
+            using (var cmd = new SQLiteCommand(cn))
+            {
+                //テーブル作成
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS denco(" +
+                    "no INTEGER NOT NULL PRIMARY KEY," +
+                    "name TEXT NOT NULL," +
+                    "type TEXT NOT NULL," +
+                    "attribute TEXT NOT NULL," +
+                    "maxap INTEGER NOT NULL," +
+                    "maxhp INTEGER NOT NULL," +
+                    "skill TEXT)";
+                cmd.ExecuteNonQuery();
+
+                var sw = new Stopwatch();
+                sw.Start();
+
+                cmd.Transaction = cn.BeginTransaction();//ここのコメントアウト有無
+
+                //データ追加
+                for (var i=0;i&lt;1000;i++)
+                {
+                    cmd.InsertOne(new Denco(2 + i * 100, "為栗メロ", "アタッカー", "eco", 310, 300, "きゃのんぱんち"));
+                    cmd.InsertOne(new Denco(3 + i * 100, "新阪ルナ", "ディフェンダー", "cool", 220, 360, "ナイトライダー"));
+                    cmd.InsertOne(new Denco(4 + i * 100, "恋浜みろく", "トリックスター", "heat", 300, 360, "ダブルアクセス"));
+                    cmd.InsertOne(new Denco(8 + i * 100, "天下さや", "アタッカー", "cool", 400, 240));
+                    cmd.InsertOne(new Denco(13 + i * 100, "新居浜いずな", "ディフェンダー", "heat", 290, 336, "重連壁"));
+                    cmd.InsertOne(new Denco(31 + i * 100, "新居浜ありす", "ディフェンダー", "heat", 270, 350, "ハッピーホリデイ"));
+                }
+
+                cmd.Transaction.Commit();//ここのコメントアウト有無
+                sw.Stop();
+
+                Console.WriteLine(sw.Elapsed);
+            }
+        }
+    }
+}
+
+public static class SQLiteExtension
+{
+    public static int InsertOne(this SQLiteCommand command, Denco d)
+    {
+        var skillstr = d.Skill == null ? "null" : $"'{d.Skill}'";
+        command.CommandText = "INSERT INTO denco(no, name, type, attribute, maxap, maxhp, skill) VALUES(" +
+            $"{d.No}, '{d.Name}', '{d.Type}', '{d.Attribute}', {d.MaxAp}, {d.MaxHp}, {skillstr})";
+        return command.ExecuteNonQuery();
+    }
+}
+
+public class Denco
+{
+    public int No { get; private set; }
+    public string Name { get; private set; }
+    public string Type { get; private set; }
+    public string Attribute { get; private set; }
+    public int MaxAp { get; private set; }
+    public int MaxHp { get; private set; }
+    public string Skill { get; private set; }
+
+    public Denco(int no, string name, string type, string attr,
+        int maxap, int maxhp, string skill = null)
+    {
+        No = no; Name = name; Type = type; Attribute = attr;
+        MaxAp = maxap; MaxHp = maxhp; Skill = skill;
+    }
+}
+

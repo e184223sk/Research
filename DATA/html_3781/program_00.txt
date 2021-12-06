@@ -1,0 +1,56 @@
+private async Task&lt;ReadData&gt; readRecs()
+{
+    ReadData result;
+    try {
+        result = await Task&lt;ReadData&gt;.Run(async () =&gt; {
+            var readData = new ReadData();
+
+            byte[] challenge = System.Text.Encoding.ASCII.GetBytes("this is challenge");
+            var credentialid = new byte[0];
+
+            string json =
+               "{" +
+                    string.Format($"timeout : 60000,") +
+                    string.Format($"challenge:[{string.Join(",", challenge)}],") +
+                    string.Format($"rpId : 'GeboSig.gebo.com',") +
+                   @"allowCredentials : [{" +
+                       string.Format($"id : [{string.Join(",", credentialid)}],") +
+                       string.Format($"type : 'public-key',") +
+                   @"}]," +
+                   string.Format($"requireUserPresence : 'false',") +
+                   string.Format($"userVerification : 'preferred',") +
+                "}";
+
+            var ret = await gebo.CTAP2.WebAuthnModokiDesktop.Credentials.Get(gebo.CTAP2.DevParam.GetDefaultParams(), json, "");
+            if (ret.isSuccess == false) {
+                readData.isSuccess = false;
+                readData.msg = ret.msg;
+                return readData;
+            }
+
+            // dataList
+            var dataList = new List&lt;WriteData&gt;();
+            foreach (var assertion in ret.assertions) {
+                dataList.Add(new WriteData(assertion.User_Id, assertion.User_Name, assertion.User_DisplayName));
+            }
+            dataList = dataList.OrderBy(x =&gt; x.recno).ToList();
+
+            // data
+            readData.data = new byte[0];
+            foreach (var data in dataList) {
+                var tmp = data.data1.ToList().Concat(data.data2).Concat(data.data3).ToList();
+                readData.data = readData.data.ToList().Concat(tmp).ToArray();
+            }
+
+            readData.isSuccess = true;
+            readData.msg = "Success";
+            return readData;
+        });
+
+    } finally {
+
+    }
+    return result;
+}
+
+

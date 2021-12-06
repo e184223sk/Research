@@ -1,0 +1,138 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.EventSystems;
+
+/*** メッセージシステム受信用のInterface ***/
+interface IEventReceiverEx : IEventSystemHandler
+{
+    void OnXxxEvent();                                         //引数なしIF
+    void OnXxxIntParamEvent(int value);                        //int値を渡すIF
+    void OnXxxMultipleParamEvent(int value1, float value2);    //int, float値を渡すIF
+}
+
+/*** イベント種別 ***/
+enum SendEventType
+{
+    XxxEvent,
+    XxxIntParamEvent,
+    XxxMultipleParamEvent,
+
+    EventNum
+};
+
+/*** イベント情報 ***/
+/*** 基底クラス ***/
+abstract class EventDataExBase
+{
+    protected SendEventType type;
+    public EventDataExBase() { }
+    public SendEventType GetEventType() { return type; }
+}
+/*** 各種イベント情報クラス ***/
+class XxxEventData : EventDataExBase
+{
+    public XxxEventData() { type = SendEventType.XxxEvent; }
+}
+class XxxIntParamEventData : EventDataExBase
+{
+    public int Value { get; }
+    public XxxIntParamEventData(int value)
+    {
+        type = SendEventType.XxxIntParamEvent;
+        Value = value;
+    }
+}
+class XxxMultipleParamEventData : EventDataExBase
+{
+    public int Value1 { get; }
+    public float Value2 { get; }
+    public XxxMultipleParamEventData(int value1, float value2)
+    {
+        type = SendEventType.XxxMultipleParamEvent;
+        Value1 = value1;
+        Value2 = value2;
+    }
+}
+
+/*** イベント送受信モジュール ***/
+class EventHandlerEx
+{
+    static List&lt;GameObject&gt;[] listnerList = new List&lt;GameObject&gt;[(int)SendEventType.EventNum];  // イベント受信登録者List
+    static EventHandlerEx()
+    {
+        for (int i = 0; i &lt; (int)SendEventType.EventNum; i++)
+        {
+            listnerList[i] = new List&lt;GameObject&gt;();
+        }
+    }
+
+    // イベント受信登録
+    public static void AddListner(GameObject go, SendEventType type)
+    {
+        listnerList[(int)type].Add(go);
+    }
+
+    // イベント送信処理
+    public static void SendEvent(SendEventDataBase eventData)
+    {
+        // イベント種別と対応するListenerを取得
+        SendEventType type = eventData.GetEventType();
+        if (null == listnerList[(int)type]) return;
+
+        // 実際の各種処理
+        void Callback(IEventReceiverEx receiver, BaseEventData data)
+        {
+            switch (type)
+            {
+                case SendEventType.XxxEvent:
+                    receiver.OnXxxEvent();
+                    break;
+                case SendEventType.XxxIntParamEvent:
+                    try
+                    {
+                        // 派生クラスに変換してパラメータを取得
+                        XxxIntParamEventData ev = (XxxIntParamEventData)eventData;
+                        receiver.OnXxxIntParamEvent(ev.Value);
+                    }
+                    catch (InvalidCastException)
+                    {
+                        // イベント種別は送信側で設定しないのでダウンキャスト失敗しない想定だが一応
+                        Debug.Log("Invalid Event...");
+                    }
+                    break;
+                case SendEventType.XxxMultipleParamEvent:
+                    try
+                    {
+                        // 派生クラスに変換してパラメータを取得
+                        XxxMultipleParamEventData ev = (XxxMultipleParamEventData)eventData;
+                        receiver.OnXxxMultipleParamEvent(ev.Value1, ev.Value2);
+                    }
+                    catch (InvalidCastException)
+                    {
+                        // イベント種別は送信側で設定しないのでダウンキャスト失敗しない想定だが一応
+                        Debug.Log("Invalid Event...");
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return;
+        }
+
+        // メッセージシステムで順次処理を呼び出す
+        foreach (GameObject listner in listnerList[(int)type])
+        {
+            if (null != listner)
+            {
+                ExecuteEvents.Execute&lt;IEventReceiverEx&gt;(
+                    target: listner,
+                    eventData: null,
+                    functor: Callback
+               );
+            }
+        }
+    }
+
+}
+

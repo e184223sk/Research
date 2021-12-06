@@ -1,0 +1,98 @@
+More than 1 year has passed since last update.タイトルに説明を詰め込みすぎた感が半端ないけど、以下の流れでリソースをデプロイする。以下の手順でテンプレートファイルを保存する。
+(1) この記事にある手順で、コンテナーを作成。
+(2) テンプレートファイルをアップロードする。以下の手順でRunbookを作成。
+(1) Azureのサービスで「Automationアカウント」を作成。
+このとき、「Azure実行アカウントを作成」を「はい」にしておく。
+※ これにより、Runbook実行時に「共同作成者」のロールが付与されるようになる。
+(2) 以下のRunbookを作成。クリックするとソースが表示されます
+
+# Authenticate to Azure if running from Azure Automation
+$ServicePrincipalConnection = Get-AutomationConnection -Name "AzureRunAsConnection"
+Connect-AzAccount `
+    -ServicePrincipal `
+    -Tenant $ServicePrincipalConnection.TenantId `
+    -ApplicationId $ServicePrincipalConnection.ApplicationId `
+    -CertificateThumbprint $ServicePrincipalConnection.CertificateThumbprint | Write-Verbose
+
+$StorageAccountKey = "&lt;Input your key&gt;"
+$ResourceGroupName = "&lt;Input target resource group&gt;"
+$Filename = "&lt;Input your file name&gt;"
+$StorageAccountName = "&lt;Input your storage account name&gt;"
+$ContaineName = "&lt;Input your Container name&gt;"
+
+# Create a new context
+$Context = New-AzStorageContext -StorageAccountName $StorageAccountName -StorageAccountKey $StorageAccountKey
+
+# Create directory
+New-Item "C:\Temp" -ItemType Directory
+
+$blob = Get-AzStorageBlobContent -Container $ContaineName -Blob $Filename -Destination "C:\Temp\" -Context $Context
+
+#$blob
+$TemplateFile = Join-Path -Path 'C:\Temp' -ChildPath $Filename
+
+# Deploy the resources
+New-AzResourceGroupDeployment -ResourceGroupName $ResourceGroupName -TemplateFile $TemplateFile
+
+
+AutomationのSDKを使う。クリックするとソースが表示されます
+
+using Microsoft.Azure;
+using Microsoft.Azure.Management.Automation;
+using Microsoft.Azure.Management.Automation.Models;
+//･････(中略)･････
+    class AzureAutomation
+    {
+        // Azure Automationのクライアントを生成する
+        public AutomationManagementClient GenerateClient()
+        {
+            var subscriptionId = AppSetting.AZURE_SUBSCRIPTION_ID;
+
+            var auth = new AzureAuthentication();
+            var token = auth.GetToken();
+
+            var automationClient =
+                new AutomationManagementClient(new TokenCloudCredentials(subscriptionId, token));
+
+            return automationClient;
+        }
+
+        // Runbookのジョブを作成する。
+        // 戻り値はステータスコード。201(Create)が成功。それ以外はエラー。
+        public HttpStatusCode CreateJob()
+        {
+            Console.WriteLine("CreateJob start.");
+
+            var client = GenerateClient();
+
+            JobCreateParameters jcParam = new JobCreateParameters
+            {
+                Properties = new JobCreateProperties
+                {
+                    Runbook = new RunbookAssociationProperty
+                    {
+                        Name = AppSetting.AUTOMATION_JOB_NAME   // Job name
+                    },
+                    // Parameters is Key and Value
+                    Parameters = null // optional parameters here
+                }
+            };
+
+            // create runbook job. This gives back the Job
+            Console.WriteLine("Create runbook job.");
+            var statusCode = client.Jobs.Create(AppSetting.TARGET_RESOURCE_GROUP,
+                AppSetting.AUTOMATION_ACCOUNT_NAME, jcParam).StatusCode;
+
+            Console.WriteLine("CreateJob end.");
+
+            return statusCode;
+        }
+    }
+
+
+あとはこいつをMainから呼び出せばテンプレート通りのリソースが作成できた。
+ちなみにテンプレートファイルは「Newtonsoft.Json」様のおかげでそれっぽくできました。
+マネージドIDをつかったクライアントの作成の方法はまた別の記事にしようかな｡｡｡
+(大した分量にならないけど)
+
+

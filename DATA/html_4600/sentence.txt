@@ -1,0 +1,31 @@
+More than 1 year has passed since last update.C#をはじめて1箇月。とりあえずWPFのMVVMを学習したのですが、結局Formアプリケーションで開発することになりました。
+最初に遭遇したのが下の絵のようなパターン。
+
+Startボタンを押したらStopボタンがEnabled=trueになり、StartボタンはEnabled=falseにしたいのですが、これ普通どうやるんでしょうか。クリックイベントで直接Enabledを操作するのはここでは除外しますね。
+Formにもデータバインドがあるので、これでできるかなと「c# form データバインド bool 反転」でググってもXAMLのConverterしか出てきません。どうやったらできるのでしょうか。それともできないのでしょうか。c#にはExpressionという式木を作るクラスがあります。
+Expression&lt;Func&lt;T1,T2&gt;&gt; e = x =&gt; "Input=" + x;
+のようにラムダ式をExpressionで包んでやると、デリゲートではなくExpressionとして評価することができます。
+記述できるのは単一式（代入とかはダメ）だけみたいですがコンパイルすると以下のように実行（式を評価）することができます。Expressionにプロパティを記述すればデータバインドのソース側が抽出できるはずなので、コードを少し変えて以下のように呼び出すメソッドを考えました。
+AddBindMember(buttonStart, "Enabled", () =&gt; _model.Running.Not());
+buttonStartはターゲットのコントロール。
+"Enabled"は操作するコントロールのプロパティ名。
+() =&gt; _model.Runinng.Not()はRunningプロパティ値を反転して返すラムダ式。
+Not()はbool値を反転する自前の拡張メソッドです。このメソッド本体は別クラス（本例ではBindmanager.cs）で定義しました。
+public void AddBindMember&lt;T&gt;(object control, string memberName, Expression&lt;Func&lt;T&gt;&gt; expression)
+ここでexpressionの中身を調べるのですが、最終的にはExpressionVisitorを継承して以下のようなクラスを作りました。
+MemberExpressionとMethodCallExpressionからPropertyInfoを抽出しています。他のバリエーションは見ていません。式形式のラムダ式はプロパティだけでなく三項演算とかメソッドとか書けるので「Expressionバインド?」としてみました。
+全体構成は以下のようになります。
+
+BinManager.csはビジネスロジックを持たない共通のクラスです。Disposeの実装など省略していますが、参考にしたサイトに詳しく書かれていますのでそちらをご覧ください。DictionaryのキーでtypeはViewModelのTypeで、triggerNameはプロパティ名です。
+本当はBindEventHandlerのsenderと照合したかったのですが、expressionからはViewModelのインスタンスは見えないはずなので、typeとsender.GetType()を照合することにしました。このためViewModelはシングルトンとしています。
+あと、
+Delegate deleg = expression.Compile();は
+Func&lt;T&gt; deleg = expression.Compile();
+のように定義したかったのですが、BindInfoにdelegを詰め込もうとするとnew BindInfo&lt;?&gt;をどう書けば判らなかったので諦めました。型が静的に解決できないときの書き方なんてあるのでしょうか？ジェネリックについてはまだ理解不足です。以下のような画面で確認しました。
+
+startボタン、stopボタン、PlaceIdの操作で表示が変わります。
+確認したのは、プロパティ単体、プロパティと拡張メソッドの組み合わせ、インデクサ、メソッド、四則演算を含む式です。
+以下ソースを掲載します。とりあえず目的は達したのですが、コントロールのイベント処理など改善したい気持ちはあります。でも最初からXAML使えと突っ込みがありそうですね。
+ほとんど先人のノウハウを元にした内容ですが、自分としては非常に勉強になったと感じています。ターゲットフレームワーク --- .NET Fremawork 4.6.1
+
+

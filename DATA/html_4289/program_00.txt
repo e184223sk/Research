@@ -1,0 +1,65 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+public class AsyncCPUTexture&lt;T&gt; where T:struct {
+
+    protected bool active = false;
+    protected AsyncGPUReadbackRequest req;
+
+    protected Vector2Int size;
+    protected T defaultValue;
+    protected T[] data;
+    protected TextureData&lt;T&gt; output;
+
+    public AsyncCPUTexture(T defaultValue = default(T)) {
+        this.defaultValue = defaultValue;
+    }
+
+    #region interface
+    public virtual Texture Source { get; set; }
+    public virtual void Update() {
+
+        if (active) {
+            if (req.hasError) {
+                Debug.Log($"Failed to read back from GPU async");
+                active = false;
+            } else if (req.done) {
+                Release();
+                var nativeData = req.GetData&lt;T&gt;();
+                System.Array.Resize(ref data, nativeData.Length);
+                nativeData.UnsafeCopyTo(data);
+                output = GenerateCPUTexture(data, size);
+            }
+        } else {
+            if (Source != null) {
+                active = true;
+                req = AsyncGPUReadback.Request(Source);
+                size = new Vector2Int(Source.width, Source.height);
+            }
+        }
+    }
+
+    public virtual Vector2Int Size =&gt; size;
+    public virtual System.Func&lt;float, float, T&gt; Interpolation { get; set; }
+    public virtual T this[Vector2 uv] =&gt; (output != null ? output[uv] : defaultValue);
+    public virtual T this[float nx, float ny] =&gt; (output != null ? output[nx, ny] : defaultValue);
+    public virtual T this[int x, int y] =&gt; (output != null ? output[x, y] : defaultValue);
+    #endregion
+
+    #region member
+    protected virtual TextureData&lt;T&gt; GenerateCPUTexture(IList&lt;T&gt; data, Vector2Int size) {
+        var tex = new TextureData&lt;T&gt;(data, size);
+        tex.Interpolation = Interpolation;
+        return tex;
+    }
+    protected virtual void Release() {
+        if (output != null) {
+            output.Dispose();
+            output = null;
+        }
+        active = false;
+    }
+    #endregion
+}
+

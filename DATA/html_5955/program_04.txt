@@ -1,0 +1,43 @@
+
+private void AesDecrypt(string FilePath, string OutFilePath)
+{
+  using (FileStream fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
+  {
+    byte[] salt = new byte[8];
+    fs.Read(salt, 0, 8); // 先頭の salt を先に読み込む
+    Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes("abc", salt, 1000);
+
+    byte[] key = deriveBytes.GetBytes(32);
+    byte[] iv = deriveBytes.GetBytes(16);
+
+    using (FileStream outfs = new FileStream(OutFilePath, FileMode.Create, FileAccess.Write))
+    {
+      // AESオブジェクト
+      AesManaged aes = new AesManaged();
+      aes.Mode = CipherMode.CBC;       // デフォルト
+      aes.Padding = PaddingMode.PKCS7; // デフォルト
+      aes.KeySize = 256;
+      aes.BlockSize = 128;
+
+      aes.Key = key;
+      aes.IV = iv;
+
+      // 対称復号化オブジェクト
+      using (ICryptoTransform decryptor = aes.CreateDecryptor())
+      {
+        // 暗号化されたデータを読み込むための復号ストリーム
+        using (CryptoStream cs = new CryptoStream(fs, decryptor, CryptoStreamMode.Read))
+        {
+          byte[] buffer = new byte[1024];
+          int len;
+          while ((len = cs.Read(buffer, 0, buffer.Length)) &gt; 0)
+          {
+            outfs.Write(buffer, 0, len);
+          }
+        }
+
+      }
+    }
+  }
+}
+

@@ -1,0 +1,123 @@
+
+using UnityEngine;
+
+public class AudioPlayer {
+    private const int DefaultSeChannelCount = 20;
+
+    private static AudioPlayer _mInstance;
+
+    public static AudioPlayer Instance =&gt; _mInstance ?? (_mInstance = new AudioPlayer (DefaultSeChannelCount));
+
+    private int _bgmFileIdx;
+    private readonly AudioSource _bgmChannel;
+
+    private readonly int _seChannelCount;
+    private readonly AudioSource[] _seChannels;
+
+    private int _seChannelIndex;
+
+    private AudioPlayer (int seChannelCount) {
+        var rootObject = new GameObject ("AudioPlayer");
+        Object.DontDestroyOnLoad (rootObject);
+
+        _bgmChannel = rootObject.AddComponent&lt;AudioSource&gt; ();
+        _seChannelCount = seChannelCount;
+
+        _seChannels = new AudioSource [seChannelCount];
+
+        for (int i = 0; i &lt; seChannelCount; i++) {
+            _seChannels [i] = rootObject.AddComponent&lt;AudioSource&gt; ();
+        }
+
+        _seChannelIndex = 0;
+    }
+
+
+    // BGMの再生.
+    public static bool PlayBgm (SoundFile soundFile) {
+        return Instance.DoPlayBgm (soundFile);
+    }
+
+    // BGMの一時停止.
+    public static void PauseBgm (bool flag) {
+        Instance.DoPauseBgm (flag);
+    }
+
+    // BGMの停止.
+    public static void StopBgm () {
+        Instance.DoStopBgm ();
+    }
+
+    //BGMの再生.
+    public bool DoPlayBgm (SoundFile soundFile) {
+
+        if ((int)soundFile != _bgmFileIdx) {
+            _bgmChannel.Stop();
+            _bgmFileIdx = (int)soundFile;
+
+            var clip = soundFile.ToAudioClip();
+            if (clip == null) return false;
+
+            _bgmChannel.clip = clip;
+            _bgmChannel.loop = true;
+            _bgmChannel.volume = 1;
+
+            _bgmChannel.Play ();
+        }
+        return true;
+    }
+
+
+    // BGMの一時停止.
+    public void DoPauseBgm (bool flag) {
+        if (flag) {
+            _bgmChannel.Pause ();
+        } else {
+            _bgmChannel.Play ();
+        }
+    }
+
+    // BGMの停止.
+    public void DoStopBgm () {
+        _bgmChannel.Stop ();
+        _bgmFileIdx = -1;
+    }
+
+
+    // SE再生.
+    public static AudioSource PlaySe (SoundFile soundFile) {
+        return Instance.DoPlaySe (soundFile);
+    }
+
+    public AudioSource DoPlaySe (SoundFile soundFile) {
+        var seChannel = _seChannels [_seChannelIndex];
+        seChannel.Stop ();
+
+        var clip = soundFile.ToAudioClip();
+        if (clip == null) return null;
+
+        if (++_seChannelIndex &gt;= _seChannelCount) {
+            _seChannelIndex = 0;
+        }
+
+        seChannel.clip = clip;
+        seChannel.volume = 1.0f;
+        seChannel.pitch = 1.0f;
+
+        seChannel.Play();
+
+        return seChannel;
+    }
+
+    public static bool StopAllSe () {
+        return Instance.DoStopAllSe ();
+    }
+
+    public bool DoStopAllSe () {
+        for (int i = 0; i &lt; _seChannels.Length; i++) {
+            _seChannels [i].Stop ();
+        }
+        return true;
+    }
+}
+

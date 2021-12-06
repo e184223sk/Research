@@ -1,0 +1,79 @@
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Data;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows;
+using System.IO;
+
+namespace CrashRepoter
+{
+    /// &lt;summary&gt;
+    /// App.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class App : Application
+    {
+        private string windowMessage = "";
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+
+            List&lt;string&gt; argList = new List&lt;string&gt;(e.Args);
+            string path = argList.Find(n =&gt; n.Contains("UE4CC-") &amp;&amp; n.Contains("Crashes"));
+            string logText = null, xmlText = null;
+            byte[] miniDump = null;
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            GetErrorInfos(path, out logText, out xmlText, out miniDump);
+            windowMessage = xmlText;
+        }
+
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+
+            MainWindow mainWindow = MainWindow as MainWindow;
+            mainWindow.SetDescriptionText(windowMessage);
+        }
+
+        private void GetErrorInfos(string crashDirPath, out string OutLog, out string OutXml, out byte[] OutMiniDump)
+        {
+            OutLog = "";
+            OutXml = "";
+            OutMiniDump = null;
+            DirectoryInfo crashDir = new DirectoryInfo(crashDirPath);
+            if (crashDir.Exists)
+            {
+                crashDir.Refresh();
+
+                FileInfo[] fileBuffer = null;
+
+                fileBuffer = crashDir.GetFiles("*.log");
+                if (fileBuffer.Length &gt; 0)
+                {
+                    FileInfo logFile = fileBuffer.First();
+                    OutLog = File.ReadAllText(logFile.FullName);
+                }
+
+                fileBuffer = crashDir.GetFiles("*.runtime-xml");
+                if (fileBuffer.Length &gt; 0)
+                {
+                    FileInfo logFile = fileBuffer.First();
+                    OutXml = File.ReadAllText(logFile.FullName);
+                }
+
+                fileBuffer = crashDir.GetFiles("*.dmp");
+                if (fileBuffer.Length &gt; 0)
+                {
+                    FileInfo dumpFile = fileBuffer.First();
+                    OutMiniDump = File.ReadAllBytes(dumpFile.FullName);
+                }
+            }
+        }
+    }
+}
+
+
+

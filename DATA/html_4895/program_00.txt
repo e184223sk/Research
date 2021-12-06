@@ -1,0 +1,90 @@
+    public abstract class AsnValue
+    {
+        public abstract List&lt;byte&gt; GetBytes();
+        public abstract byte GetTag();
+
+        public static List&lt;byte&gt; GetFieldLengthByte(int length)
+        {
+            if (length &lt; 128)
+            {
+                return new byte[] { (byte)length }.ToList();
+            }
+            else
+            {
+                List&lt;byte&gt; result = new List&lt;byte&gt;();
+                for (; ; )
+                {
+                    int amari = length % 256;
+                    int sho = length / 256;
+                    result.Insert(0, (byte)amari);
+                    if (sho == 0)
+                    {
+                        break;
+                    }
+                    length = sho;
+
+                }
+                result.Insert(0, (byte)(result.Count + 0b10000000));
+                return result;
+            }
+
+        }
+
+        public static int GetLength(byte[] data, int startIndex, out int lengthlength)
+        {
+            byte first = data[startIndex];
+            if (first &lt; 128)
+            {
+                lengthlength = 1;
+                return (int)first;
+            }else
+            {
+                lengthlength = first - 0b10000000;
+                int length = 0;
+                for (int i = 0; i &lt; lengthlength; i++)
+                {
+                    length += length * 256;
+                    length += data[startIndex + 1 + i];
+                }
+                return length;
+            }
+        }
+
+
+        public static AsnValue Parse(byte[] data, ref int index)
+        {
+            if (index &gt;= data.Length)
+            {
+                return null;
+            }
+
+            byte tag = data[index];
+
+            int lengthlength;
+            int dataLength = GetLength(data, index + 1, out lengthlength);
+
+            byte[] valueByteData = data.Skip(index + 1 + lengthlength).Take(dataLength).ToArray();
+            index = index + 1 + lengthlength + dataLength;
+
+            switch (tag)
+            {
+                case IntegerValue.TAGTYPE:
+                    return IntegerValue.Parse(valueByteData);
+                case NullValue.TAGTYPE:
+                    return NullValue.Parse(valueByteData);
+                case OctestStringValue.TAGTYPE:
+                    return OctestStringValue.Parse(valueByteData);
+                case ObjectIdentifierValue.TAGTYPE:
+                    return ObjectIdentifierValue.Parse(valueByteData);
+                case SequenceValue.TAGTYPE:
+                    return SequenceValue.Parse(valueByteData, tag);
+                case SnmpDataValue.TAGTYPE_GETRESPONSE:
+                case SnmpDataValue.TAGTYPE_GETREQUEST:
+                case SnmpDataValue.TAGTYPE_GETNEXTREQUEST:
+                    return SnmpDataValue.Parse(valueByteData, tag);
+                default:
+                    throw new AsnParseException(tag);
+            }
+
+        }
+

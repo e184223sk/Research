@@ -1,0 +1,90 @@
+
+    public class Program
+    {
+
+
+        public static IEnumerable&lt;TEntity&gt; GetEntities&lt;TEntity&gt;(DbContext ctx, int level, int age)
+            where TEntity : class
+        {
+            throw new NotSupportedException();
+        }
+
+        public static void Main(string[] args)
+        {
+
+            // ダミー変数の定義
+            var dmyLevel = 0;
+            var dmyAge = 0;
+
+            // Userの設定
+            var usrRewriter = new DynamicEntityPropertiesRewriter&lt;User&gt;();
+            usrRewriter.Add(nameof(dmyLevel), nameof(User.Level)); // usrRewriter.Add("dmyLevel", "Level");
+            usrRewriter.Add(nameof(dmyAge), nameof(User.Age)); // usrRewriter.Add("dmyAge", "Age");
+
+            // Characterの設定
+            var chrRewriter = new DynamicEntityPropertiesRewriter&lt;Character&gt;();
+            chrRewriter.Add(nameof(dmyLevel), nameof(Character.Power)); // chrRewriter.Add("dmyLevel", "Power");
+            chrRewriter.Add(nameof(dmyAge), nameof(Character.YearsOld)); // chrRewriter.Add("dmyAge", "YearsOld");
+
+            // クエリのすり替え
+            var usrWhere = usrRewriter.Rewrite(p =&gt; dmyLevel &lt; 10 &amp;&amp; dmyAge &gt; 16);
+            var chrWhere = chrRewriter.Rewrite(p =&gt; dmyLevel &lt; 10 &amp;&amp; dmyAge &gt; 16);
+
+            // 実際にＤＢアクセス
+            using (var ctx = new SampleContext())
+            {
+                ctx.Database.Log = Console.WriteLine;
+                var usrItems = ctx.Users.Where(usrWhere).ToList();
+                var chrItems = ctx.Characters.Where(chrWhere).ToList();
+
+            }
+
+        }
+
+    }
+
+
+    /// &lt;summary&gt;
+    /// dynamic entity properties? 動的にエンティティのプロパティを変更します。
+    /// 一見無駄なことしているように見えますが、度重なるバグ回避によりようやくたどり着いたコードだったりします。
+    /// ExpressionVisitor及びExpression.Property()は実行する毎にインスタンスを生成してます(インスタンス違いによるパラメータバグにつながるため)。
+    /// &lt;/summary&gt;
+    public class DynamicEntityPropertiesRewriter&lt;TEntity&gt;
+    {
+        Dictionary&lt;string, string&gt; parameters = new Dictionary&lt;string, string&gt;();
+
+        public void Add(string dmy, string rewriteName)
+        {
+            this.parameters[dmy] = rewriteName;
+        }
+
+        IDictionary&lt;string, MemberExpression&gt; createProperties(ParameterExpression pParam)
+        {
+            return parameters.ToDictionary(p =&gt; p.Key, p =&gt; Expression.Property(pParam, p.Value));
+        }
+
+        public Expression&lt;Func&lt;TEntity, bool&gt;&gt; Rewrite(Expression&lt;Func&lt;TEntity, bool&gt;&gt; node)
+        {
+            var visitor = new RwVisitor(this.createProperties(node.Parameters.First()));
+            return visitor.Visit(node) as Expression&lt;Func&lt;TEntity, bool&gt;&gt;;
+        }
+
+
+
+        class RwVisitor : ExpressionVisitor
+        {
+            IDictionary&lt;string, MemberExpression&gt; properties;
+
+            public RwVisitor(IDictionary&lt;string, MemberExpression&gt; properties)
+            {
+                this.properties = properties;
+            }
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                var dmyName = node.Member.Name;
+                return this.properties.FirstOrDefault(p =&gt; p.Key == dmyName).Value ?? node;
+            }
+        }
+    }
+

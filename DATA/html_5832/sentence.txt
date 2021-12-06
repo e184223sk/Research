@@ -1,0 +1,30 @@
+More than 3 years have passed since last update.この記事は、こちらの2日目の記事です。
+https://adventar.org/calendars/2530札幌で働いているshimaといいます。Uターンしてもうすぐ1年になります。寒いです。
+http://www.tenki.jp/past/2017/12/01/1/
+札幌は北海道では一番温かい地域の1つであり、道東出身の私は正直見下していたのですが、長い内地での生活によりなまってしまったようです。しかしそもそも、どうも弊社オフィスは夏も冬も寒く、空調の穴は冷風を出すばかりです。最低気温が氷点下になった頃から、日が暮れる時間にはすっかり体が冷え切り、手に息を吹きかけながらタイピングしています。それでも、いつも暑い東京本社よりは1万倍ましですけど  そこで、何度になったら私は寒いと感じるのか、ログを取ってみたくなりました。普段使っているC#で簡単に試します。もっと古いバージョンでも可能です。こちらで購入しました。https://www.amazon.co.jp//dp/B004FI1570中国語でやや不安になるモノが送られてきますが、おそらく定番の製品のようです。
+懐かしさを覚える8cmのCD-ROMが添付されているものの、21世紀ですので当然USB接続すればドライバは自動でインストールされます。今回はそれで充分です。このUSBデバイスは、HIDのAPIで制御します。HIDとは Human Interface Device のことです。温度計がHIDと言われてもあまりピンときませんが、HIDは取り扱いが楽なので幅広く利用されているようです。HIDは古くからある技術で、当然ながらCで書くのが正統派です。
+https://docs.microsoft.com/en-us/windows-hardware/drivers/hid/hid-clientsただし今回はお手軽にC#から制御するため、HidLibrary を使用します。
+https://github.com/mikeobrien/HidLibraryNuGetパッケージがあり、簡単に導入できます。
+https://www.nuget.org/packages/HidLibrary/このHidLibraryは、古くからある低レベルなAPIのラッパーです。
+UWP (Windowsストアアプリ) であれば、APIがC#で現代的なものに一新されています。こちらを使うべきでしょう。今回は、筆者の私怨によりUWPは無視します。（HIDに限りませんが、UWPだと実装が 簡単になることはあっても何かと制約が多く、つまづくこと多し。）
+https://blogs.msdn.microsoft.com/hirosho/2013/10/18/windows-8-1-hid/これで取得できたデバイスを覗くと、筆者の環境では31個ありました。どれがTEMPerでしょう？デバイスマネージャのヒューマン インターフェイス デバイスのところを開きます。TEMPerデバイスを抜き差しすると増えているのが2つほどあるはずです。私の環境では何の変哲もない USB 入力デバイス として表示されます。
+そのデバイスのプロパティを表示し、下の画像のように ハードウェアID を選択します。
+USB\VID_0C45&amp;PID_7401&amp;REV_0001&amp;MI_01 という値がありました。
+ここから、以下を読み解きます。
+- VID (Vendor ID) = 0x0C45
+- PID (Product ID) = 0x7401また、末尾に MI_01 があります。もう1つ増えたほうのデバイスも同様に見ると、MI_00になっています。これも把握しておきます。デバイスの絞り込みは、こちらのページの下の方にある方法も参考になります。 https://blogs.msdn.microsoft.com/hirosho/2013/10/18/windows-8-1-hid/以上の情報を使い、デバイスを絞り込みます。ここで controlかbulkがnullであれば、TEMPerが接続されていないようです。こちらが参考になります。
+https://www.renesas.com/ja-jp/solutions/key-technology/connectivity-wired/usb/about-usb/usb1-1/usb1-c.html
+より詳しくはUSBやHIDの仕様書を参照すると良いでしょう。TEMPerでは、温度の情報はbulk転送で行います。加えて基本のcontrolを用意するのでこの2つというわけです。controlデバイスから取得します。取得されるバイト列は固定長で、余った領域は0初期化されており、変換すると文字列末尾はヌル文字がたくさん入ることになりますので、TrimEndで除去しています。これ以降、基本的にはこのページの焼き直しです。細かい解説はこちらに譲り、実装だけ示します。
+https://www.codeproject.com/Tips/1007522/Temper-USB-Thermometer-in-CsharpHID操作の基本は、レポートと呼ばれるデータのかたまりの送受信です。
+https://www.itf.co.jp/tech/road-to-usb-master/hid_classレポートを送信し、受信可能状態になるまで待ち、受信する。このセットです。この処理をメソッド化しておきます。TEMPerを使い始めるにあたっての手続きを行います。これをループで何度も呼び出してあげるのが基本構成になるでしょう。以下は、1秒のスリーブを入れながら温度を表示させた例です。放っておくと数値がなかなか変わらないので、手でTEMPerを握りしめたりしてみましょう。この画像はそうしてみたところで、温度が急上昇しているのがわかります。
+ここからは、このプログラムを周期的に実行し、気温のログを取っていくことを考えます。様々な方法やサービスがありますが、無料・APIもしっかりしている・可視化もしやすいという点から、Googleのスプレッドシートに記録していきます。普通にGoogleドライブで新規作成します。
+https://docs.google.com/spreadsheets/d/[40文字強のid文字列]/ というURLになっているはずで、ここからスプレッドシートIDがわかりますので、把握しておきます。シートの名前 (初期状態だとシート1) も重要で、プログラムにて指定します。列は2列用意しておき、時刻列と温度列とします。こちらを参考に。
+- https://developers.google.com/sheets/api/v3/authorize
+- https://www.twilio.com/blog/2017/03/google-spreadsheets-and-net-core.html
+- https://qiita.com/shin1ogawa/items/49a076f62e5f17f18fe5Google.Apis.Sheets.v4 のNuGetパッケージをインストールします。
+https://www.nuget.org/packages/Google.Apis.Sheets.v4/以下のようなクラスを作ります。GoogleはAPIが充実していてドキュメントも一見豊富ですが、バージョンアップが早すぎてすぐ陳腐化していたり、内容が雲をつかむようでなかなか理解が難しいことが常です。以下の実装も相当苦労しています。温度の算出が完了したところでこのクラスを呼び出します。最後に定期実行の設定です。Windowsであれば タスクスケジューラ を使い、ここまで作成したプログラムを定期的に呼び出せばよいでしょう。
+普通に設定するぶんには5分周期より短くすることができませんが、おそらく充分だと思います。Googleスプレッドシートへの書き込みと定期実行をあわせて、完成です。じわじわ上がる室温。いつもくそ暑いです
+11月以降、だいたい10~12度くらいが多い気がします。
+GoogleSpreadSheetUploader は上に記載の通りなので省略
+
+

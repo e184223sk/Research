@@ -1,0 +1,107 @@
+
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Windows.Graphics.Imaging;
+using Windows.Media.Ocr;
+using Windows.Storage;
+using Windows.Storage.Streams;
+using Windows.Foundation;
+
+
+class OcrTest
+{
+    [System.STAThread]
+    static void Main(string[] args)
+    {
+        System.Drawing.Image img = System.Windows.Forms.Clipboard.GetImage();
+        if (img != null)
+        {
+            var bmp = (System.Drawing.Bitmap)img; // 例外が発生する可能性あり
+            SoftwareBitmap softBmp = MakeSoftwareBitmap(bmp);
+            Task&lt;string&gt; ret = LoadImageAndOcr(softBmp);
+            Console.WriteLine(ret.Result);
+        }
+    }
+
+    [ComImport]
+    [Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    unsafe interface IMemoryBufferByteAccess
+    {
+        void GetBuffer(out byte* buffer, out uint capacity);
+    }
+
+    static SoftwareBitmap MakeSoftwareBitmap(System.Drawing.Bitmap bmp)
+    {
+        unsafe {
+            var softwareBitmap = new SoftwareBitmap(BitmapPixelFormat.Bgra8, bmp.Width, bmp.Height, BitmapAlphaMode.Premultiplied);
+
+
+            System.Drawing.Imaging.BitmapData bd = bmp.LockBits(new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height), System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+            byte* pSrc = (byte*)bd.Scan0;
+
+            using (BitmapBuffer buffer = softwareBitmap.LockBuffer(BitmapBufferAccessMode.Write))
+            {
+                using (var reference = buffer.CreateReference())
+                {
+                    byte* pDest;
+                    uint capacity;
+                    ((IMemoryBufferByteAccess)reference).GetBuffer(out pDest, out capacity);
+
+                    // Fill-in the BGRA plane
+                    BitmapPlaneDescription bl = buffer.GetPlaneDescription(0);
+                    for (int y = 0; y &lt; bl.Height; y++) {
+                        int blOffset = bl.StartIndex + y*bl.Stride;
+                        int yb = y*bd.Stride;
+                        for (int x = 0; x &lt; bl.Width; x++) {
+                            pDest[blOffset + 4*x    ] = pSrc[yb + 4*x    ]; // blue
+                            pDest[blOffset + 4*x + 1] = pSrc[yb + 4*x + 1]; // green
+                            pDest[blOffset + 4*x + 2] = pSrc[yb + 4*x + 2]; // red
+                            pDest[blOffset + 4*x + 3] = (byte)255; // alpha
+                        }
+                    }
+                }
+            }
+
+            bmp.UnlockBits(bd);
+
+            return softwareBitmap;
+        }
+    }
+
+    static async Task&lt;OcrResult&gt; detect(SoftwareBitmap bitmap)
+    {
+        var ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
+        var ocrResult = await MyWaitUtil&lt;OcrResult&gt;.GetResultWithWaiting( ocrEngine.RecognizeAsync(bitmap) );
+        // https://docs.microsoft.com/ja-jp/uwp/api/windows.media.ocr.ocrresult.lines?view=winrt-19041
+        return ocrResult;
+    }
+
+    static async Task&lt;string&gt; LoadImageAndOcr(SoftwareBitmap softwareBitmap)
+    {
+        OcrResult t = await detect(softwareBitmap);
+        return t.Text;
+    }
+}
+
+public static class MyWaitUtil&lt;T&gt;
+{
+    public static async Task&lt;T&gt; GetResultWithWaiting(IAsyncOperation&lt;T&gt; task)
+    {
+        while ( task.Status != AsyncStatus.Completed ) {
+            if ( task.Status == AsyncStatus.Error || task.Status == AsyncStatus.Canceled ) {
+                Console.WriteLine("Error or Canceled");
+                return default(T);
+            }
+            await Task.Delay(1);
+        };
+        return task.GetResults();
+    }
+}
+
+

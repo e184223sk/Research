@@ -1,0 +1,80 @@
+// Outlook:ThisAddin.cs
+
+    public partial class ThisAddIn
+    {
+        private void ThisAddIn_Startup(object sender, System.EventArgs e)
+        {
+            Application.ItemSend += Application_ItemSend;
+            Application.OptionsPagesAdd += Application_OptionsPagesAdd;
+        }
+
+        void Application_OptionsPagesAdd(Outlook.PropertyPages Pages)
+        {
+            Pages.Add(new MyPropPage(), "General");
+            // 複数ページあれば、さらに Add します。
+        }
+
+        // .... ほかのコードがあれば続行
+    }
+
+// MyPropPage.cs : 「ユーザーコントロール」をテンプレートにプロパティページを作成します。COM 参照可能なよう ComVisible(true) 属性をつけ、Microsoft.Office.Interop.Outlook.PropertyPage インターフェイスを組み込みます。
+
+    [System.Runtime.InteropServices.ComVisible(true)]
+    public partial class MyPropPage : UserControl , Microsoft.Office.Interop.Outlook.PropertyPage
+    {
+        private Microsoft.Office.Interop.Outlook.PropertyPageSite _propertyPageSite;
+
+        public MyPropPage()
+        {
+            InitializeComponent();
+
+            //「設定 (Settings)」に UserName（String 型）を記憶させ、プロパティシート上の textBoxUserName（テキストボックス）で変更を扱う場合
+            textBoxUserName.Text = Properties.Settings.Default.UserName;
+            textBoxUserName.TextChanged += (sender, e) =&gt;
+            {
+                // テキストボックスが編集されたら、OnStatusChange メソッドで通知します。
+                if (_propertyPageSite != null)
+                    _propertyPageSite.OnStatusChange();
+            };
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            // プロパティ変更の通知先を得ます
+            // =&gt; リフレクションを利用して .NET ライブラリ中の System.Windows.Forms.UnsafeNativeMethods.IOleObject クラスにある GetClientSite メソッドを呼び出します。
+            Type type = typeof(System.Object);
+            string assembly = type.Assembly.CodeBase.Replace("mscorlib.dll", "System.Windows.Forms.dll");
+            assembly = assembly.Replace("file:///", "");
+
+            string assemblyName = System.Reflection.AssemblyName.GetAssemblyName(assembly).FullName;
+            Type unsafeNativeMethods = Type.GetType(System.Reflection.Assembly.CreateQualifiedName(assemblyName, "System.Windows.Forms.UnsafeNativeMethods"));
+
+            Type oleObj = unsafeNativeMethods.GetNestedType("IOleObject");
+            System.Reflection.MethodInfo methodInfo = oleObj.GetMethod("GetClientSite");
+            _propertyPageSite = methodInfo.Invoke(this, null) as Microsoft.Office.Interop.Outlook.PropertyPageSite;
+        }
+
+        public void Apply()
+        {
+            // OK や 適用ボタンをクリックされたときの処理を記述します。
+            Properties.Settings.Default.UserName = textBoxUserName.Text;
+            Properties.Settings.Default.Save();
+        }
+
+        public bool Dirty
+        {
+            get {
+                // 適用ボタンを有効にしたい状態の場合は true を返すようにします。ここでは、「設定」の記憶値とテキストボックスの値が異なっている場合に true を返すようにしています。
+                return (textBoxUserName.Text != Properties.Settings.Default.UserName);
+            }
+        }
+
+        public void GetPageInfo(ref string HelpFile, ref int HelpContext)
+        {
+            // ヘルプファイル (.chm) を指定できるようです。不要なら何も書かないでよいです。
+        }
+
+        // .... ほかのコードがあれば
+    }
+
+

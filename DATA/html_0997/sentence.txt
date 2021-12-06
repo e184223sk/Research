@@ -1,0 +1,341 @@
+More than 1 year has passed since last update.Windows 10用に使い勝手の良いキャプチャソフトを探していたところ、
+「Windowsのスクリーンショットをファイルに自動保存」の記事を見つけました。
+ただ試してみたところ、個人的にはこうなるともっと使いやすいな、という点があったので、元がスクリプトであるという利点を活かし少しソースコードをいじってみました。C#単独での実装である、実装２－３の改変です。
+元記事と同様に、C:\Windows\Microsoft.NET\Framework\v[バージョン]\csc.exe /t:winexe AutoSaveSS.csなどでコンパイルしてください。
+ソースコード (326行)
+
+
+AutoSaveSS.cs
+// original code by earthdiver1
+// arranged code by Crotczet
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+using System.Media;
+
+public class AutoSaveSS
+{
+    [STAThread]
+    public static void Main()
+    {
+        if (Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName).Length == 1)
+        {
+            Application.Run(new ClipboardWatcherForm());
+        }
+    }
+}
+
+public class ClipboardWatcherForm : Form
+{
+    [DllImport("user32.dll")] private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+    [DllImport("user32.dll")] private static extern bool AddClipboardFormatListener(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool RemoveClipboardFormatListener(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr hWnd, int id, int modKey, int key);
+    [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    [DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
+    NotifyIcon _notifyIcon = new NotifyIcon();
+
+    const int MOD_ALT = 0x0001;
+    const int MOD_CONTROL = 0x0002;
+    const int MOD_SHIFT = 0x0004;
+    const int MOD_WIN = 0x0008;
+    const int MOD_NOREPEAT = 0x4000;
+
+    bool _disposed;
+    static int _idWindow = (new Random()).Next(0x1000, 0xbffe);
+    static int _idAllDisplay = _idWindow + 1;
+    uint _lastSeq = 0;
+
+    // parameters
+    string _imageDir = Path.Combine(System.Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), @"ScreenShot");
+    bool _drawCursor = true;
+    bool _showBalloonTip = false;
+    string _fileNamePrefix = @"SS-";
+    string _fileDateFormat = "HHmmss.f";
+    string _fileNameSuffix = @"";
+    string _imageFileExtension = "png";
+    bool _subFolder = true;
+    string _subFolderNamePrefix = @"SS-";
+    string _subFolderDateFormat = "yyyyMMdd";
+    string _subFolderNameSuffix = @"";
+    int _modWindow = MOD_NOREPEAT;
+    int _VKWindow = 0xEC; // VK_OEM_PA2
+    int _modAllDisplay = MOD_CONTROL | MOD_NOREPEAT;
+    int _VKAllDisplay = 0xEC;
+
+    public ClipboardWatcherForm()
+    {
+        _disposed = false;
+        SetParent(Handle, new IntPtr(-3));          // HWND_MESSAGE =&gt; message-only window
+        _notifyIcon.ContextMenu = new ContextMenu(new MenuItem[] {
+            new MenuItem("Exit" , (s, e) =&gt; { _notifyIcon.Visible = false; Application.Exit(); }),
+        });
+        _notifyIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        _notifyIcon.Text = "AutoSaveSS";
+        _notifyIcon.Visible = true;
+        if (_imageDir == null) _imageDir = Application.StartupPath;
+        AddClipboardFormatListener(Handle);
+        RegisterHotKey(Handle, _idWindow, _modWindow, _VKWindow);
+        RegisterHotKey(Handle, _idAllDisplay, _modAllDisplay, _VKAllDisplay);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing)
+        {
+            foreach (MenuItem item in _notifyIcon.ContextMenu.MenuItems) item.Dispose();
+            _notifyIcon.ContextMenu.Dispose();
+            _notifyIcon.Dispose();
+        }
+        RemoveClipboardFormatListener(Handle);
+        UnregisterHotKey(Handle, _idWindow);
+        UnregisterHotKey(Handle, _idAllDisplay);
+        _disposed = true;
+        base.Dispose(disposing);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x312 &amp;&amp; (int)m.WParam == _idWindow) OnHotKeyPressed(0);        // WM_HOTKEY
+        if (m.Msg == 0x312 &amp;&amp; (int)m.WParam == _idAllDisplay) OnHotKeyPressed(1);        // WM_HOTKEY
+        if (m.Msg == 0x31D &amp;&amp; Clipboard.ContainsImage()) OnClipboardImageUpdate(); // WM_CLIPBOARDUPDATE
+        base.WndProc(ref m);
+    }
+
+    protected virtual void OnHotKeyPressed(int captureDisplay)
+    {
+        var t = new Thread(() =&gt; {
+            WindowScreenshot.SetClipboard(_drawCursor, captureDisplay);
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+        //      t.Join(); // uncomment to avoid "System.Runtime.InteropServices.ExternalException (0x800401D0)" error
+    }
+
+    protected virtual void OnClipboardImageUpdate()
+    {
+        uint seq = GetClipboardSequenceNumber();
+        if (seq == _lastSeq) return;
+        _lastSeq = seq;
+        if (Clipboard.ContainsData("Text") ||   // don't make screenshots by excel cells, powerpoint objects, etc.
+            Clipboard.ContainsData("HTML Format") ||
+            Clipboard.ContainsData("Object Descriptor") ||
+            Clipboard.ContainsData("FileContents") ||
+            Clipboard.ContainsData("EnterpriseDataProtectionId") ) return;
+        var t = new Thread(() =&gt; {
+            Image img;
+            if (Clipboard.ContainsData("PNG"))
+            {
+                IDataObject data = Clipboard.GetDataObject();
+                img = Image.FromStream((Stream)data.GetData("PNG"));
+            }
+            else
+            {
+                img = Clipboard.GetImage();
+            }
+            if (img != null)
+            {
+                string _imageFolder = _imageDir;
+                if (_subFolder)
+                {
+                    _imageFolder = Path.Combine(_imageFolder, _subFolderNamePrefix + DateTime.Now.ToString(_subFolderDateFormat) + _subFolderNameSuffix);
+                }
+                if (!Directory.Exists(_imageFolder))
+                {
+                    Directory.CreateDirectory(_imageFolder);
+                }
+                string filename = Path.Combine(_imageFolder, _fileNamePrefix + DateTime.Now.ToString(_fileDateFormat) + _fileNameSuffix + "."+_imageFileExtension);
+                try
+                {
+                    img.Save(filename, getImageFormat(_imageFileExtension));
+                }
+                catch (ExternalException) { }   // makeshiftly ignore "System.Runtime.InteropServices.ExternalException (0x800401D0)" error
+                finally
+                {
+                    if (_showBalloonTip)
+                    {
+                        _notifyIcon.ShowBalloonTip(1000, "", "Screenshot saved!", ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        SystemSounds.Beep.Play();
+                    }
+                }
+            }
+            img.Dispose();
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+    }
+    public static System.Drawing.Imaging.ImageFormat getImageFormat(string in_ext)
+    {
+        System.Drawing.Imaging.ImageFormat if_ret = new System.Drawing.Imaging.ImageFormat(Guid.NewGuid());
+        switch (in_ext.ToLower())
+        {
+            case "bmp":
+                if_ret = System.Drawing.Imaging.ImageFormat.Bmp;
+                break;
+            case "gif":
+                if_ret = System.Drawing.Imaging.ImageFormat.Gif;
+                break;
+            case "jpg":
+            case "jpeg":
+                if_ret = System.Drawing.Imaging.ImageFormat.Jpeg;
+                break;
+            case "ico":
+                if_ret = System.Drawing.Imaging.ImageFormat.Icon;
+                break;
+            case "png":
+                if_ret = System.Drawing.Imaging.ImageFormat.Png;
+                break;
+            case "tif":
+            case "tiff":
+                if_ret = System.Drawing.Imaging.ImageFormat.Tiff;
+                break;
+        }
+        return if_ret;
+    }
+}
+
+public static class WindowScreenshot
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CURSORINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hCursor;
+        public Point ptScreenPos;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ICONINFO
+    {
+        public bool fIcon;
+        public int xHotspot;
+        public int yHotspot;
+        public IntPtr hbmMask;
+        public IntPtr hbmColor;
+    }
+    [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("dwmapi.dll")]
+    private static extern int
+        DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+    [DllImport("user32.dll")]
+    private static extern IntPtr
+        FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+    [DllImport("user32.dll")] private static extern bool GetCursorInfo(out CURSORINFO pci);
+    [DllImport("user32.dll")] private static extern IntPtr CopyIcon(IntPtr hIcon);
+    [DllImport("user32.dll")] private static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO piconinfo);
+    [DllImport("user32.dll")] private static extern bool DrawIcon(IntPtr hdc, int x, int y, IntPtr hIcon);
+    const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    const int CURSOR_SHOWING = 1;
+
+    static WindowScreenshot()
+    {
+        SetProcessDPIAware();
+    }
+
+    public static void SetClipboard(bool drawCursor, int captureDisplay)
+    {
+        RECT R;
+        var rList = new List&lt;Rectangle&gt;();
+        Rectangle rBmp = Rectangle.Empty;
+        switch (captureDisplay)
+        {
+            case 0:
+                IntPtr hWnd = GetForegroundWindow();
+                int status = DwmGetWindowAttribute(hWnd,
+                                                   DWMWA_EXTENDED_FRAME_BOUNDS,
+                                                   out R,
+                                                   Marshal.SizeOf(typeof(RECT)));
+                if (status != 0) return;
+                Rectangle rWindow = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+                rList.Add(rWindow);
+                rBmp = rWindow;
+                IntPtr h = IntPtr.Zero;
+                int ct = 0, maxct = 20;
+                while (true &amp;&amp; ct++ &lt; maxct)
+                {
+                    h = FindWindowEx(IntPtr.Zero, h, "#32768", null);
+                    if (h == IntPtr.Zero) break;
+                    status = DwmGetWindowAttribute(h,
+                                                   DWMWA_EXTENDED_FRAME_BOUNDS,
+                                                   out R,
+                                                   Marshal.SizeOf(typeof(RECT)));
+                    if (status != 0) continue;
+                    Rectangle r = Rectangle.FromLTRB(R.Left, R.Top, R.Right, R.Bottom);
+                    if (!rWindow.Contains(r))
+                    {
+                        rBmp = Rectangle.Union(rBmp, r);
+                        rList.Add(r);
+                    }
+                }
+                break;
+            case 1:
+                foreach (Screen sInfo in Screen.AllScreens)
+                {
+                    rBmp = Rectangle.Union(rBmp, sInfo.Bounds);
+                    rList.Add(sInfo.Bounds);
+                }
+                break;
+        }
+        using (var b = new Bitmap(rBmp.Width, rBmp.Height))
+        {
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                foreach (Rectangle r in rList)
+                {
+                    g.CopyFromScreen(r.X, r.Y, r.X - rBmp.X, r.Y - rBmp.Y, r.Size);
+                }
+                if (drawCursor)
+                {
+                    CURSORINFO cInfo;
+                    cInfo.cbSize = Marshal.SizeOf(typeof(CURSORINFO));
+                    if (GetCursorInfo(out cInfo))
+                    {
+                        if (cInfo.flags == CURSOR_SHOWING)
+                        {
+                            IntPtr iPtr = CopyIcon(cInfo.hCursor);
+                            ICONINFO iInfo;
+                            if (GetIconInfo(iPtr, out iInfo))
+                            {
+                                int posX = cInfo.ptScreenPos.X - (int)iInfo.xHotspot - rBmp.X;
+                                int posY = cInfo.ptScreenPos.Y - (int)iInfo.yHotspot - rBmp.Y;
+                                DrawIcon(g.GetHdc(), posX, posY, cInfo.hCursor);
+                            }
+                        }
+                    }
+                }
+            }
+            var d = new DataObject();
+            d.SetData(b);
+            using (var s = new MemoryStream())
+            {
+                b.Save(s, System.Drawing.Imaging.ImageFormat.Png);
+                d.SetData("PNG", false, s);
+                Clipboard.SetDataObject(d, true);
+            }
+        }
+        rList.Clear();
+    }
+}
+
+
+
+タスクトレイの右クリックから設定を変更し保存しておける仕様を作るのが面倒だったため、48行目～62行目にパラメータとして設定用の変数を並べてあります。これらは基本的に自分のニーズに合わせて設定しているため、適宜書き換えることをおすすめします。複数の作業日のスクショが混ざっているとまとめる際にややこしいので、同日のスクショを1つのサブフォルダにまとめる機能をつけました。Excelなどでコピーした際に画像がスクショされるのを防ぐため、以下のブログ記事を参考に、クリップボードに含まれるデータフォーマットの種類で振り分けを行いました。Windows Store Appsでクリップボードから画像を取得したいクリップボードの画像の保存時にimgのメモリを開放しておらず、スクショ毎にメモリが膨れ上がるため、img.Dispose();を加えました。それに伴い「GDI+ で汎用エラーが発生しました」エラーが発生したのですが、ちょっと原因がわからなかったので例外を投げてその場凌ぎをしています。カーソルつきで全てのディスプレイをスクショできるホットキーも作成しましたが、ある条件下で不具合が起こるようです。マルチディスプレイ時に、ディスプレイの「表示スケール(テキスト、アプリ、その他の項目のサイズを変更する)」の値が統一されていない場合、次のいずれかの条件下で画像サイズやスクショ位置などがおかしくなるようです。原因としては、それぞれのディスプレイの画面サイズが、全てタスクトレイのあるディスプレイの表示スケール換算で認識されるにも関わらず、実際の画面の座標は本来の各々の表示スケール換算となるためのようです。
+不具合修正ができそうならば出来次第投稿すると思いますが、現状は表示スケールさえ揃えれば問題なく動作し、自分の業務には支障がないためとりあえず暫定的にこの状態で置いておきます。
+
+

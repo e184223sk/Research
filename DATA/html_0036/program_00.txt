@@ -1,0 +1,81 @@
+
+using System;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+using Excel = Microsoft.Office.Interop.Excel;
+
+class ExcelSample
+{
+    [MethodImpl(MethodImplOptions.NoInlining)] // 最適化抑制
+    static void OverwriteActiveSheet()
+    {
+        Excel.Application oExcelApp = null;
+        Excel.Worksheet oSheet = null;
+
+        try {
+            oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+        }
+        catch ( System.Runtime.InteropServices.COMException ) {
+            Console.WriteLine("Failed to get Excel.Application.");
+            return;
+        }
+
+        try {
+            var oBook = (Excel.Workbook)oExcelApp.ActiveWorkbook;
+            if ( oBook != null ) {
+                oSheet = (Excel.Worksheet)oBook.ActiveSheet;
+            }
+        }
+        catch ( System.Runtime.InteropServices.COMException ) {
+        }
+        if ( oSheet == null ) {
+            Console.WriteLine("Failed to get ActiveWorkbook or ActiveSheet.");
+            return;
+        }
+
+        bool screenUpdatingBackup = oExcelApp.ScreenUpdating;
+        Excel.XlCalculation calcModeBackup = oExcelApp.Calculation;
+        try {
+            oExcelApp.ScreenUpdating = false; // 画面更新の停止
+            oExcelApp.Calculation = Excel.XlCalculation.xlCalculationManual; // 再計算の停止
+
+            // 処理を追加  ここから
+
+            // セルの読み込み
+            Excel.Range oCells = oSheet.Cells;
+            var oRange = oCells[3, 2] as Excel.Range; // B3セル
+            Console.WriteLine(oRange.Value);
+            Console.WriteLine(oRange.Value2);
+            Console.WriteLine(oRange.Text);
+
+            // セルへの書き込み
+            oRange = oCells[4, 3] as Microsoft.Office.Interop.Excel.Range;
+            oRange.Value = "hoge";
+
+            // 罫線を引く
+            Excel.Borders oBorders;
+            Excel.Border oBorder;
+            oRange = oSheet.Range[oSheet.Cells[2, 2], oSheet.Cells[4, 4]]; //  select B2 - D4
+            oBorders = oRange.Borders;
+            oBorder = oBorders[Excel.XlBordersIndex.xlEdgeBottom];// xlEdgeLeft xlEdgeRight xlEdgeTop
+            oBorder.LineStyle = Excel.XlLineStyle.xlContinuous;
+
+            // 処理を追加  ここまで
+        }
+        finally {
+            if ( oExcelApp.Calculation != calcModeBackup ) {
+                oExcelApp.Calculation = calcModeBackup;
+            }
+            if ( oExcelApp.ScreenUpdating != screenUpdatingBackup ) {
+                oExcelApp.ScreenUpdating = screenUpdatingBackup;
+            }
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        OverwriteActiveSheet();
+    }
+}
+

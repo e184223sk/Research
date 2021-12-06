@@ -1,0 +1,44 @@
+More than 1 year has passed since last update.今回は、.NET Framework のコレクションについて、少し見ていきたいと思います。
+Reactive なコレクションについても取り上げてみます。
+ご興味がおありの方は是非お付き合いください。本当に概略です。この図では、上の段に行くほど継承関係は上になります。
+各段について見てみましょう。4段目（一番下）
+この段は具象クラスですね。
+実際に働くのはこれらのクラスです。3段目
+具体的な機能を持ったコレクションを規定するインターフェイス群です。2段目
+コレクション全体を統括する ICollection です。1段目（一番上）
+列挙可能型全体を統括する IEnumerable です。 上に行くほどインターフェイスの持つ機能は少なく、抽象化されてゆくのが分かるかと思います。両者とも似たような名前なので、どう違うのかわからないという方も多いのではないでしょうか。
+前掲の図の通り、ICollection&lt;T&gt; の方がより抽象的なインターフェイスなのですが、では IList&lt;T&gt; にできて ICollection&lt;T&gt; にできないこととは何でしょうか。答えは、IList&lt;T&gt; は添字を使用したアクセスができる、ということです。
+以下のメソッドは、IList&lt;T&gt; 独自のものです。
+- [ ]
+- IndexOf
+- Insert
+- RemoveAt
+どれも添字関係のメソッドですね。
+これらは ICollection&lt;T&gt; では使えませんので、ご注意ください。Dictionary&lt;TKey, TValue&gt; の TValue に複数の値を格納したい場合って結構ありますよね。
+そんなとき、というコードを書きがちです。
+要件によってはそれでいいのかもしれませんが、LINQ の ILookup&lt;TKey, TElement&gt; を使うとすっきり書けます。ILookup&lt;TKey, TElement&gt; ≒ IDictionary&lt;TKey, IEnumerable&lt;TElement&gt;&gt;といった感じで、Value が IEnumerable&lt;TElement&gt; になっています。
+以下のように使えます。スレッドセーフなコレクションが用意されています。
+以下の例では ConcurrentQueue&lt;T&gt; に対し複数のスレッドから Enqueue とDequeue をしています。ReadOnly なコレクションと、Observable なコレクションが用意されています。
+以下で順に見ていくことにします。System.Collections.ObjectModel.ReadOnlyCollection&lt;T&gt; は、任意の IList&lt;T&gt; をラッピングし、そのリストへの読み取り専用なアクセスを提供します。
+コンストラクタで IList&lt;T&gt; を渡すことでラッピングができます。
+読み取り専用にすると何がいいのか。
+それは、リストを外部へ公開したいけれど書き換えはしてほしくない、という場合に、と getter のみを提供したとします。
+getter のみなので、使用者がリスト本体を丸ごと置き換えることはできません。
+しかし、リストの中身は書き換え可能なので、getter の使用者はリストへの追加・更新・削除が可能になってしまいます。
+こういった場合、次のようにすると内容の参照だけができるリストを提供できます。クラス内部からは _stringList を使用し、クラス外部には StringList を公開しています。ちなみに、ReadOnlyCollection&lt;T&gt; という名前ですが、IReadOnlyList&lt;T&gt; を実装したリストであることにご注意ください。
+このクラスと同様に、ReadOnlyDictionary&lt;T&gt; もあります。コレクションのアイテムに対する、追加、削除、変更、移動操作があった場合、またはリスト全体が更新されたとき、CollectionChanged イベントを発生させることができるコレクションです。
+「Observable」という名前がついていますが、IObservable&lt;T&gt; や IObserver&lt;T&gt; とは直接の関連はありません。
+むしろ、INotifyPropertyChanged に近いイメージです。
+（ObservableCollection&lt;T&gt; は INotifyPropertyChanged も実装していますが、そのイベントを直接購読することはできないようになっています。）CollectionChanged イベントについて見てみましょう。
+このイベントは、System.Collections.Specialized.INotifyCollectionChanged インターフェイスのものです。
+ハンドラは以下の形式です。NotifyCollectionChangedEventArgs には、というプロパティが定義されていて、コレクションの変更内容を必要十分に取得できるようになっています。WPF でコレクションをデータバインドする際に使用できます。neueccさん、xin9leさん、okazukiさんが開発しているライブラリ「ReactiveProperty」の中に含まれているコレクションです。
+NuGetよりプロジェクトにインストール可能です。
+このライブラリは「System.Reactive」（通称：Rx）を参照する形で作られています。
+ReactiveProperty&lt;T&gt; は、IObservable&lt;T&gt; を監視して WPF や UWP のデータバインディングに使用できるようにするものです。
+ReadOnlyReactiveCollection&lt;T&gt; はそのコレクション版ですね。下記のように、ObservableCollection&lt;T&gt; の変更を監視して、元のコレクションを加工したコレクションを作成できます。IObservable&lt;T&gt; を監視することもできます。
+この場合、できるのはアイテムの追加とリセットだけです。IObservable&lt;CollectionChanged&lt;T&gt;&gt; を監視すれば、コレクションの内容を細かく操作することも可能です。ReadOnlyReactiveCollection&lt;T&gt; は MVVM パターンに適用すると威力を発揮します。最後に紹介するのは、イミュータブル（不変）なコレクションです。
+標準ライブラリではないので、NuGetよりインストールする必要があります。不変なコレクションは、状態の管理が容易であるというメリットがあります。
+また、コスト面でも有利になるようです（未確認）。下記のように、Builder を使用して生成する方法もあります。本当に掻い摘んだだけでしたが、ざっと紹介することができました。
+もし知らないものがありましたら、是非お試しください。
+
+

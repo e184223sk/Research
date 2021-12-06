@@ -1,0 +1,116 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.IO;
+using UnityEngine;
+using Ionic.Zlib;
+using System.Security.Cryptography;
+
+namespace Example
+{
+    public class DataFileEncrypting : IDataFile
+    {
+        // constant
+        readonly string PathFormat = Application.persistentDataPath + "/{0}.dat";
+        readonly int BufferSize = 1024;
+        readonly string Password = "password"; // TODO 本番では変更する
+        readonly int AesBlockSize = 128;
+        readonly int AesKeySize = 128;
+        readonly int KeySize = 16;
+
+        // 保存
+        public void Save&lt;T&gt;(T instance, string dataName)
+        {
+            var filepath = String.Format(PathFormat, dataName);
+
+            // instance → JSON
+            var json = JsonUtility.ToJson(instance);
+
+
+            // @see http://qiita.com/hibara/items/c9096376b1d7b5c8e2ae
+            // @see https://github.com/hibara/FileEncryptSample/blob/master/FileEncryptSample/Form1.cs
+            using (var aes = new AesManaged())
+            {
+                aes.BlockSize = AesBlockSize;
+                aes.KeySize = AesKeySize;
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+                Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes(Password, 16);
+                byte[] salt = new byte[KeySize];
+                salt = deriveBytes.Salt;
+                byte[] bufferKey = deriveBytes.GetBytes(KeySize);
+                aes.Key = bufferKey;
+                aes.GenerateIV();
+                ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
+
+                using (var outputStream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.None)) // 暗号化データ → バイナリファイル
+                using (var cryptoStream = new CryptoStream(outputStream, encryptor, CryptoStreamMode.Write)) // 圧縮データ → 暗号化データ
+                using (var compressStream = new GZipStream(cryptoStream, CompressionMode.Compress)) // MemoryStream → 圧縮データ
+                using (var inputStream = new MemoryStream(Encoding.UTF8.GetBytes(json))) // Json → MemoryStream
+                {
+                    outputStream.Write(salt, 0, KeySize);
+                    outputStream.Write(aes.IV, 0, KeySize);
+
+                    // MemoryStream → GZipファイル
+                    int byteCount;
+                    byte[] buffer = new byte[BufferSize];
+                    while ((byteCount = inputStream.Read(buffer, 0, buffer.Length)) &gt; 0)
+                        compressStream.Write(buffer, 0, byteCount);
+                }
+            }
+        }
+
+        // 読み込み
+        public T Load&lt;T&gt;(string dataName)
+        {
+            var filepath = String.Format(PathFormat, dataName);
+            if (!File.Exists(filepath))
+                return default(T);
+
+            // @see http://qiita.com/hibara/items/c9096376b1d7b5c8e2ae
+            // @see https://github.com/hibara/FileEncryptSample/blob/master/FileEncryptSample/Form1.cs
+            using (var aes = new AesManaged())
+            // バイナリファイル → 暗号化データ
+            using (var inputStream = new FileStream(filepath, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                aes.BlockSize = AesBlockSize;
+                aes.KeySize = AesKeySize;
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+
+                byte[] salt = new byte[KeySize];
+                inputStream.Read(salt, 0, KeySize);
+
+                byte[] iv = new byte[KeySize];
+                inputStream.Read(iv, 0, KeySize);
+                aes.IV = iv;
+                Rfc2898DeriveBytes deriveBytes = new Rfc2898DeriveBytes(Password, salt);
+                byte[] bufferKey = deriveBytes.GetBytes(KeySize);
+                aes.Key = bufferKey;
+                ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+
+                using (var cryptoStream = new CryptoStream(inputStream, decryptor, CryptoStreamMode.Read)) // 暗号化データ → 圧縮データ
+                using (var compressStream = new GZipStream(cryptoStream, CompressionMode.Decompress))
+                using (var outputStream = new MemoryStream())
+                {
+                    // 圧縮データ → MemoryStream
+                    int byteCount;
+                    byte[] buffer = new byte[BufferSize];
+                    while ((byteCount = compressStream.Read(buffer, 0, buffer.Length)) &gt; 0)
+                        outputStream.Write(buffer, 0, byteCount);
+
+                    // MemoryStream → Json
+                    var json = Encoding.UTF8.GetString(outputStream.ToArray());
+
+                    // JSON → instance
+                    T instance = JsonUtility.FromJson&lt;T&gt;(json);
+
+                    return instance;
+                }
+            }
+        }
+    }
+}
+

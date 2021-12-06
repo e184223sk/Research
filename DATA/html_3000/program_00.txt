@@ -1,0 +1,103 @@
+
+using System;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+
+namespace TestIme
+{
+    public class Form1 : Form
+    {
+        public Form1()
+        {
+            Timer timer = new Timer();
+            timer.Interval = 1000;
+            timer.Tick += timer1_Tick;
+            timer.Start();
+        }
+
+        [DllImport("User32.dll")]
+        static extern int SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("imm32.dll")]
+        static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        static extern bool GetGUIThreadInfo(uint dwthreadid, ref GUITHREADINFO lpguithreadinfo);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct GUITHREADINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hwndActive;
+            public IntPtr hwndFocus;
+            public IntPtr hwndCapture;
+            public IntPtr hwndMenuOwner;
+            public IntPtr hwndMoveSize;
+            public IntPtr hwndCaret;
+            public System.Drawing.Rectangle rcCaret;
+        }
+
+        const int WM_IME_CONTROL = 0x283;
+        const int IMC_GETCONVERSIONMODE = 1;
+        const int IMC_SETCONVERSIONMODE = 2;
+        const int IMC_GETOPENSTATUS = 5;
+        const int IMC_SETOPENSTATUS = 6;
+
+        const int IME_CMODE_NATIVE    =  1;
+        const int IME_CMODE_KATAKANA  =  2;
+        const int IME_CMODE_FULLSHAPE =  8;
+        const int IME_CMODE_ROMAN     = 16;
+
+        const int CMode_HankakuKana = IME_CMODE_ROMAN | IME_CMODE_KATAKANA | IME_CMODE_NATIVE;
+        const int CMode_ZenkakuEisu = IME_CMODE_ROMAN | IME_CMODE_FULLSHAPE;
+        const int CMode_Hiragana    = IME_CMODE_ROMAN | IME_CMODE_FULLSHAPE | IME_CMODE_NATIVE;
+        const int CMode_ZenkakuKana = IME_CMODE_ROMAN | IME_CMODE_FULLSHAPE | IME_CMODE_KATAKANA | IME_CMODE_NATIVE;
+        // 実験してみた結果
+        // 19 :カ 半角カナ                     0001 0011
+        // 24 :Ａ 全角英数                     0001 1000
+        // 25 :あ ひらがな（漢字変換モード）   0001 1001
+        // 27 :   全角カナ                     0001 1011
+
+        // 半角カナ/全角英数/カタカナ モードを強制的に「ひらがな」モードに変更する
+        private void timer1_Tick(object sender, EventArgs e)
+        {
+            //IME状態の取得
+            GUITHREADINFO gti = new GUITHREADINFO();
+            gti.cbSize = Marshal.SizeOf(gti);
+
+            if ( !GetGUIThreadInfo(0, ref gti) ) {
+                Console.WriteLine("GetGUIThreadInfo failed");
+                throw new System.ComponentModel.Win32Exception(); // 2019.8.21追記:まれにここに来てしまう場合あるようなので throw せずに return; させたほうがよいかも
+            }
+            IntPtr imwd = ImmGetDefaultIMEWnd(gti.hwndFocus);
+
+            int  imeConvMode = SendMessage(imwd, WM_IME_CONTROL, (IntPtr)IMC_GETCONVERSIONMODE, IntPtr.Zero);
+            bool imeEnabled = (SendMessage(imwd, WM_IME_CONTROL, (IntPtr)IMC_GETOPENSTATUS, IntPtr.Zero) != 0);
+
+            Console.WriteLine(imeEnabled.ToString() + " status code:"+imeConvMode.ToString());
+
+            if ( imeEnabled ) {
+                switch ( imeConvMode ) {
+                case CMode_Hiragana:
+                    /* Nothing to do */
+                    break;
+                case CMode_HankakuKana: /* through */
+                case CMode_ZenkakuEisu: /* through */
+                case CMode_ZenkakuKana:
+                    SendMessage(imwd, WM_IME_CONTROL, (IntPtr)IMC_SETCONVERSIONMODE, (IntPtr)CMode_Hiragana); // ひらがなモードに設定
+                    break;
+                default:
+                    /* Nothing to do */
+                    /* 環境によっては上のcaseをやめてここに飛ばしたほうがよいかも */
+                    break;
+                }
+            }/* else 無変換(半角英数) */
+        }
+
+        [STAThread]
+        static void Main(){
+            Application.Run(new Form1());
+        }
+    }
+}
+
+

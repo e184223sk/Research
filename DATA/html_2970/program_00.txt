@@ -1,0 +1,27 @@
+    private InferenceSession session;
+    public void LoadModel (string model_name) {
+        string model_path = Application.dataPath + @"/MLModel/" + model_name + ".onnx";
+
+        var opitions = new SessionOptions ();
+        session = new InferenceSession (model_path);
+    }
+    public int Inference (Texture2D input) {
+        var input_nodes_name = session.InputMetadata.First().Key;
+        var input_nodes_dim = session.InputMetadata.First().Value.Dimensions;
+
+        // Texture2Dをモデルの入力に合った形に整形、正規化する。
+        var input_floats = GetFloatFromTex2DWithFlip (input);
+        var input_tensor = new DenseTensor&lt;float&gt; (input_floats, input_nodes_dim);
+
+        // OnnxRuntimeでの入力形式であるNamedOnnxValueを作成する
+        var input_onnx_values = new List&lt;NamedOnnxValue&gt; {
+            NamedOnnxValue.CreateFromTensor (input_nodes_name, input_tensor)
+        };
+
+        // 推論を実行
+        var results = session.Run (input_onnx_values);
+        var scores = results.First().AsTensor&lt;float&gt;().ToArray ();
+
+        return GetBestScorePos(scores);
+    }
+

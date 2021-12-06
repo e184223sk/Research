@@ -1,0 +1,54 @@
+
+            decimal innerH = 0;
+            decimal innerW = 0;
+            decimal scrollH = 0;
+            innerH = Int32.Parse(jsDriver.ExecuteScript("return window.innerHeight").ToString());
+            innerW = Int32.Parse(jsDriver.ExecuteScript("return window.innerWidth").ToString());
+            scrollH = Int32.Parse(jsDriver.ExecuteScript("return document.documentElement.scrollHeight").ToString());
+
+            string filePath = "スクリーンショットを保存したいパス";
+
+            wait.Until(Drv =&gt; Drv.SwitchTo().DefaultContent());
+
+            if (innerH &gt; scrollH)
+            {
+                ((ITakesScreenshot)Driver).GetScreenshot().SaveAsFile(filePath, ScreenshotImageFormat.Png);
+            }
+            else
+            {
+                decimal repeat = Math.Ceiling((scrollH / innerH));
+                decimal duplH = Math.Abs(scrollH - (innerH * repeat));
+
+                List&lt;Bitmap&gt; screenshots = new List&lt;Bitmap&gt;();
+                for (int i = 0; i &lt; repeat; i++)
+                {
+                    wait.Until(Drv =&gt; ((IJavaScriptExecutor)Drv).ExecuteScript("window.scrollTo(0," + innerH * i + ");return true;"));
+                    //ちょっと待たないとスクロールが間に合わない
+                    Thread.Sleep(100);
+                    screenshots.Add(GetScreenshotAsBmp());
+                }
+
+                //最後の画像は重複部分を切り取る
+                Bitmap lastSc = screenshots.Last();
+
+                //画像の縦横のサイズとJavascriptで取得した幅と高さから比率計算し、切り取るべきサイズを算出する
+                decimal bitmapWidth = lastSc.Width;
+                decimal bitmapHeight = lastSc.Height;
+
+                decimal ratioWidth = innerW / bitmapWidth;
+                decimal ratioHeight = innerH / bitmapHeight;
+
+                int duplHeight = (int)Math.Round(duplH / ratioHeight, 0, MidpointRounding.AwayFromZero);
+                int cutWidth = (int)Math.Round(innerW / ratioWidth, 0, MidpointRounding.AwayFromZero);
+                int cutHeight = (int)Math.Round((innerH - duplH) / ratioHeight, 0, MidpointRounding.AwayFromZero);
+
+                //算出したサイズで切り出す
+                Rectangle rect = new Rectangle(0, duplHeight, cutWidth, cutHeight);
+                screenshots.RemoveAt(screenshots.Count - 1);
+                screenshots.Add(lastSc.Clone(rect, lastSc.PixelFormat));
+
+                Bitmap screenshot = Util.ImageCombineV(screenshots.ToArray&lt;Bitmap&gt;());
+                screenshot.Save(filePath);
+            }
+
+

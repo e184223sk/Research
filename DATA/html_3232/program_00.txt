@@ -1,0 +1,43 @@
+private Bitmap CaptureActiveWindow()
+{
+    IntPtr hWnd = IntPtr.Zero;
+    IntPtr windowDC = IntPtr.Zero;
+    Graphics graphics = null;
+    IntPtr hDC = IntPtr.Zero;
+    try
+    {
+        // アクティブウィンドウのデバイスコンテキストを取得
+        hWnd = NativeAPIUtility.GetForegroundWindow();
+        windowDC = NativeAPIUtility.GetWindowDC(hWnd);
+        // ウィンドウサイズを取得
+        NativeAPIUtility.RECT rect = new NativeAPIUtility.RECT();
+        // TODO:クラシックモードを考慮していないことに注意（Aaro有効を前提）
+        NativeAPIUtility.DwmGetWindowAttribute(hWnd, (int)NativeAPIUtility.DwmWindowAttribute.DWMWA_EXTENDED_FRAME_BOUNDS, out var bounds, Marshal.SizeOf(typeof(NativeAPIUtility.RECT)));
+        NativeAPIUtility.GetWindowRect(hWnd, ref rect);
+        // Bitmapの作成
+        Bitmap bmp = new Bitmap(bounds.right - bounds.left, bounds.bottom - bounds.top);
+        // Graphicsの作成
+        graphics = Graphics.FromImage(bmp);
+        // Graphicsのデバイスコンテキストを取得
+        hDC = graphics.GetHdc();
+        // Bitmapに画像をコピー
+        NativeAPIUtility.BitBlt(hDC, 0, 0, bmp.Width, bmp.Height, windowDC, bounds.left - rect.left, bounds.top - rect.top, NativeAPIUtility.SRCCOPY);
+        return bmp;
+    }
+    finally
+    {
+        if (hDC != IntPtr.Zero)
+        {
+            graphics.ReleaseHdc(hDC);
+        }
+        if (graphics != null)
+        {
+            graphics.Dispose();
+        }
+        if (windowDC != IntPtr.Zero)
+        {
+            NativeAPIUtility.ReleaseDC(hWnd, windowDC);
+        }
+    }
+}
+

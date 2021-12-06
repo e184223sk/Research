@@ -1,0 +1,116 @@
+
+using System;
+using System.Text;
+using System.IO;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEditor;
+
+// テーブル用のScriptableObjectとその元となる.csファイルの作成&amp;更新を行うスクリプト
+// GoogleSpreadSheetの情報をAPIで取得して、そこからファイルを作成する
+public class CreateMasterDataObject
+{
+    private const string MASTER_DATA_OBJECT_PATH = "Assets/Resources/MasterData/";
+    private const string API_URL = "APIの外部公開設定でメモしたURLを記載する";
+    private const string URL_FORMAT = "{0}?id={1}&amp;name={2}";
+
+    // 各スプレッドシートIDとシート名
+    private const string CONSTANT_SPREAD_SHEET = "シートIDを適宜入れる";
+    private const string TEXT_SHEET_NAME = "text";
+
+    private static IEnumerator m_NowUpdate = null;
+
+    [MenuItem("Assets/MasterData/Constant/CreateOrUpdateConstantTextTable")]
+    private static void CreateOrUpdateConstantTextTable()
+    {
+        CreateOrUpdateCalc&lt;ConstantText, ConstantTextTable&gt;(CONSTANT_SPREAD_SHEET, TEXT_SHEET_NAME);
+    }
+
+    // テーブル作成or更新～保存処理までの共通処理
+    private static void CreateOrUpdateCalc&lt;B, T&gt;(string spreadSheetId, string sheetName) where B : MasterDataItemBase where T : MasterDataTableBase&lt;B&gt;
+    {
+        string resultText = string.Empty;
+
+        m_NowUpdate = SendWebRequestToGet(string.Format(URL_FORMAT, API_URL, spreadSheetId, sheetName), (string result)=&gt;{ resultText = result; });
+        while(m_NowUpdate.MoveNext()){}
+
+        if(resultText.IsNullOrEmpty())
+        {
+            Debug.LogWarning("resultTextが空の為、終了しました");
+            return;
+        }
+
+        // ScriptableObjectのファイル名はテーブルの型名と同じにしておく
+        string tableFileName = typeof(T).ToString();
+        string masterAssetPath = string.Format("{0}{1}.asset", MASTER_DATA_OBJECT_PATH, tableFileName);
+        T master = AssetDatabase.LoadAssetAtPath&lt;T&gt;(masterAssetPath);
+        // データが無い場合は新規作成
+        if(master == null)
+        {
+            master = Editor.CreateInstance&lt;T&gt;();
+            AssetDatabase.CreateAsset(master, masterAssetPath);
+            AssetDatabase.Refresh();
+        }
+
+        // 取得したAPIResultをJsonに変換してテーブルに格納する
+        var json = MiniJSON.Json.Deserialize(resultText) as Dictionary&lt;string, object&gt;;
+        var tableList = json.GetValueList&lt;Dictionary&lt;string, object&gt;&gt;("Table");
+        // クリアしてから格納する
+        master.Clear();
+        foreach (var item in tableList)
+        {
+            master.AddOrUpdate(item);
+        }
+
+        //ダーティとしてマークする(変更があった事を記録する)
+        EditorUtility.SetDirty(master);
+        //保存する
+        AssetDatabase.SaveAssets();
+
+        Debug.LogFormat("{0}作成完了", tableFileName);
+        Debug.Log(masterAssetPath);
+    }
+
+    // Web通信用関数
+    private static IEnumerator SendWebRequestToGet(string url, Action&lt;string&gt; callback)
+    {
+        Debug.Log("API通信開始");
+
+        UnityWebRequest request = UnityWebRequest.Get(url);
+        yield return request.SendWebRequest();
+
+        while(!request.isDone)
+        {
+            yield return 0;
+        }
+
+        // エラーチェック
+        if(request.isNetworkError || request.responseCode != 200)
+        {
+            Debug.LogError(request.responseCode);
+            Debug.LogError(request.error);
+            m_NowUpdate = null;
+            if(callback != null)
+            {
+                callback(string.Empty);
+            }
+            yield break;
+        }
+
+        Debug.Log(request.downloadHandler.text);
+        Debug.Log(request.downloadHandler.data);
+
+        if(callback != null)
+        {
+            // ここで改行を置き換え無いと改行がDebug.LogやuGUI.textで反映されない
+            string text = request.downloadHandler.text.Replace("\\n", Environment.NewLine);
+            callback(text);
+        }
+
+        m_NowUpdate = null;
+        Debug.Log("API通信終了");
+    }
+}
+

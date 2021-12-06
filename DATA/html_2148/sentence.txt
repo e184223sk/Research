@@ -1,0 +1,357 @@
+More than 1 year has passed since last update..NET用プログラミング言語に新地平を切り開きました。MITライセンスでプロジェクト全体を配布中です。
+
+
+dotnet-constexpr.zipを解凍した後の導入方法
+
+おそらく「dotnet-constexpr」フォルダの下に「post」「ConsoleTest」「ConstExpr」「target」の4フォルダがあると思われます。
+dotnet-constexprをカレントディレクトリとして、PowerShellやbashなどのターミナルで dotnet restore と実行してください。
+４プロジェクト全てがrestoreされます。
+要約
+
+
+Abstract
+
+
+背景
+
+C++とD言語にはコンパイル時定数計算という概念がある。
+C++の文献：constexpr
+D言語の文献：ctfeコンパイル時定数計算とはコンパイル時に明記された値のみに依存する副作用を持たないメソッド呼び出しを全てその計算結果に置換する仕様である。このコンパイル時定数計算を用いることで自明な計算をあらかじめ行っておいて結果をテーブルに保持することが低コストで可能となる。
+.NET言語で計算結果テーブルを作成する場合、外部ファイルからIOしてきて生成するか、あるいはstaticコンストラクタで計算をして静的変数に設定することとなる。
+コンパイル時定数計算を用いれば アプリケーションの起動速度を大幅に向上させる ことが可能になる。普段筆者が使用するC#でもコンパイル時定数計算をおこないたい。コンパイルの成果物(DLLやEXEファイル)をMono.Cecilで解析し、AssemblyBuilderを用いて抽象マシンを作成し、定数式に関数呼び出しを置換した。ポインタを除くプリミティブ型の配列やプリミティブ型を返すstaticメソッドの呼び出しを効率的な配列や定数式に置換できた。
+ポストコンパイル時定数計算を部分的に実現した。ポストコンパイル時定数計算の適用範囲の拡大について今後の研究が待たれる。
+「最高の最適化とは、そもそも計算しないことである」従来C#やVB.NET、F#では関数呼び出しのインライン化までは実際行えた。
+だが、関数呼び出し結果を定数に置換することはいずれの言語においてもサポートされていない。定数を引数に取る副作用のない関数の呼び出しをその結果に置換すれば、アプリケーションの実行速度は向上するはずである。実際ポストコンパイル時定数計算がどれほど役に立つのかはC++erの成果であるコンパイル時レイトレーシングやコンパイル時Cコンパイラなどに示されている。本研究ではコンパイル後のDLLやILに対して処理を施すことにより擬似的なコンパイル時定数計算を行った。.NET系言語においてポストコンパイル時定数計算を実現する際に、主にC++のconstexprを参考とした。
+D言語のctfeは処理に掛かるコストが大きすぎるため参考としなかった。C++のconstexprでは関数にconstexpr修飾子を付けることにより、その関数が副作用を持たず、戻り値がリテラル型であることをコンパイラに検証させ、コンパイル時呼び出しを可能にさせる。
+constexprに倣い、本研究ではConstExpr属性を関数に付与させることとした。この研究では1つのソリューションの下に4つのプロジェクトを作成した。ConstExpr属性は次の型にのみ付与すべきである。postはコンソールプログラムである。
+DLLの集合を引数にとり、なんらかの処理を行う。2つのコマンドが定義されている。これらコマンドは次のように使用する。
+カレントディレクトリはpostである。Program.cs全文
+
+
+Program.cs
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using MicroBatchFramework;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Mono.Cecil;
+using post.ConstDynamicMethod;
+
+namespace post
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            await new HostBuilder().RunBatchEngineAsync&lt;ConstantExpressionInterpreter&gt;(args);
+        }
+    }
+
+    class ConstantExpressionInterpreter : BatchBase
+    {
+        private readonly ILogger&lt;BatchEngine&gt; logger;
+        public ConstantExpressionInterpreter(ILogger&lt;BatchEngine&gt; logger) =&gt; this.logger = logger;
+
+        [Command("call", "Call specific method")]
+        public int ExecuteMethod
+        (
+            [Option(0, "Type Name")]string typeName,
+            [Option(1, "Method Name")]string methodName,
+            [Option(2, "Directory that includes dll")]string directory
+        )
+        {
+            var directories = InterpretDirectory(directory);
+
+            var builder = Build(directories);
+            var type = builder.Type2dArray.SelectMany(x =&gt; x).FirstOrDefault(x =&gt; x.Item2.FullName == typeName).Item1;
+
+            if (type is null)
+            {
+                Console.WriteLine(typeName + " not found.");
+                return 1;
+            }
+            Console.WriteLine(type.GetMethod(methodName)?.Invoke(null, null)?.ToString());
+            return 0;
+        }
+
+        private static string[] InterpretDirectory(string directory) =&gt; directory.StartsWith('@') ? File.ReadAllLines(directory.Substring(1)) : new[] { directory };
+
+        [Command("replace", "Edit the DLLs")]
+        public int ReplaceConstantExpression
+        (
+            [Option(0)] string directory,
+            [Option("include")] string? referenceOnlyDirectory = default,
+            [Option("o", "output directory")] string? output = default
+        )
+        {
+            var directories = InterpretDirectory(directory);
+
+            string[]? referenceOnlyDirectories = default;
+            if (!(referenceOnlyDirectory is null))
+            {
+                referenceOnlyDirectories = InterpretDirectory(referenceOnlyDirectory);
+            }
+
+            var builder = Build(referenceOnlyDirectories is null ? directories : directories.Concat(referenceOnlyDirectories).ToArray(), !(string.IsNullOrEmpty(output)));
+
+            var replacer = new ConstExprReplacer(builder.ModuleArray, builder.Type2dArray);
+
+            for (var moduleIndex = 0; moduleIndex &lt; directories.Length; moduleIndex++)
+            {
+                replacer.ProcessModule(moduleIndex);
+                var module = builder.ModuleArray[moduleIndex].Item2;
+                if (output is null)
+                {
+                    module.Write();
+                }
+                else
+                {
+                    module.Write(Path.Combine(output, Path.GetFileName(module.FileName)));
+                }
+            }
+
+            return 0;
+        }
+
+        private static ConstExprBuilder Build(string[] directories, bool isReadWrite = false)
+        {
+            var moduleList = new List&lt;ModuleDefinition&gt;(directories.Length * 2);
+            var readerParameters = new ReaderParameters()
+            {
+                AssemblyResolver = new DefaultAssemblyResolver(),
+                ReadWrite = isReadWrite,
+            };
+            foreach (var directory in directories)
+            {
+                foreach (var file in Directory.EnumerateFiles(directory, "*.dll", SearchOption.AllDirectories))
+                {
+                    var assemblyDefinition = AssemblyDefinition.ReadAssembly(file, readerParameters);
+                    moduleList.AddRange(assemblyDefinition.Modules);
+                }
+            }
+            var builder = new ConstExprBuilder(moduleList.ToArray());
+            return builder;
+        }
+    }
+}
+
+
+
+MicroBatchFrameworkを使用してコマンドライン引数を解析し、コマンドを実行する。
+callもreplaceもいずれもディレクトリパスを調べ、その直下に存在するDLL群をModuleDefinitionの配列に変換する。
+そしてModuleDefinition[]を引数に与えてConstExprBuilderを構築する。
+ConstExprBuilderはコンストラクタですべての処理を行う。ConstExprBuilder解説
+
+ConstExprBuilder.cs抜粋
+
+
+ConstExprBuilder.cs
+/*
+using MethodAttributes = System.Reflection.MethodAttributes;
+using MA = Mono.Cecil.MethodAttributes;
+using MethodBody = Mono.Cecil.Cil.MethodBody;
+using OpCodes = System.Reflection.Emit.OpCodes;
+using MTuple = System.ValueTuple&lt;System.Reflection.Emit.ModuleBuilder, Mono.Cecil.ModuleDefinition&gt;;
+using TTuple = System.ValueTuple&lt;System.Reflection.Emit.TypeBuilder, Mono.Cecil.TypeDefinition&gt;;
+using TyTuple = System.ValueTuple&lt;System.Type, Mono.Cecil.TypeDefinition&gt;;
+using MdTuple = System.ValueTuple&lt;System.Reflection.Emit.MethodBuilder, Mono.Cecil.MethodDefinition&gt;;
+using CTuple = System.ValueTuple&lt;System.Reflection.Emit.ConstructorBuilder, Mono.Cecil.MethodDefinition&gt;;
+using FieldAttributes = System.Reflection.FieldAttributes;
+using FTuple = System.ValueTuple&lt;System.Reflection.Emit.FieldBuilder, Mono.Cecil.FieldDefinition&gt;;
+using GenericParameterAttributes = System.Reflection.GenericParameterAttributes;
+*/
+
+private readonly AssemblyBuilder[] assemblyBuilders;
+public readonly MTuple[] ModuleArray;
+private readonly TTuple[][] typePairArrays;
+private readonly MdTuple[][][] methodPairArray2ds;
+private readonly CTuple[][][] constructorPairArray2ds;
+private readonly FTuple[][][] fieldPairArray2ds;
+private readonly FTuple[][][] staticFieldPairArray2ds;
+
+public readonly TyTuple[][] Type2dArray;
+
+private readonly IConverterWithGenericParameter converter;
+
+public ConstExprBuilder(ModuleDefinition[] moduleDefinitions)
+{
+    assemblyBuilders = new AssemblyBuilder[moduleDefinitions.Length];
+    for (var i = 0; i &lt; assemblyBuilders.Length; i++)
+        assemblyBuilders[i] = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("ConstExpr" + i), AssemblyBuilderAccess.Run);
+    ModuleArray = new MTuple[moduleDefinitions.Length];
+    typePairArrays = new TTuple[ModuleArray.Length][];
+    methodPairArray2ds = new MdTuple[ModuleArray.Length][][];
+    constructorPairArray2ds = new CTuple[ModuleArray.Length][][];
+    fieldPairArray2ds = new FTuple[ModuleArray.Length][][];
+    staticFieldPairArray2ds = new FTuple[ModuleArray.Length][][];
+    Type2dArray = new TyTuple[ModuleArray.Length][];
+
+    ConstructTypeBuilders(moduleDefinitions);
+    converter = new NotCreatedConverter(ModuleArray, typePairArrays, methodPairArray2ds, constructorPairArray2ds, fieldPairArray2ds, staticFieldPairArray2ds);
+    ConstructFields();
+    ConstructMethodBuilderSignatures();
+    ConstructMethodBuilderBodies();
+    ConstructConstructorBuilderBodies();
+    Publish();
+}
+
+private void Publish()
+{
+    for (var moduleIndex = 0; moduleIndex &lt; Type2dArray.Length; moduleIndex++)
+    {
+        ref TyTuple[] typeArray = ref Type2dArray[moduleIndex];
+        ref TTuple[] sourceArray = ref typePairArrays[moduleIndex];
+        typeArray = sourceArray.Length == 0 ? Array.Empty&lt;TyTuple&gt;() : new TyTuple[sourceArray.Length];
+        for (var typeIndex = 0; typeIndex &lt; typeArray.Length; typeIndex++)
+        {
+            TTuple source = sourceArray[typeIndex];
+            TyTuple createType = source.Item1.CreateType();
+            if (createType is null) throw new NullReferenceException(source.Item2.FullName);
+            typeArray[typeIndex] = (createType, source.Item2);
+        }
+    }
+}
+
+
+
+ConstExprBuilderでは読み込んだModuleDefinitionの数だけ新規にAssemblyBuilderとModuleBuilderを定義する。
+そしてConstExpr属性が付与された型に対応するTypeBuilderをModuleBuilderを用いて定義する。
+型を一周巡回した後、改めてフィールド情報やメソッドのシグネチャ情報を取得して定義する。
+大凡の外形が定まった後、初めてMethodBuilderからILGeneratorを得、メソッドの中身を再構築する。そして全体を過不足なく再構成した後、Publish()内部で全てのTypeBuilderに対してCreateTypeメソッドを実行して再構築を完了し、実行可能なメソッドを得る。
+Target.cs全文
+
+
+Target.cs
+using MetaProgramming;
+
+namespace Target
+{
+    [ConstExpr]
+    public static class Test
+    {
+        [ConstExpr] public static int Field;
+
+        [ConstExpr, ConstantInitializer(nameof(Field))]
+        public static int Initializer()
+        {
+            return 14;
+        }
+
+        public static int Accessor() =&gt; Field;
+
+        [ConstExpr]
+        public static sbyte D()
+        {
+            return new Q&lt;sbyte&gt;(114).value;
+            //return FFF&lt;int&gt;.PPT(14);
+        }
+
+        [ConstExpr]
+        public static int D2()
+        {
+            return Q&lt;long&gt;.P(32);
+            //return FFF&lt;int&gt;.PPT(14);
+        }
+
+        [ConstExpr]
+        public static int Z() =&gt; D() &lt;&lt; 4;
+
+        [ConstExpr]
+        public static int Z2() =&gt; D2() - 4;
+
+        [ConstExpr]
+        public static int Z3&lt;T&gt;() where T : unmanaged =&gt; Y(1);
+
+        [ConstExpr]
+        public static int Z4() =&gt; Z3&lt;char&gt;();
+
+        [ConstExpr]
+        public static int Y(int a)
+        {
+            var arr = Array(24);
+            var arr2 = Array(12);
+            var arr3 = Array(4);
+            var arr4 = Array(1);
+            var arr5 = Array(9);
+            if (a == 1 &amp;&amp; arr != null) return arr.Length;
+            return Array(0).Length - 1;
+        }
+
+        [ConstExpr]
+        public static double[] Array(int a)
+        {
+            var answer = new double[a];
+            for (int i = 0; i &lt; answer.Length; i++)
+            {
+                answer[i] = i + 0.5;
+            }
+            return answer;
+        }
+    }
+
+    [ConstExpr]
+    interface T {}
+
+    [ConstExpr]
+    public struct Q&lt;J&gt; where J : unmanaged
+    {
+        public J value;
+        [ConstExpr]
+        public Q(J value)
+        {
+            this.value = value;
+        }
+
+        [ConstExpr]
+        public static T P&lt;T&gt;(T v) where T : unmanaged =&gt; new Q&lt;T&gt;(v).value;
+    }
+
+    /*[ConstExpr]
+    public static class FFF&lt;T&gt; where T : unmanaged
+    {
+        [ConstExpr]
+        public static T PPT(T d)
+        {
+            return new Q&lt;T&gt;(d).value;
+        }
+    }*/
+}
+
+
+
+ConsoleTest.cs全文
+
+
+ConsoleTest.cs
+using System;
+using Target;
+
+namespace ConsoleTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine(Test.Array(1)[0]);
+        }
+    }
+}
+
+
+
+.NET系言語にポストコンパイル時という実行環境を作り出した意義は大きい。
+C#やF#の可能性が大きく広がったことは間違いない。以後の記述は現時点で何がこの研究において実現されていないかの補足であり、今後の課題である。現在のpostはConstExprメソッドの扱いがシビアであるので、そこを課題として取り扱いを向上させるべきではある。具体的には次のような制約がある。System.ValueTupleやSystem.MathなどのConstExprメソッドの内部で使用する分には問題のない構造体やstaticメソッド群を利用したい。
+だが、現在の抽象マシンはConstExprとマークされた型とメソッドのみを元に構築される。
+この制約は何らかの方法で突破せねばなるまい。ILではSystem.String型も参照型でありながらリテラルとして使用可能である(ldstrやldnullなど)。
+文字列も定数埋め込み可能となればさらに便利になるに違いない。仮称「中３女子」として現在BOOTHで公開しています。
+この「中３女子」という名前はC++のconstexprで有名なボレロ村上氏から来ています。
+もっとおかたくて真面目でわかりやすく覚えやすい名前の案があれば「中３女子」から変更し、GitHubに公開するつもりです。C#でconstexprを再現することにどれほどの需要があるのか正直実現した自分にもわからないのです。
+憧れは止められないので、これから用途を考えます。1: constexpr
+2: ctfe
+3: Mono.Cecil
+4: MicroBatchFramework
+
+

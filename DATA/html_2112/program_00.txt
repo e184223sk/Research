@@ -1,0 +1,69 @@
+using System;
+using UniRx;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace ProjectName.Scripts
+{
+    // Modelは、ScriptableObjectにするかPresenterないでnew して生成していた
+    public class Model : ScriptableObject, IDisposable
+    {
+        private readonly ReactiveProperty&lt;int&gt; _countReactiveProperty = new ReactiveProperty&lt;int&gt;();
+        public IReactiveProperty&lt;int&gt; CountReactiveProperty =&gt; _countReactiveProperty;
+
+        public void CountUp()
+        {
+            _countReactiveProperty.Value++;
+        }
+
+        public void Dispose()
+        {
+            _countReactiveProperty?.Dispose();
+        }
+    }
+
+    public class Presenter : MonoBehaviour
+    {
+        [SerializeField] private Model _model = default;
+        [SerializeField] private View _view = default;
+
+        private void Start()
+        {
+            Bind();
+            SetEvent();
+        }
+
+        // Modelからパラメータの変更通知は全てここに書いていた
+        private void Bind()
+        {
+            _model.CountReactiveProperty
+                .TakeUntilDestroy(this)
+                .Subscribe(_view.UpdateCount);
+        }
+
+        // Viewからの入力受け取りは全てここに書いていた
+        private void SetEvent()
+        {
+            _view.OnCountUpAsObservable()
+                .TakeUntilDestroy(this)
+                .Subscribe(_ =&gt; _model.CountUp());
+        }
+    }
+
+    public class View : MonoBehaviour
+    {
+        [SerializeField] private Text _text = default;
+        [SerializeField] private Button _button = default;
+
+        public IObservable&lt;Unit&gt; OnCountUpAsObservable()
+        {
+            return _button.OnClickAsObservable();
+        }
+
+        public void UpdateCount(int count)
+        {
+            _text.text = count.ToString();
+        }
+    }
+}
+

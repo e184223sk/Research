@@ -1,0 +1,56 @@
+
+using AtCoder;
+using AtCoder.Internal;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.X86;
+class Program
+{
+    static void Main()
+    {
+        SourceExpander.Expander.Expand();
+
+        // https://atcoder.jp/contests/practice2/tasks/practice2_j
+        var line = Console.ReadLine().Split(' ');
+        var N = int.Parse(line[0]);
+        var Q = int.Parse(line[1]);
+        var seg = new Segtree&lt;long, Op&gt;(Console.ReadLine().Split(' ').Select(long.Parse).ToArray());
+
+        for (int q = 0; q &lt; Q; q++)
+        {
+            line = Console.ReadLine().Split(' ');
+            int t = int.Parse(line[0]);
+            int l = int.Parse(line[1]) - 1;
+            int r = int.Parse(line[2]);
+            switch (t)
+            {
+                case 1:
+                    seg[l] = r;
+                    break;
+                case 2:
+                    Console.WriteLine(seg.Prod(l, r));
+                    break;
+                case 3:
+                    Console.WriteLine(1 + seg.MaxRight(l, num =&gt; num &lt; r));
+                    break;
+            }
+        }
+    }
+}
+struct Op : ISegtreeOperator&lt;long&gt;
+{
+    public long Identity =&gt; long.MinValue;
+    public long Operate(long x, long y) =&gt; Math.Max(x, y);
+}
+#region Expanded
+namespace AtCoder { public interface ISegtreeOperator&lt;T&gt; { T Identity { get; } T Operate(T x, T y); } [DebuggerTypeProxy(typeof(Segtree&lt;,&gt;.DebugView))] public class Segtree&lt;TValue, TOp&gt; where TOp : struct, ISegtreeOperator&lt;TValue&gt; { private static readonly TOp op = default; public int Length { get; } internal readonly int log; internal readonly int size; internal readonly TValue[] d; public Segtree(int n) { DebugUtil.Assert(0 &lt;= n); AssertMonoid(op.Identity); Length = n; log = InternalBit.CeilPow2(n); size = 1 &lt;&lt; log; d = new TValue[2 * size]; Array.Fill(d, op.Identity); } public Segtree(TValue[] v) : this(v.Length) { for (int i = 0; i &lt; v.Length; i++) d[size + i] = v[i]; for (int i = size - 1; i &gt;= 1; i--) { Update(i); } } [MethodImpl(MethodImplOptions.AggressiveInlining)] internal void Update(int k) =&gt; d[k] = op.Operate(d[2 * k], d[2 * k + 1]); public TValue this[int p] { [MethodImpl(MethodImplOptions.AggressiveInlining)] set { AssertMonoid(value); DebugUtil.Assert((uint)p &lt; Length); p += size; d[p] = value; for (int i = 1; i &lt;= log; i++) Update(p &gt;&gt; i); } [MethodImpl(MethodImplOptions.AggressiveInlining)] get { DebugUtil.Assert((uint)p &lt; Length); AssertMonoid(d[p + size]); return d[p + size]; } } [MethodImpl(MethodImplOptions.AggressiveInlining)] public TValue Slice(int l, int len) =&gt; Prod(l, l + len); [MethodImpl(MethodImplOptions.AggressiveInlining)] public TValue Prod(int l, int r) { DebugUtil.Assert(0 &lt;= l &amp;&amp; l &lt;= r &amp;&amp; r &lt;= Length); TValue sml = op.Identity, smr = op.Identity; l += size; r += size; while (l &lt; r) { if ((l &amp; 1) != 0) sml = op.Operate(sml, d[l++]); if ((r &amp; 1) != 0) smr = op.Operate(d[--r], smr); l &gt;&gt;= 1; r &gt;&gt;= 1; } AssertMonoid(op.Operate(sml, smr)); return op.Operate(sml, smr); } public TValue AllProd =&gt; d[1]; public int MaxRight(int l, Predicate&lt;TValue&gt; f) { DebugUtil.Assert((uint)l &lt;= Length); DebugUtil.Assert(f(op.Identity)); if (l == Length) return Length; l += size; var sm = op.Identity; do { while (l % 2 == 0) l &gt;&gt;= 1; if (!f(op.Operate(sm, d[l]))) { while (l &lt; size) { l = (2 * l); if (f(op.Operate(sm, d[l]))) { sm = op.Operate(sm, d[l]); l++; } } return l - size; } sm = op.Operate(sm, d[l]); l++; } while ((l &amp; -l) != l); return Length; } public int MinLeft(int r, Predicate&lt;TValue&gt; f) { DebugUtil.Assert((uint)r &lt;= Length); DebugUtil.Assert(f(op.Identity)); if (r == 0) return 0; r += size; var sm = op.Identity; do { r--; while (r &gt; 1 &amp;&amp; (r % 2) != 0) r &gt;&gt;= 1; if (!f(op.Operate(d[r], sm))) { while (r &lt; size) { r = (2 * r + 1); if (f(op.Operate(d[r], sm))) { sm = op.Operate(d[r], sm); r--; } } return r + 1 - size; } sm = op.Operate(d[r], sm); } while ((r &amp; -r) != r); return 0; } [DebuggerDisplay("{" + nameof(value) + "}", Name = "{" + nameof(key) + ",nq}")] private struct DebugItem { public DebugItem(int l, int r, TValue value) { if (r - l == 1) key = $"[{l}]"; else key = $"[{l}-{r})"; this.value = value; } [DebuggerBrowsable(DebuggerBrowsableState.Never)] private readonly string key; [DebuggerBrowsable(DebuggerBrowsableState.Never)] private readonly TValue value; } private class DebugView { private readonly Segtree&lt;TValue, TOp&gt; segtree; public DebugView(Segtree&lt;TValue, TOp&gt; segtree) { this.segtree = segtree; } [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)] public DebugItem[] Items { get { var items = new List&lt;DebugItem&gt;(segtree.Length); for (int len = segtree.size; len &gt; 0; len &gt;&gt;= 1) { int unit = segtree.size / len; for (int i = 0; i &lt; len; i++) { int l = i * unit; int r = Math.Min(l + unit, segtree.Length); if (l &lt; segtree.Length) items.Add(new DebugItem(l, r, segtree.d[i + len])); } } return items.ToArray(); } } } [Conditional("DEBUG")] public static void AssertMonoid(TValue value) { DebugUtil.Assert(op.Operate(value, op.Identity).Equals(value), $"{nameof(op.Operate)}({value}, {op.Identity}) != {value}"); DebugUtil.Assert(op.Operate(op.Identity, value).Equals(value), $"{nameof(op.Operate)}({op.Identity}, {value}) != {value}"); } } } 
+namespace SourceExpander { public class Expander { [Conditional("EXPANDER")] public static void Expand(string inputFilePath = null, string outputFilePath = null, bool ignoreAnyError = true) { } public static string ExpandString(string inputFilePath = null, bool ignoreAnyError = true) { return ""; } } } 
+namespace AtCoder.Internal { internal static class DebugUtil { [Conditional("DEBUG")] public static void Assert(bool condition, string reason = null) { if (!condition) throw new DebugAssertException(reason); } [Conditional("DEBUG")] public static void Assert(Func&lt;bool&gt; conditionFunc, string reason = null) { if (!conditionFunc()) throw new DebugAssertException(reason); } } } 
+namespace AtCoder.Internal { public static class InternalBit { [MethodImpl(MethodImplOptions.AggressiveInlining)] public static int ExtractLowestSetBit(int n) { if (Bmi1.IsSupported) { return (int)Bmi1.ExtractLowestSetBit((uint)n); } return n &amp; -n; } [MethodImpl(MethodImplOptions.AggressiveInlining)] public static int BSF(uint n) { DebugUtil.Assert(n &gt;= 1); return BitOperations.TrailingZeroCount(n); } public static int CeilPow2(int n) { var un = (uint)n; if (un &lt;= 1) return 0; return BitOperations.Log2(un - 1) + 1; } } } 
+namespace AtCoder.Internal { public class DebugAssertException : Exception { public DebugAssertException() : base() { } public DebugAssertException(string message) : base(message) { } public DebugAssertException(string message, Exception innerException) : base(message, innerException) { } } } 
+#endregion Expanded
+

@@ -1,0 +1,34 @@
+もくじ
+→https://qiita.com/tera1707/items/4fda73d86eded283ec4fまずは、自前のユーザーコントロールを作成して、それがもつプロパティに値をバインドして、ユーザーコントロールを使う側(画面側)から操作する、また、ユーザーコントロール側からなにか値を受け取ったりする、ということをしたい。で、やりたいことは、
+使う側からプロパティを介して値をセットするときに、もしユーザーコントロール側が持っている「正しい値の範囲」からセットされた値が逸脱していた場合に、ユーザーコントロール側でそれを正しい値の範囲に丸めたい。かつ、その丸めた値を使う側のプロパティの値にも反映させたい。イメージとしては、このような感じ。①から④のようなことをしたい。
+下記のような、画面(MainWindow)に、簡単なユーザーコントロール(SimpleUserControl)を含むものを作って試す。
+実験のイメージとしては、としようと考えたが、試してみた結果、上の④が、思ったようにいかなかった。ユーザーコントロール側では、画面側に向けたインターフェースとしてDependencyPropertyを使う。(これはもうそういうものだとして覚える)そのDependencyPropertyには、セットされた値に対してということができるような仕組みが用意されている。それぞれ、というもの。上のサンプルでは、SimpleUserControl.xaml.csの中で定義している依存関係プロパティMyTextPropertyを作るときに使われている。(使い方は実験コードのコメントの通り)上のほうの図の中の、のうち、①②③まではうまくいった。(③は、途中まで？うまくいった)が、④がうまくいかなかった。上で挙げた仕組みのどこかで値を丸める(=サンプル中のMyTextPropを丸める)と、MyTextPropの値は意図通り丸めることができるのだが、それが画面側のプロパティ(=サンプル中のDispText)に反映されてくれない。通常は、上のほうの図のようにバインドしたときは、ユーザーコントロール側でMyTextPropの値に何か入れてやると、画面側のDispTextも一緒に変化してくれる。が、今回の場合はそうはならなかった。色々試したところ、っぽい。(変化検出というのは、PropertyChangedCallbackで設定したメソッドもだが、試したところ、TextBoxのTextChangedイベントハンドラでも同様だった。)さらに試しに、画面とユーザーコントロールに、DispTextとMyTextPropとは関係ないプロパティと依存関係プロパティをもうひとつずつ作ってバインドし、上のようなMyTextPropの変化の流れの中で値を書き換えてやると、うまく画面側のプロパティにも書き換えた値が反映された。うまくまとめられないが、結果、上記のように丸められなかったので、実験コードのValidateStringValue()メソッドに書いた処理のように、
+異常な値の場合は例外を吐くようにして、画面側で「異常な値」をsetしたところにお知らせする ようにした。
+(これが正しいやり方なのかどうかはわからないが...)妥当性検証など
+https://blog.okazuki.jp/entry/2014/08/17/220810[C#][WPF]DependencyObjectって　その２
+http://blogs.wankuma.com/kazuki/archive/2008/01/29/119892.aspx実際に動かして試したところ、ValidateValueCallbackの中でreturn falseすると、
+ArgumentException例外を投げてくれるわけではなくプロパティの値が初期値に戻る(PropertyMetadataの第一引数)ような動きをしている。
+その際、デバッグ出力の欄にはSystem.Windows.Data Error: 5 : Value produced by BindingExpression is not valid for target property.; Value='AAAAAAA' BindingExpression:Path=DispText; DataItem='MainWindow' (Name='root'); target element is 'SimpleUserControl' (Name='root'); target property is 'MyTextProp' (type 'String')というMsgが出ている。
+例外は投げないが、異常値なので初期値に戻すということ？詳細は調べきれてない。どうしても親画面側のプロパティの値を一緒に丸めてしまいたいときは、下記のようにして無理やりできるのはできた。
+(親のプロパティ名を指定してしまっているので、依存性が出来てしまってUserControlの意味なしになる)もう他でそのUserControlを絶対使わなくて、どうしても今すぐそういうことがしたいときはこれで逃げれるかも。PropertyChangeハンドラの中で1msのDispatcherTimerをかけて、TImerTimckの中で、そのプロパティの値を入れなおしてやると、画面側のプロパティも、ユーザーコントロール側のプロパティの値になってくれる。
+※一応、動き的にはそれっぽく動く。
+→やっぱり、自分の変化等ハンドラ内でなければ、普通に値をセットしたらソース側に反映される。、 が、絶対なにか副作用がありそう、、、MSDOCS 依存関係プロパティとは？
+https://docs.microsoft.com/ja-jp/windows/uwp/xaml-platform/custom-dependency-propertiesXAMLコードから生成されるプログラム・コードを理解する
+依存関係プロパティを結構詳しく解説してくれている
+https://www.atmarkit.co.jp/ait/articles/1008/03/news097_3.htmlWPFの解説、結構わかりやすい
+https://www.atmarkit.co.jp/ait/series/2794/さんこう
+https://stackoverflow.com/questions/3894016/how-do-you-expose-a-dependency-property-of-a-private-internal-object-via-the-in同じようなことでつまってたっぽい。
+※PropertyChangeで自分に自分の値を入れたらいけた、とあるが、試したらダメだったが。。。
+http://var.blog.jp/archives/67898237.html下記ページ、自分が実験して「こういう動きするのかな？」と感じたことが、全部書かれてる。超有用。
+http://bbs.wankuma.com/index.cgi?mode=al2&amp;namber=36371&amp;KLOG=63
+→□投稿者/ Hongliang (402回)-(2009/05/29(Fri) 07:13:00) 
+　CoeceValueの矯正の結果が、bindingsourceに伝わらないのは仕様バグっぽいとのこと
+→□投稿者/ 囚人 (365回)-(2009/05/29(Fri) 07:19:34) 
+　CLRプロパティでは、setvalue,getvalue以外のことをしないほうがよい
+→□投稿者/ Hongliang (402回)-(2009/05/29(Fri) 07:13:00) 
+　また双方向バインディングでは当然ながらバインディングソースからの設定に対して CLR プロパティでの値チェックは無力です。
+　直接 SetValue が呼び出されますからね
+⇒つまり、　CoeceValueで強制した値はbindingソース側に伝えることができない。(自分で試した限り、PropertyChangedCallbackも一緒。ValidateValueCallbackでfalse返しても、bindingソース側はかわらない)
+　イコール、UserContorl内のプロパティとbindibgソース側のプロパティ両方の値を丸める処理には、これは使えない。
+
+

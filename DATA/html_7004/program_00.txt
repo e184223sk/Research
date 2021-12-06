@@ -1,0 +1,73 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+public class RuntimeCharacterAtlasTest : MonoBehaviour
+{
+    public Texture2D BodyTex;
+    public Texture2D HairTex;
+    public Texture2D EyeTex;
+
+    public Texture2D AtlasTex;
+    public Material AtlasMaterial;
+
+    public SkinnedMeshRenderer[] BodyMeshs;
+    public SkinnedMeshRenderer[] HairMeshs;
+    public SkinnedMeshRenderer[] EyeMeshs;
+
+    public Rect[] Rects;
+
+    public IEnumerator Start()
+    {
+        // AtlasTextureの生成.
+        AtlasTex = new Texture2D(2048, 2048);
+
+        // Unity起動直後は正確に計測できないのでしばらく待つ.
+        yield return new WaitForSeconds(3f);
+
+        // ~~~~~計測開始~~~~~
+        Stopwatch sw = new Stopwatch();
+        sw.Start();
+
+        // TextureのAtlas化を行う.
+        // Rects に各Textureの領域情報が返ってくる、順番は引数のTexture配列と同じ.
+        Rects = AtlasTex.PackTextures(new [] {BodyTex, HairTex, EyeTex}, 2);
+
+        // Atlas用のMaterialにAtlasTextureを割り当てる
+        AtlasMaterial.mainTexture = AtlasTex;
+
+        // PackTextureに渡した順番でUVを更新
+        ApplyUVAndMaterial(BodyMeshs, Rects[0], AtlasMaterial);
+        ApplyUVAndMaterial(HairMeshs, Rects[1], AtlasMaterial);
+        ApplyUVAndMaterial(EyeMeshs, Rects[2], AtlasMaterial);
+
+        // ~~~~~計測終了~~~~~
+        sw.Stop();
+        //UnityEngine.Debug.Log("total atlas create time = " + sw.ElapsedTicks + " ticks");
+    }
+
+    // UVを更新して、AtlasMaterialを割り当てる
+    public void ApplyUVAndMaterial(SkinnedMeshRenderer[] meshs, Rect rect, Material atlasMaterial)
+    {
+        foreach (var mesh in meshs)
+        {
+            var uvs = new List&lt;Vector2&gt;();
+            // 元のMesh情報を上書きしないように、Instanctiateしてメッシュをコピー
+            mesh.sharedMesh = Instantiate(mesh.sharedMesh);
+            // 元々のUV情報を取得
+            mesh.sharedMesh.GetUVs(0, uvs);
+            // Atlasマテリアルを割り当て
+            mesh.material = atlasMaterial;
+
+            for (int i = 0; i &lt; uvs.Count; ++i)
+            {
+                // Atlas化してずれたUVを更新する.
+                uvs[i] = new Vector2(uvs[i].x * rect.width + rect.x, uvs[i].y * rect.height + rect.y);
+                // 新しいUVを割り当て
+                mesh.sharedMesh.SetUVs(0, uvs);
+            }
+        }
+    }
+}
+

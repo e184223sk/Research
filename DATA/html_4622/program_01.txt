@@ -1,0 +1,76 @@
+
+public delegate IEnumerator OnCompleteDownloadEachBundle( string _bundleName, Hash128 _bundleHash);
+public delegate void OnCompleteDownloadAllBundle( int _isSucceededCount, string[] _failedList); 
+public class DownloadRequestParam
+{
+    public string AssetName;
+    public Hash128 AssetHash;
+    public OnCompleteDownloadEachBundle OnCompleteDownload;
+}
+
+public IEnumerator DoDownloadAssetBundles( DownloadRequestParam[] _reqParams, OnCompleteDownloadAllBundle _onAllComplete)
+{
+    // DL 対象が無い
+    if( _reqParams == null || _reqParams.Length &lt; 1)
+    {
+        _onAllComplete?.Invoke( 0, new string[]{} );
+        yield break;
+    }
+
+    // 失敗したリストを用意
+    List&lt;string&gt; failedList = new List&lt;string&gt;();
+
+    //各アセットのDownload
+    foreach( var p in _reqParams)
+    {
+        Debug.Assert( p != null, "ReqParam is NULL");
+        string uri = $"{AssetManager.I.GetServerUrl()}/{p.AssetName}";
+        #if UNITY_2018_OR_NEWER
+        using( UnityWebRequest webRequest = UnityWebRequest.Get( uri ) )
+        #else
+        using( UnityWebRequest webRequest = UnityWebRequest.Get( uri ) )
+        #endif
+        {
+            // 重複ダウンロード禁止
+            if( IsAlreadyDownloading(uri))
+            {
+                continue;
+            }
+            // Cacheにあるならそっちのロード処理に任せればいい
+            if( AssetBundleCacheController.IsCached( p.AssetName, p.AssetHash )
+            {
+                continue;
+            }
+            //古いキャッシュがあるとDownload失敗するので削除
+            AssetBundleCacheController.ClearTargetOldAssetCache( p.AssetName, p.AssetHash);
+            // DL 開始 &amp; 終了待機
+            Debug.Log($"[Download] {uri}");
+            #if UNITY_2017_3_OR_NEWER
+            yield return webRequest.SendWebRequest();
+            #else
+            yield return webRequest.Send();
+            #endif
+
+            bool isSucceeded = ( ! webRequest.isHttpError &amp;&amp; !webRequest.isNetworkError);
+            if( isSucceeded )
+            {
+                if( webRequest.downloadHandler.data != null )
+                {
+                    // Cache に保存
+                    bool ret = AssetBundleCacheController.WriteAssetBundle( p.AssetName, p.AssetHash, webRequest.downloadHandler.data );
+                    Debug.Log($"[Cache] WriteFile{p.AssetName}:{ret}" );
+                }
+                yield return p.OnCompleteDownload?.Invoke( p.AssetName, p.AssetHash );
+            }
+            else    
+            {
+                failedList.Add( p.AssetName);
+            }
+        }
+    }
+    // 全工程の終了を確実にするため1f 待つ
+    yield return null;
+    // 終了コールバック
+    _onAllComplete?.Invoke( _reqParams.Length - failedList.Count, failedList.ToArray() );
+}
+

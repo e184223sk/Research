@@ -1,0 +1,91 @@
+
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+
+public class DecodeStageScript : MonoBehaviour {
+    public StageObjectData stageObjectData;
+
+    // Use this for initialization
+    void Awake () {
+        string text;
+        GameObject[] trials = GameObject.FindGameObjectsWithTag("trialTag");
+        if (trials.Length == 0)
+        {
+            TextAsset textAsset = DataManager.GetPlayStagecodeText();
+            if(textAsset == null)
+            {
+                textAsset = (Resources.Load("Data/StageCode_Data") as StageCodeData).stagecodeText[0][0];
+            }
+            text = textAsset.text;
+
+        }
+        else
+        {
+            GameObject trialObject = trials[0];
+            text = trialObject.GetComponent&lt;EncodeStage.TrialCode&gt;().encodetext;
+        }
+
+        string[] textline = text.Split('\n');
+
+        foreach(string stageobjectText in textline.OrderBy(c=&gt; int.Parse(c.Split(' ')[0])).ToList())
+        {
+            string[] indexString = stageobjectText.Split(' ');
+            int objectID = int.Parse(indexString[0]);
+            float objectx = float.Parse(indexString[1]);
+            float objecty = float.Parse(indexString[2]);
+            int groupID = int.Parse(indexString[3]);
+            int[] abilityIDList = indexString.Skip(4).Select(x =&gt; int.Parse(x)).ToArray();
+            //Debug.Log(abilityIDList.Count);
+            var objectData = stageObjectData.objectList[objectID];
+            GameObject objectPrefab = objectData.Prefab;
+            GameObject instance;
+            if (objectData.NoParent)
+                instance = Instantiate(objectPrefab);
+            else
+            {
+                if (objectData.haveID)
+                {
+                    if (GameObject.Find(objectData.parentName.ToString() + groupID) == null)
+                    {
+                        GameObject oldparent = Resources.Load&lt;GameObject&gt;("Prefab/" + objectData.parentName.ToString());
+                        GameObject newParent = Instantiate(oldparent, GameObject.Find(oldparent.tag).transform);
+                        newParent.name = objectData.parentName.ToString() + groupID;
+                        /*if(objectData.Prefab.tag == "Block")
+                        {
+                            newParent = newParent.transform.Find("Walls").gameObject;
+                        }*/
+                        instance = Instantiate(objectPrefab, newParent.transform);
+                    }
+                    else
+                    {
+                        instance = Instantiate(objectPrefab, GameObject.Find(objectData.parentName.ToString()+groupID).transform);
+                    }
+                }
+                else
+                {
+                    GameObject parent;
+                    if((parent = GameObject.Find(objectData.parentName.ToString())) == null)
+                    {
+                        GameObject parentPrefab = Resources.Load&lt;GameObject&gt;("Prefab/" + objectData.parentName.ToString());
+                        parent = Instantiate(parentPrefab, GameObject.Find(parentPrefab.tag).transform);
+                        parent.name = objectData.parentName.ToString();
+                    }
+                    instance = Instantiate(objectPrefab, parent.transform);
+                }
+
+            }
+
+            instance.transform.position = new Vector2(objectx, objecty);
+
+            if(abilityIDList != null)
+            {
+                instance.GetComponent&lt;StageObject&gt;().SetStats(abilityIDList);
+            }
+        }
+
+    }    
+}
+

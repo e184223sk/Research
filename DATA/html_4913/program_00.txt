@@ -1,0 +1,66 @@
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Google.Apis.Sheets.v4;
+using Google.Apis.Sheets.v4.Data;
+using Google.Apis.Util.Store;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+
+namespace PlayGround
+{
+    class Program
+    {
+        // もしスコープを変えた時は事前にあるcredential（~/.credentials/sheets.googleapis.com-dotnet-quickstart.json）を消すこと
+        static string[] Scopes = { SheetsService.Scope.Spreadsheets };
+        static string ApplicationName = "Hoge App";
+
+        static void Main(string[] args)
+        {
+            UserCredential credential;
+
+            // credentialを取得
+            using (var stream =
+                new FileStream("client_secret.json", FileMode.Open, FileAccess.Read))
+            {
+                string credPath = AppDomain.CurrentDomain.BaseDirectory;
+                credPath = Path.Combine(credPath, ".credentials/sheets.googleapis.com-dotnet-quickstart.json");
+
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.Load(stream).Secrets,
+                    Scopes,
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(credPath, true)).Result;
+                Console.WriteLine("Credentialの保存先: " + credPath);
+            }
+
+            // Google Sheets API サービスを作る
+            var service = new SheetsService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = ApplicationName,
+            });
+
+            // スプレッドシートID
+            String spreadsheetId = "コピーしたスプレッドシートID";
+
+            // データを新しい行に書き込む
+            var wv = new List&lt;IList&lt;object&gt;&gt;()
+            {
+                new List&lt;object&gt;{"=ROW()","Bです","日付：", DateTime.Now.ToString()}
+            };
+            var body = new ValueRange() { Values = wv };
+            var req = service.Spreadsheets.Values.Append(body, spreadsheetId, "Sheet1!A1");
+            req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+            var result = req.Execute();
+
+            // 終わり
+            Console.WriteLine("書き込み完了");
+
+            Console.Read();
+        }
+    }
+}
+

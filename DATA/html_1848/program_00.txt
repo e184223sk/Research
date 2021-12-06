@@ -1,0 +1,239 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+
+namespace TegakiLib
+{
+    public class Tegaki : PictureBox
+    {
+        private Bitmap canvas;
+        private Graphics g;
+        private Pen p;
+        private bool writing = false;
+        private int pointCount = 0;
+        private bool isInit = true;
+        private int initPositionX = 0;
+        private int initPositionY = 0;
+
+        /// &lt;summary&gt;
+        /// up=1,down=2
+        /// left=1,right=2
+        /// &lt;/summary&gt;
+        private int[][,] hanbetu = new int[10][,];
+        private int[] refIndex = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+        public Action&lt;int&gt; exec;
+
+        public Tegaki()
+        {
+            exec = (int i) =&gt; { };
+            InitTegaki();
+        }
+        public Tegaki(Action&lt;int&gt; func)
+        {
+            exec = func;
+            InitTegaki();
+        }
+
+        private void InitTegaki()
+        {
+            canvas = new Bitmap(500, 500);
+            g = Graphics.FromImage(canvas);
+            p = new Pen(Color.Cyan, 5);
+
+            hanbetu[0] = new int[,] { { 2, 0, 0, 0 }, { 0, 2, 0, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[1] = new int[,] { { 2, 0, 0, 0 }, { 2, 0, 0, 0 }, { 2, 0, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[2] = new int[,] { { 0, 2, 0, 0 }, { 2, 0, 0, 0 }, { 0, 2, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[3] = new int[,] { { 0, 2, 0, 0 }, { 0, 1, 0, 0 }, { 0, 2, 0, 0 }, { 0, 1, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[4] = new int[,] { { 0, 1, 0, 0 }, { 1, 0, 0, 0 }, { 2, 0, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[5] = new int[,] { { 0, 1, 0, 0 }, { 2, 0, 0, 0 }, { 0, 2, 0, 0 }, { 2, 0, 0, 0 }, { 0, 1, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[6] = new int[,] { { 0, 1, 0, 0 }, { 2, 0, 0, 0 }, { 0, 2, 0, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[7] = new int[,] { { 1, 0, 0, 0 }, { 0, 2, 0, 0 }, { 2, 0, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[8] = new int[,] { { 0, 1, 0, 0 }, { 0, 2, 0, 0 }, { 0, 1, 0, 0 }, { 0, 2, 0, 0 }, { 1, 0, 0, 0 }, { 9, 9, 0, 0 } };
+            hanbetu[9] = new int[,] { { 0, 1, 0, 0 }, { 2, 0, 0, 0 }, { 0, 2, 0, 0 }, { 1, 0, 0, 0 }, { 2, 0, 0, 0 }, { 9, 9, 0, 0 } };
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            writing = true;
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            drawFin();
+            base.OnMouseLeave(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            mouseMoving();
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            drawFin();
+            base.OnMouseUp(e);
+        }
+
+        private void drawFin()
+        {
+            writing = false;
+            isInit = true;
+            int j;
+
+            g.Clear(Color.FromArgb(64, 0, 64));
+            this.Image = canvas;
+            for (int i = 0; i &lt;= 9; i++)
+            {
+                refIndex[i] = 0;
+                for (j = 0; j &lt; hanbetu[i].Length / 4; j++)
+                {
+                    hanbetu[i][j, 2] = 0;
+                    hanbetu[i][j, 3] = 0;
+                }
+            }
+        }
+
+        private void mouseMoving()
+        {
+            if (!writing) return;
+
+            int up = 1, down = 2, left = 1, right = 2;
+            int ud = 10, lr = 10;
+            int writtenNumber = 0;
+            bool m = false;
+
+            Point point = this.PointToClient(Control.MousePosition);
+
+            g.DrawRectangle(p, point.X, point.Y, 5, 5);
+            this.Image = canvas;
+
+            if (isInit)
+            {
+                initPositionX = point.X;
+                initPositionY = point.Y;
+                isInit = false;
+            }
+            pointCount++;
+            if (pointCount &gt;= 5)
+            {
+                if ((point.X - initPositionX) &gt;= 30)
+                {
+                    lr = right;
+                    isInit = true;
+                }
+                if ((point.X - initPositionX) &lt;= -30)
+                {
+                    lr = left;
+                    isInit = true;
+                }
+                if ((point.Y - initPositionY) &gt;= 30)
+                {
+                    ud = down;
+                    isInit = true;
+                }
+                if ((point.Y - initPositionY) &lt;= -30)
+                {
+                    ud = up;
+                    isInit = true;
+                }
+                pointCount = 0;
+                //isInit = true;
+
+                for (int i = 0; i &lt;= 9; i++)
+                {
+                    if (hanbetu[i][refIndex[i], 0] == ud || hanbetu[i][refIndex[i], 1] == lr)
+                    {
+                        hanbetu[i][refIndex[i], 2] = point.X;
+                        hanbetu[i][refIndex[i], 3] = point.Y;
+
+                        refIndex[i]++;
+                        if (hanbetu[i][refIndex[i], 0] == 9 || hanbetu[i][refIndex[i], 1] == 9)
+                        {
+                            switch (i)
+                            {
+                                case 0:
+                                    if ((hanbetu[0][0, 2] &lt; hanbetu[0][2, 2]) &amp;&amp; (hanbetu[0][1, 3] &gt; hanbetu[0][3, 3]) &amp;&amp;
+                                       (hanbetu[0][0, 3] - 10 &gt; hanbetu[0][3, 3]))
+                                    {
+                                        writtenNumber = 0;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 1:
+                                    if (((hanbetu[1][0, 2] + 50 &gt;= hanbetu[1][2, 2]) &amp;&amp; (hanbetu[1][0, 2] - 50 &lt;= hanbetu[1][2, 2])) &amp;&amp;
+                                            (hanbetu[4][2, 2] == 0) &amp;&amp; (hanbetu[4][2, 3] == 0) &amp;&amp;
+                                            (hanbetu[9][4, 2] == 0) &amp;&amp; (hanbetu[9][4, 3] == 0) &amp;&amp;
+                                            (hanbetu[7][0, 2] == 0) &amp;&amp; (hanbetu[7][0, 3] == 0))
+                                    {
+                                        writtenNumber = 1;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 2:
+                                    writtenNumber = 2;
+                                    m = !m;
+                                    break;
+                                case 3:
+                                    if ((hanbetu[3][0, 3] &lt; hanbetu[3][1, 3]) &amp;&amp; (hanbetu[3][2, 3] &lt; hanbetu[3][3, 3]))
+                                    {
+                                        writtenNumber = 3;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 4:
+                                    if ((hanbetu[4][1, 3] &lt; hanbetu[4][0, 3]) &amp;&amp; (hanbetu[4][1, 2] &lt; hanbetu[4][2, 2]))
+                                    {
+                                        writtenNumber = 4;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 5:
+                                    writtenNumber = 5;
+                                    m = !m;
+                                    break;
+                                case 6:
+                                    if ((hanbetu[6][1, 2] &lt; hanbetu[6][0, 2]) &amp;&amp;
+                                       (hanbetu[6][1, 2] &lt; hanbetu[6][2, 2]) &amp;&amp;
+                                       (hanbetu[6][1, 2] &lt; hanbetu[6][3, 2]) &amp;&amp;
+                                       (hanbetu[6][1, 2] &lt; hanbetu[6][4, 2]) &amp;&amp;
+                                       (hanbetu[6][0, 3] + 30 &lt; hanbetu[6][4, 3]))
+                                    {
+                                        writtenNumber = 6;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 7:
+                                    if ((hanbetu[9][3, 2] == 0) &amp;&amp; (hanbetu[9][3, 3] == 0))
+                                    {
+                                        writtenNumber = 7;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 8:
+                                    if ((hanbetu[8][0, 3] &lt; hanbetu[8][1, 3]) &amp;&amp; (hanbetu[8][2, 3] &gt; hanbetu[8][3, 3]))
+                                    {
+                                        writtenNumber = 8;
+                                        m = !m;
+                                    }
+                                    break;
+                                case 9:
+                                    if (hanbetu[9][0, 3] &lt; hanbetu[9][2, 3])
+                                    {
+                                        writtenNumber = 9;
+                                        m = !m;
+                                    }
+                                    break;
+                            }
+                            if(m) exec(writtenNumber);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

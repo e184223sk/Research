@@ -1,0 +1,116 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace EpgTimer.Common {
+    class ReserveInfoManager {
+        public static ReserveInfoManager Instance = new ReserveInfoManager();
+        class OneItem {
+            private String mDisplayText;
+            private DateTime mDisplayLimitTime;
+            private int mNormalCount = 0;
+            private TimeSpan nNormalTimeSpan = new TimeSpan();
+            private int mWarnCount = 0;
+            private int mErrorCount = 0;
+            private int mDisableCount = 0;
+            public OneItem(String displayText, DateTime displayLimitTime) {
+                this.mDisplayLimitTime = displayLimitTime;
+                this.mDisplayText = displayText;
+            }
+            public void setOneReserve(DateTime reserveTime, TimeSpan reserveTimeSpan, PROGRAM_STATUS status) {
+                if (mDisplayLimitTime &lt; reserveTime) {
+                    return;
+                }
+                switch (status) {
+                    case PROGRAM_STATUS.DISABLE:
+                        mDisableCount++;
+                        break;
+                    case PROGRAM_STATUS.NORMAL:
+                        nNormalTimeSpan += reserveTimeSpan;
+                        mNormalCount++;
+                        break;
+                    case PROGRAM_STATUS.WARN:
+                        mWarnCount++;
+                        break;
+                    case PROGRAM_STATUS.ERROR:
+                        mErrorCount++;
+                        break;
+                }
+            }
+            public void setLog(StringBuilder sb) {
+                sb.Append(mDisplayText);
+                sb.Append(":");
+                sb.AppendFormat("合計録画時間:{0,3}時間{1:00}分間 ", (int)nNormalTimeSpan.TotalHours, (int)nNormalTimeSpan.Minutes);
+                sb.AppendFormat("正常:{0,4}番組 ", mNormalCount);
+                sb.AppendFormat("警告:{0,3}番組 ", mWarnCount);
+                sb.AppendFormat("異常:{0,3}番組 ", mErrorCount);
+                sb.AppendFormat("無効:{0,3}番組", mDisableCount);
+            }
+        }
+
+        enum PROGRAM_STATUS {
+            DISABLE,
+            NORMAL,
+            WARN,
+            ERROR
+        }
+        List&lt;OneItem&gt; mSubItems = new List&lt;OneItem&gt;();
+        internal void addReserveDatas(List&lt;ReserveData&gt; list) {
+            //時刻のセット
+            DateTime now = DateTime.Now;
+            mSubItems.Clear();
+            {
+                DateTime setTime = now;
+                if (6 &lt;= setTime.Hour) {
+                    setTime = setTime.Date.AddDays(1).AddHours(6);
+                } else {
+                    setTime = setTime.Date.AddHours(6);
+                }
+                mSubItems.Add(new OneItem("   朝6時", setTime));
+            }
+            mSubItems.Add(new OneItem("  今日中", now.Date.AddDays(1)));
+            mSubItems.Add(new OneItem("24時間中", now.AddDays(1)));
+            mSubItems.Add(new OneItem("48時間中", now.AddDays(2)));
+            mSubItems.Add(new OneItem("72時間中", now.AddDays(3)));
+            mSubItems.Add(new OneItem("    合計", now.AddYears(1)));
+            list.ForEach((info) =&gt; {
+                ReserveItem item = new ReserveItem(info);
+                // Common\CommonManagerClass.cs#443 付近より
+                // RecMode 0x00 = 全サービス
+                // RecMode 0x01 = 指定サービス
+                // RecMode 0x02 = 全サービス（デコード処理なし）
+                // RecMode 0x03 = 指定サービス（デコード処理なし）
+                // RecMode 0x04 = 視聴
+                // RecMode 0x05 = 無効
+                // Common\CtrlCmdDef.cs#377 付近より
+                // かぶり状態 1:かぶってチューナー足りない予約あり 2:チューナー足りなくて予約できない
+                if (info.RecSetting.RecMode == 5) { // 無効
+                    this.addReserve(info.StartTime, TimeSpan.FromSeconds(info.DurationSecond), PROGRAM_STATUS.DISABLE);
+                } else if (info.OverlapMode == 1) { // 黄
+                    this.addReserve(info.StartTime, TimeSpan.FromSeconds(info.DurationSecond), PROGRAM_STATUS.WARN);
+                } else if (info.OverlapMode == 2) { // 赤
+                    this.addReserve(info.StartTime, TimeSpan.FromSeconds(info.DurationSecond), PROGRAM_STATUS.ERROR);
+                } else {//通常
+                    this.addReserve(info.StartTime, TimeSpan.FromSeconds(info.DurationSecond), PROGRAM_STATUS.NORMAL);
+                }
+            });
+        }
+        void addReserve(DateTime reserveTime, TimeSpan reserveTimeSpan, PROGRAM_STATUS status) {
+            foreach (var item in mSubItems) {
+                item.setOneReserve(reserveTime, reserveTimeSpan, status);
+            }
+        }
+        public String getAllLog() {
+            StringBuilder sb = new StringBuilder();
+            foreach (var item in mSubItems) {
+                item.setLog(sb);
+                sb.Append("\r\n");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+    }
+}
+
+

@@ -1,0 +1,117 @@
+More than 1 year has passed since last update.ゲームだと、パスに沿ってキャラを移動させたい時があります。
+ただ、単純に実装すると速度がバラバラになってしまいます。今回は曲線でもだいたい一定の速度で動かせるようにする実装を解説します。
+UnityならDoTweenのDoPathやCinemachineのCinemachinePathを使用すれば実装しなくても可能ですが、ベジェ曲線のみで、他の曲線を使うことはできません。
+自分で実装すれば、好きな曲線を使えます。
+ただ、今回は解説のため、ベジェ曲線を使います。この記事はCinemachineのCinemachinePathBaseを参考に作っています。
+githubこれはベジェ曲線の引数tに$Time.t$を渡すだけの実装です。
+明らかに速度がおかしいです。
+0-0.1と0.5-0.6の移動距離が違うのと、
+スタート位置から1つ目のパスまで1秒、そこからゴールまで1秒かけているのが原因です。この問題はtを0-ベジェ曲線の長さで扱えれば速度をだいたい一定にすることができます。やっていることは、tを少しずつ動かして、進んだ距離を測る。
+進んだ距離からtを返すテーブルを作るという事です。以上です。
+こうすると、距離からtに変換する関数を作成できるので、だいたい一定の速度で移動できるようになります。コード
+
+
+[SerializeField] int Segment;
+[SerializeField] PathContainer Paths;
+
+float PathLength;
+
+//セグメントの総数
+int NumKeys;
+float[] DistanceToTArray;
+float DistanceStepSize;
+
+void Start()
+{
+    Build();
+}
+
+void Build()
+{
+    PathLength = 0;
+    NumKeys = (Paths.Length-1) * Segment+1;
+
+    var tToDistance = CalcTToDistance();
+    DistanceToTArray = CalcDistanceToT(tToDistance);
+}
+
+void Update()
+{
+    transform.position = CalcPos(DistanceToT(Time.time*PathLength/2));
+}
+
+//距離からtに変換
+float DistanceToT(float distance)
+{
+    float d = distance / DistanceStepSize;
+    int index = Mathf.FloorToInt(d);
+    if(index&gt;=DistanceToTArray.Length-1)return DistanceToTArray[DistanceToTArray.Length-1];
+    float t = d - index;
+    return Mathf.Lerp(DistanceToTArray[index], DistanceToTArray[index+1], t);
+}
+
+//tをSegmentに分割して進んだ距離を配列に入れて返す
+float[] CalcTToDistance()
+{
+    var tToDistance = new float[NumKeys];
+
+    var pp = Paths[0].Pos;
+    float t = 0;
+    for (int n = 1; n &lt; NumKeys; n++)
+    {
+        t += 1f / Segment;
+        Vector3 p = CalcPos(t);
+        float d = Vector3.Distance(pp, p);
+        PathLength += d;
+        pp = p;
+        tToDistance[n] = PathLength;
+    }
+
+    return tToDistance;
+}
+
+//距離をSegmentに分割してその位置のtを配列に入れて返す
+float[] CalcDistanceToT(float[] tToDistance)
+{
+    var distanceToT = new float[NumKeys];
+    distanceToT[0] = 0;
+    DistanceStepSize = PathLength/(NumKeys-1);
+    float distance = 0;
+    int tIndex=1;
+    for (int i = 1; i &lt; NumKeys; i++)
+    {
+        distance += DistanceStepSize;
+        var d = tToDistance[tIndex];
+        while (d &lt; distance &amp;&amp; tIndex &lt; NumKeys - 1)
+        {
+            tIndex++;
+            d = tToDistance[tIndex];
+        }
+
+        var prevD = tToDistance[tIndex - 1];
+        float delta = d - prevD;
+        float t = (distance - prevD) / delta;
+        distanceToT[i] = (1f/Segment)*(t + tIndex - 1);
+    }
+
+    return distanceToT;
+}
+
+Vector3 CalcPos(float t)
+{
+    var indexA = Mathf.FloorToInt(Mathf.Min(Paths.Length - 1, t));
+    var indexB = Mathf.FloorToInt(Mathf.Min(Paths.Length - 1, indexA+1));
+    return Bezier3(
+        t-indexA,
+        Paths[indexA].Pos,
+        Paths[indexA].Pos + Paths[indexA].Tangent,
+        Paths[indexB].Pos - Paths[indexB].Tangent,
+        Paths[indexB].Pos);
+}
+
+
+以上です。
+動作するコードはこちらです。
+https://github.com/nakajimakotaro/PathSmoothMove
+
+

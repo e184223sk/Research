@@ -1,0 +1,30 @@
+public static async Task&lt;X509Certificate2&gt; GetCertificateAsync(string uri)
+{
+    var tcs = new TaskCompletionSource&lt;X509Certificate2&gt;();
+    _ = Task.Run(async () =&gt;
+    {
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (_1, c, _2, _3) =&gt;
+            {
+                tcs.TrySetResult(new X509Certificate2(c.RawData));
+                return false;
+            },
+        };
+
+        try
+        {
+            using (var hc = new HttpClient(handler))
+            {
+                await hc.GetAsync(uri);
+            }
+        }
+        catch (Exception exp)
+        {
+            tcs.TrySetException(exp);
+        }
+    });
+
+    return await tcs.Task;
+}
+

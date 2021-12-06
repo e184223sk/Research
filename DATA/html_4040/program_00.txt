@@ -1,0 +1,70 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+
+namespace Sample {
+    public class DeviceChangeBehavior {
+        private static readonly uint WM_DEVICECHANGE = 0x0219;
+
+        public static DependencyProperty CommandProperty
+            = DependencyProperty.RegisterAttached(
+                "Command",
+                typeof(ICommand),
+                typeof(DeviceChangeBehavior),
+                new PropertyMetadata(Command_PropertyChanged)
+            );
+
+        public static void SetCommand(FrameworkElement element, ICommand value)
+            =&gt; element.SetValue(CommandProperty, value);
+
+        public static ICommand GetCommand(FrameworkElement element)
+            =&gt; (ICommand)element.GetValue(CommandProperty);
+
+        private static Dictionary&lt;FrameworkElement, ICommand&gt; _commands
+            = new Dictionary&lt;FrameworkElement, ICommand&gt;();
+
+        private static void Command_PropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var element = d as FrameworkElement;
+            if (element == null) return;
+
+            if (e.NewValue != null) {
+                element.Loaded += FrameworkElement_Loaded;
+                _commands.Add(control, e.NewValue as ICommand);
+            } else {
+                element.Loaded -= FrameworkElement_Loaded;
+                var handle = ((HwndSource)HwndSource.FromVisual(element)).Handle;
+                var source = HwndSource.FromHwnd(handle);
+                source.RemoveHook(WndProc);
+                _commands.Remove(element);
+            }
+        }
+
+        private static void FrameworkElement_Loaded(object sender, RoutedEventArgs e) {
+            var element = sender as FrameworkElement;
+            if (element == null) return;
+
+            //ロード完了後でないとハンドラを登録できない
+            var handle = ((HwndSource)HwndSource.FromVisual(element)).Handle;
+            var source = HwndSource.FromHwnd(handle);
+
+            source.AddHook(WndProc);
+        }
+
+        private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) {
+            if (msg != WM_DEVICECHANGE)
+                return IntPtr.Zero;
+
+            _commands
+                .Select(x =&gt; new { ((HwndSource)HwndSource.FromVisual(x.Key))?.Handle, Command = x.Value })
+                .Where(x =&gt; x.Handle == hwnd &amp;&amp; x.Command.CanExecute(null))
+                .ForEach(x =&gt; x.Command.Execute(null));
+
+            return IntPtr.Zero;
+        }
+    }
+}
+

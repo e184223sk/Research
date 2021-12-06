@@ -1,0 +1,42 @@
+More than 1 year has passed since last update.坪倉さんが非破壊的にVRMにOVRLipSyncを適用させるライブラリを公開しました。
+こちらを使用した方がスマートです。
+VRMLipSyncContextMorphTargetちゃんとリファレンス読みましょうという話…
+Oculus Lipsync Guideこうなった原因なのですが、リファレンスを読むという発想が抜けて、なんとなくOVRLipSyncのコード読んで（とりあえずここの数字ぶっこぬけばいいんだな！）と判断して、あとは安易にグローバル変数作るというやっつけ実装をしたのが原因です。
+今後はリファレンス読む(当たり前)という事を心がけようと思います。１．OVRLipSync 1.28.0 のインポートを行う。
+２．UniVRM のインポートを行う。
+（この記事を書いた時点では v0.42 を使用しています。
+　本記事の内容的に最新版を使用して問題ないかと思います。）
+３．セットアップ済みのVRMアバターをインポートする。
+（dwango on GitHub を参考にしてVRMモデルを準備してください。）
+４．VRMLipSyncのScriptをインポートする。１．シーンの準備(スクリプト・テスト用モデルの配置)
+２．OVRLipSyncContextMorphTargetを書き換える。
+　・メッシュの設定がnullだと動かないので、メッシュのnullを無視するようにする。
+　・LipSynkの処理を外部に渡すようにフィールド変数を用意する。
+　　(この記事ではPublicで作りますが、必要であればプロパティを設定してください)
+　・メッシュにウェイト値を割り当ててる箇所を、フィールド変数に値を渡す処理に書き換える。
+３．実行して確認。
+１．空のゲームオブジェクトを作り「LipSyncScripts」等名前をつける。
+２．そのゲームオブジェクトに「OVRLipSync」と「VRMLipSync」をアタッチする。
+３．テスト用にhierarchyにVRMアバターを配置します。
+※実行中にローダー等で読み込む場合は３の作業は必要ありませんが、デフォルトだとVRMのGameObjectの名前が VRM である必要があります。
+※VRMアバターのobject名を VRM にするか、VRMLipSyncのLipSyncTargetNameを読み込むVRMアバターの名前に変更してください。別のクラスからOVRLipSyncを読み取る場合、OVRLipSyncContextMorphTargetに変更を加える必要があります。
+１つは読み取り用のフィールド変数の作成と、LipSyncの処理の変更。
+２つめはLipSyncのターゲットとなるskinnedMeshRendererの参照が外れてても無視して実行するようにする変更。１．読み取り用のフィールド変数を作り、LipSyncを変化させる箇所の書き換え上記のフィールド変数を追記してください。大体、150行目～170行目あたりにある skinnedMeshRenderer.SetBlendShapeWeight をコメントアウトし、その直後にVRMLipValue[i] = frame.Visemes[i]; を追記してください。
+この箇所はfor文で配列に割り当てられたモーフ全てに対してウェイトを与える処理を行っています。
+今回はその処理結果をフィールド変数に代入するように書き換える事で、VRMLipSyncから参照できるようにします。２．本来のLipSyncのターゲットとなるskinnedMeshRendererの参照が外れてても、無視して実行するように変更する。「skinnedMeshRenderer」で検索して、だいたい80行目～90行目(Start関数の直後)あたりにあるif文をコメントアウトします。
+ここはモーフを割り当てるメッシュの参照が外れてた場合エラーで停止する処理なのですが、今回はメッシュに対して直接命令するのではなく、一度フィールド変数を経由してLipSyncに結果を渡す必要があるのでskinnedMeshRendererの参照が外れてても無視する必要があります。「skinnedMeshRenderer」で検索して、だいたい110行目～120行目(Update関数の直後)あたりにある「&amp;&amp; (skinnedMeshRenderer != null)」をコメントアウトします。
+ここの条件式も「skinnedMeshRendererが参照されてない場合は実行しない」という処理なので、コメントアウトする必要があります。
+OVRLipSync完全に理解した。実行中にVRMを読み込んだ場合は「L」キーを押すと、処理がはじまります。
+(もしくわ、VrmLipSyncSetup()をUIなどから呼んでください。)実行中のUnityのGameタブをクリックすると自分の声がループバックするようになる問題
+OVRLipSyncにはループバックする機能が標準でついてます。
+OVRLipSyncContext のScriptを開いて ToggleAudioLoopback(); で検索するとループバックを有効にする処理が書かれている場所が分かります。この部分をコメントアウトするとループバックしなくなります。
+もしくわ、キーバインドを変更するなどして対応。OVRLipSyncのアクティブが外れると(他のウインドウを選択すると)リップシンクが停止する問題
+OVRLipSyncはアクティブが外れた場合はデフォルトでリップシンクを停止する処理が入ってます。
+OVRLipSyncMicInput のScriptを開いて StopMicrophone(); で検索するとマイクのアクティブを切り替える処理が書かれている場所が分かります。
+この部分をコメントアウトするとウインドウが非アクティブ時にマイクが停止しなくなります。Viseme Reference Images
+公式リファレンス。OVRLipSyncのモーフをどのように作ればよいか載っています。バーチャルYouTuberのやり方 #VTuber
+ようてんさんの記事。OVRLipSyncに関する細かい点について書かれています。Unity でリップシンクができる OVRLipSync を試してみた
+凹みチップスを食べてつよつよになりたい。MonoBehaviour.OnApplicationFocus(bool)
+アプリケーションが非アクティブになると実行される命令のリファレンス
+
+

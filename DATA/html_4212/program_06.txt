@@ -1,0 +1,67 @@
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Bot.Builder.Integration.AspNet.Core;
+using Microsoft.Bot.Connector.Authentication;  //認証
+using Microsoft.Bot.Configuration;
+using System;
+using System.Linq;
+
+namespace StrCountBot
+{
+    public class Startup
+    {
+        private bool _isProduction = false;
+
+        public Startup(IHostingEnvironment env)
+        {
+            //現在の実行環境がProductionかチェック
+            _isProduction = env.IsProduction();
+
+            //AppSettingsと環境変数を取得
+            var builder = new ConfigurationBuilder()
+                .SetBasePath(env.ContentRootPath)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddEnvironmentVariables();
+
+            Configuration = builder.Build();
+        }
+
+        public IConfiguration Configuration { get; }
+
+        // This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            // .botのパスとシークレット取得
+            var secretKey = Configuration.GetSection("botFileSecret")?.Value;
+            var botFilePath = Configuration.GetSection("botFilePath")?.Value;
+
+            // .botの読み込み
+            var botConfig = BotConfiguration.Load(botFilePath ?? @".\BotConfiguration.bot", secretKey);
+            services.AddSingleton(sp =&gt; botConfig ?? throw new InvalidOperationException($"The .bot config file could not be loaded. ({botConfig})"));
+
+            // 現在の実行環境におけるエンドポイントを取得
+            var environment = _isProduction ? "production" : "development";
+            var service = botConfig.Services.Where(s =&gt; s.Type == "endpoint" &amp;&amp; s.Name == environment).FirstOrDefault();
+            if (!(service is EndpointService endpointService))
+            {
+                throw new InvalidOperationException($"The .bot file does not contain an endpoint with name '{environment}'.");
+            }
+
+            services.AddBot&lt;StrCountBot&gt;(options =&gt;
+            {
+                //APP認証情報
+                options.CredentialProvider = new SimpleCredentialProvider(endpointService.AppId, endpointService.AppPassword);
+            });
+        }
+
+        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        {
+            app.UseBotFramework();
+        }
+    }
+}
+

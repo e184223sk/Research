@@ -1,0 +1,98 @@
+
+internal unsafe struct UnLoadJobTarget&lt;Tdata&gt;
+    where Tdata : class, ITextFileParser
+{
+    internal GCHandle&lt;Tdata&gt; data;
+    internal ReadStateImpl* state_ptr;  // UnLoad 対象の State. 書き換えだけ行うので生ポインタを渡す
+    internal int file_index;
+
+    public UnLoadJobTarget(int file_index, Tdata data, ReadStateImpl* state_ptr)
+    {
+        this.data = new GCHandle&lt;Tdata&gt;();
+
+        this.data.Create(data);
+        this.state_ptr = state_ptr;
+        this.file_index = file_index;
+    }
+    public unsafe void UnLoad()
+    {
+        this.state_ptr-&gt;JobState = ReadJobState.UnLoaded;
+        this.data.Target.UnLoad();
+    }
+}
+internal struct UnLoadJobInfo
+{
+    internal ReadJobState job_state;
+    internal JobHandle job_handle;
+    internal Boolean alloc_handle;
+}
+internal struct UnLoadJob&lt;Tdata&gt; : IJob, IDisposable
+    where Tdata : class, ITextFileParser
+{
+    internal NativeList&lt;UnLoadJobTarget&lt;Tdata&gt;&gt; _target;
+    internal PtrHandle&lt;UnLoadJobInfo&gt; _info;               // UnLoadJob の管理情報
+
+    public unsafe UnLoadJob(Allocator alloc)
+    {
+        _target = new NativeList&lt;UnLoadJobTarget&lt;Tdata&gt;&gt;(alloc);
+        _info = new PtrHandle&lt;UnLoadJobInfo&gt;(alloc);
+
+        _info.Target-&gt;job_state = ReadJobState.Completed;
+    }
+    public unsafe void Dispose()
+    {
+        this.DisposeHandle();
+        _target.Dispose();
+        _info.Dispose();
+    }
+    private unsafe void DisposeHandle()
+    {
+        if (_info.Target-&gt;alloc_handle)
+        {
+            for (int i = 0; i &lt; _target.Length; i++) _target[i].data.Dispose();
+            _info.Target-&gt;alloc_handle = false;
+        }
+    }
+
+    public void Clear()
+    {
+        this.DisposeHandle();
+        _target.Clear();
+    }
+
+    public unsafe void AddUnLoadTarget(int file_index, Tdata data, ReadStateImpl* state_ptr)
+    {
+        _target.Add( new UnLoadJobTarget&lt;Tdata&gt;(file_index, data, state_ptr) );
+        _info.Target-&gt;alloc_handle = true;
+    }
+    public unsafe JobHandle UnLoadAsync()
+    {
+        if(_target.Length &gt; 0)
+        {
+            _info.Target-&gt;job_state = ReadJobState.UnLoadJob;
+            _info.Target-&gt;job_handle = this.Schedule();
+            return _info.Target-&gt;job_handle;
+        }
+        else
+        {
+            // no action
+            return new JobHandle();
+        }
+    }
+
+    public unsafe ReadJobState JobState { get { return _info.Target-&gt;job_state; } }
+
+    public unsafe void Execute()
+    {
+        for (int i = 0; i &lt; _target.Length; i++) _target[i].UnLoad();
+
+        _info.Target-&gt;job_state = ReadJobState.WaitForCallingComplete;
+    }
+
+    public unsafe void Complete()
+    {
+        _info.Target-&gt;job_handle.Complete();
+        _info.Target-&gt;job_state = ReadJobState.Completed;
+    }
+}
+

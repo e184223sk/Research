@@ -1,0 +1,42 @@
+タイトルの通りです．
+UnityでもGoogle CloudのAPIを利用することで（簡単に）音声合成を行うことができます．（追記：本記事はWindowsを対象にしています．Mac環境ではランタイムで利用するライブラリをインポートするの項目で導入しなければいけないライブラリが異なるため，異なる方法で用意する必要があります）Google CloudのText-To-Speech APIを利用することで誰でも手軽に音声合成を行うことができます．
+しかし，これを利用した記事は現状あまり公開されていません．特にC#(.NET)環境での動作については，Google Cloudのドキュメンテーションページでも
+
+と非常に残念な感じです．今回これを触る機会があり，動くようにするために結構苦労しました．
+実装の際特に詰まった部分について解説しながら動くサンプルを示したいと思います．Unityプロジェクトに導入するためにあらかじめ行う作業があります．まず，Google Cloudに開発者申請を行い，APIリクエストを送る際の認証情報を取得する必要があります．
+Google Cloud Platformのページにアクセスし，利用者登録を行います．
+住所，名前，電話番号，クレジットカード番号を入力する欄がありますが，個人開発者であれば基本的に無料で利用できます．料金ページに利用料の記載があります．
+Text-To-Speechの場合，クラウドに送信した文字数に応じて料金が変動します．
+通常の音声合成とWaveNet音声（ちょっとリアルな声）で値段が変わり，以下のように無料枠と有料の場合の値段が定められています．
+利用者登録を行った後は分かりやすい名前を付けてプロジェクトを作成します．
+
+その後プロジェクトでCloud Text-To-Speech APIを有効にします．
+左上のHamburgerタブからメニューを開き，「APIとサービス」から「ライブラリ」を選びます．
+
+そこでCloud Text-To-Speechを選択し，APIを有効化します
+次に実際に利用するAPIキーを作成します．
+左上のHamburgerタブからメニューを開き，「IAMの管理」から「サービスアカウント」を選択し，サービスアカウントの作成を行います．
+
+「作成」を選択し，次に出る組織の選択はスルーして大丈夫です．
+次の「キーの作成」は必須です．
+Json形式でキーを作成し，保存します．（このキーは厳重に管理してください）
+
+これでGoogle Could Platform側での作業は終わりです．現在Google Cloud Text-To-SpeechをUnityで利用できるようなライブラリは存在しません．
+なので自分で利用するライブラリ（dll）をインポートする必要があります．Google Cloud APIはNuGetで.Net用ライブラリが公開されており，それを利用します．
+UnityにNuGetライブラリをインポートするための便利なツールに「NuGetForUnity」というものがあるので，これを利用しUnityに導入していきます．
+これを利用することで依存するライブラリをまとめてインポートできるので便利です．検索窓に「Cloud TextToSpeech」と入力することで目的のAPIが見つかるのでこれをインストールします．
+これでAssetフォルダに利用するdllがインポートできましたが，このままではunload broken assemblyというエラーが出ます．
+これはdll間で依存するライブラリを見つけられていないためで，これを回避するためにはいろいろ方法がありますが，今回は一番単純な「すべてのdllを同じディレクトリに置く」という手段を取ります．結構めんどくさいです．インポートを行った後NuGetForUnityはもう不要なので，Assetのディレクトリから該当するフォルダを削除します．（dllの入っているPackagesフォルダは消さない！）
+そしてpackages以下に存在するdllを全てpackagesの先頭フォルダに移し，纏めます．
+これでエラーは出なくなったはずです．NuGetからライブラリをインポートすることでエディタ上ではエラーが出なくなりますが，このままでは実行時にDllNotFoundException: grpc_csharp_extやEntryPointNotFoundException: grpcsharp_native_callback_dispatcher_initといったエラーが出てしまいます．ランタイム（実行時）で利用するライブラリはhttps://github.com/jsmouret/grpc-unity-package からお借りします．
+https://github.com/jsmouret/grpc-unity-package/releases から最新のgrpc-unity-package.zipをダウンロードし，Plugins/Grpc.Core/runtimes/win（利用環境によって変えてください）/x64/grpc_csharp_ex.dllをコピーし，先ほどNuGetからインポートしたフォルダに貼り付けます．これで実行時のエラーもなくなります．TextToSpeechSampleというC#スクリプトを新たに作成し，以下のスクリプトを貼り付けます．このスクリプトでは以下の処理を記述していますGoogle Cloudからのレスポンスはbyte[]で送られてくるので，それをAudioClipで利用できるようfloat[]に変換する必要があります．
+そのためにここで示されているWAVクラスを導入します．新しいスクリプトを作成し，記述されているスクリプトを新しいC#スクリプトに貼り付けます．これで完成です．
+以下のようにInputFieldとButtonを持つ新しいシーンを作成します．
+
+空のGameObjectを作成し，AudioSourceと先ほど作成したTextToSpeechSampleをアタッチします．先のGoogle Cloud Platformの利用登録で取得したJsonの認証情報をResourcesのフォルダ内に置きます．
+TextToSpeechSampleにInputFieldとButton，AudioSourceを登録し，"Credential"にResource以下のJsonファイルのディレクトリを指定します．（例：Assets/Resources/Credentials/credential.jsonに格納した場合，Credentials/credentialと記述）これで完成です．実行し，InputFieldに発言させたい文を記述し，"Send"ボタンを押すことでリクエストが送られ，少し待つと合成された音声が再生されます．
+細かくは調べていませんが，リクエスト最初の一回は少し時間がかかり，二回目以降は「こんにちは」といった短い文であれば0.3秒ほどで再生されます．今回のスクリプトでは応答にかかった時間，文を読み上げるのにかかる再生のログ表示も併せて行われます．
+Google Cloud Text-To-Speechを利用することで，簡単に（記事を書いてて思いましたが，結構大変でした）Unityで音声合成を行うことができます．【Unity】自分の声をテキスト化する方法【Google Cloud Speech Recognition 】など，Google Cloud Speech Recognitionを利用した音声認識に関する記事は結構存在するので，少し調べればUnity上で音声認識もできます．
+同じGoogle Cloudを利用することで今回冒頭のGoogle Cloud Platform利用者登録の大変な部分を次回以降はなくせるので比較的楽に実装できるかと思います．これを利用したチャットボットなど作成するのも面白そうです．
+
+

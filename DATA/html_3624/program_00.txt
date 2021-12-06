@@ -1,0 +1,135 @@
+        private void Test04()
+        {
+            var tItem = GetTable("m_item");
+            var tReceipt = GetTable("t_receipt");
+            var tCoupon = GetTable("t_coupon");
+
+            var query1 =
+                from i in tItem.AsEnumerable()
+                join r in tReceipt.AsEnumerable()
+                on i.Field&lt;int&gt;("id") equals r.Field&lt;int&gt;("itemid")
+                where r.Field&lt;int&gt;("amount") &gt; 2
+                select new
+                {
+                    ItemID = i.Field&lt;int&gt;("id"),
+                    ItemName = i.Field&lt;string&gt;("name"),
+                    Price = i.Field&lt;int&gt;("price"),
+                    Amount = r.Field&lt;int&gt;("amount"),
+                    TotalPrice = i.Field&lt;int&gt;("price") * r.Field&lt;int&gt;("amount")
+                };
+
+            var query2 =
+                from DataRow i in tItem.Rows
+                join DataRow r in tReceipt.Rows
+                on i["id"] equals r["itemid"]
+                where (int)r["amount"] &gt; 2
+                select new
+                {
+                    ItemID = i["id"],
+                    ItemName = i["name"],
+                    Price = i["price"],
+                    Amound = r["amount"],
+                    TotalPrice = (int)i["price"] * (int)r["amount"]
+                };
+
+            //query3とquery4は迷走時の黒歴史。文末の追記のほうが良いです。
+            var query3 =
+                tItem.AsEnumerable()
+                .Join(tReceipt.AsEnumerable(),
+                i =&gt; new { f1 = i.Field&lt;int&gt;("id") },
+                r =&gt; new { f1 = r.Field&lt;int&gt;("itemid") },
+                (i, r) =&gt;
+                    new
+                    {
+                        ItemID = i.Field&lt;int&gt;("id"),
+                        ItemName = i.Field&lt;string&gt;("name"),
+                        Price = i.Field&lt;int&gt;("price"),
+                        Amount = r.Field&lt;int&gt;("amount"),
+                        TotalPrice = i.Field&lt;int&gt;("price") * r.Field&lt;int&gt;("amount"),
+                        Sex = r.Field&lt;int&gt;("sex"),
+                        AgeRank = r.Field&lt;int&gt;("agerank")
+                    }
+                )
+                .Join(tCoupon.AsEnumerable(),
+                r =&gt; new { r.Sex, r.AgeRank },
+                c =&gt; new { Sex = c.Field&lt;int&gt;("sex"), AgeRank = c.Field&lt;int&gt;("agerank") },
+                (r, c) =&gt;
+                    new
+                    {
+                        r.ItemID,
+                        r.ItemName,
+                        r.Price,
+                        r.Amount,
+                        r.TotalPrice,
+                        r.Sex,
+                        r.AgeRank,
+                        Target = c.Field&lt;int&gt;("target")
+                    }
+                )
+                .Where(x =&gt; x.Amount &gt; 2)
+                //.Sum(x =&gt; x.TotalPrice)
+                ;
+
+            var query4 =
+                (from DataRow i in tItem.Rows select i)
+                .Join((from DataRow r in tReceipt.Rows select r),
+                i =&gt; new { f1 = i["id"] },
+                r =&gt; new { f1 = r["itemid"] },
+                (i, r) =&gt;
+                    new
+                    {
+                        ItemID = i["id"],
+                        ItemName = i["name"],
+                        Price = i["price"],
+                        Amount = r["amount"],
+                        TotalPrice = (int)i["price"] * (int)r["amount"],
+                        Sex = r["sex"],
+                        AgeRank = r["agerank"]
+                    }
+                )
+                .Join((from DataRow c in tCoupon.Rows select c),
+                r =&gt; new { r.Sex, r.AgeRank },
+                c =&gt; new { Sex = c["sex"], AgeRank = c["agerank"] },
+                (r, c) =&gt;
+                    new
+                    {
+                        r.ItemID,
+                        r.ItemName,
+                        r.Price,
+                        r.Amount,
+                        r.TotalPrice,
+                        r.Sex,
+                        r.AgeRank,
+                        Target = c["target"]
+                    }
+                )
+                .Where(x =&gt; (int)x.Amount &gt; 2)
+                //.Sum(x =&gt; (int)x.TotalPrice)
+                ;
+
+            string tmp = "";
+
+            tmp = "";
+            foreach (var item in query3)
+            {
+                tmp += item.ToString();
+                tmp += "\n";
+            }
+            //tmp = query3.ToString();
+            MessageBox.Show(tmp);
+        }
+
+        private DataTable GetTable(string tableName)
+        {
+            string connectionString = "Server=127.0.0.1;Port=5432;User Id=postgres;Password=manager;Database=postgres;";
+            var conn = new Npgsql.NpgsqlConnection(connectionString);
+            conn.Open();
+            string sql = "select * from " + tableName;
+            var da = new Npgsql.NpgsqlDataAdapter(sql, conn);
+            var ds = new DataSet();
+            da.Fill(ds);
+            return ds.Tables[0];
+        }
+
+
+

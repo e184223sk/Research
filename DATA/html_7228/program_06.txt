@@ -1,0 +1,77 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+class Program {
+    static void Main( string[] args ) {
+
+        // 塩基配列（RNA）
+        string rnaSeq = "AUGAUGGAGCUUCGGAGCUAG";
+        // コドンに変換します。
+        var codon = rnaSeq.ToBlockSequence( 3 ).Select( c =&gt; new string( c ) );
+        // コドンを出力します。
+        Console.WriteLine( $"Codon      : {string.Join( "-", codon )}" );
+        // コドン表に従ってアミノ酸に変換し、出力します。
+        Console.WriteLine( $"Amino acid : {string.Join( "-", codon.Select( c =&gt; RNACodonTable[c] ) )}" );
+    }
+
+    /// &lt;summary&gt;
+    ///     RNAのコドン表を表します。
+    /// &lt;/summary&gt;
+    /// &lt;remarks&gt;「[E]」のキーは終止コドンです。&lt;/remarks&gt;
+    static Dictionary&lt;string, string&gt; RNACodonTable { get; } = new Dictionary&lt;string, string&gt; {
+        ["UUU"] = "Phe", ["UUC"] = "Phe", ["UUA"] = "Leu", ["UUG"] = "Leu",
+        ["UCU"] = "Ser", ["UCC"] = "Ser", ["UCA"] = "Ser", ["UCG"] = "Ser",
+        ["UAU"] = "Tyr", ["UAC"] = "Tyr", ["UAA"] = "[E]", ["UAG"] = "[E]",
+        ["UGU"] = "Cys", ["UGC"] = "Cys", ["UGA"] = "[E]", ["UGG"] = "Trp",
+        ["CUU"] = "Leu", ["CUC"] = "Leu", ["CUA"] = "Leu", ["CUG"] = "Leu",
+        ["CCU"] = "Pro", ["CCC"] = "Pro", ["CCA"] = "Pro", ["CCG"] = "Pro",
+        ["CAU"] = "His", ["CAC"] = "His", ["CAA"] = "Gln", ["CAG"] = "Gln",
+        ["CGU"] = "Arg", ["CGC"] = "Arg", ["CGA"] = "Arg", ["CGG"] = "Arg",
+        ["AUU"] = "Ile", ["AUC"] = "Ile", ["AUA"] = "Ile", ["AUG"] = "Met",
+        ["ACU"] = "Thr", ["ACC"] = "Thr", ["ACA"] = "Thr", ["ACG"] = "Thr",
+        ["AAU"] = "Asn", ["AAC"] = "Asn", ["AAA"] = "Lys", ["AAG"] = "Lys",
+        ["AGU"] = "Ser", ["AGC"] = "Ser", ["AGA"] = "Arg", ["AGG"] = "Arg",
+        ["GUU"] = "Val", ["GUC"] = "Val", ["GUA"] = "Val", ["GUG"] = "Val",
+        ["GCU"] = "Ala", ["GCC"] = "Ala", ["GCA"] = "Ala", ["GCG"] = "Ala",
+        ["GAU"] = "Asp", ["GAC"] = "Asp", ["GAA"] = "Gln", ["GAG"] = "Gln",
+        ["GGU"] = "Gly", ["GGC"] = "Gly", ["GGA"] = "Gly", ["GGG"] = "Gly",
+    };
+}
+
+static class BlockEnumerable {
+
+    private static IEnumerable&lt;T[]&gt; ToBlockSequenceCore&lt;T&gt;( this IEnumerable&lt;T&gt; source, int numInBlock, bool includeLastFractionBlock ) {
+
+        int indexInBlock = numInBlock - 1;
+        var block = new T[numInBlock];
+
+        foreach( var s in source.Select( ( v, i ) =&gt; new KeyValuePair&lt;int, T&gt;( i % numInBlock, v ) ) ) {
+            indexInBlock = s.Key;
+            block[s.Key] = s.Value;
+
+            if( s.Key == numInBlock - 1 ) {
+                yield return block;
+                block = new T[numInBlock];
+            }
+        }
+
+        if( includeLastFractionBlock &amp;&amp; indexInBlock &lt; numInBlock - 1 ) {
+            yield return block;
+        }
+    }
+
+    public static IEnumerable&lt;T[]&gt; ToBlockSequence&lt;T&gt;( this IEnumerable&lt;T&gt; source, int numInBlock, bool includeLastFractionBlock = false ) {
+
+        if( source == null ) {
+            throw new ArgumentNullException( nameof( source ) );
+        }
+        else if( numInBlock &lt;= 0 ) {
+            throw new ArgumentOutOfRangeException( nameof( numInBlock ), "1ブロック当たりの要素数は、1以上にする必要があります。" );
+        }
+
+        return source.ToBlockSequenceCore( numInBlock, includeLastFractionBlock );
+    }
+}
+

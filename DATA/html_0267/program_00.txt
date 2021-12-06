@@ -1,0 +1,85 @@
+using System.Text;
+using System.Diagnostics;
+using System.Net.Sockets;
+using UnityEditor;
+using UnityEngine;
+
+public class RemoteControll
+{
+    public static void Send(dynamic request)
+    {
+        using (var client = new TcpClient("127.0.0.1", 7001))
+        {
+            var data = Encoding.UTF8.GetBytes(request);
+            using (var stream = client.GetStream())
+            {
+                stream.Write(data, 0, data.Length);
+            }
+
+            client.Dispose();
+        }
+    }
+}
+
+[InitializeOnLoad]
+public static class SceneViewCameraTool
+{
+    static SceneViewCameraTool()
+    {
+        SceneView.onSceneGUIDelegate += (sceneView) =&gt;
+        {
+            Handles.BeginGUI();
+            using (new GUILayout.VerticalScope(GUI.skin.box, GUILayout.Width(100)))
+            {
+                GUILayout.Label("Tool");
+
+                if (GUILayout.Button("MeshSync", GUILayout.Width(100)))
+                {
+                    var app = "/Applications/Autodesk/maya2017/Maya.app/Contents/bin/maya";
+                    var port = "if(`commandPort -q \\\":7001\\\"` == false) commandPort -name \\\":7001\\\";";
+                    var cmd = "UnityMeshSync_Export;";
+
+                    if (Process.GetProcessesByName("maya").Length &gt; 0)
+                    {
+                        RemoteControll.Send(
+                            cmd +
+                            $"viewPlace -p -an true -eye {sceneView.camera.transform.position.x} {sceneView.camera.transform.position.y} {sceneView.camera.transform.position.z} -fov {sceneView.camera.fieldOfView} `lookThru -q`;");
+                        return;
+                    }
+
+                    var selection = Selection.activeGameObject;
+                    if (selection != null)
+                    {
+                        var meshsync = GameObject.Find("MeshSyncServer");
+                        if (meshsync == null)
+                        {
+                            EditorApplication.ExecuteMenuItem("GameObject/MeshSync/Create Server");
+                            Selection.activeGameObject = selection;
+                        }
+
+                        var fbx = AssetDatabase.GetAssetPath(
+                            PrefabUtility.GetCorrespondingObjectFromOriginalSource(selection));
+                        fbx = Application.dataPath.Replace("Assets", "") + fbx;
+
+                        var setup = $"evalDeferred \\\"UnityMeshSync_Settings -p 8080; {cmd}\\\" -lp;";
+                        var args = $"-file \"{fbx}\" -hideConsole -nosplash -command \"{port} {setup}\"";
+
+                        var process = new Process
+                        {
+                            StartInfo =
+                            {
+                                FileName = app, Arguments = args,
+                                WindowStyle = ProcessWindowStyle.Hidden | ProcessWindowStyle.Minimized,
+                                CreateNoWindow = true
+                            }
+                        };
+                        process.Start();
+                    }
+                }
+            }
+
+            Handles.EndGUI();
+        };
+    }
+}
+

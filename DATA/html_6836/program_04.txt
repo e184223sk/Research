@@ -1,0 +1,45 @@
+
+    public class MyCompositionContainer : IDisposable
+    {
+        private CompositionContainer _container = null;
+
+        public void Dispose()
+        {
+            _container.Dispose();
+        }
+
+        public MyCompositionContainer()
+        {
+            string currentDir = Directory.GetCurrentDirectory();
+
+            var aggCatalog = new AggregateCatalog();
+            var builder = new RegistrationBuilder();
+            builder.ForTypesDerivedFrom&lt;IMyParts&gt;().ExportInterfaces();
+            foreach (var f in new DirectoryInfo(currentDir).GetFiles().
+                        Where(x =&gt; x.Name.ToLower().EndsWith(".dll")))
+            {
+                var catalog = new AssemblyCatalog(Assembly.LoadFile(f.FullName), builder);
+                aggCatalog.Catalogs.Add(catalog);
+            }
+            this._container = new CompositionContainer(aggCatalog);
+        }
+
+        internal void PreProcessing(IMethodCallMessage call)
+        {
+            IEnumerable&lt;IMyParts&gt; parts = _container.GetExportedValues&lt;IMyParts&gt;();
+            foreach (var item in parts)
+            {
+                item.PreProcessing(call);
+            }
+        }
+
+        internal void PostProcessing(IMethodCallMessage call, IMethodReturnMessage res)
+        {
+            IEnumerable&lt;IMyParts&gt; parts = _container.GetExportedValues&lt;IMyParts&gt;();
+            foreach (var item in parts)
+            {
+                item.PostProcessing(call, res);
+            }
+        }
+    }
+

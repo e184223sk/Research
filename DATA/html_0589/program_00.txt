@@ -1,0 +1,100 @@
+
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+class ListViewContextMenuSample : Form
+{
+    ListView lsv;
+    ListViewContextMenuInfo contextMenuInfo;
+
+    ListViewContextMenuSample()
+    {
+        ClientSize = new Size(500, 300);
+
+        Controls.Add(lsv = new ListView() {
+            Dock = DockStyle.Fill,
+            View = View.Details,
+            FullRowSelect = true,
+            GridLines = true,
+        });
+        lsv.Columns.Add("c0", 70, HorizontalAlignment.Left);
+        lsv.Columns.Add("c1", 70, HorizontalAlignment.Left);
+        lsv.Columns.Add("c2", 70, HorizontalAlignment.Left);
+        lsv.Items.Add(new ListViewItem(new string[]{"item0","aa","bb"}));
+        lsv.Items.Add(new ListViewItem(new string[]{"item1","cc","dd"}));
+
+        var a = new ContextMenuStrip();
+        a.Items.Add(new ToolStripMenuItem("Show Message", null, ToolStripMenuItem_Click, "Show"));
+        a.Items.Add(new ToolStripSeparator());
+        a.Items.Add(new ToolStripMenuItem("Copy Text",    null, ToolStripMenuItem_Click, "Copy"));
+        a.Opening += ContextMenuStrip_Opening;
+        lsv.ContextMenuStrip = a;
+    }
+
+    // 注意：この sender は ContextMenuStrip 型であり、ListViewではない。
+    void ContextMenuStrip_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+    {
+        Point p = lsv.PointToClient(Cursor.Position);
+        ListViewHitTestInfo info = lsv.HitTest(p);
+        ListViewItem item = info.Item;
+
+        contextMenuInfo = null;
+
+        if (item == null) {
+            e.Cancel = true;
+        }
+        else if ( item.Bounds.Contains(p) ) {
+            contextMenuInfo = new ListViewContextMenuInfo(item, info.SubItem);
+        }
+        else {
+            e.Cancel = true;
+        }
+    }
+
+    // ToolStripMenuItem.Click イベント
+    void ToolStripMenuItem_Click(object sender, EventArgs e)
+    {
+        var mi = (ToolStripMenuItem)sender;
+
+        if ( contextMenuInfo != null ) {
+            if ( mi.Name == "Show" ) {
+                MessageBox.Show(contextMenuInfo.SelectedSubItem.Text);
+            }
+            else if ( mi.Name == "Copy" ) {
+                ClipboardSetTextWithRetryOnce(contextMenuInfo.SelectedSubItem.Text);
+            }
+        }
+    }
+
+
+    void ClipboardSetTextWithRetryOnce(string s)
+    {
+        try { Clipboard.SetText(s); }
+        catch ( System.Runtime.InteropServices.ExternalException ) { // クリアに失敗
+            // 1回だけリトライする
+            try { Clipboard.SetText(s); }
+            catch ( System.Runtime.InteropServices.ExternalException e2 ) { Console.WriteLine(e2); }
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new ListViewContextMenuSample());
+    }
+
+    // -----
+    class ListViewContextMenuInfo
+    {
+        public ListViewItem    SelectedItem{get;private set;}
+        public ListViewItem.ListViewSubItem SelectedSubItem{get;private set;}
+
+        public ListViewContextMenuInfo(ListViewItem selectedItem, ListViewItem.ListViewSubItem selectedSubItem)
+        {
+            SelectedItem = selectedItem;
+            SelectedSubItem = selectedSubItem;
+        }
+    }
+}
+

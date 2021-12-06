@@ -1,0 +1,46 @@
+More than 1 year has passed since last update.今日は私の誕生日なので24歳学生としては初投稿です。この記事はUnityゆるふわサマーアドベントカレンダー 2019の19日目の記事です。
+前々日17日の記事は @nanaki_pg さんの「Oculusの加速度センサを使ったVR空間での移動」でした！
+前日18日の記事は @mao_ さんの「」でした！
+翌日20日の記事は @kingyo222 さんの「Unity：UI Elements でいくつかサンプル書いたよ！」です！
+翌々日21日の記事は @yKimisaki さんの「UIElementsでもUniRxを使いたい」です！UniEnumExtensionはBoothとGitHub上で公開されているエディタ拡張のアセットです。「UniEnumExtension」を導入することで列挙型のToStringを元々のソースコードを一切書き換えずに概ね500倍から100倍以上高速化出来ます。まず初めに新規プロジェクトを作成します。Packagesフォルダには初期時点でAnalystic LibraryやPackage Manager UIなどが含まれていますね。次にコマンドプロンプトやターミナルなどを起動してください。
+対象プロジェクト以下のPackagesフォルダに移動してください。git clone https://github.com/pCYSl5EDgo/UniEnumExtension
+とコマンドを入力してください。以下のような表示になるはずです。Unityエディタに戻って見てみましょう。新たにUniEnumExtensionとMono.Cecilが増えたはずです。以上でインストールは終了です。 簡単ですね！ダウンロードしたzipファイルをその場に解凍します。
+UniEnumExtension.unitypackageファイルが出てきますので、それをプロジェクトにドラッグ＆ドロップなどでインポートしてください。
+LICENSE-jpはつまり開発者は全員エディタ拡張として１PCにつき１つ購入して使用することと譲渡や再頒布の禁止などを定めているものです。Assets/Plugins/UniEnumExtensionInstallerはGitHubからUniEnumExtensionをインストールするためだけのインストーラーです。
+Packages/UniEnumExtensionを確認できたならば削除して構いません。特に何もせずとも列挙型の性能が良くなります。……というのでは解説が寂しいのでもうちょっと具体的に。 メニューのWindow/UniEnumExtensionをクリックすると以下のようなウィンドウが開きます。
+"ProcessRewriteToString All Assemblies"にチェックが入っていますが、このチェックがあることで全Playerビルドに含まれるasmdefが処理対象となります。
+チェックを外してみましょう。UniEnumExtensionは処理対象の数に比例してコンパイル時間を長くします。列挙型が含まれないアセンブリを対象外に指定すれば処理時間は短くなります。
+手元で計測した所1アセンブリあたり0.05~0.2秒ほど処理時間が掛かっていました。Enums.NETに詳しいです。さて、Enums.NETはEnumsNET名前空間とEnums静的クラスを定義することこれら問題を打破しました。
+その結果、列挙型のToStringにおいて標準に比較して45倍の高速化を達成しました。
+これは素晴らしいことです。UniEnumExtensionは標準に対して300~500倍の高速化を達成しています。
+これはMono.Cecilによる静的IL解析によりポストコンパイル時にボクシングの生じるメソッド呼び出しや仮想メソッド呼びなどを定数に置換したり、高速でアロケーションの少ない非仮想メソッド呼び出しに置換することで実現されています。また、全然違う機能ですが、Burst Job内でforeachが使えます！Packages/UniEnumExtension/BuildPlayer/EnumExtensionPostBuildPlayerScriptDll.csとPackages/UniEnumExtension/UI/Program.csを御覧ください。EnumExtensionPostBuildPlayerScriptDll.cs は MonoビルドやIL2CPPビルド時にポストプロセスIL編集を行います。
+UnityEditor.Build.IPostBuildPlayerScriptDLLsを実装したクラスはビルド時にいつの間にかインスタンス化され、コールバックが呼ばれます。コールバックのタイミングはビルドに使われる全C#ファイルがコンパイルされてDLLが出揃った時です。
+
+public void OnPostBuildPlayerScriptDLLs(BuildReport report)
+{
+    step[0] = BeginBuildStep.Invoke(report, uniEnumExtension);
+    try
+    {
+        Implement(report);
+    }
+    finally
+    {
+        EndBuildStep.Invoke(report, step);
+    }
+}
+
+
+コールバック内では特に必要は無いですが、UnityEditor.Build.Reporting.BuildReportのinternalなAPIであるBegin/EndBuildStepを使っています。
+公式リファレンス内に説明がないので具体的な働きは不明ですが、おそらくビルド時間やエラーハンドリングする際の情報量が増えるのでしょう。シングルトンな設定ファイルなScriptableObjectを読み込みます。
+その後BuildReportのfilesプロパティでDLLやPDBファイル一覧を得られます。
+その内、roleがManagedLibraryなもので設定上処理対象なDLLのみをIEnumerable&lt;string&gt; assemblyPathsに取り出します。
+これをEnumExtenderのインスタンスのExtendメソッドに渡せばIL書き換えがそのアセンブリ群に対して行われます。
+EnumExtenderのコンストラクタにはアセンブリの参照を解決するためのディレクトリ名を与えます。
+アセンブリの参照解決って？という方はMono.Cecil入門を御覧ください。using(EnumExtender extender = new EnumExtender(string[] searchDirectory))
+    extender.Extend(IEnumerable&lt;string&gt; assemblyPaths);が高レベルAPIとして露出されています。
+assemblyPathsでパスを指定するとよしなに色々処理します。EnumExtenderにはもう１つコンストラクタがあります。public EnumExtender(IModuleProcessor[] moduleProcessorCollection, ITypeProcessor[] typeProcessorCollection, IMethodProcessor[] methodProcessorCollection, string[] searchDirectories)UniEnumExtension.IModuleProcessor, UniEnumExtension.ITypeProcessor, UniEnumExtension.IMethodProcessorはモジュール（アセンブリ）、型、メソッドに対して処理を行うインターフェースです。
+コンストラクタからIL処理を登録するのですね。上述3インターフェースは公開されていますので独自にポストコンパイル時にフックしてEnumExtenderを実行すると良いでしょう。
+注意点としては、EnumExtenderは必ずDisposeしてください。DisposeすることでILの書き込みが完了します。EnumExtenderはUniEnumExtension.IExtenderを実装していますのでその段階からすげ替えるのも良いかもしれませんね。Mono.Cecilでポストコンパイル時constexprをする可能性を感じられました。
+readonlyフィールドが実現してILレベルでもなんらかの形で表現出来たならば本当にconstexprが出来ると思います。機能追加の要望などがありましたら、私のTwitterにDMまたはGitHubでIssueを立ててください。
+
+

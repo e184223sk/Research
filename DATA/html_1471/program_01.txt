@@ -1,0 +1,57 @@
+
+public static string[] Debind&lt;T&gt;(Dictionary&lt;string, int&gt; headerMap, T obj)
+    where T : class
+{
+    var result = new string[headerMap.Count];
+    foreach (var p in typeof(T).GetProperties())
+    {
+        if (!headerMap.ContainsKey(p.Name)) continue;
+        var i = headerMap[p.Name];
+
+        var type = Nullable.GetUnderlyingType(p.PropertyType);
+        if (type == null)
+        {
+            type = p.PropertyType;
+        }
+        else
+        {
+            if (p.GetValue(obj) == null)
+            {
+                result[i] = "";
+                continue;
+            }
+        }
+
+        if (type == typeof(DateTime))
+        {
+            result[i] = ((DateTime)p.GetValue(obj)).ToString("o");
+        }
+        else
+        {
+            result[i] = (p.GetValue(obj) ?? "").ToString();
+        }
+    }
+    return result;
+}
+
+public static void Save&lt;T&gt;(Stream stream, IEnumerable&lt;T&gt; content, Encoding encoding = null)
+    where T : class
+{
+    if (encoding == null) encoding = Encoding.UTF8;
+    using (var writer = new StreamWriter(stream, encoding))
+    {
+        var header = typeof(T).GetProperties().Select(e =&gt; e.Name).ToList();
+        var headerMap = new Dictionary&lt;string, int&gt;();
+        for (var i = 0; i &lt; header.Count; i++)
+        {
+            headerMap[header[i]] = i;
+        }
+        writer.WriteLine(string.Join(",", header));
+
+        foreach (var o in content)
+        {
+            writer.WriteLine(string.Join(",", Debind(headerMap, o)));
+        }
+    }
+}
+

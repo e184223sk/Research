@@ -1,0 +1,58 @@
+public interface INamerFactory&lt;T&gt;
+{
+    INamer&lt;T&gt; Create();
+}
+public interface INamer&lt;T&gt;
+{
+    void Init();
+    string NextName(T obj);
+    string NextName();
+}
+ public abstract class SerializableList&lt;T&gt; : List&lt;T&gt;, IXmlSerializable
+    {
+        protected INamerFactory&lt;T&gt; NamerFactory { get; set; } = null;
+
+        public SerializableList() : base()
+        {
+            NamerFactory = MakeNamerFactory();
+        }
+
+        protected abstract INamerFactory&lt;T&gt; MakeNamerFactory();
+
+        public XmlSchema GetSchema()
+        {
+            return null;
+        }
+
+        public void ReadXml(XmlReader reader)
+        {   
+            reader.ReadStartElement();
+            try
+            {
+                var namer = NamerFactory.Create();
+                while (reader.NodeType != XmlNodeType.EndElement)
+                {
+                    var serializer = CreateSerializer(namer.NextName());
+                    var item = (T)serializer.Deserialize(reader);
+                    Add(item);
+                }
+            }
+            finally
+            {
+                reader.ReadEndElement();
+            }
+        }
+
+        public void WriteXml(XmlWriter writer)
+        {
+            var namer = NamerFactory.Create();
+
+            var ns = new XmlSerializerNamespaces();
+            ns.Add(String.Empty, String.Empty);
+            foreach (var item in this)
+            { 
+                var serializer = CreateSerializer(namer.NextName());
+                serializer.Serialize(writer, item, ns);
+            }
+        }
+

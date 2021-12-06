@@ -1,0 +1,94 @@
+
+        /// &lt;summary&gt;
+        /// MultiMonitorを受け取り
+        /// BelongMonitorとNeedRelocateの値を設定する
+        /// &lt;/summary&gt;
+        public void SetBelongMonitor(MultiMonitor multiMonitor)
+        {
+            Monitor = multiMonitor;
+            foreach (var window in WindowList)
+            {
+                var tempBelong = WindowObj.OutOfRangeMonitor;
+                foreach (var screen in multiMonitor.ScreenList)
+                {
+                    // 完全に内包するモニタを見つけた
+                    if (Common.IsInclude(screen.Bounds, window.Rect))
+                    {
+                        window.BelongMonitor = screen.ScreenNum;
+                        window.NeedRelocate = false;
+                        goto ENDLOOP;
+                    }
+                    // 一部内包するモニターだった (一部のみのモニターが複数存在するときはどっちの所属でもいい)
+                    if (Common.ExtraInclude(screen.Bounds, window.Rect) == Relation.OtherInclude)
+                    {
+                        tempBelong = screen.ScreenNum;
+                    }
+                }
+                // 範囲外モニターならノータッチ
+                if (tempBelong != WindowObj.OutOfRangeMonitor)
+                {
+                    window.BelongMonitor = tempBelong;
+                    window.NeedRelocate = true;
+                }
+                ENDLOOP:;
+            }
+        }
+        /// &lt;summary&gt;
+        /// WindowListの値をファイルに保存する
+        /// &lt;/summary&gt;
+        public void Save()
+        {
+            using (Stream stream = File.OpenWrite(Filename))
+            {
+                BinaryFormatter formatter = new BinaryFormatter();
+                formatter.Serialize(stream, WindowList);
+            }
+        }
+        /// &lt;summary&gt;
+        /// WindowListを保存された値に戻す
+        /// &lt;/summary&gt;
+        public void Reload()
+        {
+            if (File.Exists(Filename))
+            {
+                using (Stream stream = File.OpenRead(Filename))
+                {
+                    BinaryFormatter formatter = new BinaryFormatter();
+                    WindowList = (List&lt;WindowObj&gt;)formatter.Deserialize(stream);
+                }
+            }
+        }
+        /// &lt;summary&gt;
+        /// 全てのWindowを保存された値に戻す
+        /// &lt;/summary&gt;
+        public void Renew()
+        {
+            // モニタの構造が保存時と異なるときは警告を出す
+            if (!IsMonitorEqual())
+            {
+                var r = System.Windows.Forms.MessageBox.Show(
+                    Properties.Resources.MonitorDiffer, Properties.Resources.Warning,
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation,
+                    MessageBoxDefaultButton.Button2);
+                if (r == DialogResult.No) { return; }
+            }
+            foreach (var window in WindowList)
+            {
+                Common.SetWindowPlacement(window.hWnd, ref window.WindowPlacement);
+            }
+        }
+        /// &lt;summary&gt;
+        /// 全てのWindowをpointだけ動かす
+        /// &lt;/summary&gt;
+        public void MoveWindows(POINT point)
+        {
+            foreach (var window in WindowList)
+            {
+                window.WindowPlacement.normalPosition.Left += point.X;
+                window.WindowPlacement.normalPosition.Right += point.X;
+                window.WindowPlacement.normalPosition.Top += point.Y;
+                window.WindowPlacement.normalPosition.Bottom += point.Y;
+                Common.SetWindowPlacement(window.hWnd, ref window.WindowPlacement);
+            }
+        }
+

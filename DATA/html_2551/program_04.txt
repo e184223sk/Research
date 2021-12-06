@@ -1,0 +1,132 @@
+
+using System;
+using System.Diagnostics;
+using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using uPLibrary.Networking.M2Mqtt;
+
+namespace RasPiServer
+{
+    internal class Program
+    {
+        private const string MQTT_ORDER_TOPIC = "/IR/Order";
+
+        private const string PYTHON_INTERPRITER = @"/share/RasPiServer/python.exe";
+        private const string PYTHON_APPLICATION = @"/share/RasPiServer/irrp.py";
+        private const string PYTHON_SAVE = @"/share/RasPiServer/codes";
+
+        private string MQTT_BROKERHOSTNAME;
+        private int PORT;
+        private string APPLICATION_ID;
+        private string USERNAME;
+        private string PASSWORD;
+        private static MqttClient _mqttClient;
+
+        public Program()
+        {
+            // M2Mqttの起動
+            APPLICATION_ID = Guid.NewGuid().ToString();
+            _mqttClient = new MqttClient(MQTT_BROKERHOSTNAME, PORT, false, null, null, MqttSslProtocols.SSLv3);
+            _mqttClient.Connect(APPLICATION_ID, USERNAME, PASSWORD);
+
+            // 購読設定
+            _mqttClient.MqttMsgPublishReceived += (sender, e) =&gt; {
+                OnReceivedData(Encoding.UTF8.GetString(e.Message));
+            };
+
+            _mqttClient.Subscribe(new[] { MQTT_ORDER_TOPIC }, new byte[] { 2 });
+        }
+
+        private static void Main(string[] args)
+        {
+            var program = new Program();
+            Console.WriteLine("[RASPISERVER] LAUNCHED");
+
+            while (true)
+            {
+                System.Threading.Thread.Sleep(500);
+            }
+        }
+
+        private void Log(string message)
+        {
+            Console.WriteLine(message);
+        }
+
+        private void OnReceivedData(string message)
+        {
+            var data = new RasPiData();
+
+            // 受信データのデシリアライズ
+            try
+            {
+                data = JsonConvert.DeserializeObject&lt;RasPiData&gt;(message);
+            }
+            catch (Exception e)
+            {
+                Log($"unexpected message arrived : {e.Message}");
+                return;
+            }
+
+            // メッセージが指定のJson形式だった場合
+            try
+            {
+                if (data.MessageType == MessageType.Record || data.MessageType == MessageType.PlayBack)
+                {
+                    PlayBackAndRecord(data.MessageType, data.Message);
+                    Log("Process succeeded.");
+                }
+                else
+                {
+                    Log($"unexpected message arrived : {data.Message}");
+                }
+            }
+            catch (Exception e)
+            {
+                Log($"Process error: {e.Message}");
+                return;
+            }
+        }
+
+        private void PlayBackAndRecord(MessageType type, string id)
+        {
+            // 命令の種類を受け、Pythonアプリケーションの引数を指定
+            var arguments = "";
+            switch (type)
+            {
+                case MessageType.Record:
+                    arguments = $"{PYTHON_APPLICATION} -r -g18 -f {PYTHON_SAVE} {id} --no-confirm --post 130";
+                    break;
+                case MessageType.PlayBack:
+                    arguments = $"{PYTHON_APPLICATION} -p -g17 -f {PYTHON_SAVE} {id}";
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+
+            Log($"PlayBackAndRecord start. mode: {type}");
+
+            // Pythonアプリケーションの起動・実行
+            var process = new Process()
+            {
+                StartInfo = new ProcessStartInfo(PYTHON_INTERPRITER)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    Arguments = arguments
+                },
+            };
+
+            process.Start();
+
+            var sr = process.StandardOutput;
+            Log($"console log: {sr.ReadLine()}");
+
+            process.WaitForExit();
+            process.Close();
+        }
+    }
+}
+
+

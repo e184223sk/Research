@@ -1,0 +1,78 @@
+
+public class EventHandler : MonoBehaviour {
+  [SerializeField] private string consumer_key;
+  [SerializeField] private string consumer_secret;
+  private string access_token;
+  private string access_token_secret;
+  private string screen_name;
+
+  void Start () {
+    Twity.Oauth.consumerKey = consumer_key;
+    Twity.Oauth.consumerSecret = consumer_secret;
+    StartAuthorization();
+  }
+
+  void StartAuthorization() {
+    if (CheckAuthorizationInfo()) {
+      // access_tokenとaccess_token_secretが端末内に保存されている場合（＝認可済の場合）
+      Twity.Oauth.accessToken = access_token;
+      Twity.Oauth.accessTokenSecret = access_token_secret;
+      Twity.Client.screenName = screen_name;
+
+      // access_tokenが何らかの原因で正しくないものになっていないか確認するため、試しにユーザー情報を取得する
+      Dictionary&lt;string, string&gt; p = new Dictionary&lt;string, string&gt; {
+        {"screen_name", Twity.Oauth.screenName}
+      };
+      StartCoroutine(Twity.Client.Get("users/show", p, (bool success, string response) =&gt; {
+        if (!success) {
+          // 何らかの原因でaccess_token等がおかしい可能性があるので、一旦削除して最初からやりなおす
+          PlayerPrefs.DeleteAll();
+
+        } else {
+          // 認可は成功している
+
+        }
+      });
+    } else {
+      // まだ認可されていない場合、端末内にrequest_tokenがあるかどうかをチェックする
+      if (CheckRequestToken()) {
+        // 端末内にrequest_tokenがある場合、
+        Twity.Oauth.requestToken = request_token;
+        Twity.Oauth.requestTokenSecret = request_token_secret;
+
+        // この状態はpin入力のシーンである場合があるので、入力用のUIを表示する
+
+      } else {
+        // まだ何もない状態なので、request_tokenの取得を行う
+        GenerateRequestToken()
+
+      }
+    }
+  }
+
+  // 端末内にaccess_tokenとaccess_token_secretが保存されているか確認する
+  bool CheckAuthorizationInfo() {
+    access_token = PlayerPrefs.GetString("access_token", "");
+    access_token_secret = PlayerPrefs.GetString("access_token_secret", "");
+    screen_name = PlayerPrefs.GetString("screen_name", "");
+    if (string.IsNullOrEmpty(access_token) || string.IsNullOrEmpty(access_token_secret) || string.IsNullOrEmpty(screen_name)) {
+      return false;
+    } else {
+      return true;
+    } 
+  }
+
+  // 端末内にrequest_tokenとrequest_token_secretが保存されているか確認する
+  bool CheckRequestToken() {
+    request_token = PlayerPrefs.GetString("request_token", "");
+    request_token_secret = PlayerPrefs.GetString("request_token_secret", "");
+    if (string.IsNullOrEmpty(request_token) || string.IsNullOrEmpty(request_token_secret)) {
+      return false;
+    } else {
+      return true;
+    }
+  }
+
+}
+
+

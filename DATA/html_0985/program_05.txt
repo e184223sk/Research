@@ -1,0 +1,41 @@
+
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
+                options.UseNpgsql(
+                    Configuration.GetConnectionString("DefaultConnection")));
+
+            //// メール送信用のパラメータを「appsettings.json」から抜きしてDIで利用できるようにしている
+            //services.Configure&lt;SendMailParams&gt;(Configuration.GetSection("SendMailParams"));
+
+            //// メール送信用のクラスを認証時に利用するメール送信サービスとして登録。これで認証時に確認メールが送信できるようになる
+            //services.AddScoped&lt;IEmailSender, MailSender.MailSender&gt;();
+
+            // 認証を有効にする
+            //services.AddDefaultIdentity&lt;IdentityUser&gt;(options =&gt; options.SignIn.RequireConfirmedAccount = true)
+            //services.AddDefaultIdentity&lt;IdentityUser&gt;()
+            services.AddIdentity&lt;IdentityUser, IdentityRole&gt;()
+                //.AddRoles&lt;IdentityRole&gt;() // &lt;&lt;== ロールを利用するためにの追加 &lt;= AddIdentityでは不要みたい
+                .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
+                .AddDefaultTokenProviders();
+
+            // AddMvc()の場合はオプションを設定する必要がありそうだが...
+            services.AddRazorPages();
+
+            // これを追加する
+            services.ConfigureApplicationCookie(options =&gt;
+            {
+                options.LoginPath = $"/Identity/Account/Login";
+                options.LogoutPath = $"/Identity/Account/Logout";
+                options.AccessDeniedPath = $"/Identity/Account/AccessDenied";
+            });
+
+            // 基本的に指定のないページはすべて認証が必要になるように設定
+            services.AddAuthorization(options =&gt;
+            {
+                options.FallbackPolicy = new AuthorizationPolicyBuilder()
+                    .RequireAuthenticatedUser()
+                    .Build();
+            });
+        }
+

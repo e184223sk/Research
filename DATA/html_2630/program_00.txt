@@ -1,0 +1,221 @@
+
+using System;
+using System.IO;
+using System.Drawing;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using Microsoft.Win32; // Microsoft.Win32.Registry を使うので。
+
+
+// https://docs.microsoft.com/ja-jp/windows-hardware/drivers/hid/keyboard-and-mouse-class-drivers#scan-code-mapper-for-keyboards
+
+// レジストリアクセスのために管理者権限が必要。
+// 管理者権限の要求設定(manifest)
+//  https://www.atmarkit.co.jp/fdotnet/dotnettips/958uacmanifest/uacmanifest.html
+
+
+public class ScanCodePair
+{
+    public ushort keyOrginal;  // 変更前scancode
+    public ushort keyReplaced; // 変更後scancode
+}
+
+public class ScancodeMap
+{
+    // LE : Little Endian
+    private void WriteUIntLE(uint x, byte[] dest, ref int offset)
+    {
+        dest[offset] = (byte)x;
+        offset++;
+        dest[offset] = (byte)(x&gt;&gt;8);
+        offset++;
+        dest[offset] = (byte)(x&gt;&gt;16);
+        offset++;
+        dest[offset] = (byte)(x&gt;&gt;24);
+        offset++;
+    }
+
+    private void WriteUShortLE(ushort x, byte[] dest, ref int offset)
+    {
+        dest[offset] = (byte)x;
+        offset++;
+        dest[offset] = (byte)(x&gt;&gt;8);
+        offset++;
+    }
+
+    List&lt;ScanCodePair&gt; pairList;
+
+
+    public byte[] ConvertToRegBinary()
+    {
+        if ( pairList.Count == 0 ) {
+            return null;
+        }
+
+        byte[] a = new byte[4+4+4 + 4*pairList.Count +4];
+        int offset = 0;
+
+        WriteUIntLE(0x00000000, a, ref offset); // 0..3 byte
+        WriteUIntLE(0x00000000, a, ref offset); // 4..7 byte
+        WriteUIntLE((uint)pairList.Count, a, ref offset); // 8..11 byte
+
+        foreach ( ScanCodePair pair in pairList ) {
+            WriteUShortLE(pair.keyReplaced, a, ref offset); // 変更後
+            WriteUShortLE(pair.keyOrginal,  a, ref offset); // 変更前
+        }
+
+        WriteUIntLE(0x00000000, a, ref offset);
+
+        return a;
+    }
+
+    public void Add(ScanCodePair t)
+    {
+        pairList.Add(t);
+    }
+
+    public ScancodeMap()
+    {
+        pairList = new List&lt;ScanCodePair&gt;();
+    }
+}
+
+
+
+class RegKeyEditor : Form
+{
+    const string ScanCodeTextFileName = @"ScanCodeMapping.txt";
+
+    const string RegValueName = @"Scancode Map";
+
+    // 効果がなかった
+    //  static readonly RegistryKey RootRegKey = Registry.CurrentUser; // const不可
+    //  const string SubRegKeyName = @"Keyboard Layout";
+
+    // 全userに適用される。
+    //  管理者権限必要
+    static readonly RegistryKey RootRegKey = Registry.LocalMachine; // const不可
+    const string SubRegKeyName = @"SYSTEM\CurrentControlSet\Control\Keyboard Layout";
+
+    ListView lsv;
+
+
+    RegKeyEditor()
+    {
+        Button btn = new Button();
+        btn.Text = "Write Registry";
+        btn.Width = 150;
+        btn.Click += (sender,e)=&gt;{UpdateRegValue();};
+        Controls.Add(btn);
+
+        lsv = new ListView();
+        lsv.View = View.Details;
+        lsv.FullRowSelect = true;
+        lsv.GridLines = true;
+        lsv.Columns.Add("Code(old)", 120, HorizontalAlignment.Left);
+        lsv.Columns.Add("Code(new)", 120, HorizontalAlignment.Left);
+        lsv.Top = 30;
+        lsv.Size = new Size(300 , 300);
+        Controls.Add(lsv);
+
+        ClientSize = new Size(300, 330);
+
+        LoadKeyMap();
+    }
+
+
+    ScancodeMap ScancodeMapFromListView()
+    {
+        ScancodeMap map = new ScancodeMap();
+
+        foreach ( ListViewItem item in lsv.Items ) {
+            var pair = (ScanCodePair)item.Tag;
+            map.Add(pair);
+        }
+
+        return map;
+    }
+
+    void UpdateRegValue()
+    {
+        // https://docs.microsoft.com/ja-jp/dotnet/api/microsoft.win32.registry.setvalue?view=netframework-4.8#Microsoft_Win32_Registry_SetValue_System_String_System_String_System_Object_Microsoft_Win32_RegistryValueKind_
+
+        ScancodeMap map = ScancodeMapFromListView();
+        byte[] data = map.ConvertToRegBinary();
+
+        if ( data == null ) {
+            // レジストリキーを削除する。
+            DeleteRegValue(RootRegKey, SubRegKeyName, RegValueName);
+        }
+        else {
+            /* dump
+            int i=0;
+            foreach(byte t in data){
+                Console.Write(t.ToString("X2"));
+                Console.Write(",");
+                i++;
+                if ( i%4 == 0 ) {
+                    Console.WriteLine();
+                }
+            }
+            Console.WriteLine();
+            */
+
+            // レジストリキーを書き込む。存在しない場合は作成される。
+            SetRegValue(RootRegKey, SubRegKeyName, RegValueName, data, RegistryValueKind.Binary);
+
+            // 上記は Registry.SetValueメソッドでもよいが、DeleteValueメソッドが用意されていないので、
+            // 引数を統一させるために自作メソッドを使うこととした。
+            // Registry.SetValue(@"HKEY_CURRENT_USER\Keyboard Layout", RegValueName, data, RegistryValueKind.Binary);
+        }
+    }
+
+    static void SetRegValue(RegistryKey rootKey, string keyname, string valuename, object value, RegistryValueKind kind)
+    {
+        RegistryKey regKey = rootKey.OpenSubKey(keyname, true); // 書き込み権限で開く
+        try { regKey.SetValue(valuename, value, kind);} finally { regKey.Close(); }
+    }
+
+    static void DeleteRegValue(RegistryKey rootKey, string keyname, string valuename)
+    {
+        RegistryKey regKey = rootKey.OpenSubKey(keyname, true); // 書き込み権限で開く
+        try { regKey.DeleteValue(valuename, false);} finally { regKey.Close(); }
+    }
+
+    void LoadKeyMap()
+    {
+        string[] lines = File.ReadAllLines(ScanCodeTextFileName);
+        Regex r = new Regex(@"^ *0x([0-9A-Fa-f]+) +to +0x([0-9A-Fa-f]+)\b");
+
+        foreach (string s in lines) {
+            Match m = r.Match(s);
+            if ( m.Success ) {
+                string scanCodeOrginal  = m.Groups[1].Value;
+                string scanCodeReplaced = m.Groups[2].Value;
+                lsv.Items.Add(MakeItem(scanCodeOrginal, scanCodeReplaced));
+            }
+        }
+    }
+
+    ListViewItem MakeItem(string sOrg, string sReplaced)
+    {
+        var item = new ListViewItem(new string[]{sOrg, sReplaced});
+        ScanCodePair pair = new ScanCodePair();
+        pair.keyOrginal = (ushort)Convert.ToInt32(sOrg, 16);
+        pair.keyReplaced = (ushort)Convert.ToInt32(sReplaced, 16);
+        item.Tag = pair;
+        return item;
+    }
+
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new RegKeyEditor());
+    }
+}
+
+

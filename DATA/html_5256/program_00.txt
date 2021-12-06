@@ -1,0 +1,234 @@
+using UnityEngine;
+using System;
+using GooglePlayGames;
+using GooglePlayGames.BasicApi;
+using GooglePlayGames.BasicApi.SavedGame;
+using System.Text;
+using UnityEngine.SocialPlatforms;
+
+public class CloudManager : MonoBehaviour {
+    public static CloudManager Instance;
+
+    public DateTime openedSavedGame_commitDate;
+
+    bool isSaving;
+    static string saveFileName = "SaveFileName_AsYouLike";
+    static string saveString = "";
+
+    bool hasInternetConnection { get { return  Application.internetReachability != NetworkReachability.NotReachable; } }
+
+    bool isAuthed { get { return Social.Active.localUser.authenticated; } }
+
+
+#region lifeCycle
+
+    void Awake() {
+        Instance = this;
+    }
+
+void Start(){
+//ログイン処理例
+            PlayGamesClientConfiguration config = new PlayGamesClientConfiguration.Builder()
+                .EnableSavedGames()
+                .Build();            
+            PlayGamesPlatform.InitializeInstance(config);
+            PlayGamesPlatform.Activate();
+}
+#endregion
+
+#region input
+//バックアップボタンから呼ぶメソッド
+    public void PressCloudSyncButton() {
+        OpenSavedGame();
+    }
+
+#endregion
+
+    //まずクラウド上のファイルをOPEN
+    public void OpenSavedGame() {
+        if (!hasInternetConnection) {
+            Debug.Log("No Internet Connection");
+            return;
+        }
+
+        if (!isAuthed) {
+            Debug.Log("Not Authed");
+            return;
+        }
+        isSaving = false;
+        Debug.Log("Opening savedGame in the cloud");
+
+        ((PlayGamesPlatform)Social.Active).SavedGame.OpenWithAutomaticConflictResolution(
+            saveFileName,
+            DataSource.ReadCacheOrNetwork,
+            ConflictResolutionStrategy.UseLongestPlaytime,
+            OnSavedGameOpened
+        );
+    }
+
+    public void SaveToCloud() {
+        if (!hasInternetConnection) {
+            Debug.Log("No Internet Connection");
+            return;
+        }
+
+        if (isAuthed) {
+            isSaving = true;
+            //first, open the file
+            ((PlayGamesPlatform)Social.Active).SavedGame.OpenWithAutomaticConflictResolution(
+                saveFileName,
+                DataSource.ReadCacheOrNetwork,
+                ConflictResolutionStrategy.UseLongestPlaytime,
+                OnSavedGameOpened
+            );
+        } else {
+            Debug.Log("Not Authed");
+            return;
+        }
+    }
+
+#region savedGames Callbacks
+
+    ISavedGameMetadata currentOpenedSavedGameMetadata;
+
+    // OPENできたらwrite/readする
+    void OnSavedGameOpened(SavedGameRequestStatus status, ISavedGameMetadata gameMetadata) {
+
+        if (status == SavedGameRequestStatus.Success) {
+
+            openedSavedGame_commitDate = gameMetadata.LastModifiedTimestamp;
+            currentOpenedSavedGameMetadata = gameMetadata;
+
+            if (isSaving) {
+                BuildBackupDate();
+
+                byte[] data = ToBytes(saveString);
+                var builder = new SavedGameMetadataUpdate.Builder();
+                var updateMetadata = builder
+                    .WithUpdatedPlayedTime(GameController.statTotalBattleTime)
+                    .WithUpdatedDescription("SAVED AT:" + DateTime.UtcNow.ToLocalTime().ToShortDateString())
+                    .Build();
+
+
+                ((PlayGamesPlatform)Social.Active).SavedGame.CommitUpdate(gameMetadata, updateMetadata, data, OnSavedGameWritten);
+            } else {
+
+                SAVEDGAME_STATUS stat = SAVEDGAME_STATUS.Default;
+
+                if (gameMetadata.Description == null || gameMetadata.Description == "") {
+                    stat = SAVEDGAME_STATUS.NoData;
+                }
+                if (gameMetadata.TotalTimePlayed &gt; GameController.statTotalBattleTime) {
+                    stat = SAVEDGAME_STATUS.LongerPlaytime;
+                } else {
+                    if (gameMetadata.TotalTimePlayed == GameController.statTotalBattleTime) {
+                        stat = SAVEDGAME_STATUS.Default;      
+                    } else {
+                        stat = SAVEDGAME_STATUS.ShorterPlaytime;
+                    }
+                }
+
+                switch (stat) {
+                case SAVEDGAME_STATUS.Default:
+                    Debug.Log("バックアップデータの更新は不要です");
+                    break;
+                case SAVEDGAME_STATUS.NoData:
+                case SAVEDGAME_STATUS.LongerPlaytime:
+                case SAVEDGAME_STATUS.ShorterPlaytime:
+                    OpenDialog(stat);
+                    break;
+                }
+            }
+        }
+    }
+
+    public void LoadSavedGameData() {
+        ((PlayGamesPlatform)Social.Active).SavedGame.ReadBinaryData(currentOpenedSavedGameMetadata, OnSavedGameDataRead);
+    }
+
+    void OnSavedGameDataRead(SavedGameRequestStatus status, byte[]data) {
+        if (status == SavedGameRequestStatus.Success) {
+            ProcessCloudData(data);
+        } else {
+            Debug.LogWarning("Error: Reading game:" + status);
+        }
+    }
+
+    void OnSavedGameWritten(SavedGameRequestStatus status, ISavedGameMetadata gameMetadata) {
+        if (status == SavedGameRequestStatus.Success) {
+            GameController.Instance.gameProgress.cloudSaveNum++;
+            GameController.Instance.SaveGameProgress();
+            Debug.Log("Game " + gameMetadata.Description + " written");
+        } else {
+            Debug.LogWarning("Error: saving on the cloud " + status);
+        }
+    }
+
+#endregion
+
+    void ProcessCloudData(byte[]cloudData) {
+        DistributeLoadedData(cloudData);
+    }
+
+    string FromBytes(byte[] bytes) {
+        return Encoding.UTF8.GetString(bytes);
+    }
+
+    byte[] ToBytes(string data) {
+        return Encoding.UTF8.GetBytes(data);
+    }
+
+    enum SAVEDGAME_STATUS {
+        Default,
+        NoData,
+        ShorterPlaytime,
+        LongerPlaytime
+    }
+//ダイアログ表示,YES NOを選択すると対応するメソッドを呼ぶ。具体的な内容にはこの記事では触れない
+    void OpenDialog(SAVEDGAME_STATUS stts) {
+        Debug.Log("OPEN DIALOG:" + stts);
+        switch (stts) {
+        default:
+            break;
+        case SAVEDGAME_STATUS.NoData:
+            Debug.Log("バックアップデータがありません、バックアップしますか？");
+            break;
+        case SAVEDGAME_STATUS.ShorterPlaytime:
+            Debug.Log("バックアップしますか？");
+            break;
+        case SAVEDGAME_STATUS.LongerPlaytime:
+            Debug.Log("バックアップしたデータをロードしますか？");
+            break;
+        }
+    }
+
+    void QuitApp() {
+        Debug.Log("QuitApp");
+        Application.Quit();
+    }
+
+    void BuildBackupData() {        
+        //バックアップしたいデータをここで代入する
+        saveString = "(バックアップしたいデータ)";
+    }
+
+//ロードしたデータをゲームに反映する処理
+    void DistributeLoadedData(byte[] dataFromCloud) {
+        if (dataFromCloud == null) {
+            Debug.Log("No data saved on the cloud yet");
+            return;
+        }
+        Debug.Log("Decoding cloud data from bytes.");
+        string stringFromCloud = FromBytes(dataFromCloud);
+        if (stringFromCloud == "") {
+            Debug.Log("No data saved on the cloud yet");
+            return;
+        }
+
+        //データを反映する
+        HogeHoge(SaveString);
+//念の為アプリを落とす
+        QuitApp();
+    }
+}
+

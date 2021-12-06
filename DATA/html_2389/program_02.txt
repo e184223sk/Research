@@ -1,0 +1,164 @@
+
+        public async System.Threading.Tasks.Task Input_Sukashi_Bitmap_Making(Android.Net.Uri filePath) 
+        {   //★埋めたファイルを復号するところ
+            string err_str = "Input_Sukashi_Bitmap_Making";
+            try {
+                //指定した画像を開く
+                err_str = "DecodeStream";
+                Bitmap bitmap = null;
+                using (BitmapFactory.Options options = new BitmapFactory.Options())
+                {   //RGB565に統一
+                    options.InPreferredConfig = bitmapConfig;
+                    using (var inputStream = ContentResolver.OpenInputStream(filePath))
+                    {   // URI指定の場合
+                        //http://www.united-bears.co.jp/blog/archives/909
+                        bitmap = BitmapFactory.DecodeStream(inputStream, null, options);
+                        inputStream.Close();
+                    }
+                }
+
+                //Bitmapのバイナリ置き場の準備
+                //https://qiita.com/aymikmts/items/7139fa6c4da3b57cb4fc
+                err_str = "byteBuffer3";
+                Java.Nio.ByteBuffer byteBuffer = Java.Nio.ByteBuffer.Allocate(bitmap.ByteCount);
+                err_str = "CopyPixelsToBuffer3 " + (bitmap == null) + " " + bitmap.ByteCount;
+                bitmap.CopyPixelsToBuffer(byteBuffer);
+                err_str = "Flip3";
+                byteBuffer.Flip();
+                err_str = "bmparr3";
+
+                //基礎Bitmapのバイナリの格納
+                byte[] bmparr = new byte[byteBuffer.Capacity()];
+                err_str = "Get3";
+                byteBuffer.Duplicate().Get(bmparr);
+                err_str = "Clear3";
+                byteBuffer.Clear();
+                bitmap.Recycle();
+                bitmap.Dispose();
+
+                //埋め込むファイルのバイナリ格納用リスト
+                err_str = "List&lt;byte&gt;";
+                List&lt;byte&gt; bs = new List&lt;byte&gt;(); //各初期化
+                bs.Clear();
+                base_cnt = 0;
+
+                err_str = "名前のサイズを取得";
+                do
+                {   //まずは、埋め込んだファイルの名前のサイズを取得[Int32 = s4バイト固定]
+                    bs.Add(data_toridashi(bmparr[base_cnt], bmparr[base_cnt + 1]));
+                } while (bs.Count &lt; 4); //4バイト貯まるまでループ
+
+                err_str = "名前領域の取り出し";
+                Int32 data_size = BitConverter.ToInt32(bs.ToArray());
+                bs.Clear();
+                do 
+                {   //埋め込んだファイルの名前を取得
+                    bs.Add(data_toridashi(bmparr[base_cnt], bmparr[base_cnt + 1]));
+                } while (bs.Count &lt; data_size); //先に取得したサイズまでループ
+
+                //UTF8にてバイナリを文字列に戻す
+                err_str = "出力先パスの完成";
+                string load_filepath =  System.Text.Encoding.UTF8.GetString(bs.ToArray());
+                load_filepath = System.IO.Path.Combine(Output_DirName, load_filepath);
+                load_filepath = System.IO.Path.Combine(Output_DirName, System.IO.Path.GetFileNameWithoutExtension(load_filepath) + "[t]" + System.IO.Path.GetExtension(load_filepath));
+
+                err_str = "本体バイナリのサイズを取得";
+                bs.Clear();
+                do
+                {   //埋め込んだファイルのサイズの取得[4バイト固定]
+                    bs.Add(data_toridashi(bmparr[base_cnt], bmparr[base_cnt + 1]));
+                } while (bs.Count &lt; 4); 
+                data_size = BitConverter.ToInt32(bs.ToArray());
+
+
+                err_str = "本体バイナリの取得";
+                bs.Clear();
+                do 
+                {   //埋め込んだファイルのバイナリの取得
+                    bs.Add(data_toridashi(bmparr[base_cnt], bmparr[base_cnt + 1]));
+                    if (bs.Count == data_size) { break; }
+                } while (bs.Count &lt; data_size); //先に取得したファイルサイズが貯まるまで周回
+                //string check_filepath = System.IO.Path.Combine(Output_DirName, "check2.txt");
+                //await System.IO.File.WriteAllBytesAsync(check_filepath, bs.ToArray());
+                //set_SendBroadcast_state(check_filepath);
+
+                err_str = "ファイルに書き出す";
+                await System.IO.File.WriteAllBytesAsync(load_filepath, bs.ToArray());
+                bs.Clear();
+
+                //復号したファイルを開く
+                err_str = "open_start_file3";
+                open_start_file(load_filepath, this);
+
+                //復号したファイルをPCからも見えるようにする。
+                err_str = "set_SendBroadcast_state3";
+                set_SendBroadcast_state(load_filepath);
+
+            }
+            catch {
+                //エラー時の表示
+                Toast.MakeText(Application.Context, err_str, ToastLength.Long).Show();
+            }
+        }
+
+        private byte data_toridashi(byte base1, byte base2)
+        {   //指定されたバイト数値からデータを取り出す所 
+
+            //基礎画像のビットデータの取り出し
+            string base1_str = Convert.ToString(base1, 2).PadLeft(8, '0'); //8桁の二進数にする。
+            string base2_str = Convert.ToString(base2, 2).PadLeft(8, '0'); //8桁の二進数にする。
+
+            //各色に分ける
+            string color_bits_str = base2_str + base1_str;
+            string color_r = color_bits_str.Substring(0, 5);
+            string color_g = color_bits_str.Substring(5, 6);
+            string color_b = color_bits_str.Substring(11, 5);
+
+            //下位ビットを取り出す
+            color_bits_str = color_r.Substring(3, 2) + color_g.Substring(3, 3) + color_b.Substring(2, 3);
+
+            //基礎側のバイナリは2つ進む
+            base_cnt += 2;
+
+            return Convert.ToByte(color_bits_str, 2); //2進数からbyteに変換
+        }
+        ////□□□さらなる没案{埋め込みに関して}□□□
+        //ARGB8888なら以下の埋め込み方法だった。
+        //private void data_umekomi_b(ref byte base1, ref byte base2, byte umekomi_byte)
+        //{   //指定されたバイト数値にデータを埋め込む所 
+
+        //    //基礎画像の下位4ビットをカットする。
+        //    string base1_str = Convert.ToString(base1, 2).PadLeft(8, '0'); //8桁の二進数にする。
+        //    base1_str = base1_str.Substring(0, 4); //上位4ビットのみ取得。
+        //    string base2_str = Convert.ToString(base2, 2).PadLeft(8, '0'); //8桁の二進数にする。
+        //    base2_str = base2_str.Substring(0, 4); //上位4ビットのみ取得。
+
+        //    //空いた下位4ビットにデータを埋め込む
+        //    string umekomi_str = Convert.ToString(umekomi_byte, 2).PadLeft(8, '0'); //8桁の二進数にする。
+        //    base1_str = base1_str + umekomi_str.Substring(0, 4); //下位4ビットに埋め込む
+        //    base1 = Convert.ToByte(base1_str, 2); //2進数からbyteに変換
+        //    base2_str = base2_str + umekomi_str.Substring(4, 4); //下位4ビットに埋め込む
+        //    base2 = Convert.ToByte(base2_str, 2); //2進数からbyteに変換
+
+        //    //基礎側のバイナリは2つ進む
+        //    base_cnt += 2;
+        //}
+
+        //private byte data_toridashi_b(byte base1, byte base2)
+        //{   //指定されたバイト数値からデータを取り出す所 
+
+        //    //基礎画像の上位4ビットをカットする。
+        //    string base1_str = Convert.ToString(base1, 2).PadLeft(8, '0'); //8桁の二進数にする。
+        //    base1_str = base1_str.Substring(4, 4); //下位4ビットのみ取得。
+        //    string base2_str = Convert.ToString(base2, 2).PadLeft(8, '0'); //8桁の二進数にする。
+        //    base2_str = base2_str.Substring(4, 4); //下位4ビットのみ取得。
+
+        //    //空いた下位4ビットにデータを埋め込む
+        //    string toridashi_str = base1_str + base2_str;
+
+        //    //基礎側のバイナリは2つ進む
+        //    base_cnt += 2;
+
+        //    return Convert.ToByte(toridashi_str, 2); //2進数からbyteに変換
+        //}
+

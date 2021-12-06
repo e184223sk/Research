@@ -1,0 +1,271 @@
+
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using ID3Util;
+
+
+class MainForm : Form
+{
+    DataGridView dgv;
+    BindingList&lt;Mp3Item&gt; items;
+    BindingSource wrapper;
+
+
+    // DataGridViewに表示する項目
+    public class Mp3Item : INotifyPropertyChanged
+    {
+        static readonly string TextForEdited = "変更";
+
+        // DataSourceの対象の中身のデータを変更しても更新されない場合がある対策としてINotifyPropertyChangedを実装
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void NotifyPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] String propertyName = "")
+        {
+            if (PropertyChanged != null) {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+        // フィールドは表示されない。プロパティにする必要がある。
+        public string FolderPath     {get{return _folderPath;     } set{if(value != _folderPath     ){                          _folderPath     =value;NotifyPropertyChanged();}}}
+        public string FileNameWoExt  {get{return _fileNameWoExt;  } set{if(value != _fileNameWoExt  ){                          _fileNameWoExt  =value;NotifyPropertyChanged();}}}
+
+        public string ID3v1Edited    {get{return _id3v1edited;    } set{if(value != _id3v1edited    ){                          _id3v1edited    =value;NotifyPropertyChanged();}}}
+        public bool   ID3v1Enabled   {get{return _id3v1enabled;   } set{if(value != _id3v1enabled   ){ID3v1Edited=TextForEdited;_id3v1enabled   =value;NotifyPropertyChanged();}}}
+        public string V1Artist       {get{return _v1artist;       } set{if(value != _v1artist       ){ID3v1Edited=TextForEdited;_v1artist       =value;NotifyPropertyChanged();}}}
+        public string V1Album        {get{return _v1album;        } set{if(value != _v1album        ){ID3v1Edited=TextForEdited;_v1album        =value;NotifyPropertyChanged();}}}
+        public string V1Title        {get{return _v1title;        } set{if(value != _v1title        ){ID3v1Edited=TextForEdited;_v1title        =value;NotifyPropertyChanged();}}}
+        public string V1Track        {get{return _v1track;        } set{if(value != _v1track        ){ID3v1Edited=TextForEdited;_v1track        =value;NotifyPropertyChanged();}}}
+        public string V1Year         {get{return _v1year;         } set{if(value != _v1year         ){ID3v1Edited=TextForEdited;_v1year         =value;NotifyPropertyChanged();}}}
+        public string V1Genre        {get{return _v1genre;        } set{if(value != _v1genre        ){ID3v1Edited=TextForEdited;_v1genre        =value;NotifyPropertyChanged();}}}
+        public string V1Comment      {get{return _v1comment;      } set{if(value != _v1comment      ){ID3v1Edited=TextForEdited;_v1comment      =value;NotifyPropertyChanged();}}}
+
+        public string ID3v2Edited    {get{return _id3v2edited;    } set{if(value != _id3v2edited    ){                          _id3v2edited    =value;NotifyPropertyChanged();}}}
+        public bool   ID3v2Enabled   {get{return _id3v2enabled;   } set{if(value != _id3v2enabled   ){ID3v2Edited=TextForEdited;_id3v2enabled   =value;NotifyPropertyChanged();}}}
+        public string V2Artist       {get{return _v2artist;       } set{if(value != _v2artist       ){ID3v2Edited=TextForEdited;_v2artist       =value;NotifyPropertyChanged();}}}
+        public string V2Album        {get{return _v2album;        } set{if(value != _v2album        ){ID3v2Edited=TextForEdited;_v2album        =value;NotifyPropertyChanged();}}}
+        public string V2Title        {get{return _v2title;        } set{if(value != _v2title        ){ID3v2Edited=TextForEdited;_v2title        =value;NotifyPropertyChanged();}}}
+        public string V2Track        {get{return _v2track;        } set{if(value != _v2track        ){ID3v2Edited=TextForEdited;_v2track        =value;NotifyPropertyChanged();}}}
+        public string V2Year         {get{return _v2year;         } set{if(value != _v2year         ){ID3v2Edited=TextForEdited;_v2year         =value;NotifyPropertyChanged();}}}
+        public string V2Genre        {get{return _v2genre;        } set{if(value != _v2genre        ){ID3v2Edited=TextForEdited;_v2genre        =value;NotifyPropertyChanged();}}}
+
+
+        string _folderPath;
+        string _fileNameWoExt;// フォルダと拡張子除く
+
+        string _id3v1edited;
+        bool   _id3v1enabled;
+        string _v1artist;
+        string _v1album;
+        string _v1title;
+        string _v1track;
+        string _v1year;
+        string _v1genre;
+        string _v1comment;
+
+        string _id3v2edited;
+        bool   _id3v2enabled;
+        string _v2artist;
+        string _v2album;
+        string _v2title;
+        string _v2track;
+        string _v2year;
+        string _v2genre;
+
+
+        public static Mp3Item ConvertToMp3Item(string mp3FileName)
+        {
+            bool _tmp_id3v1enabled = true;
+            bool _tmp_id3v2enabled = true;
+
+            if ( ! ( File.Exists(mp3FileName) &amp;&amp; mp3FileName.EndsWith(".mp3", true, null) ) ) {// Note: EndsWithの第2引数はignoreCase
+                return null;
+            }
+
+            Encoding enc = Encoding.GetEncoding(CodePage_Shift_JIS);
+
+            ID3v1 id3v1 = ID3v1.ParseFromFile(mp3FileName, enc);
+            if ( id3v1 == null ) {
+                _tmp_id3v1enabled = false;
+                id3v1 = ID3v1.CreateDefault(enc);
+            }
+
+            ID3v2 id3v2 = ID3v2.ParseFromFile(mp3FileName, enc);
+            if ( id3v2 == null ) {
+                _tmp_id3v2enabled = false;
+                id3v2 = ID3v2.CreateDefault(enc);
+            }
+
+            var item = new Mp3Item(){
+                FolderPath = Path.GetDirectoryName(Path.GetFullPath(mp3FileName)),
+                FileNameWoExt = Path.GetFileNameWithoutExtension(mp3FileName),
+
+                ID3v1Enabled = _tmp_id3v1enabled,
+                V1Artist  = id3v1.Artist,
+                V1Album   = id3v1.Album,
+                V1Title   = id3v1.Title,
+                V1Track   = id3v1.Track.ToString(),
+                V1Year    = id3v1.Year.ToString(),
+                V1Genre   = id3v1.Genre,
+                V1Comment = id3v1.Comment,
+
+                ID3v2Enabled = _tmp_id3v2enabled,
+                V2Artist  = id3v2.Artist,
+                V2Album   = id3v2.Album,
+                V2Title   = id3v2.Title,
+                V2Track   = id3v2.Track,
+                V2Year    = id3v2.Year,
+                V2Genre   = id3v2.Genre,
+            };
+            item.ID3v1Edited = "";
+            item.ID3v2Edited = "";
+
+            return item;
+        }
+    }
+
+    const int CodePage_Shift_JIS = 932;
+
+    MainForm(string filePath)
+    {
+        items = new BindingList&lt;Mp3Item&gt;();
+
+        Text = "Mp3TagViewer";
+        ClientSize = new Size(840,450);
+
+
+        var menuStrip1 = new MenuStrip(); // https://dobon.net/vb/dotnet/control/menustrip.html
+
+        SuspendLayout();
+        menuStrip1.SuspendLayout();
+
+        var fileMenuItem = new ToolStripMenuItem(){ Text = "ファイル(&amp;F)"};
+        var editMenuItem = new ToolStripMenuItem(){ Text = "編集(&amp;E)"};
+        menuStrip1.Items.Add(fileMenuItem);
+        menuStrip1.Items.Add(editMenuItem);
+
+//        fileMenuItem.DropDownItems.Add( new ToolStripMenuItem("開く(&amp;O)...", null, (s,e)=&gt;{OpenTemplateWithDialog();}, Keys.Control | Keys.O) );
+//        fileMenuItem.DropDownItems.Add( new ToolStripMenuItem("保存(&amp;S)...", null, (s,e)=&gt;{SaveTemplateWithDialog();}, Keys.Control | Keys.S) );
+
+//        editMenuItem.DropDownItems.Add( new ToolStripMenuItem("アイコン(.ico)として保存(&amp;I)...", null, (s,e)=&gt;{SaveImageWithDialog("ico");}, Keys.Control | Keys.I) );
+//        editMenuItem.DropDownItems.Add( new ToolStripMenuItem("画像(.png)として保存(&amp;P)...",     null, (s,e)=&gt;{SaveImageWithDialog("png");}, Keys.Control | Keys.P) );
+
+
+
+        Controls.Add(
+            dgv = new DataGridView() {
+                //Location = new Point(0, 0),
+                //Size = new Size(800, 400),
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = false,
+                AutoGenerateColumns = false,
+                AllowDrop = true,
+            }
+        );
+
+        //https://dobon.net/vb/dotnet/datagridview/addcolumn.html
+
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width = 100, DataPropertyName = "FolderPath",    Name = "FolderPath",    HeaderText = "場所",       ReadOnly=true});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width = 110, DataPropertyName = "FileNameWoExt", Name = "FileNameWoExt", HeaderText = "ファイル名", ReadOnly=true});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  30, DataPropertyName = "ID3v1Edited",   Name = "ID3v1Edited",   HeaderText = "v1編集状態", ReadOnly=true});
+        dgv.Columns.Add(new DataGridViewCheckBoxColumn(){Width=  50, DataPropertyName = "ID3v1Enabled",  Name = "ID3v1Enabled",  HeaderText = "ID3v1"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  80, DataPropertyName = "V1Artist",  Name = "V1Artist",  HeaderText = "[v1]アーティスト"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  80, DataPropertyName = "V1Album",   Name = "V1Album",   HeaderText = "[v1]アルバム"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width = 110, DataPropertyName = "V1Title",   Name = "V1Title",   HeaderText = "[v1]曲名"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  35, DataPropertyName = "V1Track",   Name = "V1Track",   HeaderText = "[v1]トラック"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  45, DataPropertyName = "V1Year",    Name = "V1Year",    HeaderText = "[v1]年"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  60, DataPropertyName = "V1Genre",   Name = "V1Genre",   HeaderText = "[v1]ジャンル"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  50, DataPropertyName = "V1Comment", Name = "V1Comment", HeaderText = "[v1]コメント"});
+
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  30, DataPropertyName = "ID3v2Edited",   Name = "ID3v2Edited",   HeaderText = "v2編集状態", ReadOnly=true});
+        dgv.Columns.Add(new DataGridViewCheckBoxColumn(){Width=  50, DataPropertyName = "ID3v2Enabled",  Name = "ID3v2Enabled",  HeaderText = "ID3v2"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  80, DataPropertyName = "V2Artist",  Name = "V2Artist",  HeaderText = "[v2]アーティスト"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  80, DataPropertyName = "V2Album",   Name = "V2Album",   HeaderText = "[v2]アルバム"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width = 110, DataPropertyName = "V2Title",   Name = "V2Title",   HeaderText = "[v2]曲名"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  35, DataPropertyName = "V2Track",   Name = "V2Track",   HeaderText = "[v2]トラック"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  45, DataPropertyName = "V2Year",    Name = "V2Year",    HeaderText = "[v2]年"});
+        dgv.Columns.Add(new DataGridViewTextBoxColumn(){Width =  60, DataPropertyName = "V2Genre",   Name = "V2Genre",   HeaderText = "[v2]ジャンル"});
+
+        wrapper = new BindingSource() {
+            DataSource = items
+        };
+
+        dgv.DataSource = wrapper;
+
+        dgv.DragEnter += Control_DragEnter;
+        dgv.DragDrop += Control_DragDrop;
+
+
+        this.AllowDrop = true;
+        this.DragEnter += Control_DragEnter;
+        this.DragDrop += Control_DragDrop;
+
+
+        Controls.Add(menuStrip1);
+        MainMenuStrip = menuStrip1;
+        menuStrip1.ResumeLayout(false);
+        menuStrip1.PerformLayout();
+        ResumeLayout(false);
+        PerformLayout();
+
+
+        if ( filePath != null ) {
+            RegisterID3FromFile(filePath);
+        }
+    }
+
+    void Control_DragEnter(Object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    void Control_DragDrop(Object sender, DragEventArgs e)
+    {
+        var fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+        if ( fileNames != null &amp;&amp; fileNames.Length &gt;= 1 ) {
+            foreach ( var s in fileNames ) {
+                RegisterID3FromFile(s);
+            }
+        }
+    }
+
+    void RegisterID3FromFile(string filePath)
+    {
+        var item = Mp3Item.ConvertToMp3Item(filePath);
+        if ( item != null ) {
+            wrapper.Add(item);
+        }
+    }
+
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm((args.Length==1)?args[0]:null));
+    }
+}
+
+

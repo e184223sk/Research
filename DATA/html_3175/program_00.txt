@@ -1,0 +1,126 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Threading;
+
+using Microsoft.Office.Interop.Outlook;
+
+namespace WindowsFormsApp1
+{
+
+    public partial class Form1 : Form
+    {
+        static bool flag = true;
+
+        /*** Form1.cs ***/
+        public Form1()
+        {
+            InitializeComponent();
+            new Thread(new ThreadStart(GetMouseButton)).Start();
+            this.ShowInTaskbar = false;
+        }
+
+        public void GetMouseButton()
+        {
+            while (flag is true)
+            {
+                if ((Control.MouseButtons &amp; MouseButtons.Left) == MouseButtons.Left)
+                {
+                    getText();
+                    //Console.WriteLine("マウスのXBUTTON2が押されています。");
+                }
+                //Thread.Sleep(100);
+            }
+        }
+
+        public delegate void Delegate();
+
+        public void getText()
+        {
+            try
+            {
+                if (InvokeRequired)
+                {
+                    Invoke(new Delegate(getText));
+                    return;
+                }
+
+                Point cp = this.PointToClient(new Point(Cursor.Position.X, Cursor.Position.Y));
+                //Console.WriteLine(cp.X.ToString() + " " + cp.Y.ToString());
+                if ((cp.X &lt; 0 || this.Width &lt; cp.X ) &amp;&amp; (cp.Y &lt; 0 || this.Height &lt; cp.Y) )
+                {
+                    this.Location = new Point(Cursor.Position.X + 10, Cursor.Position.Y + 15);
+                }
+
+                Microsoft.Office.Interop.Outlook.Application outlook = new Microsoft.Office.Interop.Outlook.Application();
+                NameSpace ns = outlook.GetNamespace("MAPI");
+                MAPIFolder oFolder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
+
+                textBox1.Text = "";
+                if (outlook.ActiveExplorer().Selection.Count is 1)
+                {
+                    Object selObject = outlook.ActiveExplorer().Selection[1];
+                    if (selObject is AppointmentItem)
+                    {
+                        AppointmentItem oAppoint = (selObject as AppointmentItem);
+                        textBox1.Text += "開催：" + oAppoint.Organizer + "\r\n";
+                        textBox1.Text += "件名：" + oAppoint.Subject + "\r\n";
+                        textBox1.Text += "開始：" + oAppoint.Start.ToString("yyyy/MM/dd HH:mm:ss") + "\r\n";
+                        textBox1.Text += "終了：" + oAppoint.End.ToString("yyyy/MM/dd HH:mm:ss") + "\r\n";
+                        textBox1.Text += "場所：" + oAppoint.Location + "\r\n";
+                        Clipboard.SetText("開催：" + oAppoint.Organizer + "\n" 
+                                        + "件名：" + oAppoint.Subject + "\n" 
+                                        + "開始：" + oAppoint.Start.ToString("yyyy/MM/dd HH:mm:ss") + "\n"
+                                        + "終了：" + oAppoint.End.ToString("yyyy/MM/dd HH:mm:ss") + "\n"
+                                        + "場所：" + oAppoint.Location + "\n");
+                    }
+                    else
+                    {
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+            }
+        }
+
+        private void notifyIcon1_MouseDoubleClick_1(object sender, MouseEventArgs e)
+        {
+            // フォームを表示する
+            this.Visible = true;
+            // 現在の状態が最小化の状態であれば通常の状態に戻す
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.WindowState = FormWindowState.Normal;
+            }
+            // フォームをアクティブにする
+            new Thread(new ThreadStart(GetMouseButton)).Start();
+            this.Activate();
+        }
+
+        private void Form1_SizeChanged(object sender, EventArgs e)
+        {
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                flag = false;
+            }
+            else
+            {
+                flag = true;
+                new Thread(new ThreadStart(GetMouseButton)).Start();
+            }
+        }
+
+        private void Form1_FormClosing_1(object sender, FormClosingEventArgs e)
+        {
+            flag = false;
+        }
+    }
+}
+

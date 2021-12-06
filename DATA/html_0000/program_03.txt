@@ -1,0 +1,29 @@
+
+public IActionResult ExportCsv([FromForm] StudentSearchModel model)
+{
+    //_repositoryはDB操作をするための自作クラスの変数
+    //GetStudentInfoでDBから情報を取得してくる ※情報取得部分は割愛
+    var results = _repository.GetStudentInfo(model).ToList());
+    var bytes_separate = Encoding.GetEncoding("Shift-JIS").GetBytes("-----成績一覧-----\r\n");
+    var bytes_results = GetCsvData&lt;StudentInfo, StudentInfoMap&gt;(results);
+    return File(
+        //byte配列をつなぐ
+        bytes_separate
+        .Concat(bytes_results)
+        .ToArray(),
+        "text/csv",
+        "sample.csv");
+}
+
+private static byte[] GetCsvData&lt;T, TMap&gt;(List&lt;StudentInfo&gt; list) where TMap : ClassMap
+{
+    var ms = new MemoryStream();
+    var sw = new StreamWriter(ms, Encoding.GetEncoding("Shift-JIS"));
+    var cw = new CsvWriter(sw, CultureInfo.CurrentCulture);
+    //ここの仕様が変わった？ 以前は "cw.Configuration.RegisterClassMap" のようにしていたと思う
+    cw.Context.RegisterClassMap&lt;TMap&gt;();
+    cw.WriteRecords(list);
+    sw.Flush();
+    return ms.ToArray();
+}
+

@@ -1,0 +1,82 @@
+
+
+static void OutputDocument()
+{
+    // Razor テンプレート
+    string typeTemplate = @".\RazorTemplates\TypeTemplate.txt";
+    string namespaceTemplate = @".\RazorTemplates\NamespaceTemplate.txt";
+
+    // 読み込むアセンブリ
+    string[] dlls = new[]
+    {
+        @".\LoadAssemblies\mxProject.Tools.ClassDoc.dll",
+        @".\LoadAssemblies\mxProject.Tools.ClassDoc.Razor.dll",
+        @".\LoadAssemblies\SampleLibrary1.dll",
+        @".\LoadAssemblies\SampleLibrary2.dll"
+    };
+
+
+    // ライターを設定（.NET Framework バージョンの場合）
+    RazorDocumentWriter writer = new RazorDocumentWriter(Encoding.UTF8)
+    {
+        RootDirectory = @".\Documents\",
+        TypeDocumentTemplate = File.ReadAllText(typeTemplate, Encoding.UTF8),
+        NamespaceDocumentTemplate = File.ReadAllText(namespaceTemplate, Encoding.UTF8),
+    };
+
+    // ライターを設定（.NET Core バージョンの場合）
+    string typeDocTemplate = File.ReadAllText(typeTemplate, Encoding.UTF8);
+    string namespaceDocTemplate = File.ReadAllText(namespaceTemplate, Encoding.UTF8);
+    using RazorDocumentWriter writer = RazorDocumentWriter.Create
+    (
+        Encoding.UTF8,
+        namespaceDocTemplate,
+        typeDocTemplate
+    );
+    weiter.RootDirectory = @".\Documents\";
+
+
+    // コンテキストとフォーマッターを設定
+    ClassDocContext context = new ClassDocContext()
+    {
+        // 出力対象を決定するフィルタメソッド
+        // ここで設定している値は ClassDocContext の初期値として設定されているものと同じです
+        ConstructorFilter = ConstructorInfoExtensions.IsRecommendOutputToDocument,
+        TypeFilter = TypeExtenstions.IsRecommendOutputToDocument,
+        PropertyFilter = PropertyInfoExtensions.IsRecommendOutputToDocument,
+        FieldFilter = FieldInfoExtensions.IsRecommendOutputToDocument,
+        MethodFilter = MethodInfoExtensions.IsRecommendOutputToDocument,
+        EventFilter = EventInfoExtensions.IsRecommendOutputToDocument,
+    };
+
+    MarkdownFormatter formatter = new MarkdownFormatter(context)
+    {
+        // アンカーのフォーマット
+        // ここで設定している値は MarkdownFormatter の初期値として設定されているものと同じです
+        ConstructorAnchorDefaultFormat = "{0} Constructor",
+        PropertyAnchorDefaultFormat = "{0} Property",
+        FieldAnchorDefaultFormat = "{0} Field",
+        MethodAnchorDefaultFormat = "{0} Method",
+        EventAnchorDefaultFormat = "{0} Event",
+        ParameterNameDefaultFormat = "`{0}`",
+    };
+
+    // 型情報を読み込みます
+    IReadOnlyList&lt;TypeWithComment&gt; types = TypeLoader.LoadTypes(dlls, context, null);
+
+    // 名前空間ごとにグループ化します
+    foreach (var group in types.GroupBy(type =&gt; type.Namespace).OrderBy(group =&gt; group.Key))
+    {
+        NamespaceInfo nameSpace = new NamespaceInfo(group.First()?.Namespace, group);
+
+        // 名前空間の情報をドキュメントに出力します
+        writer.WriteNamespaceDocument(nameSpace, formatter);
+
+        // 型の情報をドキュメントに出力します
+        foreach (var type in group.OrderBy(type =&gt; type.Name))
+        {
+            writer.WriteTypeDocument(type, formatter);
+        }
+    }
+}
+

@@ -1,0 +1,100 @@
+
+
+        /// &lt;summary&gt;
+        /// 左クリック
+        /// 対象ブロックを開く
+        /// &lt;/summary&gt;
+        private void OnLeftClick()
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+            if(Physics.Raycast(ray, out hit))
+            {
+                GameObject go = hit.collider.gameObject;
+                if(go.tag == GameController.TAG_BLOCK)
+                {
+                    // 対象が爆弾ブロックか判定
+                    BlockModel target = go.GetComponent&lt;BlockModel&gt;();
+                    if (target.HasBomb)
+                    {
+                        // チェック済ならば何もしない
+                        if (target.IsCheck) return;
+
+                        // チェックしていないなら開いてゲームオーバー
+                        //GameOver(target);
+                    }else
+                    {
+                        // 爆弾でないならば一連の開く処理
+                        OpenBlock(target);
+
+                        // ゲームクリアの判定
+                        //JudgeGameClear();
+                    }
+                }
+            }
+        }
+
+
+        /// &lt;summary&gt;
+        /// 指定座標のブロックを取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="x"&gt;&lt;/param&gt;
+        /// &lt;param name="y"&gt;&lt;/param&gt;
+        private BlockModel GetBlock(int x, int y)
+        {
+            return mBlockList.FirstOrDefault(block =&gt; block.X == x &amp;&amp; block.Y == y);
+        }
+
+        /// &lt;summary&gt;
+        /// 指定座標の隣接1マスにあるブロックを取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="x"&gt;&lt;/param&gt;
+        /// &lt;param name="y"&gt;&lt;/param&gt;
+        private List&lt;BlockModel&gt; GetAroundBlocks(int x, int y)
+        {
+            List&lt;BlockModel&gt; result = new List&lt;BlockModel&gt;();
+
+            // 定義済みデリゲート
+            Action&lt;int, int&gt; action = (posX, posY) =&gt;
+            {
+                BlockModel model = GetBlock(posX, posY);
+                if (model != null) result.Add(model);
+            };
+
+            // 各座標をチェックしてリストに追加していく
+            action(x - 1, y - 1);
+            action(x - 1, y);
+            action(x - 1, y + 1);
+            action(x, y - 1);
+            action(x, y + 1);
+            action(x + 1, y - 1);
+            action(x + 1, y);
+            action(x + 1, y + 1);
+            return result;
+        }
+
+        private void OpenBlock(BlockModel target)
+        {
+            // 対象がすでに開かれている or チェック済の場合は何もしない
+            if (target.IsOpen || target.IsCheck) return;
+
+            // 対象ブロックの隣接1マスにあるブロックを取得
+            List&lt;BlockModel&gt; aroundBlocks = GetAroundBlocks(target.X, target.Y);
+
+            // 周囲の爆弾の数を取得
+            int bombCount = aroundBlocks.Count(block =&gt; block.HasBomb);
+
+            // 対象ブロックを開く
+            target.Open(bombCount);
+
+            // 周囲に爆弾が0だった場合に限り、隣接するブロックを連鎖的に開いていく
+            if(bombCount == 0)
+            {
+                foreach(BlockModel model in aroundBlocks)
+                {
+                    if (!model.HasBomb) OpenBlock(model);
+                }
+            }
+        }
+
+

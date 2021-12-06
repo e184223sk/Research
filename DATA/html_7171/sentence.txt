@@ -1,0 +1,25 @@
+More than 5 years have passed since last update.Wordpress の REST API を C# から叩くため、OAuth 認証をしてアクセストークンを取得します。OAuth 認証をするためには、Wordpress に以下の plugin をインストールします。
+プラグインの検索では出てこないため、github から zip をダウンロードしてきてインストールする必要があります。WP REST API - OAuth 1.0a Server
+https://github.com/WP-API/OAuth1OAuth 2.0 認証ができるプラグインもあるようですが、今回は公式から出ている 1.0a のものを使います。プラグインをインストールすると、「ユーザ」ところに「Application」という項目が出てきます。
+ここで Client Key と Client Secret を作成します。
+Callback は必須だったので、適当な URL を入れています。
+"Save Consumer" をすると Client Key と Client Secret が作成されます。ここからは C# のクライアント側の処理になります。
+Google 製の OAuthBase.cs を利用するのでプロジェクトに追加しておいてください。
+公式サイトからは消えてしまっているようでしたが、ぐぐるといくつか出てきます。
+追加した際、System.Web を参照に加えておかないと HttpUtility でエラーになります。OAuth 認証は
+1. リクエストトークンの取得
+2. 認証
+3. アクセストークンの取得の3段階にわかれているので、順番に行っていきます。それぞれのエンドポイント URL は http://vccw.dev/wp-json/ にアクセスすると以下のように出てきます。
+逆に、authentication が空になっている場合は OAuth プラグインが有効になっていません。
+CLIENT_KEY と CLIENT_SECRET から signature を計算し、必要なパラメータとともにリクエストトークンのエンドポイントへ投げます。
+パラメータ文字列も OAuthBase.cs 内で勝手に作ってくれます。
+得られた token がリクエストトークンで以下のような文字列になっています。このままでは使いにくいので、適当にパースして oauth_token と oauth_token_secret の値を取っておきます。得られた oauth_token と oauth_token_secret を使って認証をします。oauth_token と oauth_token_secret から作成した URL にブラウザでアクセスします。
+すると以下のような画面にが出てくるので "Authorize" を押します。
+
+Authorize すると以下のように認証トークンが取得できます。
+得られた認証トークンを使ってアクセストークンを取得します。
+GET リクエストでもできると思うのですが、何故か手元の環境ではパラメータが正しく認識されなかったので POST でリクエストを投げています。
+しばらくハマりましたが、signature は URL エンコードしておかないと + が消えてエラーになるので注意。問題なくリクエストが通れば、以下の様な形式でアクセストークンが取得できます。これで OAuth 認証は完了です。
+以降はこのアクセストークンを使ってリクエストが投げられます。アクセストークンを使って Wordpress に新規投稿をしてみます。Authentication ヘッダが長くて面倒ですが、こんな感じで使います。
+
+

@@ -1,0 +1,65 @@
+
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Threading.Tasks;
+
+namespace svelteCsAsp.Models
+{
+    public class UserRollInitialize
+    {
+        // 初期化時のロール
+        public static readonly string SystemManagerRole = "SystemManager";      // システム管理権限
+        public static readonly string GroupManagerRole = "GroupManager";        // グループ管理権限
+
+        // 初期化時のシステム管理ユーザーID
+        public static readonly string SystemUserName = "system";    // 最初のシステム管理ユーザーのメールアドレス
+        public static readonly string SystemManageEmail = "system@test.com";    // 最初のシステム管理ユーザーのメールアドレス
+        public static readonly string SystemManagePassword = "!initialPassword01";    // 最初のシステム管理ユーザーの初期パスワード
+
+        // 初期化時のグループ管理ユーザーID
+        public static readonly string GroupUserName = "groupuser";    // 最初のグループ管理ユーザーのメールアドレス
+        public static readonly string GroupUserEmail = "groupuser@test.com";    // 最初のグループ管理ユーザーのメールアドレス
+        public static readonly string GroupUserPassword = "!initialPassword02";    // 最初のグループ管理ユーザーの初期パスワード
+
+        /// &lt;summary&gt;
+        /// ユーザーとロールの初期化
+        /// 　初期のシステムユーザーあが存在しない場合のみ内容が実行される。存在する場合は何もせずに終了
+        /// &lt;/summary&gt;
+        /// &lt;param name="serviceProvider"&gt;&lt;/param&gt;
+        public static async Task Initialize(IServiceProvider serviceProvider)
+        {
+            // ユーザー管理を取得(using Microsoft.Extensions.DependencyInjectionがないとエラーになる)
+            var userManager = serviceProvider.GetService&lt;UserManager&lt;IdentityUser&gt;&gt;();
+
+            // 初期のユーザーマネージャーが存在しなければロールの作成と初期システムユーザーを作成する
+            var systemManager = await userManager.FindByNameAsync(SystemUserName);
+            if (systemManager == null)
+            {
+                // ロール管理を取得
+                var roleManager = serviceProvider.GetService&lt;RoleManager&lt;IdentityRole&gt;&gt;();
+
+                // ロールの追加
+                await roleManager.CreateAsync(new IdentityRole(SystemManagerRole));    // システム管理ロール
+                await roleManager.CreateAsync(new IdentityRole(GroupManagerRole));    // グループ管理ロール
+
+                // 初期システム管理者の作成
+                systemManager = new IdentityUser { UserName = SystemUserName, Email = SystemManageEmail };
+                await userManager.CreateAsync(systemManager, SystemManagePassword);
+
+                // システム管理ユーザーにシステム管理ロールを追加
+                systemManager = await userManager.FindByNameAsync(SystemUserName);
+                await userManager.AddToRoleAsync(systemManager, SystemManagerRole);
+
+                // グループユーザーの作成
+                var groupUser = new IdentityUser { UserName = GroupUserName, Email = GroupUserEmail };
+                await userManager.CreateAsync(groupUser, GroupUserPassword);
+
+                // グループユーザーにグループユーザーロールを追加
+                groupUser = await userManager.FindByNameAsync(GroupUserName);
+                await userManager.AddToRoleAsync(groupUser, GroupManagerRole);
+            }
+        }
+    }
+}
+

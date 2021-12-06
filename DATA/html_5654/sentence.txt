@@ -1,0 +1,15 @@
+More than 3 years have passed since last update.C# 7.0 で導入された Generalized async return types（Task-like、arbitrary async returns、Async Task Type とも）。ValueTask を使用する事でその恩恵を受ける事ができますが、その仕組みは汎化されていますので、独自の Task-like を定義する事も可能です。
+（かといって、実務で不必要に Task-like を作ると複雑度が上がるだけなのでお勧めしませんが）この記事では、理解を深める事を主目的として、独自の Task-like の最小実装を示します。公式リファレンスを参照すると以下のように記されています。簡単そうですね。非同期メソッドの戻り値の型を次に示します。（中略）C# 7 以降、GetAwaiter メソッドを持つ別の型 (通常は値の型) を返して、コードのパフォーマンスが重要なセクションでメモリ割り当てを最小限に抑えます。「これだけ？」と思わずにはいられない情報量ですが、百聞は一見に如かず、実際にコードを記述してみましょう。
+ここで GetValueAsync は「非同期に 1 秒待って 123 を返す」だけのメソッドです。MyTask を Task-like とする為、シンプルな TaskAwaiter を返す GetAwaiter を実装してビルドします。
+すると、となりました。アレ？アクセス可能な GetAwaiterを持たせただけでは Task-like として認められませんでした。一方で、以下のコードは実行できます。
+（async の戻り値の型を Task にしてしまっているので、MyTask を挟む意味は全くないのですが）つまり、GetAwaiter は任意の型を await 可能にする為に必要 であって、「async の戻り値の型」には必須ではないのですね。「C# 言語仕様」を紐解くと、「7.7.7.1 待機可能な式」に GetAwaiter の事が記載されています（Web 版はこちら）。await 式のタスクは、待機可能である必要があります。式 t は、次のいずれかに該当する場合、待機可能です。では「async の戻り値の型」に必要なモノって一体なんなのでしょうか？その答えは Async Task Types in C# - dotnet/roslyn にありました。A task type is a class or struct with an associated builder type identified with System.Runtime.CompilerServices.AsyncMethodBuilderAttribute.上記から AsyncMethodBuilder 属性と builder type なるものが必要だと判ります。builder type が何かというと、The builder type is a class or struct that corresponds to the specific task type. The builder type has the following public methods. For non-generic builder types, SetResult() has no parameters.とあり、builder type は下記の形式のメンバーを持っていると書かれています。上記を踏まえ、改めて MyTask を実装してみます。ValueTask の実装をベースに記述していますので、興味のある方はソースも見てみて下さい。
+（この実装だと結局 Task が生成されてしまうので、パフォーマンスには寄与しませんし。ただのラッパー……）もし System.Runtime.CompilerServices.AsyncMethodBuilderAttribute が無い環境であれば、以下を定義して下さい。これで準備は整いました。
+実際に使ってみましょう。今度はビルドも成功し、標準出力に 123 と出力されました！上記コードを LinqPad ファイルとしてまとめましたので、手っ取り早く確認したい方はこちらをご参照ください。
+C# 7.0 Generalized async return types - Minimum Implementation Code for LinqPad 5別に GetAwaiter が無くても Generalized async return types は実現できましたね！--- 完 ---でも良いのですが、Task-like という場合はきちんと await 可能にしないとタスクっぽくないですよね。
+という事で MyTask に GetAwaiter を足します。こうする事1で、async の戻り値を await する事ができるようになりました。チャンチャンasync (C# リファレンス) | Microsoft Docs
+非同期の戻り値の型 (C#) | Microsoft Docs
+Async Task Types in C# - dotnet/roslyn
+corefx/ValueTask.cs at master · dotnet/corefx
+任意の型を戻り値に持つ非同期メソッド - xin9le.netValueTask のようにパフォーマンスを出す為には必然的に Awaiter も実装する事になるのですが、本稿の趣旨から逸れてしまうので割愛。 ↩
+
+

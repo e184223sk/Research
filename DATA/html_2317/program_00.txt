@@ -1,0 +1,172 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+using System.Linq;
+
+using UniRx;
+
+namespace Models
+{
+    abstract public class BaseModel : MonoBehaviour
+    {
+        public class Model
+        {
+            public int id;
+
+            public List&lt;FloatReactiveProperty&gt; floatAttrs = new List&lt;FloatReactiveProperty&gt;();
+            public List&lt;IntReactiveProperty&gt; intAttrs = new List&lt;IntReactiveProperty&gt;();
+            public List&lt;StringReactiveProperty&gt; stringAttrs = new List&lt;StringReactiveProperty&gt;();
+
+            protected void Register(IntReactiveProperty attr)
+            {
+                intAttrs.Add(attr);
+            }
+            protected void Register(FloatReactiveProperty attr)
+            {
+                floatAttrs.Add(attr);
+            }
+            protected void Register(StringReactiveProperty attr)
+            {
+                stringAttrs.Add(attr);
+            }
+
+            virtual protected void InitInstance() { }
+
+            virtual protected void RegisterAttributes() { }
+
+            protected string modelName
+            {
+                get { return this.GetType().ToString().Split(new char[] { '+' })[0]; }
+            }
+
+            public Model()
+            {
+                InitInstance();
+                RegisterAttributes();
+
+                floatAttrs.ForEach(a =&gt;
+                {
+                    a.AsObservable()
+                        .Skip(1)
+                        .Do(_ =&gt; Debug.Log(_))
+                        .Do(value =&gt; PlayerPrefs.SetFloat(modelName + floatAttrs.IndexOf(a).ToString() + "float" + id, value))
+                        .Subscribe(_ =&gt; PlayerPrefs.Save());
+                });
+                intAttrs.ForEach(a =&gt;
+                {
+                    a.AsObservable()
+                        .Skip(1)
+                        .Do(_ =&gt; Debug.Log(_))
+                        .Do(value =&gt; PlayerPrefs.SetInt(modelName + intAttrs.IndexOf(a).ToString() + "int" + id, value))
+                        .Subscribe(_ =&gt; PlayerPrefs.Save());
+                });
+                stringAttrs.ForEach(a =&gt;
+                {
+                    a.AsObservable()
+                        .Skip(1)
+                        .Do(_ =&gt; Debug.Log(_))
+                        .Do(value =&gt; PlayerPrefs.SetString(modelName + stringAttrs.IndexOf(a).ToString() + "string" + id, value))
+                        .Subscribe(_ =&gt; PlayerPrefs.Save());
+                });
+
+                PlayerPrefs.SetInt(modelName + "count", id + 1);
+            }
+        }
+
+        virtual protected Model Instantiate()
+        {
+            return new Model();
+        }
+
+        public void Awake()
+        {
+            string modelName = this.GetType().ToString();
+
+            int instanceCount = PlayerPrefs.HasKey(modelName + "count") ? PlayerPrefs.GetInt(modelName + "count") : 0;
+            Enumerable.Range(0, instanceCount).ToList().ForEach(i =&gt;
+            {
+                Model instance = Instantiate();
+
+                instance.floatAttrs.ForEach(a =&gt;
+                {
+                    string key = modelName + instance.floatAttrs.IndexOf(a).ToString() + "float" + instance.id;
+                    if (PlayerPrefs.HasKey(key))
+                    {
+                        a.Value = PlayerPrefs.GetFloat(key);
+                    }
+                });
+                instance.intAttrs.ForEach(a =&gt;
+                {
+                    string key = modelName + instance.intAttrs.IndexOf(a).ToString() + "int" + instance.id;
+                    if (PlayerPrefs.HasKey(key))
+                    {
+                        a.Value = PlayerPrefs.GetInt(key);
+                    }
+                });
+                instance.stringAttrs.ForEach(a =&gt;
+                {
+                    string key = modelName + instance.stringAttrs.IndexOf(a).ToString() + "string" + instance.id;
+                    if (PlayerPrefs.HasKey(key))
+                    {
+                        a.Value = PlayerPrefs.GetString(key);
+                    }
+                });
+            });
+        }
+    }
+}```
+
+#使用例
+
+```C#:Score(BaseModelの継承先)
+using System.Linq;
+
+using UniRx;
+
+namespace Models
+{
+    public class Score : BaseModel
+    {
+        new public class Model : BaseModel.Model
+        {
+            public IntReactiveProperty score = new IntReactiveProperty();
+
+            public bool isHighScore { get { return score.Value &gt; 100; } }
+
+            override protected void RegisterAttributes()
+            {
+                Register(score);
+            }
+
+            // 共通部分
+            override protected void InitInstance()
+            {
+                id = instances.Count;
+                instances.Add(this);
+            }
+        }
+
+        static ReactiveCollection&lt;Model&gt; instances = new ReactiveCollection&lt;Model&gt;();
+
+        public static ReactiveCollection&lt;Model&gt; All() { return new ReactiveCollection&lt;Model&gt;(instances); }
+        public static int count { get { return All().Count; } }
+        public static Model First() { return instances.First(); }
+
+        override protected BaseModel.Model Instantiate()
+        {
+            return new Model();
+        }
+
+        new public void Awake()
+        {
+            base.Awake();
+
+            if (All().Count == 0)
+            {
+                // new Model();
+            }
+        }
+    }
+}
+
+

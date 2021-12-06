@@ -1,0 +1,232 @@
+この記事は、Kyoto University Advent Calendar 2020の25日目の記事です。前日の記事はぴかちゅう鰻さんでした。伝聞調で書かれた真偽不明の噂話を淡々とした語り口で書かれると「このページもリロードしたら404にならない？」って気分になりますね。SCPは良いぞ。『青い、青い空』とか好き。さてさて今日はクリスマスですね。メリークリスマス！教会暦では日没で日が替わるので厳密には24日日没からクリスマスです。もう始まっちゃってるんでアドカレの25日目なんて言わば後の葵ってやつですよ1。ゆえに僕はトリじゃない！！！トリは昨日だ！！！
+……ともあれ町中が華やぐ日です。きっとみなさんは一段と充実した一日をお過ごしになることでしょう2。僕はボスと仲良く卒論の中間発表！もしかしたら夜景作る側かもしれんな！Q.何作ったんですか？
+A.BLE心拍センサ（OH1）から心拍数を受け取ってPCでLiveChartsを使い順次グラフをプロットするプログラムを作成しました。
+https://github.com/Eater-Git/HeartRateVisualizer京大電電のEaterです。電子工作を昔からやっていてロボットとか作ってます。下の写真のロボットのアーム部分制御したりとか。この時は「審査締め切り直前に屋外で深夜にデスマをやるととてもきれいな写真が撮れる」という重要な知見が得られました。
+―――深夜テンションって怖いよね―――
+それは9月某日、午前4時くらいの事だったと思います。コロナ禍で友人とのゲーム時間が劇的に増加し、その流れでDbD（Dead by Daylight）3を購入して数日のころです。その日も友人らと建てたDiscordのゲームサーバでDbDをプレイしていました。
+ 「DbDプレイ中のEaterの心拍取ったら面白そう」
+誰が言った言葉だったでしょうか。僕はホラーゲームが大変苦手です。DbDもその例に漏れませんでした。マッチが成立すると同時に鼓動は速くなり、儀式4が始まるとマウスは震え視界はちらつき、殺人鬼に吊られると悲鳴を上げるようなありさまでした。
+こんな僕の事ですから心拍数の変動が激しいことは容易に想像がつきます。面白いデータが得られるのは明らかでしょう。即決で心拍センサを購入。1万円を超えていました。金銭感覚はとうの昔に眠りについていたようです。そんなわけでBLE心拍センサOH1を手に入れました。スマホとの連携はアプリがあるので簡単です。さっそく装着してDbDをプレイしてみます。
+
+
+「心拍数120www」
+「まともなチェイスができないのもこんな状態なら分かる」
+「山の数とプレイ回数同じじゃん」
+「全力疾走級の心拍でゲームしてるEaterが面白くないわけがない」当初はこんな感じでPCにミラーリングしたりスマホのスクショをチャットに貼ったりして盛り上がっていました。しかしミラーリングは接続が不安定です。スクショでは物足りません。見たいのはリアルタイムにビビるさまですからね！！！―――Eaterは自前でPC用アプリを開発することにした。―――PCアプリなんもわからん―――
+「PC(Win10)でBLE心拍センサのデータを受信し、リアルタイムにグラフで表示する」　
+やりたいことはこれです。BLEをどうやって受信するのか。グラフはどうやって表示するのか。慣れ親しんでいるのは組み込みマイコンのプログラミングで、PCでの開発はせいぜいUnityをかじった程度です。暗中模索といった感じでした。
+C#ならWindowsに強そう。UWPは標準でBluetooth使えるじゃん。LiveChartsっていう.NET向けグラフ表示用のおしゃれなライブラリがあるらしい……。
+というわけでプラットフォームはUWPを採用、グラフ表示にはLiveChartsを使うことにしました。―――はじめてのBLEつうしん―――
+なんもわからんのでとりあえずGoogle大先生のご神託を仰ぎます。いくつか参考になるサイトが見つかりました。
+BLEの仕組みは『[C#/WinRT]Bluetooth v4(BLE)機器と通信する（BLE基礎メモ）』とかMicrosoftの『Bluetooth 低エネルギー』とかで勉強しつつ、『WindowsデスクトップアプリでBLEのGATTで体温計と血圧計と通信する』とか『Bluetooth LE アドバタイズ』のコードを参考にコードを書きました。
+ざっくり説明してみます。BLEデバイスが提供している機能はServiceという形で表現されます。今回使う心拍センサOH1はHeart Rate Serviceを持っています。Heart Rate Serviceの中にはいくつかのCharacteristicが含まれており、今回ほしいのはHeart Rate Measurementです。
+しかしアプリ起動時には通信が確立していません。OH1を探すところから始まります。そこで使うのがアドバタイズパケットです。これはデバイス側が自身の情報を発信しているパケットで、待ち受けておけば誰でも受信することができます。
+これらを踏まえて今回のコードではまずアドバタイズパケットを待ち受ける設定をしています。受信したらパケットの中身を見てHeart Rate Serviceを持っているか判定しています。持っていればOH1かなんかの心拍センサなのでアドバタイズパケットの待ち受けを停止し、Serviceの持つCharacteristic一覧からHeart Rate Measurementを探して心拍数を受信する設定をしています。説明終わり。
+Heart Rate Serviceの中にはほかにもいくつかCharacteristicが含まれているのですがどういうものなのかよくわかっていません。詳しい方がいらっしゃいましたらご教授願えますと幸いです。BLEを読むクラス
+
+
+HeartRateConnection.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Devices.Bluetooth.GenericAttributeProfile;
+using Windows.Devices.Enumeration;
+
+using System.ServiceModel.Channels;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Popups;
+
+using System.Collections;
+using Windows.Devices.Gpio;
+using Windows.ApplicationModel.Store.Preview.InstallControl;
+
+namespace HeartRateVisualizer
+{
+
+    class HeartRateEventArgs : EventArgs
+    {
+        public int heart_rate;
+        public DateTime datetime;
+    }
+
+    class HeartRateConnection
+    {
+        private GattDeviceService Service;
+        private BluetoothLEAdvertisementWatcher advWatcher;
+        public event EventHandler ConnectBLE;
+        public event EventHandler GetHeartRate;
+
+
+        public int heart_rate { get; private set; }
+
+        public HeartRateConnection()
+        {
+        }
+
+        public async void Start()
+        {
+            this.advWatcher = new BluetoothLEAdvertisementWatcher();
+            advWatcher.Received += WathcerReceived;
+            this.advWatcher.ScanningMode = BluetoothLEScanningMode.Active;  //これがないとサービスとかデバイス名の情報が得られないっぽい？
+            advWatcher.SignalStrengthFilter.SamplingInterval = TimeSpan.FromMilliseconds(700);//重さ改善
+            this.advWatcher.Start();
+
+        }
+
+        private async void WathcerReceived(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        {
+
+            // アドバタイズパケット受信→HeartRateサービスを検索
+            bool find = false;
+            var bleServiceUUIDs = args.Advertisement.ServiceUuids;
+
+
+            BluetoothLEDevice dev = await BluetoothLEDevice.FromBluetoothAddressAsync(args.BluetoothAddress);
+            if(dev == null)
+            {
+                return;
+            }
+
+            // 発見
+            GattDeviceServicesResult result = await dev.GetGattServicesAsync(/*GattServiceUuids.HeartRate*/);
+
+
+            if (result.Status == GattCommunicationStatus.Success)
+            {
+                var services = result.Services;
+                foreach (var service in services)
+                {
+                    if (service.Uuid == GattServiceUuids.HeartRate)
+                    {
+                        this.Service = service;
+                        find = true;
+                        this.advWatcher.Stop();
+                        break;
+                    }
+                }
+            }
+
+            //発見したデバイスがHeartRateサービスを持っていたら
+            if (find)
+            {
+                {
+                    var characteristics = await Service.GetCharacteristicsForUuidAsync(GattCharacteristicUuids.HeartRateMeasurement);
+
+
+
+                    if(characteristics.Status == GattCommunicationStatus.Success)
+                    {
+
+                        foreach (var chr in characteristics.Characteristics)
+                        {
+                            if(chr.Uuid == GattCharacteristicUuids.HeartRateMeasurement)
+                            {
+                                this.Characteristic_HeartRate_Measurement = chr;
+
+                                //データの送り方が二種類あるので場合分け。OH1はNotifyなのでそちら側しか動作確認をしていない
+                                if (this.Characteristic_HeartRate_Measurement.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Indicate))
+                                {
+                                    this.Characteristic_HeartRate_Measurement.ValueChanged += characteristicChanged_HeartRate_Measurement;
+                                    await this.Characteristic_HeartRate_Measurement.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Indicate);
+                                }
+                                if (this.Characteristic_HeartRate_Measurement.CharacteristicProperties.HasFlag(GattCharacteristicProperties.Notify))
+                                {
+                                    this.Characteristic_HeartRate_Measurement.ValueChanged += characteristicChanged_HeartRate_Measurement;
+                                    await this.Characteristic_HeartRate_Measurement.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.Notify);
+                                }
+                                OnConnectBLE(EventArgs.Empty);
+                                break;
+
+                            }
+
+                        }
+
+                    }
+                    else
+                    {
+                        this.advWatcher.Start();
+                    }
+                }
+
+            }
+        }
+
+
+        private GattCharacteristic Characteristic_HeartRate_Measurement;
+
+        private void characteristicChanged_HeartRate_Measurement(GattCharacteristic sender, GattValueChangedEventArgs eventArgs)
+        {
+            byte[] data = new byte[eventArgs.CharacteristicValue.Length];
+            Windows.Storage.Streams.DataReader.FromBuffer(eventArgs.CharacteristicValue).ReadBytes(data);
+            heart_rate = data[1];
+            HeartRateEventArgs arg = new HeartRateEventArgs();
+            arg.heart_rate = heart_rate;
+            arg.datetime = DateTime.Now;
+            OnGetHeartRate(arg);
+            return;
+        }
+
+        protected virtual void OnConnectBLE(EventArgs e)
+        {
+            ConnectBLE?.Invoke(this, e);
+        }
+
+        protected virtual void OnGetHeartRate(EventArgs e)
+        {
+            GetHeartRate?.Invoke(this, e);
+        }
+    }
+}
+
+
+
+
+長い間ハマっていたのはこの部分です。アドバタイズパケットに載っている情報は少ないらしく、アクティブモードでスキャンしないと必要な情報が得られないみたいでした。『BLEアドバタイズパケットの中身を調べてみた』が詳しいです。あとPackage.appxmanifestの機能のところでBluetoothにチェックをつけておかないと動きません。なんやかんやで出来上がったこのクラスをこんな感じで呼べば動きます。動いたーーーー！！！―――公式サンプル「コピペで動くといったな。あれは嘘だ」―――
+次はグラフ表示です。LiveChartsというパッケージを使います。
+LiveCharts公式でおあつらえ向きなサンプルコードを発見しました。コピペしてちょっといじればすぐできそうに思えます。
+で、試しました。NuGetパッケージマネージャでLiveCharts.Uwpをインストールして、サンプルコードをコピペしたソリューションを立てます。
+ビルドボタンをぽちっとな。
+なんか見たことないエラー出たが？？？原因が全然わかりません。xamlファイルを見てみると無効なマークアップとかかれているのでここに原因があるのかなと思っていろいろ試しましたが全然ダメでした。な～んもわからん。
+手当たり次第にいろんなところをいじっているとアプリのターゲットバージョンがなぜか最新のWindowsになっていないことに気づきました。
+まさかね。ターゲットバージョンを最新にしただけで動いたら泣くわ。
+泣いた。時間返して。―――私は誰～～～？ここはどのスレッド～～～？―――
+晴れてBLE通信もグラフ表示もできるようになりました。あとはこの二つを組み合わせるだけです！いや～もう勝ったも同然ですね。ビルドも通ったし余裕余裕。
+デバッガ「アプリケーションは、別のスレッドにマーシャリングされたインターフェイスを呼び出しました。」
+負けました。
+マルチスレッド初めてなんでね。何もわからないですね。少し調べることにしました。
+……どうやらUIスレッドからしか叩けないものを別スレッドから叩いてしまったようです。
+イベント駆動なのにUIスレッドから叩くようにするってどうやってやるんだ……？
+ﾃｯﾃﾚｰ!!ディスパッチャー!!!!
+詳細はあまりわかっていませんがどうやらディスパッチャーなるもの使うと別のスレッドで動作を実行できるらしいです。これを使ってUIスレッドに投げることにしました。動くようになりましたね。じゃあこのままちょっとゲームでも……　 ∧＿∧ 　　
+（　´∀｀）＜　ぬるぽ　　　Λ＿Λ　　＼＼
+　（　・∀・）　　　|　|　ｶﾞｯ
+  　と　　　　）　 　 |　|
+ 　　　 Ｙ　/ノ　　　 人
+    　　　 /　）　 　 &lt; 　&gt;_Λ∩
+    　 ＿/し'　  ／／. Ｖ｀Д´）/
+ （＿フ彡　　　　　 　　/　←&gt;&gt;Eater―――スレッドセーフ？なにそれおいしいの？―――
+よくわかりませんがヌルポ出そうなところに条件文を片っ端から挿入していきます。こことか、こことか。ダブったり常に真だったりして意味ないヌルポ判定もあるなぁ……
+すると40分以上動作することが確認できました。今度こそ大丈夫じゃない……？
+ダメでした。
+見たことないファイルにハイライトついてますね。このファイル誰？
+あまりに意味が分からないので友人氏に救援を仰ぎます。友人氏「Eaterのコードをパクりつつ表示系を作り直してみたけど正しく動いてそう」
+友人氏「UWP由来のバグなのかな？暫く動かしてみよう」一瞬で同じアプリを別プラットフォームで組みなおすその様はまさに救世主でした。僕の脳内で占星術師は東方に星を5、羊飼いは天使を見た6。
+その後友人氏の協力のもとChartValuesが内部で辞書型を使っていること、C#の辞書型がスレッドセーフでないことが判明しました。スレッドセーフでないということは同じスレッドから全部たたけばいいんですね！ディスパッチャーを使いましょう！―――そうしてすべてをUIスレッドに投げるコードが誕生した。―――にゃ～ん(ฅ^･ω･^ ฅ)―――
+アプリは完成しました。さてせっかくですから動いている動画を撮りたいですね。
+しかし大きな問題がありました。なんとDbDが怖くないのです！
+なんかこう普通にゲームとして面白くなっちゃって目がチカチカとかしないしマウスも震えないんですよ。たぶん殺人鬼やってる時のほうが興奮してるので心拍数高い。生存者追いかけてる時のめりこみすぎてモニタに頭ぶつけそうになるレベル。これが血の渇望か。
+ビビらないんじゃあんまり面白くないなぁ困ったなぁと思った矢先。友人氏「そういえばEater が心音公開系Vtuberやるって聞いたんだけど」と煽られました。我がサーバーでは煽られたら煽り返すのが礼儀なので全力で煽り返しました。そうするとなぜか取れた「やるかぁ～～～～～」という言質。有言実行、彼がホラゲをプレイする動画を録ってもらうことにしました。それがこちら。
+https://www.youtube.com/watch?v=lm48oOyNm4s
+ｱﾄﾞﾍﾞﾝﾄｶﾚﾝﾀﾞｰ企画で撮った心音公開実況の切り抜きデス！https://t.co/2X332ZBhGa―――深夜テンションはやっぱり怖い―――
+拙文をここまでお読みくださりありがとうございます。一週間くらいかけて毎深夜書き進めていった結果、一週間分の深夜テンションが濃縮されてしまいました。ほんと文字通り駄文。乱文。悪文。読み返したくない。
+……さて今後の展望について話をしたいと思います。グラフを出せるようになったのでとりあえずcsvか何かで出力できるようにしたいですね。普通に便利な気がします。そんなに実装難しくないと思う！（フラグ）
+あとはいろいろな演出ができるようにしたいです。心拍数に同期して鼓動を鳴らすとか画面を拍動させるとか。いろいろ演出つけて臨場感マシマシになった状態でもっかい友人氏に動画録ってもらいたいな！！！以上「UWPでBLE心拍センサからデータを受信してリアルタイムにグラフ化する」でした。明日は&amp;#0;さんです。「莠ｬ螟ｧ繧｢繝峨き繝ｬ縺ｯ繧､繝ｼ繧ｿ繝ｼ縺ｧ縺顔ｵゅ＞」とのことですが、どんな記事なんでしょうか？とても讌ｽ縺みで縺縺ｭ！友人氏に動画収録を投げたときはとても軽い気持ちだったのですが、友人氏は真面目に収録してくれました。いろいろ準備をしてもらっていたようで心拍数を録るいい条件についても調べていたそうです。そんななかで面白そうな論文を教えてもらったので紹介します。
+加賀山 あかり, 越前 遙, 大沼 ありさ, 鈴木 裕一, &lt;研究ノート&gt;日本人女子大学生の食事に伴うエネルギー代謝と心拍数の変化, 仙台白百合女子大学紀要, 2015, 19 巻, p. 173-178
+これによると食後2，3時間は心拍数が上がるみたいですね。きれいなビビり動画を録るなら食後を避けましょう。あと友人氏曰く入浴後もあまり良くないとか。これは京都大学が京都にあることと京都を代表する祭りである葵祭をかけたとても面白いジョーク。 ↩感染症には十分お気を付けください ↩脱出ゲートの開放を試みる4人の生存者と、彼らを生贄に捧げようとする殺人鬼の非対称PvPゲーム ↩試合のことをそう呼びます ↩マタイによる福音書2章2節 ↩ルカによる福音書2章9節 ↩
+
+

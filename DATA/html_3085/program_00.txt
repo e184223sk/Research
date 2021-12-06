@@ -1,0 +1,106 @@
+public partial class ProgressForm : Form
+{
+
+    private BackgroundWorker backgroundWorker;
+
+    public ProgressForm(BackgroundWorker bw)
+    {
+        InitializeComponent();
+        this.backgroundWorker = bw;
+        if (!bw.WorkerSupportsCancellation)
+        {
+            //キャンセル
+            this.cancelBtn.Enabled = false;
+            this.cancelBtn.Visible = false;
+            this.ControlBox = false;
+        }
+        backgroundWorker.ProgressChanged += BackgroundWorker_ProgressChanged;
+        backgroundWorker.RunWorkerCompleted += BackgroundWorker_RunWorkerCompleted;            
+    }
+
+    //完了時の挙動
+    private void BackgroundWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+    {
+        if((e.Error is null) == false)
+        {
+            //エラーの表示等の処理
+            Console.WriteLine("error");
+            DialogResult = DialogResult.Cancel;
+        }
+        else if (e.Cancelled)
+        {
+            //キャンセル時の処理
+            Console.WriteLine("canceled");
+            DialogResult = DialogResult.Cancel;                
+        }
+        else
+        {
+            //完了時の処理
+            Console.WriteLine("completed");
+            DialogResult = DialogResult.OK;
+        }
+        //フォームを閉じる
+        this.Close();
+    }
+
+    //進捗の表示
+    private void BackgroundWorker_ProgressChanged(object sender, ProgressChangedEventArgs e)
+    {
+        //プログレスバーの値を変更する
+        //設定されてる値の範囲外の値を渡すとエラーが発生することに注意
+        if (e.ProgressPercentage &lt; this.progressBar1.Minimum)
+        {
+            this.progressBar1.Value = this.progressBar1.Minimum;
+        }
+        else if (this.progressBar1.Maximum &lt; e.ProgressPercentage)
+        {
+            this.progressBar1.Value = this.progressBar1.Maximum;
+        }
+        else
+        {
+            this.progressBar1.Value = e.ProgressPercentage;
+        }
+        //UserStateの内容を表示する
+        progressLabel.Text = e.UserState.ToString();
+    }
+
+    private void ProgressForm_Shown(object sender, EventArgs e)
+    {
+        //画面表示を開始した際に動いてない場合はRunWorkerAsync()を呼ぶ
+        //二重に叩かないように判定を入れる
+        if (!backgroundWorker.IsBusy)
+        { 
+            backgroundWorker.RunWorkerAsync();
+        }
+    }
+
+    private void cancelBtn_Click(object sender, EventArgs e)
+    {
+        //処理をキャンセルする
+        if (backgroundWorker.IsBusy)
+        {
+            this.backgroundWorker.CancelAsync();
+        }
+    }
+
+    private void ProgressForm_FormClosing(object sender, FormClosingEventArgs e)
+    {
+        //×ボタンで閉じられた際の対処
+        //backgroundWorkerが動いており
+        if (backgroundWorker.IsBusy &amp;&amp; !backgroundWorker.CancellationPending)
+        {
+            //一度Closingをキャンセルしたうえで、改めてキャンセル処理をする。
+            e.Cancel = true;
+            backgroundWorker.CancelAsync();                
+        }
+    }
+
+    private void ProgressForm_FormClosed(object sender, FormClosedEventArgs e)
+    {            
+        //フォーム側でイベントハンドラーに加えた処理を外す      
+        backgroundWorker.ProgressChanged -= BackgroundWorker_ProgressChanged;
+        backgroundWorker.RunWorkerCompleted -= BackgroundWorker_RunWorkerCompleted;
+    }
+}
+
+

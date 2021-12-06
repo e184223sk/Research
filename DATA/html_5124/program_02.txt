@@ -1,0 +1,64 @@
+
+
+public class AssetPathDropdown : AdvancedDropdown
+{
+    private static readonly float MIN_LINE_COUNT = 15.0f;
+    public event Action&lt;string&gt; onItemSelected = null;
+    private Dictionary&lt;int, string&gt; pathDictionary = null;
+
+    public AssetPathDropdown(AdvancedDropdownState state) : base(state)
+    {
+        pathDictionary = new Dictionary&lt;int, string&gt;();
+
+        // 最小サイズを設定
+        var minimumSize = this.minimumSize;
+        minimumSize.y = MIN_LINE_COUNT * EditorGUIUtility.singleLineHeight;
+        this.minimumSize = minimumSize;
+    }
+
+    protected override AdvancedDropdownItem BuildRoot()
+    {
+        var root = new AdvancedDropdownItem("AssetPath");
+
+        foreach (var path in AssetDatabase.GetAllAssetPaths())
+        {
+            var splitStrings = path.Split('/');
+            var parent = root;
+            AdvancedDropdownItem lastItem = null;
+
+            foreach (var str in splitStrings)
+            {
+                var foundChildItem = parent.children.FirstOrDefault(item =&gt; item.name == str);
+
+                if (foundChildItem != null)
+                {
+                    // すでに同じ名前のAdvancedDropdownItemがあった場合は次へ
+                    parent = foundChildItem;
+                    lastItem = foundChildItem;
+                    continue;
+                }
+
+                var child = new AdvancedDropdownItem(str);
+                parent.AddChild(child);
+
+                parent = child;
+                lastItem = child;
+            }
+
+            if (lastItem != null)
+            {
+                // KeyをAdvacnedDropdownItemnのidにしてパスを取得できるようにする
+                pathDictionary[lastItem.id] = path;
+            }
+        }
+
+        return root;
+    }
+
+    protected override void ItemSelected(AdvancedDropdownItem item)
+    {
+        base.ItemSelected(item);
+        onItemSelected?.Invoke(pathDictionary[item.id]);
+    }
+}
+

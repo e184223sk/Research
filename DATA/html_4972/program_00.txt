@@ -1,0 +1,124 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Linq.Expressions;
+
+namespace Sample {
+    static class Test {
+        static void Main() {
+            Console.WriteLine("\n直接、引数ありコンストラクタを呼ぶ");
+            Console.WriteLine(ObjA.New(0, 1, 2));
+            Console.WriteLine(ObjB.New(3, 4, 5));
+
+            Console.WriteLine("\nジェネリックメソッドで引数ありコンストラクタを呼ぶ");
+            Console.WriteLine(CreateObjBase&lt;ObjA&gt;(0, 1, 2));
+            Console.WriteLine(CreateObjBase&lt;ObjB&gt;(3, 4, 5));
+        }
+
+        //引数ありコンストラクターを呼ばせるジェネリックで関数
+        static T CreateObjBase&lt;T&gt;(int id1, int id2, int id3) where T : ObjBase {
+            var maker = NewObjectHelper&lt;T&gt;.CreateMethod&lt;Func&lt;int, int, int, T&gt;&gt;();
+
+            return maker(id1, id2, id3);
+        }
+    }
+
+    //TInstanceに戻り値の型を指定
+    static class NewObjectHelper&lt;TInstance&gt; {
+        //使うFunc型から引数の型だけ抜き出す
+        static Type[] CreateParameterType&lt;TFunc&gt;() where TFunc : Delegate {
+            //Type.GetGenericArguments()で
+            //ジェネリック型に指定された型を全て取り出せる
+            var method_use_types = new List&lt;Type&gt;(typeof(TFunc).GetGenericArguments());
+
+            //使うFunc型の戻り値の型だけ除外
+            var deleteIndex = method_use_types.FindIndex((i) =&gt; i == typeof(TInstance));
+            method_use_types.RemoveAt(deleteIndex);
+
+            return method_use_types.ToArray();
+        }
+        //Type配列から式木用の配列を作成
+        static List&lt;ParameterExpression&gt; CreateParamsListFromTypes(Type[] types) {
+            var paramList = new List&lt;ParameterExpression&gt;(types.Length);
+
+            foreach (var i in types) paramList.Add(Expression.Parameter(i));
+
+            return paramList;
+        }
+
+        //式木を使ってコンストラクタを呼ぶ関数を作成
+        public static TFunc CreateMethod&lt;TFunc&gt;() where TFunc : Delegate {
+            var argsType = CreateParameterType&lt;TFunc&gt;();
+            var paramList = CreateParamsListFromTypes(argsType);
+            var flag = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+            var constructor = typeof(TInstance).GetConstructor(flag,
+                Type.DefaultBinder,
+                argsType,
+                null
+            );
+
+            return Expression.Lambda&lt;TFunc&gt;(
+                Expression.New(
+                    constructor, paramList),
+                paramList).Compile();
+        }
+        //式木を使ってコンストラクタを呼ぶ関数を作成
+        //
+        //引数のtypeValueで戻り値の型推論をさせる
+        public static TFunc CreateMethod&lt;TFunc&gt;(TFunc typeValue) where TFunc : Delegate {
+            var argsType = CreateParameterType&lt;TFunc&gt;();
+            var paramList = CreateParamsListFromTypes(argsType);
+            var flag = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+            var constructor = typeof(TInstance).GetConstructor(flag,
+                Type.DefaultBinder,
+                argsType,
+                null
+            );
+
+            return Expression.Lambda&lt;TFunc&gt;(
+                Expression.New(
+                    constructor, paramList),
+                paramList).Compile();
+        }
+    }
+
+    //テスト用クラス
+    abstract class ObjBase {
+        public int Id1;
+        public int Id2;
+        public int Id3;
+
+        public override string ToString() {
+            return  "[" + Id1 + " : " + Id2 + " : " + Id3 + "]";
+        }
+    }
+    sealed class ObjA : ObjBase {
+        public static Func&lt;int, int, int, ObjA&gt; New { get; } = NewObjectHelper&lt;ObjA&gt;.CreateMethod(New);
+
+        ObjA(int id1, int id2, int id3) {
+            Id1 = id1;
+            Id2 = id2;
+            Id3 = id3;
+        }
+
+        public override string ToString() {
+            return nameof(ObjA) + " " + base.ToString();
+        }
+    }
+    sealed class ObjB : ObjBase {
+        public static Func&lt;int, int, int, ObjB&gt; New { get; } = NewObjectHelper&lt;ObjB&gt;.CreateMethod(New);
+
+        ObjB(int id1, int id2, int id3) {
+            Id1 = id1;
+            Id2 = id2;
+            Id3 = id3;
+        }
+
+        public override string ToString() {
+            return nameof(ObjB) + " " + base.ToString();
+        }
+    }
+}
+

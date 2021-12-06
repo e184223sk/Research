@@ -1,0 +1,78 @@
+
+using CSharpIDP.Utils;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
+using System.IO;
+using System.Security.Cryptography;
+
+namespace CSharpIDP
+{
+  public class Startup
+  {
+    public Startup(IConfiguration configuration)
+    {
+      Configuration = configuration;
+      Ecdsa = ECDsa.Create();
+    }
+    ~Startup()
+    {
+      Ecdsa.Dispose();
+    }
+    public IConfiguration Configuration { get; }
+    private ECDsa Ecdsa { get; }
+
+    // This method gets called by the runtime. Use this method to add services to the container.
+    public void ConfigureServices(IServiceCollection services)
+    {
+      var pemStr = File.ReadAllText(@"./jwtES256.key.pub");
+      var der = StringUtil.ConvertPubKeyToDer(pemStr); // 秘密鍵と同じことやってます
+      Ecdsa.ImportSubjectPublicKeyInfo(der, out _);
+      services.AddAuthentication(options =&gt;
+      {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+      })
+      .AddJwtBearer(options =&gt;
+      {
+        options.TokenValidationParameters = new TokenValidationParameters()
+        {
+          ValidateIssuer = true,
+          ValidIssuer = "https://localhost:5001/",
+          ValidateIssuerSigningKey = true,
+          IssuerSigningKey = new ECDsaSecurityKey(Ecdsa),
+          ValidateAudience = false,
+          ValidateLifetime = false,
+        };
+      });
+
+      services.AddControllers();
+    }
+
+    // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+    public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+    {
+      if (env.IsDevelopment())
+      {
+        app.UseDeveloperExceptionPage();
+      }
+
+      app.UseHttpsRedirection();
+
+      app.UseRouting();
+
+      app.UseAuthentication(); // 追加
+      app.UseAuthorization();
+
+      app.UseEndpoints(endpoints =&gt;
+      {
+        endpoints.MapControllers();
+      });
+    }
+  }
+}
+

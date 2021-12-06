@@ -1,0 +1,22 @@
+
+private static void CreateSerializers(ModuleDefinition mainModuleDefinition, TypeDefinition serializeAttributeTypeDefinition, ModuleDefinition systemModuleDefinition, ModuleDefinition baseModuleDefinition)
+{
+    TypeDefinition iSerializerDefinition = baseModuleDefinition.GetType("SerializeBase", "ISerializer`1");
+    TypeReference iSerializerImportReference = mainModuleDefinition.ImportReference(iSerializerDefinition);
+    TypeDefinition resolverTypeDefinition = baseModuleDefinition.GetType("SerializeBase", "ISerializerResolver");
+    TypeReference resolverImportReference = mainModuleDefinition.ImportReference(resolverTypeDefinition);
+    MethodReference objectCtorImportReference = mainModuleDefinition.ImportReference(systemModuleDefinition.GetType("System", "Object").Methods.First(x =&gt; x.Name == ".ctor"));
+    MethodDefinition getMethodDefinition = resolverTypeDefinition.Methods.First(x =&gt; x.Name == "Get");
+
+    int count = mainModuleDefinition.Types.Count;
+    for (var i = 0; i &lt; count; i++)
+    {
+        TypeDefinition typeDefinition = mainModuleDefinition.Types[i];
+        if (!typeDefinition.HasCustomAttributes) continue;
+        if (!typeDefinition.HasFields) continue;
+        if (typeDefinition.Fields.All(x =&gt; !x.IsPublic)) continue;
+        if (typeDefinition.CustomAttributes.All(x =&gt; x.AttributeType.FullName != serializeAttributeTypeDefinition.FullName)) continue;
+        mainModuleDefinition.Types.Add(CreateSerializer(typeDefinition, mainModuleDefinition, iSerializerDefinition, iSerializerImportReference, resolverImportReference, objectCtorImportReference, getMethodDefinition));
+    }
+}
+

@@ -1,0 +1,28 @@
+
+var query = _firestore.GetCollection(Item.CollectionPath)
+                      .OrderBy(nameof(Item.Timestamp), true)
+                      .EndAt(new long[] { _lastTimestamp });
+
+query.ObserveAdded()
+     .Where(d =&gt; _items.FirstOrDefault(i =&gt; i.Id == d.Document.Id) == null)
+     .Subscribe(d =&gt; _items.Insert(d.NewIndex, d.Document.ToObject&lt;Item&gt;()))
+     .AddTo(_disposables);
+
+query.ObserveModified()
+     .Select(d =&gt; d.Document.ToObject&lt;Item&gt;())
+     .Subscribe(item =&gt;
+     {
+         var targetItem = _items.FirstOrDefault(i =&gt; i.Id == item.Id);
+         if (targetItem != null)
+         {
+             item.CopyTo(targetItem);
+         }
+     })
+     .AddTo(_disposables);
+
+query.ObserveRemoved()
+     .Select(d =&gt; _items.FirstOrDefault(i =&gt; i.Id == d.Document.Id))
+     .Where(item =&gt; item != null)
+     .Subscribe(item =&gt; _items.Remove(item))
+     .AddTo(_disposables);
+

@@ -1,0 +1,70 @@
+
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using ALK.Import.google;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Fitness.v1;
+using Google.Apis.Services;
+using Google.Apis.Util.Store;
+
+namespace ALK.Import
+{
+  public class Program
+  {
+    static void Main(string[] args)
+    {
+      new Program().Run().Wait();
+    }
+
+    public  async Task Run()
+    {
+      var scopes = new[] {
+        FitnessService.Scope.FitnessActivityRead
+      };
+
+      ICredential credential = await GetUserCredential(scopes);
+      GetSteps(credential);
+    }
+
+    /// &lt;summary&gt;
+    /// OAuth認証を用いてCredentialを取得する。
+    /// &lt;/summary&gt;
+    private Task&lt;UserCredential&gt; GetUserCredential(string[] scopes)
+    {
+      // ファイル名は先ほど取得した認証情報のjson
+      using (var stream = new FileStream(@"C:\\secret.json", FileMode.Open, FileAccess.Read))
+      {
+        string credPath = "token.json";
+        return GoogleWebAuthorizationBroker.AuthorizeAsync(
+          GoogleClientSecrets.Load(stream).Secrets,
+          scopes,
+          "user", CancellationToken.None, new FileDataStore(credPath, true));
+      }
+    }
+
+    /// &lt;summary&gt;
+    /// 歩数を取得する。
+    /// &lt;/summary&gt;
+    private void GetSteps(ICredential credential)
+    {
+      var service = new FitnessService(new BaseClientService.Initializer()
+      {
+        HttpClientInitializer = credential,
+        ApplicationName = "Get Fitness Step"
+      });
+
+      var step = new StepQuery(service);
+
+      // 1日前～現在までのデータを取得
+      var results = step.QueryStep(DateTime.Now.AddDays(-1), DateTime.Now);
+      foreach (var result in results)
+      {
+        Console.WriteLine(result.Step);
+      }
+      Console.ReadKey();
+    }
+  }
+}
+

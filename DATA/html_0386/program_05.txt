@@ -1,0 +1,199 @@
+
+// Unity
+
+using AOT;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using UnityEngine;
+
+public class jslibtest : MonoBehaviour
+{
+    [DllImport("__Internal")]
+    private static extern void execFree(uint arg);
+
+
+    [DllImport("__Internal")]
+    private static extern byte byteFunc(byte arg);
+
+    [DllImport("__Internal")]
+    private static extern short shortFunc(short arg);
+
+    [DllImport("__Internal")]
+    private static extern int intFunc(int arg);
+
+    [DllImport("__Internal")]
+    private static extern float floatFunc(float arg);
+
+    [DllImport("__Internal")]
+    private static extern double doubleFunc(double arg);
+
+    [DllImport("__Internal")]
+    private static extern IntPtr byteArrayFunc(byte[] arg, int length);
+
+    [DllImport("__Internal")]
+    private static extern IntPtr shortArrayFunc(short[] arg, int length);
+
+    [DllImport("__Internal")]
+    private static extern IntPtr intArrayFunc(int[] arg, int length);
+
+    [DllImport("__Internal")]
+    private static extern IntPtr floatArrayFunc(float[] arg, int length);
+
+
+    [DllImport("__Internal")]
+    private static extern IntPtr doubleArrayFunc(double[] arg, int length);
+
+    [DllImport("__Internal")]
+    private static extern IntPtr stringArrayFunc(string[] arg, int length);
+
+    [DllImport("__Internal")]
+    private static extern void refIntArrayFunc(int[] arr, int len);
+
+    private int[] refIntArray = new int[3];
+
+    private void Start()
+    {
+        test();
+
+        refIntArrayFunc(refIntArray, refIntArray.Length);
+        StartCoroutine(chekRefArray());
+    }
+
+    IEnumerator chekRefArray ()
+    {
+        while(true)
+        {
+            yield return new WaitForSeconds(0.3f);
+            Debug.Log($"refIntArray: [{string.Join(", ", refIntArray.Select(x =&gt; $"{x}"))}]");
+        }
+    }
+
+    private void Update()
+    {
+    }
+
+    private static byte[] ptrToByteArray(IntPtr ptr)
+    {
+        Debug.Log($"ptr: {(uint)ptr}");
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"byteArry len:{len}");
+        byte[] arr = new byte[len];
+        Marshal.Copy(IntPtr.Add(ptr, 4), arr, 0, len);
+        execFree((uint)ptr);
+        return arr;
+    }
+
+    private static short[] ptrToShortArray(IntPtr ptr)
+    {
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"shortArry len:{len}");
+        short[] arr = new short[len];
+        Marshal.Copy(IntPtr.Add(ptr, 4), arr, 0, len);
+        return arr;
+    }
+
+    private static int[] ptrToIntArray(IntPtr ptr)
+    {
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"intArry len:{len}");
+        int[] arr = new int[len];
+        Marshal.Copy(IntPtr.Add(ptr, 4), arr, 0, len);
+        return arr;
+    }
+
+    private static float[] ptrToFloatArray(IntPtr ptr)
+    {
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"floatArry len:{len}");
+        float[] arr = new float[len];
+        Marshal.Copy(IntPtr.Add(ptr, 4), arr, 0, len);
+        return arr;
+    }
+
+    private static double[] ptrToDoubleArray(IntPtr ptr)
+    {
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"doubleArry len:{len}");
+        double[] arr = new double[len];
+        Marshal.Copy(IntPtr.Add(ptr, 4), arr, 0, len);
+        return arr;
+    }
+
+    private static string[] ptrToStringArray(IntPtr ptr)
+    {
+        int len = Marshal.ReadInt32(ptr);
+        Debug.Log($"stringArry len:{len}");
+        IntPtr[] ptrArr = new IntPtr[len];
+        Debug.Log(ptrArr);
+        Marshal.Copy(IntPtr.Add(ptr, 4), ptrArr, 0, len);
+        List&lt;string&gt; ret = new List&lt;string&gt;();
+        for (var i = 0; i &lt; len; i++)
+        {
+            var byteArray = ptrToByteArray(ptrArr[i]);
+            var str = Encoding.UTF8.GetString(byteArray);
+            ret.Add(str);
+        }
+        execFree((uint)ptr);
+        return ret.ToArray();
+    }
+
+    public static void test()
+    {
+        byte byteArg = 210;
+        byte byteRet = byteFunc(byteArg);
+        Debug.Log($"byteFunc ret: {byteRet}");
+
+        short shortArg = 210;
+        short shortRet = shortFunc(shortArg);
+        Debug.Log($"shortFunc ret: {shortRet}");
+
+        int intArg = 210;
+        int intRet = intFunc(intArg);
+        Debug.Log($"intFunc ret: {intRet}");
+
+        float floatArg = 210.123f;
+        float floatRet = floatFunc(floatArg);
+        Debug.Log($"floatFunc ret: {floatRet}");
+
+        double doubleArg = 210.321d;
+        double doubleRet = doubleFunc(doubleArg);
+        Debug.Log($"doubleFunc ret: {doubleRet}");
+
+
+        byte[] byteArrayArg = new byte[] { 1, 2, 3 };
+        IntPtr ptrByteArray = byteArrayFunc(byteArrayArg, byteArrayArg.Length);
+        byte[] byteArrayRet = ptrToByteArray(ptrByteArray);
+        Debug.Log($"byteArrayFunc ret: [{string.Join(", ", byteArrayRet.Select(x =&gt; $"{x}"))}]");
+
+        short[] shortArrayArg = new short[] { 4, 5, 6 };
+        IntPtr ptrShortArray = shortArrayFunc(shortArrayArg, shortArrayArg.Length);
+        short[] shortArrayRet = ptrToShortArray(ptrShortArray);
+        Debug.Log($"shortArrayFunc ret: [{string.Join(", ", shortArrayRet.Select(x =&gt; $"{x}"))}]");
+
+        int[] intArrayArg = new int[] { 7, 8, 9 };
+        IntPtr ptrIntArray = intArrayFunc(intArrayArg, intArrayArg.Length);
+        int[] intArrayRet = ptrToIntArray(ptrIntArray);
+        Debug.Log($"intArrayFunc ret: [{string.Join(", ", intArrayRet.Select(x =&gt; $"{x}"))}]");
+
+        float[] floatArrayArg = new float[] { 1.1f, 2.2f, 3.3f };
+        IntPtr ptrFloatArray = floatArrayFunc(floatArrayArg, floatArrayArg.Length);
+        float[] floatArrayRet = ptrToFloatArray(ptrFloatArray);
+        Debug.Log($"floatArrayFunc ret: [{string.Join(", ", floatArrayRet.Select(x =&gt; $"{x}"))}]");
+
+        double[] doubleArrayArg = new double[] { 5.5d, 6.6d, 7.7d };
+        IntPtr ptrDoubleArray = doubleArrayFunc(doubleArrayArg, doubleArrayArg.Length);
+        double[] doubleArrayRet = ptrToDoubleArray(ptrDoubleArray);
+        Debug.Log($"doubleArrayFunc ret: [{string.Join(", ", doubleArrayRet.Select(x =&gt; $"{x}"))}]");
+
+        string[] stringArrayArg = new string[] { "foo", "bar", "baz" };
+        IntPtr ptrStringArray = stringArrayFunc(stringArrayArg, stringArrayArg.Length);
+        string[] stringArrayRet = ptrToStringArray(ptrStringArray);
+        Debug.Log($"stringArrayFunc ret: [{string.Join(", ", stringArrayRet)}]");
+    }
+}
+

@@ -1,0 +1,45 @@
+
+// Copyright(c) 2017 Takahiro Miyaura
+// Released under the MIT license
+// http://opensource.org/licenses/mit-license.php
+
+/// &lt;summary&gt;
+///     Translator Language Info Service Url
+/// &lt;/summary&gt;
+private const string LanguageUrl = "https://dev.microsofttranslator.com/languages?";
+
+/// &lt;summary&gt;
+///     Gets speech informations that Cognitive Service API can provide.
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;see cref="SpeechLanguageInfo" /&gt; object list.&lt;/returns&gt;
+public static async Task&lt;ReadOnlyCollection&lt;SpeechLanguageInfo&gt;&gt; GetSpeechLanguageInfo()
+{
+    IEnumerable&lt;SpeechLanguageInfo&gt; speechLanguageInfos = null;
+
+    var query = new StringBuilder();
+    query.Append("api-version=").Append(API_VERSION);
+    query.Append("&amp;scope=").Append("speech");
+
+    var httpClient = new HttpClient();
+    using (var httpResponseMessage = await httpClient.GetAsync(LanguageUrl + query))
+    {
+        using (var stream = await httpResponseMessage.Content.ReadAsStreamAsync())
+        {
+            if (stream != null)
+                using (var reader = new StreamReader(stream, Encoding.GetEncoding("UTF-8")))
+                {
+                    var json = reader.ReadToEnd();
+                    var jsonObject = JsonObject.Parse(json);
+                    speechLanguageInfos = jsonObject["speech"].GetObject().Select(
+                        x =&gt; new SpeechLanguageInfo()
+                        {
+                            LocaleId = x.Key,
+                            Language = x.Value.GetObject()["language"].GetString(),
+                            Name = x.Value.GetObject()["name"].GetString()
+                        });
+                }
+        }
+    }
+    return new ReadOnlyCollection&lt;SpeechLanguageInfo&gt;(speechLanguageInfos.ToArray());
+}
+

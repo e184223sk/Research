@@ -1,0 +1,66 @@
+
+using System;
+using System.IO;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+
+namespace WarehouseApplication.Controllers
+{
+    public class MpController : Controller
+    {
+        public IActionResult Index()
+        {
+            return View();
+        }
+
+        /// &lt;summary&gt;
+        /// The customer information is represented as a hash which must contain at least the email address of the customer 
+        /// and a current timestamp (in ISO8601 encoding). 
+        /// &lt;/summary&gt;
+        public class UserInformation
+        {
+            public string email { get; set; }
+            public string first_name { get; set; }
+            public string last_name { get; set; }
+            public string created_at { get; set; }
+
+            public UserInformation()
+            {
+                this.created_at = DateTime.Now.ToString("yyyy-MM-ddTHH\\:mm\\:sszzz");
+            }
+        }
+        public IActionResult CreateToken(string email, string firstName, string LastName)
+        {
+            if (string.IsNullOrEmpty(email))
+            {
+                return View();
+            }
+
+            var user = new UserInformation()
+            {
+                email = email,
+                first_name = firstName,
+                last_name = LastName
+            };
+
+            // Serialize the customer data to JSON and encrypt it
+            ViewData["Token"] = Hash256It(JsonConvert.SerializeObject(user));
+
+            return View();
+        }
+
+        public string Hash256It(string userInformationJsonString)
+        {
+            // To generate a valid multipass login token, you need the secret given to you in your Shopify admin. 
+            string shopifyMpKey = "YOUR SECRET KEY HERE";
+
+            var sp = new ShopifyMultipassTokenGenerator.ShopifyMultipass(shopifyMpKey, "gyrocanopy-delivery-motor.myshopify.com");
+
+            var token = sp.Process(userInformationJsonString);
+
+            return token;
+        }
+    }
+}
+

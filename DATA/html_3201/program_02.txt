@@ -1,0 +1,63 @@
+
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Linq;
+
+using UnityEngine;
+using MagicOnion.Server.Hubs;
+
+// IGamingHub の実装が記述された GamingHub クラス
+public class GamingHub : StreamingHubBase&lt;IGamingHub, IGamingHubReceiver&gt;, IGamingHub
+{
+    // IGroup を使用することで同一のグループに所属している他ユーザ全員に対して
+    // 一斉にブロードキャスト送信を行うことが出来る (オンラインゲームで言うルームの概念)
+    IGroup room;
+
+    // ルーム内での自分の情報 (IGamingHub.cs で定義した Player の情報)
+    Player self;
+
+    // ルームに入室しているユーザ全員（自分も含む）の情報を保持して扱うための変数
+    IInMemoryStorage&lt;Player&gt; storage;
+
+    // 指定したルームに入室するための関数
+    // 入室するルーム名及び、ユーザ自身の情報(ユーザ名,位置(Vector3),回転(Quaternion)) を引数に取る
+    public async Task&lt;Player[]&gt; JoinAsync(string roomName, string userName, Vector3 position, Quaternion rotation)
+    {
+        self = new Player() { Name = userName, Position = position, Rotation = rotation };
+
+        // ルームにユーザが入室する
+        (room, storage) = await Group.AddAsync(roomName, self);
+
+        // ルームに入室している他ユーザ全員に
+        // 入室したユーザの情報をブロードキャスト送信する
+        Broadcast(room).OnJoin(self);
+
+        // ルームに入室している他ユーザ全員の情報を配列で取得する
+        return storage.AllValues.ToArray();
+    }
+
+    // ユーザがルームから退出する
+    public async Task LeaveAsync()
+    {
+        await room.RemoveAsync(this.Context);
+
+        // ルームに入室している他ユーザ全員に
+        // ルームから退出したことをユーザの情報と共にブロードキャスト送信する
+        Broadcast(room).OnLeave(self);
+    }
+
+    // ユーザがルームの中で動く
+    public async Task MoveAsync(Vector3 position, Quaternion rotation)
+    {
+        // 動いたユーザの位置(xyz) と回転(quaternion) を設定する
+        self.Position = position;
+        self.Rotation = rotation;
+
+        // 動いたユーザの最新の位置(Vector3)と回転(Quaternion) を
+        // ルームに入室している他ユーザ全員にユーザの最新情報 (Player) をブロードキャスト送信する
+        Broadcast(room).OnMove(self);
+    }
+}
+
+

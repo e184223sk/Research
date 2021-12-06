@@ -1,0 +1,36 @@
+
+private async Task&lt;BitmapImage&gt; DoubleToRaindowColor(double[] totalFrameData)//temp:温度の値
+{
+    int width = 32;
+    int height = 24;
+    byte[] data = new byte[width * height * 4];
+
+    for (int i = 0; i &lt; width; i++)
+    {
+        for (int j = 0; j &lt; height; j++)
+        {
+            // 指定の温度下限～上限の値を、0.0～1.0の値に変換する
+            var v = TemperatureTo0to1Double(totalFrameData[i + j * width]);
+
+            // 0.0～1.0の値を、虹色を表すバイト列に変換する
+            var c = ColorScaleBCGYR(v);
+
+            data[4 * (i + j * width)] = c.Item4;            // Blue
+            data[4 * (i + j * width) + 1] = c.Item3;        // Green
+            data[4 * (i + j * width) + 2] = c.Item2;        // Red
+            data[4 * (i + j * width) + 3] = c.Item1;        // alpha
+        }
+    }
+
+    // サーマル画像を作成
+    WriteableBitmap bitmap = new WriteableBitmap(width, height);
+    InMemoryRandomAccessStream inMRAS = new InMemoryRandomAccessStream();
+    BitmapEncoder encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.BmpEncoderId, inMRAS);
+    encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96.0, 96.0, data);
+    await encoder.FlushAsync();
+    BitmapImage bitmapImage = new BitmapImage();
+    bitmapImage.SetSource(inMRAS);
+
+    return bitmapImage;
+}
+

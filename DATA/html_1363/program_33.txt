@@ -1,0 +1,36 @@
+
+private void Start()
+{
+    var token = this.GetCancellationTokenOnDestroy();
+
+    // AsyncReactiveProperty生成
+    var asyncReactiveProperty = new AsyncReactiveProperty&lt;string&gt;("Initialize!");
+
+    // 待受開始
+    WaitForAsync(asyncReactiveProperty, token).Forget();
+
+    // 値を設定
+    asyncReactiveProperty.Value = "Hello!";
+    asyncReactiveProperty.Value = "World!";
+    asyncReactiveProperty.Value = "Thank you!";
+
+    asyncReactiveProperty.Dispose();
+}
+
+private async UniTaskVoid WaitForAsync(
+    IReadOnlyAsyncReactiveProperty&lt;string&gt; asyncReadOnlyReactiveProperty,
+    CancellationToken token)
+{
+    // AsyncReactiveProperty はキューイングしてくれないので
+    // タイミングによってはメッセージの取りこぼしが置きうる
+    // 取りこぼしが嫌ならQueueを併用する
+    await asyncReadOnlyReactiveProperty
+        .Queue() // Queueを挟む
+        .ForEachAwaitWithCancellationAsync(async (x, ct) =&gt;
+        {
+            Debug.Log(x);
+            // 1秒待って次の値を取りに行く
+            await UniTask.Delay(1000, cancellationToken: ct);
+        }, token);
+}
+

@@ -1,0 +1,58 @@
+
+    [CustomPropertyDrawer(typeof(GuidReference))]
+    public class GuidReferencePropertyDrawer : PropertyDrawer
+    {
+        string[] ids;
+        string[] actorNames;
+
+        public override void OnGUI(Rect rect, SerializedProperty prop, GUIContent label)
+        {
+            using (new EditorGUI.PropertyScope(rect, label, prop))
+            {
+                var stringProp = prop.FindPropertyRelative("Value");
+
+                // たとえば、このように、特定のエディタが開いているかどうかで分岐をつくり、
+                var fieldEditorWindow = FieldEditorWindow.GetCurrent();
+                if (fieldEditorWindow == null || !fieldEditorWindow.SceneLoaded)
+                {
+                    // 通常はただのテキストフィールド
+                    stringProp.stringValue = EditorGUI.TextField(rect, label, stringProp.stringValue);
+                    return;
+                }
+
+                // 選択対象のオブジェクトをシーンから選択できる場合は、がんばってドロップダウンを出す
+                var actorRepository = fieldEditorWindow.GetActorRepository();
+                if (ids == null)
+                {
+                    ids = new[] { "" }.Concat(actorRepository.Ids.Select(x =&gt; x.ToString())).ToArray();
+                }
+                if (actorNames == null)
+                {
+                    actorNames = new[] { "(None)" }.Concat(actorRepository.Actors.Select(x =&gt; x.name)).ToArray();
+                }
+
+                var labelRect = new Rect(rect.x, rect.y, rect.width, 18f);
+                var helpRect = new Rect(rect.x + 5f, rect.y + labelRect.height, rect.width, 24f);
+                var popupRect = new Rect(rect.x, rect.y + labelRect.height + helpRect.height, rect.width, 18f);
+
+                // Draw label
+                EditorGUI.PrefixLabel(labelRect, GUIUtility.GetControlID(FocusType.Passive), label);
+
+                // シーン上のオブジェクトから選択するとかできます
+                // Draw popup
+                var selectedIndex = EditorGUI.Popup(popupRect, Array.IndexOf(ids, stringProp.stringValue), actorNames);
+                stringProp.stringValue = selectedIndex &gt; -1 ? ids[selectedIndex] : "";
+            }
+        }
+
+        public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
+        {
+            var fieldEditorWindow = FieldEditorWindow.GetCurrent();
+            if (fieldEditorWindow == null || !fieldEditorWindow.SceneLoaded)
+            {
+                return base.GetPropertyHeight(property, label);
+            }
+
+            return 18f + 24f + 18f + 4f;
+        }
+

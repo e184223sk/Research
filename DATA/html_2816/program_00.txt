@@ -1,0 +1,385 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+
+public class MyIcon
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct IconDir
+    {
+        public short  icoReserved; // must be 0
+        public short  icoResourceType; //must be 1 for icon
+        public short  icoResourceCount;
+
+        public IconDir(int n)
+        {
+            icoReserved = 0;
+            icoResourceType = 1;
+            icoResourceCount = (short)n;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct IconDirEntry
+    {
+        byte   _Width;
+        byte   _Height;
+        public byte   ColorCount;
+        public byte   reserved1;
+        public short  reserved2;
+        public short  reserved3;
+        public int    icoDIBSize;
+        public int    icoDIBOffset;
+
+        public int Width{get{return (_Width&gt;0)?_Width:256;}}
+        public int Height{get{return (_Height&gt;0)?_Height:256;}}
+
+        public IconDirEntry(int w, int h)
+        {
+            if ( w&lt;0 || w&gt;256 || h&lt;0 || h&gt;256 ) {
+                throw new Exception("Size parameter error");
+            }
+            _Width  = (byte)w;
+            _Height = (byte)h;
+            ColorCount=0;
+            reserved1=0;
+            reserved2=0;
+            reserved3=0;
+            icoDIBSize=0;
+            icoDIBOffset=0;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BitmapInfoHeader
+    {
+        public int    biSize; // must be 40
+        public int    biWidth;
+        public int    biHeight;
+        public short  biPlanes; // must be 1
+        public short  biBitCount; // color
+        public int    biCompression; // 0:not compress
+        public int    biSizeImage;
+        public int    biXPixPerMeter;
+        public int    biYPixPerMeter;
+        public int    biClrUsed;
+        public int    biCirImportant;
+
+        public BitmapInfoHeader(int w, int h)
+        {
+            biSize = 40;
+            biWidth = w;
+            biHeight = h*2; // よくわからないが、確認した .ico ファイルでは2倍になってる。本体とmaskをさしている？
+            biPlanes = 1;
+            biBitCount = 32;
+            biCompression=0;
+            biSizeImage=0;
+            biXPixPerMeter=0;
+            biYPixPerMeter=0;
+            biClrUsed=0;
+            biCirImportant=0;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PalletColor
+    {
+        public byte rgbBlue;
+        public byte rgbGreen;
+        public byte rgbRed;
+        public byte rgbReserved;
+    }
+
+    public class IconEntry
+    {
+        IconDirEntry     iconDirEntry;
+        BitmapInfoHeader bitmapInfoHeader;
+        PalletColor[]    pallet;
+        byte[] bitmapBody;
+        byte[] bitmapMask;
+
+        public System.Drawing.Size Size{get{return new System.Drawing.Size(iconDirEntry.Width, iconDirEntry.Height);}}
+        public int Width{get{return iconDirEntry.Width;}}
+        public int Height{get{return iconDirEntry.Height;}}
+        public int BitPerPixel{get{return bitmapInfoHeader.biBitCount;}}
+
+        public int CalcDIBSize()
+        {
+            return Marshal.SizeOf(typeof(BitmapInfoHeader)) + ((pallet==null)?0:4*pallet.Length) + bitmapBody.Length + bitmapMask.Length;
+        }
+
+        public int UpdateIconDirEntry(int icoDIBOffset)
+        {
+            iconDirEntry.icoDIBOffset = icoDIBOffset;
+            iconDirEntry.icoDIBSize   = CalcDIBSize();
+            return iconDirEntry.icoDIBSize;
+        }
+
+        public void WriteIconDirEntryTo(BinaryWriter writer)
+        {
+            MyIcon.CopyDataToByteArray&lt;IconDirEntry&gt;(writer, iconDirEntry);
+        }
+
+        public void WriteDataTo(BinaryWriter writer)
+        {
+            MyIcon.CopyDataToByteArray&lt;BitmapInfoHeader&gt;(writer, bitmapInfoHeader);
+            if ( pallet != null &amp;&amp; pallet.Length&gt;0 ) {
+                foreach (PalletColor p in pallet) {
+                    MyIcon.CopyDataToByteArray&lt;PalletColor&gt;(writer, p);
+                }
+            }
+            writer.Write(bitmapBody);
+            writer.Write(bitmapMask);
+        }
+
+        public IconEntry(IconDirEntry _iconDirEntry, BitmapInfoHeader _bitmapInfoHeader, PalletColor[] _pallet, byte[] _bitmapBody, byte[] _bitmapMask)
+        {
+            iconDirEntry = _iconDirEntry;
+            bitmapInfoHeader = _bitmapInfoHeader;
+            pallet = _pallet;
+            bitmapBody = _bitmapBody;
+            bitmapMask = _bitmapMask;
+        }
+
+        // 本体
+        public IconEntry(Bitmap bmp, Color? alphaColor)
+        {
+            int w = bmp.Width;
+            int h = bmp.Height;
+
+            if ( w&gt;256 || h&gt;256 ) {
+                throw new Exception("size parameter error");
+            }
+
+            iconDirEntry = new IconDirEntry(w, h);
+            bitmapInfoHeader = new BitmapInfoHeader(w, h);
+            bitmapBody = new byte[MyIcon.GetBitmapBodySize(w, h, bitmapInfoHeader.biBitCount)];
+            bitmapMask = new byte[MyIcon.GetBitmapMaskSize(w, h)];
+
+            Draw32bppBitmapToData(bmp, alphaColor);
+        }
+
+        void Draw32bppBitmapToData(Bitmap bmp, Color? alphaColor)
+        {
+            Array.Clear(bitmapMask, 0, bitmapMask.Length);
+            Array.Clear(bitmapBody, 0, bitmapBody.Length);
+
+            BitmapData bd = bmp.LockBits(new Rectangle(0,0,bmp.Width,bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+            try {
+                IntPtr ptr = bd.Scan0;
+                byte[] pixels = new byte[bd.Stride * bmp.Height];
+                Marshal.Copy(ptr, pixels, 0, pixels.Length);
+
+                int maskStride = (((Width+7)/8+3)/4)*4;
+                int icoStride = Width*4;
+
+                for (int y = 0; y &lt; bd.Height; y++) {
+                    for (int x = 0; x &lt; bd.Width; x++) {
+                        int posIco = y * icoStride + 4*x;
+
+                        int bytePosMask = y * maskStride + x/8;
+                        int bitPosMask = 7-(x%8);
+
+                        int pos = (bd.Height-1-y) * bd.Stride + x * 4;
+                        bitmapBody[posIco  ] = pixels[pos];   //blue;
+                        bitmapBody[posIco+1] = pixels[pos+1]; //green;
+                        bitmapBody[posIco+2] = pixels[pos+2]; //red;
+                        bitmapBody[posIco+3] = pixels[pos+3]; //alpha
+
+                        if ( pixels[pos+3] == 0 ||
+                           (alphaColor != null &amp;&amp;
+                            pixels[pos]  ==alphaColor.Value.B &amp;&amp;
+                            pixels[pos+1]==alphaColor.Value.G &amp;&amp;
+                            pixels[pos+2]==alphaColor.Value.R  )) {
+                            //bitmapMask[bytePosMask] |= (byte)(1&lt;&lt;bitPosMask);
+                            // 32bit色のiconだとmaskではなくalpha channelが使用されるっぽい
+                            bitmapBody[posIco+3] = 0x00;
+                        }
+                    }
+                }
+            }
+            finally {
+                bmp.UnlockBits(bd);
+            }
+        }
+    }
+
+    public bool SaveToFile(string path)
+    {
+        int size = UpdateIconDirEntries();
+
+        using ( var fs = new FileStream(path, FileMode.Create) ) {
+            using ( var writer = new BinaryWriter(fs) ) {
+                CopyDataToByteArray&lt;IconDir&gt;(writer, iconDir);
+
+                foreach(var t in iconEntries) {
+                    t.WriteIconDirEntryTo(writer);
+                }
+
+                foreach(var t in iconEntries) {
+                    t.WriteDataTo(writer);
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public int UpdateIconDirEntries()
+    {
+        int offset  =  Marshal.SizeOf(typeof(IconDir))  +  iconEntries.Count * Marshal.SizeOf(typeof(IconDirEntry));
+
+        for (int i=0;i&lt;iconEntries.Count;i++) {
+            offset += iconEntries[i].UpdateIconDirEntry(offset);
+        }
+        return offset;
+    }
+
+    IconDir                iconDir;
+    public List&lt;IconEntry&gt; iconEntries;
+
+    MyIcon(IconDir _iconDir, List&lt;IconEntry&gt; _iconEntries)
+    {
+        iconDir      = _iconDir;
+        iconEntries  = _iconEntries;
+    }
+
+    public MyIcon(List&lt;IconEntry&gt; _iconEntries)
+    {
+        iconDir      = new IconDir(_iconEntries.Count);
+        iconEntries  = _iconEntries;
+    }
+
+    static int GetBitmapBodySize(int w, int h, int bitCount)
+    {
+        return ((((w*bitCount + 7)/8)+3)/4)*4 * h;
+    }
+
+    static int GetBitmapMaskSize(int w, int h)
+    {
+        return ((((w+7)/8)+3)/4)*4 * h;
+    }
+
+    public static TStruct CopyDataToStruct&lt;TStruct&gt; (BinaryReader reader) where TStruct : struct
+    {
+        var size = Marshal.SizeOf(typeof(TStruct));
+        var ptr = IntPtr.Zero;
+
+        try {
+            ptr = Marshal.AllocHGlobal(size);
+            Marshal.Copy(reader.ReadBytes(size), 0, ptr, size);
+            return (TStruct)Marshal.PtrToStructure(ptr, typeof(TStruct));
+        }
+        finally {
+            if (ptr != IntPtr.Zero) {
+                Marshal.FreeHGlobal(ptr);
+            }
+        }
+    }
+
+    public static void CopyDataToByteArray&lt;TStruct&gt;(BinaryWriter writer, TStruct s) where TStruct : struct
+    {
+        var size = Marshal.SizeOf(typeof(TStruct));
+        var buffer = new byte[size];
+        var ptr = IntPtr.Zero;
+
+        try {
+            ptr = Marshal.AllocHGlobal(size);
+            Marshal.StructureToPtr(s, ptr, false);
+            Marshal.Copy(ptr, buffer, 0, size);
+        }
+        finally {
+            if (ptr != IntPtr.Zero) {
+                Marshal.FreeHGlobal(ptr);
+            }
+        }
+        writer.Write(buffer);
+    }
+}
+
+class MainForm
+{
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if (args.Length == 0 || args[0]=="/?" || args[0]=="--help") {
+            // help message
+            Console.WriteLine("Need input image files.");
+            Console.WriteLine("");
+            Console.WriteLine("Usage:");
+            Console.WriteLine("ConvertToIcon [/a:RRGGBB] InputImageFile");
+            Console.WriteLine("/a:RRGGBB   you can specify transparent color in hex code.");
+            Console.WriteLine("            example:  /a:FF0000  means red color.");
+            Console.WriteLine("");
+            Console.WriteLine("you can set more than 1 image:");
+            Console.WriteLine("ConvertToIcon [/a:RRGGBB] InputImageFile [/a:RRGGBB] InputImageFile");
+            Console.WriteLine("");
+            Console.WriteLine("Output file will be created in the same folder.");
+            return;
+        }
+
+        if (args.Length &gt; 0) {
+            var iconEntries = new List&lt;MyIcon.IconEntry&gt;();
+
+            Color? alphaColor = null;
+            foreach (string s in args) {
+                // /a:xxxxxx /a:xxxxxx xxx.bmp とかも受け付けてしまうが、本質ではないのであまりこだわらない。
+                if ( s.StartsWith("/") ) {
+                    Regex rxp = new Regex("^/a:([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$");
+                    // RRGGBB
+                    Match m;
+                    if ( (m=rxp.Match(s)).Success ) { // 透過色指定
+                        int red   = Convert.ToInt32(m.Groups[1].Value, 16);
+                        int green = Convert.ToInt32(m.Groups[2].Value, 16);
+                        int blue  = Convert.ToInt32(m.Groups[3].Value, 16);
+                        alphaColor = Color.FromArgb(red, green, blue);
+                    }
+                    else {
+                        Console.WriteLine("Ignored: " + s);
+                    }
+                }
+                else {
+                    try {
+                        Bitmap bmp = (Bitmap)Image.FromFile(s);
+                        if (bmp.Width&gt;256 || bmp.Height&gt;256){
+                            Console.WriteLine("Too large size. width or height exceeds 256pixel: "+s);
+                            return;
+                        }
+                        iconEntries.Add(new MyIcon.IconEntry(bmp, alphaColor));
+                    }
+                    catch (FileNotFoundException) {
+                        Console.WriteLine("File not found: "+s);
+                        return;
+                    }
+                    alphaColor = null;
+                }
+            }
+
+            if ( iconEntries.Count == 0 ) {
+                Console.WriteLine("No data");
+            }
+            else {
+                var t = new MyIcon(iconEntries);
+
+                t.SaveToFile("Output.ico");
+            }
+        }
+    }
+}
+
+

@@ -1,0 +1,57 @@
+// オーディオイベントの制御
+// Clovaでのオーディオ再生が終わった際に呼び出される
+if (reqObj["event"]["namespace"].Value&lt;string&gt;() == "AudioPlayer")
+{
+    var userId = reqJson["session"]["user"]["userId"].Value&lt;string&gt;();
+    var beforeId = reqObj["event"]["payload"]["token"].Value&lt;string&gt;();
+    var eventName = reqObj["event"]["name"].Value&lt;string&gt;();
+    var cache = await PlayStatusService.FindCacheAsync(userId);
+    switch (eventName)
+    {
+        case "PlayFinished":
+            // LINE Botのメニューから停止要求がされていれば呼び出さない
+            if (cache?.StopRequest != null &amp;&amp; cache.StopRequest.IsStopped)
+            {
+                // DBに存在する停止レコードに、直近の再生済みオーディオのIDを更新する
+                cache.StopRequest.BeforId = beforeId;
+                cache.StopRequest.IsPaused = false;
+                await PlayStatusService.SaveAsync(cache);
+            }
+            else if (cache?.StopRequest != null &amp;&amp; cache.StopRequest.IsPaused)
+            {
+                // 一時停止状態の場合は無音を流す（無限ループ）
+                response.Response.Directives.Add(GetAudioResponseDirective(beforeId, "一時停止中", Consts.SilentAudioFileUrl));
+                response.ShouldEndSession = true;
+            }
+            else
+            {
+                // キャッシュ削除
+                await PlayStatusService.DeleteAsync(cache);
+
+                // 次のオーディオ再生（画像送付があればそれも）を実施
+                await AddAudioPlayAndPushPictureAsync(response, userId, null, beforeId, log);
+            }
+            break;
+
+        case "PlayPaused":
+            // 再生中断された場合
+            cache.StopRequest.IsStopped = true;
+            await PlayStatusService.SaveAsync(cache);
+            break;
+
+        case "PlayStarted":
+            // 再生開始OK：DBに記録
+            // 再生開始時はStopped=falseで登録
+            if (cache?.StopRequest == null)
+            {
+                await PlayStatusService.AddCacheAsync(userId, beforeId);
+            }
+            else
+            {
+                cache.StopRequest.BeforId = beforeId;
+                await PlayStatusService.SaveAsync(cache);
+            }
+            break;
+    }
+}
+

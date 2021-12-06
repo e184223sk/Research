@@ -1,0 +1,130 @@
+
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace TestProject.QiitaToWP
+{
+    /// &lt;summary&gt;
+    /// WordPress API呼び出しクラス
+    /// &lt;/summary&gt;
+    public class WPService : ServiceBase
+    {
+        /// &lt;summary&gt;
+        /// TOPURL
+        /// &lt;/summary&gt;
+        private const string TOP_URL = "http://kurosu.s1009.xrea.com";
+
+        /// &lt;summary&gt;
+        /// 記事取得、投稿時の定義
+        /// &lt;/summary&gt;
+        private const string POSTS = "/wp-json/wp/v2/posts";
+
+        /// &lt;summary&gt;
+        /// 記事更新時の定義
+        /// &lt;/summary&gt;
+        private const string UPDATE_POSTS = "/wp-json/wp/v2/posts/{0}";
+
+        /// &lt;summary&gt;
+        /// アプリケーションキー(Basic認証に使用するキー)
+        /// &lt;/summary&gt;
+        private readonly string apllicationKey;
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="applicationKey"&gt;アプリケーションキー(Basic認証に使用するキー)&lt;/param&gt;
+        public WPService(string applicationKey) : base()
+        {
+            this.apllicationKey = applicationKey;
+        }
+
+        /// &lt;summary&gt;
+        /// 記事一覧取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="param"&gt;パラメータ群&lt;/param&gt;
+        /// &lt;returns&gt;返り値JSON配列&lt;/returns&gt;
+        public override async Task&lt;JArray&gt; GetArticleList(params string[] param)
+        {
+            var body = await HpClient.GetStringAsync(TOP_URL + POSTS);
+            return JArray.Parse(body);
+        }
+
+        /// &lt;summary&gt;
+        /// 記事更新
+        /// &lt;/summary&gt;
+        /// &lt;param name="id"&gt;記事ID&lt;/param&gt;
+        /// &lt;param name="json"&gt;更新情報JSON&lt;/param&gt;
+        /// &lt;returns&gt;処理の成否&lt;/returns&gt;
+        public async Task&lt;bool&gt; UpdateWPArticle(string id, object json)
+        {
+            var request = this.CreateHttpRequestMessage(HttpMethod.Post, TOP_URL + string.Format(UPDATE_POSTS, id));
+            request.Content = new StringContent(JsonConvert.SerializeObject(json), Encoding.UTF8, "application/json"); ;
+
+            // リクエスト
+            var result = await HpClient.SendAsync(request);
+
+            if (result.StatusCode == HttpStatusCode.OK)
+            {
+                return true;
+            }
+            else
+            {
+                // エラーメッセージ
+                var resultJson = JObject.Parse(await result.Content.ReadAsStringAsync());
+                Console.WriteLine(resultJson["message"].ToString());
+
+                return false;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 記事追加
+        /// &lt;/summary&gt;
+        /// &lt;param name="json"&gt;記事情報JSON&lt;/param&gt;
+        /// &lt;returns&gt;処理の成否&lt;/returns&gt;
+        public async Task&lt;bool&gt; InsertWPArticle(object json)
+        {
+            var request = this.CreateHttpRequestMessage(HttpMethod.Post, TOP_URL + POSTS);
+            request.Content = new StringContent(JsonConvert.SerializeObject(json), Encoding.UTF8, "application/json");
+
+            // リクエスト
+            var result = await HpClient.SendAsync(request);
+
+            if (result.StatusCode == HttpStatusCode.Created)
+            {
+                return true;
+            }
+            else
+            {
+                // エラーメッセージ
+                var resultJson = JObject.Parse(await result.Content.ReadAsStringAsync());
+                Console.WriteLine(resultJson["message"].ToString());
+
+                return false;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// HttpRequestMessage作成
+        /// &lt;/summary&gt;
+        /// &lt;param name="method"&gt;Httpメソッド&lt;/param&gt;
+        /// &lt;param name="url"&gt;URL&lt;/param&gt;
+        /// &lt;returns&gt;HttpRequestMessage&lt;/returns&gt;
+        private HttpRequestMessage CreateHttpRequestMessage(HttpMethod method, string url)
+        {
+            var request = new HttpRequestMessage(method, url);
+
+            // Basi認証ヘッダー
+            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes(this.apllicationKey));
+            request.Headers.Add("Authorization", $"Basic {credentials}");
+
+            return request;
+        }
+    }
+}
+

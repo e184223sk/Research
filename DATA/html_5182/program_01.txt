@@ -1,0 +1,46 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using MiniJSON;
+using UnityEngine;
+
+/// &lt;summary&gt;逆ジオコーディングクラス&lt;/summary&gt;
+public class LonLatToAddr : MonoBehaviour
+{
+    /// &lt;summary&gt;APIのパラメータテンプレートつきURL&lt;/summary&gt;
+    private const string ApiBaseUrl = "https://www.finds.jp/ws/rgeocode.php?json&amp;lon={0}&amp;lat={1}";
+
+    /// &lt;summary&gt;住所文字列&lt;/summary&gt;
+    public string Address { get; private set; }
+
+    /// &lt;summary&gt;経緯度から住所文字列を取得&lt;/summary&gt;
+    /// &lt;param name="longitude"&gt;経度&lt;/param&gt;
+    /// &lt;param name="latitude"&gt;緯度&lt;/param&gt;
+    /// &lt;returns&gt;遅延評価用戻り値&lt;/returns&gt;
+    public IEnumerator GetAddrFromLonLat(float longitude, float latitude)
+    {
+        // URLに経緯度パラメータを埋め込み
+        string url = string.Format(ApiBaseUrl, longitude, latitude);
+
+        // APIを実行して経緯度を保持
+        using (WWW www = new WWW(url))
+        {
+            // API非同期実行用yield return
+            yield return www;
+
+            // 結果JSONのデシリアライズ
+            var desirializedData = (Dictionary&lt;string, object&gt;)Json.Deserialize(www.text);
+
+            // 成功した場合のみ処理
+            if ((long)desirializedData["status"] == 200)
+            {
+                // 都道府県+市区町村を文字列として保持
+                var result = (Dictionary&lt;string, object&gt;)desirializedData["result"];
+                var prefecture = (Dictionary&lt;string, object&gt;)result["prefecture"];
+                var municipality = (Dictionary&lt;string, object&gt;)result["municipality"];
+                Address = (string)prefecture["pname"] + " " + (string)municipality["mname"];
+            }
+        }
+    }
+}
+

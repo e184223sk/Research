@@ -1,0 +1,64 @@
+using System;
+using System.Xml;
+using System.Web;
+using System.Net.Http;
+using System.IO;
+using System.Configuration;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace DownloadApp
+{
+    class DownloadApp
+    {
+        /// &lt;summary&gt;
+        /// メイン処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="args"&gt;&lt;/param&gt;
+        static void Main(string[] args)
+        {
+            try
+            {
+                DownloadZipAsync().Wait();
+            }
+            catch (Exception ex)
+            {
+                // エラー処理
+            }
+        }
+
+        static async Task DownloadZipAsync()
+        {
+            using (var client = new HttpClient())
+            {
+                // 1. GETでデータ取得
+                string uri = "http://localhost:50984/WebService/WebService.asmx/GetBinaryOfZip?userId=1";
+                HttpResponseMessage res = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+
+                // 2. 保存するzipファイルのストリームをオープン
+                string outputFilePath = "C:\temp\test.zip"
+                using (var fs = new FileStream(@outputFilePath, FileMode.Create, FileAccess.Write))
+                {
+                    // 3. 受信データの中身を読み込む
+                    var resXml = await res.Content.ReadAsStringAsync();
+
+                    var xmlDoc = new XmlDocument();
+                    xmlDoc.LoadXml(resXml);
+
+                    if (xmlDoc.GetElementsByTagName("base64Binary").Count == 0)
+                    {
+                        throw new ApplicationException("base64Binaryタグが存在しません。");
+                    }
+
+                    // 4. Webサービスから取得したBase64文字列をバイト型配列に変換
+                    byte[] zipBinary =
+                        System.Convert.FromBase64String(xmlDoc.GetElementsByTagName("base64Binary")[0].InnerText);
+
+                    // 5. ファイルに書き込む
+                    await fs.WriteAsync(zipBinary, 0, zipBinary.Length);
+                }
+            }
+        }
+    }
+}
+

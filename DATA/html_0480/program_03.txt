@@ -1,0 +1,67 @@
+
+// ※UniRxの実装とは異なります
+public class PartialSubject&lt;T&gt;
+{
+    private readonly InnerBroker innerBroker = new();
+
+    private readonly InnerObserver innerObserver;
+
+    // コンストラクタ
+    public PartialSubject() =&gt; this.innerObserver = new(this.innerBroker);
+
+    // Broker.Subscribe()のラッパー
+    public IDisposable Subscribe(IObserver&lt;T&gt; observer)
+    {
+        // 自身の持つ内部Brokerに購読依頼をそのままスルー
+        return this.innerBroker.Subscribe(observer);
+    }
+
+    // Observer.OnNext()のラッパー
+    public void OnNext(T nextItem)
+    {
+        // イベント発火タイミングが来た！
+        // 内部Observerに通知をスルー
+        this.innerObserver.OnNext(nextItem);
+    }
+
+    // 親クラスのBrokerとなる内部クラス
+    private class InnerBroker : IBroker&lt;T&gt;
+    {
+        private readonly List&lt;IObserver&lt;T&gt;&gt; observers = new();
+
+        public IDisposable Subscribe(IObserver&lt;T&gt; observer)
+        {
+            this.observers.Add(observer);
+
+            // Dispose時の処理は解説範囲外なので省略
+            return Disposable.Empty;
+        }
+
+        public void Publish(T value) 
+        {
+            // 購読依頼を受けていたObserver達に発行を知らせる
+            this.observers.ForEach(x =&gt; x.OnNext(value));
+        }
+    }
+
+    // Subject利用クラスを購読するObserverとなる内部クラス
+    private class InnerObserver : IObserver&lt;T&gt;
+    {
+        private readonly IObservable&lt;T&gt; broker;
+
+        // コンストラクタ
+        public InnerObserver(IBroker&lt;T&gt; broker) =&gt; this.broker = broker;
+
+        public void OnNext(T value)
+        {
+            // 内部Observerの通知受信時の処理は、内部Brokerに発行を伝えること
+            this.broker.Publish(value);
+        }
+    }
+}
+
+// IBrokerは　IObservable + Publish()
+public interface IBroker&lt;T&gt; : IObservable&lt;T&gt; {
+    void Publish(T value);
+}
+

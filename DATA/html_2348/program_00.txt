@@ -1,0 +1,129 @@
+
+using System;
+using System.ComponentModel; // CancelEventArgsを使用するため
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+
+static class MyIconUtil
+{
+    static class NativeMethods
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public extern static bool DestroyIcon(IntPtr handle);
+    }
+
+    public static Icon CreateIcon(byte[,] iconDot)
+    {
+        Bitmap bmp = new Bitmap(iconDot.GetLength(0),iconDot.GetLength(1));
+        using ( Graphics g = Graphics.FromImage(bmp) ) {
+            g.Clear(Color.White);
+        }
+        for ( int y=0 ; y&lt;iconDot.GetLength(1) ; y++ ) {
+            for ( int x=0 ; x&lt;iconDot.GetLength(0) ; x++ ) {
+                if ( iconDot[x,y] != 0 ) {
+                    bmp.SetPixel(x,y,Color.Black);
+                }
+            }
+        }
+
+        IntPtr Hicon = bmp.GetHicon();
+        return Icon.FromHandle(Hicon);
+    }
+
+    public static void DestroyIcon(Icon icon)
+    {
+        NativeMethods.DestroyIcon(icon.Handle);
+    }
+}
+
+
+class TaskTrayTest
+{
+    static readonly int W = 16;
+    static readonly int H = 16;
+
+    NotifyIcon trayIcon;
+    byte[,] iconDot; // each byte value is 0 or 1
+    System.Windows.Forms.Timer timer;
+
+    TaskTrayTest()
+    {
+        trayIcon = new NotifyIcon();
+        iconDot = new byte[W,H];
+        ResetBoardData();
+
+        Icon tmpIcon = MyIconUtil.CreateIcon(iconDot);
+        trayIcon.Icon = tmpIcon;
+        trayIcon.Visible = true;
+
+        trayIcon.Text = "LifeGame";
+        var menu = new ContextMenuStrip();
+        var menuItem = new ToolStripMenuItem();
+
+        menu.Items.AddRange(new ToolStripMenuItem[]{
+            new ToolStripMenuItem("E&amp;xit", null, (s,e)=&gt;{timer.Stop();Application.Exit();}, "Exit")
+        });
+
+        trayIcon.Click += (s,e)=&gt;{ResetBoardData();};
+        trayIcon.ContextMenuStrip = menu;
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 200;//ms
+        timer.Tick += (sender,e)=&gt;{UpdateBoard();};
+        timer.Start();
+    }
+
+    void ResetBoardData()
+    {
+        var rand = new System.Random((int)System.Environment.TickCount);
+
+        for ( int y=0;y&lt;H;y++) {
+            for ( int x=0;x&lt;W;x++) {
+                iconDot[x,y] = (byte)(rand.Next()%2);
+            }
+        }
+    }
+
+    void UpdateBoard()
+    {
+        var a = iconDot; // old
+        var b = new byte[W,H]; // new
+        for ( int y=0;y&lt;H;y++) {
+            int ym = (y-1+H)%H;
+            int yp = (y+1  )%H;
+            for ( int x=0;x&lt;W;x++) {
+                int xm = (x-1+W)%W;
+                int xp = (x+1  )%W;
+
+                int c = a[xm,ym]+a[x ,ym]+a[xp,ym]
+                       +a[xm,y ]         +a[xp,y ]
+                       +a[xm,yp]+a[x ,yp]+a[xp,yp];
+
+                if ( a[x,y] == 0 ) {
+                    b[x,y] = (byte)((c==3)?1:0);
+                }
+                else {
+                    b[x,y] = (byte)((c==2||c==3)?1:0);
+                }
+            }
+        }
+        iconDot = b;
+
+        Icon oldIcon = trayIcon.Icon;
+        trayIcon.Icon = MyIconUtil.CreateIcon(iconDot);
+        MyIconUtil.DestroyIcon(oldIcon);
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Console.WriteLine("Main() Start.");
+        new TaskTrayTest();
+        Console.WriteLine("Instance is created.");
+        Application.Run();
+        Console.WriteLine("Main() End.");
+    }
+}
+

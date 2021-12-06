@@ -1,0 +1,25 @@
+
+[assembly: WebJobsStartup(typeof(PollyHttpClientWebJobsStartup))]
+namespace PollyHttpClient.Azure.WebJobs.Extensions
+{
+    public class PollyHttpClientWebJobsStartup : IWebJobsStartup
+    {
+        public void Configure(IWebJobsBuilder builder)
+        {
+            //Extentionの登録
+            builder.AddExtension&lt;PollyHttpClientExtensionConfigProvider&gt;();
+            //HttpClient+Pollyの登録
+            builder.Services.AddHttpClient&lt;PollyHttpClientExtensionConfigProvider&gt;(nameof(PollyHttpClientExtensionConfigProvider))
+            .SetHandlerLifetime(System.Threading.Timeout.InfiniteTimeSpan)
+            .AddPolicyHandler(HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg =&gt; msg.StatusCode == HttpStatusCode.NotFound || (int)msg.StatusCode == 429)
+                .Or&lt;TimeoutRejectedException&gt;()
+                .WaitAndRetryAsync(3, retryAttempt =&gt; TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
+                ))
+            .AddPolicyHandler(Policy.TimeoutAsync&lt;HttpResponseMessage&gt;(TimeSpan.FromSeconds(10)));
+            builder.Services.Configure&lt;HttpClientFactoryOptions&gt;(nameof(PollyHttpClientExtensionConfigProvider), options =&gt; options.SuppressHandlerScope = true);
+        }
+    }
+}
+

@@ -1,0 +1,86 @@
+
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Azuki.Behavior
+{
+    public sealed class QueTaskScheduler : TaskScheduler, IDisposable
+    {
+        private BlockingCollection&lt;Task&gt; tasksCollection = new BlockingCollection&lt;Task&gt;();
+
+        private readonly Thread mainThread = null;
+
+        public String Name
+        {
+            get { return mainThread.Name; }
+        }
+
+        public QueTaskScheduler(string threadName)
+        {
+            // スレッドを生成し、名前を付けます。スレッドは下記のExecuteを実行します。
+            mainThread = new Thread(new ThreadStart(Execute))
+            {
+                Name = threadName
+            };
+            if (!mainThread.IsAlive)
+            {
+                // スレッドを開始
+                mainThread.Start();
+            }
+        }
+
+        private void Execute()
+        {
+            // tasksCollectionにタスクがある間だけ、このforeachが回ります。
+            // タスクがないときは、foreachは停止しています。
+            foreach (var task in tasksCollection.GetConsumingEnumerable())
+            {
+                TryExecuteTask(task);
+            }
+        }
+
+        // オーバーライドしなければなりません。
+        protected override IEnumerable&lt;Task&gt; GetScheduledTasks()
+        {
+            return tasksCollection.ToArray();
+        }
+
+        // オーバーライドしなければなりません。
+        protected override void QueueTask(Task task)
+        {
+            // タスクをキューイングします。
+            if (task != null)
+            {
+                tasksCollection.Add(task);
+            }
+        }
+
+        // オーバーライドしなければなりません。
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
+        {
+            // falseを返すと、taskがキューに並びます。
+            return false;
+            // ここでtrueを返すと、キューに入れずにそのまま実行させてしまいます。
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (!disposing) { return; }
+
+            tasksCollection.CompleteAdding();
+            tasksCollection.Dispose();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+    }
+}
+

@@ -1,0 +1,31 @@
+
+{
+  ui.text = "aaaa";
+  var x = await GetTextAsync();
+  ui.text = text;
+  await Task.Run(() =&gt; Thread.Sleep(100000));
+  ui.text = "";
+}
+// ↓
+{
+  SynchronizationContext callerContext = SynchronizationContext.Current;
+  ui.text = "aaaa";
+  GetTextAsync(onComplete: text =&gt;
+  {
+    callerContext.Post(() =&gt; // 呼び出し元のContext（≒スレッド）に戻す
+    {
+      ui.text = text;
+      Task.Run(() =&gt;
+      {
+        // Task.Runはワーカースレッドで実行するため、ここはメインスレッドではなくなっている
+        Thread.Sleep(100000)
+        // onComplete();
+        callerContext.Post(() =&gt; // 呼び出し元のContext（≒スレッド）に戻す
+        {
+          ui.text = "";
+        });
+      });
+    };
+  });
+}
+

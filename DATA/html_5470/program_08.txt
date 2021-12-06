@@ -1,0 +1,52 @@
+
+using Npgsql;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var seq = CreateData.ReadSeqData();
+
+        var builder = new NpgsqlConnectionStringBuilder()
+        {
+            Host = "localhost",
+            Port = 5432,
+            Username = "postgres",
+            Password = "postgres",
+            Database = "foo",
+        };
+        using (var con = new NpgsqlConnection(builder.ConnectionString))
+        {
+            con.Open();
+            var table = new string[] { "one", "three", "five" };
+
+            using (var cmd = new NpgsqlCommand())
+            {
+                cmd.Connection = con;
+
+
+                foreach (var t in table)
+                {
+                    cmd.CommandText = $"CREATE TABLE {t} (id INTEGER, json JSONB)";
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            foreach (var i in Enumerable.Range(0, table.Length))
+            {
+                using (var writer = con.BeginBinaryImport($"COPY {table[i]}(id, json) FROM STDIN (FORMAT BINARY)"))
+                {
+                    var cnt = 1;
+                    foreach (var r in seq)
+                    {
+                        writer.StartRow();
+                        writer.Write(cnt, NpgsqlTypes.NpgsqlDbType.Integer);
+                        writer.Write(r.ToRandomStringContainsJson(i * 2 + 1), NpgsqlTypes.NpgsqlDbType.Jsonb);
+                        cnt++;
+                    }
+                }
+            }
+        }
+    }
+}
+

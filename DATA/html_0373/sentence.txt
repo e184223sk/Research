@@ -1,0 +1,42 @@
+本記事はサムザップ #1 AdventCalendar 2020の12/2の記事です。
+12/1の記事は@ohbashunsukeさんの【Unity】新規ゲームのUI開発で気をつけた39のTips前編 - Qiitaでした。P/Invokeと各種String作成ベンチマーク - Qiitaの記事で紹介されているベンチマークでは、
+StringBuilderは他の手法に比べて頭一つ遅くなっていました。他と比べて遅いのはマネージド・ネイティブ間のデータの受け渡し（マーシャリング）コストが上乗せされた結果のような感じがしますが、
+実際に何が行われているのか、気になったので調べてみました。まずはネイティブ関数呼び出しを行う、ミニマムなコンソールアプリケーションを作成します。ネイティブ関数呼び出しの実装(Program.cs)
+
+
+Program.cs
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace pinvoke
+{
+    internal class Program
+    {
+        [DllImport("Kernel32", CharSet = CharSet.Unicode, EntryPoint = "GetTempPathW")]
+        public static extern int GetTempPath(uint nBufferLength, StringBuilder sb);
+
+        public static void Main(string[] args)
+        {
+            var sb = new StringBuilder(capacity: 260 + 1);
+            GetTempPath(260, sb);
+            Console.WriteLine(sb.ToString());
+        }
+    }
+}
+
+
+
+動作確認のためにコードをビルドして実行します。想定通りに一時ディレクトリのパスが出力されました、ネイティブ関数呼び出しの実装は問題なさそうです。C#ではMashalAs属性を使って、ネイティブ関数呼び出し時のデータの受け渡し方法をコントロールすることができます。
+設定によって文字コードの変換（ANSI → UTF-16など）もかかる、これらのマーシャリングを行うコードはいつ作られるのでしょうか。まずコンパイル時の可能性を考えますが、これはビルドしたDLLをIL DASMで見てみてもC#のコードとほぼ変わらないため、違うことが分かります。IL DASM 出力結果
+
+MainメソッドからのGetTempPath関数呼び出しは、普通の関数呼び出しと変わらないGetTempPathのメソッド本体は空になっているではコンパイル時ではないとすると、コードが生成されるのは実行時になるのでしょうか。
+結論から言うとそうなります。こちらの記事1によるとランタイム（CLR）によって実行時にマーシャリングのコードが生成されること、
+また、その生成されるコードの詳細をETWイベント経由で確認できるツールが紹介されています。このIL Stub Diagnosticsというツール 2 ですが、残念ながら私のPCでは動作しなかったので、
+直接実行時のETWイベントから詳細を取得してみることにします。ドキュメント3を参照するとdotnet-traceコマンドでプロバイダーをMicrosoft-Windows-DotNETRuntimeに、
+フラグを0x2000、レベルを4にすると、スタブ生成のETWイベントが捕捉できそうです。トレースが完了したら trace.nettrace というファイルが出力されますので、これをPerfViewで開いてみます。trace.nettraceのEventsをダブルクリックすると、新しいウィンドウでETWイベントの一覧が表示されます。今回の実装に使ったGetTempPathでフィルタリングすると、確かにILコードがありました。ILにはあまり詳しくないので雰囲気で読み解いていくと、
+スタブコードのネイティブ関数呼び出し前後で呼ばれてそうなメソッドは下記でした。コードには条件分岐も含まれていましたので正確ではありませんが、メソッド名から察するに、一時バッファを用意しそこにStringBuilderの内容をコピーし、
+ネイティブ関数呼び出し後書き戻して割り当てたバッファを解放する、みたいな挙動でしょうか。なるほど他の手法に比べて遅くなりそうな雰囲気がします。以上になります。
+明日は@phasmatodeanさんの記事です。Windows 10 Pro 20H2Improvements to Interop Marshaling in V4: IL Stubs Everywhere | .NET Blog ↩IL Stub Diagnostic Tool | .NET Blog ↩Interop runtime events - .NET | Microsoft Docs ↩
+
+

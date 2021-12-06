@@ -1,0 +1,63 @@
+
+        /// &lt;summary&gt;
+        /// TOPURL
+        /// &lt;/summary&gt;
+        private const string TOP_URL = "http://kurosu.s1009.xrea.com";
+
+        /// &lt;summary&gt;
+        /// 記事取得、投稿時の定義
+        /// &lt;/summary&gt;
+        private const string POSTS = "/wp-json/wp/v2/posts";
+
+        /// &lt;summary&gt;
+        /// タグ取得、投稿時の定義
+        /// &lt;/summary&gt;
+        private const string TAGS = "/wp-json/wp/v2/tags";
+
+        /// &lt;summary&gt;
+        /// 記事一覧取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="param"&gt;パラメータ群&lt;/param&gt;
+        /// &lt;returns&gt;返り値JSON配列&lt;/returns&gt;
+        public override async Task&lt;JArray&gt; GetArticleList(params string[] param)
+        {
+            return await this.GetList(POSTS);
+        }
+
+        /// &lt;summary&gt;
+        /// タグ一覧取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="page"&gt;ページIndex&lt;/param&gt;
+        /// &lt;returns&gt;返り値JSON配列&lt;/returns&gt;
+        public async Task&lt;JArray&gt; GetTagList()
+        {
+            return await this.GetList(TAGS);
+        }
+
+        /// &lt;summary&gt;
+        /// 指定された要素すべてを取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="url"&gt;要素のURL&lt;/param&gt;
+        /// &lt;param name="page"&gt;ページIndex&lt;/param&gt;
+        /// &lt;returns&gt;返り値JSON配列&lt;/returns&gt;
+        private async Task&lt;JArray&gt; GetList(string url, int page = 1)
+        {
+            // 1ページ単位、100件取得
+            var responce = await HpClient.GetAsync($"{TOP_URL}{url}?page={page}&amp;per_page=100");
+
+            // 100件区切りした場合のトータルのページ
+            // 例えば201件ある場合、3ページとなる
+            var toalPage = responce.Headers.GetValues("X-WP-TotalPages").First();
+
+            var body = await responce.Content.ReadAsStringAsync();
+            var tagArray = JArray.Parse(body);
+
+            if (Convert.ToInt32(toalPage) &gt; page)
+            {
+                // 再起処理 すべてのページの要素を収集
+                tagArray.Merge(await this.GetList(url, ++page));
+            }
+
+            return tagArray;
+        }
+

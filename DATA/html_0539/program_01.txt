@@ -1,0 +1,178 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using OpenCvSharp; //OpenCvSharp4 4.4.0.20200725 (2020年7月25日 土曜日 (2020/07/25))
+using System.Drawing;
+using System.Windows.Forms;
+using System.Diagnostics;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+
+namespace Csharp_camera.Util
+{
+    class Camera
+    {
+        int WIDTH = 640;
+        int HEIGHT = 480;
+        OpenCvSharp.VideoCapture capture;
+        private Mat _matframe;
+
+        private Mat matframe { get { return _matframe; }set { _matframe = value; } }
+
+        public async void cap()
+        {
+            try
+            {
+                //ラムダ式は、デリゲート型に変換できます。 
+                Func&lt;Mat&gt; function = () =&gt; capture_work();
+
+                //Task.Run(Action) メソッドの引数として使用すると、バックグラウンドで実行
+                matframe = await Task.Run(function);
+
+                //画像取得出来ていれば
+                if (matframe != null)
+                {
+
+                    File.createDir(Directory.GetCurrentDirectory() + @"\out");
+                    string path_img = Directory.GetCurrentDirectory() + @"\out\" + File.timestap() + ".png";
+
+                    Func&lt;bool&gt; savefunc = () =&gt; save(path_img, matframe);
+                    if (!(await Task.Run(savefunc)))
+                    {
+                        //Error
+                    }
+                    else
+                    {
+                        string path_img_face = Directory.GetCurrentDirectory() + @"\out\" + File.timestap() + "_face.png";
+
+
+                        //顔認識
+                        if (!await Task.Run(() =&gt; Isface( path_img, path_img_face)))
+                        {
+                            //Error
+                        }
+
+                    }
+                }
+            }
+            catch(Exception e)
+            {
+                Debug.WriteLine(e.ToString());
+            }
+        }
+
+        public async void Isface(string path_img)
+        {
+
+            string dir = Path.GetDirectoryName(path_img);
+            string filename = Path.GetFileNameWithoutExtension(path_img);
+
+            string path_img_face = dir + @"\" + filename + "_face.png";
+
+            //顔認識
+            if (!await Task.Run(() =&gt; Isface(path_img, path_img_face)))
+            {
+                //Error
+            }
+
+        }
+
+
+        private Mat capture_work()
+        {
+            //カメラ画像取得用のVideoCapture作成
+            capture = new VideoCapture(0);
+
+            //カメラが見つからない場合
+            if (!capture.IsOpened())
+            {
+                MessageBox.Show("camera was not found!");
+            }
+
+            capture.FrameWidth = WIDTH;
+            capture.FrameHeight = HEIGHT;
+
+            //取得先のMat作成
+            Mat matframe = new Mat(HEIGHT, WIDTH, MatType.CV_8UC3);
+
+            try
+            {
+                capture.Grab();
+                capture.Read(matframe);
+
+
+            }
+            catch(Exception e)
+            {
+                Debug.WriteLine(e.ToString());
+                return null;
+            }
+
+            return matframe;
+        }
+
+        private void bmp(ref Bitmap bmp)
+        {
+
+            //表示用のBitmap作成
+            bmp = new Bitmap(matframe.Cols, matframe.Rows, (int)matframe.Step(), System.Drawing.Imaging.PixelFormat.Format24bppRgb, matframe.Data);
+
+        }
+
+        private bool save(string path, Mat mat)
+        {
+            //エンコード
+            ImageEncodingParam encodingParam = new ImageEncodingParam(ImwriteFlags.PngBilevel, 0);
+
+            var buffer = new byte[mat.Rows * mat.Cols * mat.Channels()];
+
+            Cv2.ImEncode(".png", mat, out buffer, encodingParam);
+
+            // デコードして保存する
+            mat = Cv2.ImDecode(buffer, ImreadModes.Color);
+
+            // 画像の保存
+            Cv2.ImWrite(path, mat);
+
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// 顔認識
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public bool Isface( string path_img, string path_img_face)
+        {
+
+            string path_xml = Directory.GetCurrentDirectory() + @"\xml\haarcascade_frontalface_default.xml";
+
+            //顔の矩形を抽出
+            using (Mat mat = new Mat(path_img))
+            {
+                // 分類機の用意
+                using (CascadeClassifier cascade = new CascadeClassifier(path_xml))
+                {
+                    foreach (Rect rectFace in cascade.DetectMultiScale(mat))
+                    {
+                        // 見つかった場所に赤枠を表示
+                        Rect rect = new Rect(rectFace.X, rectFace.Y, rectFace.Width, rectFace.Height);
+                        Cv2.Rectangle(mat, rect, new OpenCvSharp.Scalar(0, 0, 255), 2);
+                    }
+                }
+
+                //画像を保存
+                save(path_img_face, mat);
+
+            }
+
+            return true;
+        }
+    }
+}
+
+

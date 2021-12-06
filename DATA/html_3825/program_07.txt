@@ -1,0 +1,218 @@
+
+using System.IO; // 冒頭に左記を追加する必要がある
+
+public static void Main(string[] args)
+{
+    try
+    {
+        // 実行クラスを取得し、実行
+        GetExecutable(args).Exec();
+    }
+    catch (ArgumentOutOfRangeException)
+    {
+        Console.WriteLine("引数が多すぎます。");
+        return;
+    }
+}
+
+/// &lt;summary&gt;
+/// 実行クラスを取得する
+/// &lt;/summary&gt;
+/// &lt;param name="args"&gt;実行引数&lt;/param&gt;
+/// &lt;returns&gt;実行クラス&lt;/returns&gt;
+private static IExecutable GetExecutable(string[] args)
+{
+    switch (args.Length)
+    {
+        case 0:
+            // 引数が指定されない場合、投稿内容を表示
+            return new ReadBoard();
+        case 1:
+            // 引数が1個指定された場合、引数の内容を投稿する
+            return new WriteBoard(args[0]);
+        default:
+            break;
+    }
+    throw new ArgumentOutOfRangeException();
+}
+
+/// &lt;summary&gt;
+/// 実行可能であることを示すインタフェース
+/// &lt;/summary&gt;
+interface IExecutable
+{
+    /// &lt;summary&gt;
+    /// 実行メソッド
+    /// &lt;/summary&gt;
+    void Exec();
+}
+
+/// &lt;summary&gt;
+/// 掲示板の内容を取得する実行クラス
+/// &lt;/summary&gt;
+class ReadBoard : IExecutable
+{
+    /// &lt;summary&gt;
+    /// 実行メソッド
+    /// &lt;/summary&gt;
+    public void Exec()
+    {
+        Board.Read();
+    }
+}
+
+/// &lt;summary&gt;
+/// 掲示板に投稿を行う実行クラス
+/// &lt;/summary&gt;
+class WriteBoard : IExecutable
+{
+    /// &lt;summary&gt;
+    /// 投稿メッセージ
+    /// &lt;/summary&gt;
+    private readonly string message;
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;投稿メッセージ&lt;/param&gt;
+    public WriteBoard(string message)
+    {
+        this.message = message;
+    }
+
+    /// &lt;summary&gt;
+    /// 実行メソッド
+    /// &lt;/summary&gt;
+    public void Exec()
+    {
+        Board.Write(this.message);
+        Board.Read();
+    }
+}
+
+/// &lt;summary&gt;
+/// 一行掲示板アプリ
+/// &lt;/summary&gt;
+public static class Board
+{
+    /// &lt;summary&gt;
+    /// 投稿内容の記録用ファイル名
+    /// &lt;/summary&gt;
+    private const string LogFileName = @"board.txt";
+
+    /// &lt;summary&gt;
+    /// 一行掲示板の投稿内容を新規順に出力する
+    /// &lt;/summary&gt;
+    public static void Read()
+    {
+        // 投稿内容リスト
+        var contentList = ReadFile();
+
+        // 投稿内容を投稿日時の降順でソートして出力する
+        foreach (var contents in contentList.OrderByDescending(c =&gt; c.Date))
+        {
+            Console.WriteLine($"{contents.Date:yyyy/MM/dd HH:mm:ss} {contents.Message}");
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 記録用ファイルを読み込み、投稿内容を列挙する
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;投稿内容&lt;/returns&gt;
+    private static IEnumerable&lt;Contents&gt; ReadFile()
+    {
+        if (!File.Exists(LogFileName))
+        {
+            // ファイルが未作成の場合：NOP
+            yield break;
+        }
+        using (var reader = new StreamReader(LogFileName))
+        {
+            // 投稿リストを1行ずつ処理
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                // Contents インスタンスに変換して返す
+                yield return Contents.Parse(line);
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 一行掲示板にメッセージを投稿する
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;投稿メッセージ&lt;/param&gt;
+    public static void Write(string message)
+    {
+        using (var writer = new StreamWriter(LogFileName, true))
+        {
+            // 投稿内容インスタンスを作成し、ファイル末尾に出力
+            writer.WriteLine(new Contents(message));
+        }
+    }
+}
+
+/// &lt;summary&gt;
+/// 投稿内容管理クラス
+/// &lt;/summary&gt;
+public class Contents
+{
+    /// &lt;summary&gt;
+    /// 投稿日時
+    /// &lt;/summary&gt;
+    public DateTime Date { get; private set; }
+    /// &lt;summary&gt;
+    /// 投稿メッセージ
+    /// &lt;/summary&gt;
+    public string Message { get; private set; }
+
+    /// &lt;summary&gt;
+    /// デフォルトコンストラクタ
+    /// &lt;/summary&gt;
+    public Contents() { }
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;投稿メッセージ&lt;/param&gt;
+    public Contents(string message)
+    {
+        this.Date = DateTime.Now;
+        this.Message = message;
+    }
+
+    /// &lt;summary&gt;
+    /// 記録用ファイルの内容をContentsインスタンスに変換する
+    /// &lt;/summary&gt;
+    /// &lt;param name="line"&gt;記録用ファイルの内容&lt;/param&gt;
+    /// &lt;returns&gt;Contentsインスタンス&lt;/returns&gt;
+    public static Contents Parse(string line)
+    {
+        try
+        {
+            var texts = line.Split(new char[] { ',' }, 2);
+            return new Contents
+            {
+                Date = DateTime.Parse(texts[0]),
+                Message = texts[1]
+            };
+        }
+        catch
+        {
+            throw new FormatException();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Contentsインスタンスの内容を記録用の文字列表現に置き換える
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;記録用の文字列表現&lt;/returns&gt;
+    public override string ToString()
+    {
+        return string.Join(",",
+            this.Date.ToString(@"yyyy/MM/dd HH:mm:ss"),
+            this.Message
+        );
+    }
+}
+

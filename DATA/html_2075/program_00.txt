@@ -1,0 +1,170 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.IO.MemoryMappedFiles;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace QuiitaShareMemoryStruct
+{
+    public partial class Form1 : Form
+    {
+        ////////////////////////////////////////////////////////////////////////
+        // 必要なものを定義
+        ////////////////////////////////////////////////////////////////////////
+        MemoryMappedFile share_mem = null;
+        MemoryMappedViewAccessor accessor = null;
+
+        ////////////////////////////////////////////////////////////////////////
+        // 共有メモリ名
+        ////////////////////////////////////////////////////////////////////////
+        const string sharedMemoryName = "MySharedMemory";
+
+        ////////////////////////////////////////////////////////////////////////
+        // 使用する構造体
+        ////////////////////////////////////////////////////////////////////////
+        public struct _MY_DATA_STRUCT
+        {
+            public int myInt32;
+            public float myFloat;
+            public bool myBool;
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // コンストラクタ
+        ////////////////////////////////////////////////////////////////////////
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // 「共有メモリを読む」ボタンをクリックしたときに発生するイベント
+        ////////////////////////////////////////////////////////////////////////
+        private void btnRead_Click(object sender, EventArgs e)
+        {
+            var result = ReadSharedMemoryAsStruct&lt;_MY_DATA_STRUCT&gt;(sharedMemoryName);
+            MessageBox.Show(string.Format("MyInt32: {0}\nMyFloat: {1}\nMyBool: {2}", result.myInt32, result.myFloat, result.myBool));
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // 「共有メモリに書き込み」ボタンをクリックしたときに発生するイベント
+        ////////////////////////////////////////////////////////////////////////
+        private void btnWrite_Click(object sender, EventArgs e)
+        {
+            _MY_DATA_STRUCT myStruct = new _MY_DATA_STRUCT();
+            myStruct.myInt32 = (int)numericUpDown1.Value;
+            float res;
+            myStruct.myFloat = float.TryParse(textBox1.Text, out res) ? res : 999.0f;
+            myStruct.myBool = checkBox1.Checked;
+            if (!WriteSharedMemoryAsStruct&lt;_MY_DATA_STRUCT&gt;(sharedMemoryName, myStruct, true))
+            {
+                MessageBox.Show("書き込みに失敗しました。");
+            }
+            else
+            {
+                MessageBox.Show("書き込みに成功しました。");
+            }
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // 共有メモリを構造体として読み取るジェネリック関数
+        ////////////////////////////////////////////////////////////////////////
+        private T ReadSharedMemoryAsStruct&lt;T&gt;(string sharedMemoryName, bool createOrOpen = false)
+        where T : struct
+        {
+            //構造体を定義
+            T result = new T();
+
+            try
+            {
+                if (share_mem == null)
+                {
+                    if(createOrOpen)
+                    {
+                        share_mem = MemoryMappedFile.CreateOrOpen(sharedMemoryName, 1024 * 10);
+                    }
+                    else
+                    {
+                        share_mem = MemoryMappedFile.OpenExisting(sharedMemoryName);
+                    }
+                }
+
+                if (accessor == null)
+                {
+                    accessor = share_mem.CreateViewAccessor();
+                }
+
+                accessor?.Read(0, out result);
+                return result;
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine("共有メモリが見つかりませんでした");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return result;
+            }
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // 共有メモリに構造体として書き込むジェネリック関数
+        ////////////////////////////////////////////////////////////////////////
+        private bool WriteSharedMemoryAsStruct&lt;T&gt;(string sharedMemoryName, T targetStruct, bool createOrOpen = false)
+        where T : struct
+        {
+            try
+            {
+                if (createOrOpen)
+                {
+                    share_mem = MemoryMappedFile.CreateOrOpen(sharedMemoryName, 1024 * 10);
+                }
+                else
+                {
+                    share_mem = MemoryMappedFile.OpenExisting(sharedMemoryName);
+                }
+
+                if (accessor == null)
+                {
+                    accessor = share_mem.CreateViewAccessor();
+                }
+                accessor.Write(0, ref targetStruct);
+
+                return true;
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine("共有メモリが見つかりませんでした");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return false;
+            }
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // リソースの破棄
+        ////////////////////////////////////////////////////////////////////////
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            accessor?.Dispose();
+            share_mem?.Dispose();
+        }
+    }
+}
+

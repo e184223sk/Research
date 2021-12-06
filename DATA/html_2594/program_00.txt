@@ -1,0 +1,224 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Data;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using IconUtility;
+
+
+
+class EasyDraw:Form
+{
+    PictureBox pct;
+    const int MAX_SIZE = 64;
+    const int CANVAS_SIZE = 512;
+//    const int ZOOM = 2;
+
+    Font curFont;
+    int curFontStyle;
+    Pen curPen;
+    Brush curBrush;
+    PointF curPoint;
+    GraphicsPath curPath;
+    Graphics curG;
+
+    const string DefaultFontName = "メイリオ";  // フォントを変える場合はここを変更
+
+    EasyDraw()
+    {
+        curPen = Pens.Black;
+        curBrush = Brushes.White;
+        curPath = new GraphicsPath();
+        curFont = new Font(DefaultFontName, 30.0f);  // フォントサイズを変える場合はここを変更
+
+        if (curFont.Name != DefaultFontName) {
+            MessageBox.Show("フォント \""+DefaultFontName+"\"の取得に失敗しました。\r\n"
+                          + "代わりにフォント\"" + curFont.Name + "\"が使用されます。\r\n");
+        }
+        MessageBox.Show("アイコンに文字を使う場合は、フォントの著作権に注意してください。");
+
+        curFontStyle = (int)FontStyle.Regular; // Bold , Italic , Strikeout , Underline の bitOR を設定可能
+
+        pct = new PictureBox();
+        pct.Image = new Bitmap(CANVAS_SIZE, CANVAS_SIZE);
+        pct.Dock = DockStyle.Fill;
+        Controls.Add(pct);
+
+        ClientSize = new Size(CANVAS_SIZE, CANVAS_SIZE);
+
+        Load+=(sender,e)=&gt;{Draw();};
+    }
+
+    void moveto(float x, float y)
+    {
+        curPoint.X = x;
+        curPoint.Y = y;
+    }
+
+    void rmoveto(float rx, float ry)
+    {
+        curPoint.X += rx;
+        curPoint.Y += ry;
+    }
+
+    void lineto(float x, float y)
+    {
+        curPath.AddLine(curPoint.X, curPoint.Y, x, y);
+        curPoint.X = x;
+        curPoint.Y = y;
+    }
+
+    void rlineto(float rx, float ry)
+    {
+        curPath.AddLine(curPoint.X, curPoint.Y, curPoint.X+rx, curPoint.Y+ry);
+        curPoint.X += rx;
+        curPoint.Y += ry;
+    }
+
+    void charpath(string s)
+    {
+        var sf = new StringFormat();
+        sf.Alignment     = StringAlignment.Center;    // 横方向の中央
+        sf.LineAlignment = StringAlignment.Center;    // 縦方向の中央
+        FontFamily ff = curFont.FontFamily;
+        curPath.AddString(s, ff, curFontStyle, curFont.Size, curPoint, sf);
+    }
+
+    void newpath()
+    {
+        curPath.Reset();
+        curPath.StartFigure();
+    }
+
+    void closepath()
+    {
+        curPath.CloseFigure();
+    }
+
+    void stroke()
+    {
+        if ( curG != null ) {
+            curG.DrawPath(curPen, curPath);
+        }
+    }
+    void fill()
+    {
+        if ( curG != null ) {
+            curPath.FillMode = FillMode.Winding;
+            curG.FillPath(curBrush, curPath);
+        }
+    }
+    void eofill()
+    {
+        if ( curG != null ) {
+            curPath.FillMode = FillMode.Alternate;
+            curG.FillPath(curBrush, curPath);
+        }
+    }
+
+
+    float cos(float degree)
+    {
+        return (float)Math.Cos((degree/180.0)*Math.PI);
+    }
+    float sin(float degree)
+    {
+        return (float)Math.Sin((degree/180.0)*Math.PI);
+    }
+
+
+    void Draw()
+    {
+        Bitmap bmp = CreateTransparentBitmap(MAX_SIZE, MAX_SIZE);
+        curG = Graphics.FromImage(bmp);
+        curG.SmoothingMode = SmoothingMode.AntiAlias;
+
+        try {
+            // ---- ここの中を変更すればよい
+            curBrush = new LinearGradientBrush(new Point(0, 0), new Point(64, 64), Color.Red, Color.Yellow);
+
+            newpath();
+            for ( int deg=0 ; deg&lt;360 ; deg+=60 ) {
+                float x = 32+31*cos(deg);
+                float y = 32+31*sin(deg);
+                if ( deg == 0 ) {
+                    moveto(x,y);
+                }
+                else {
+                    lineto(x,y);
+                }
+            }
+            closepath();
+            fill();
+
+            curBrush = new LinearGradientBrush(new Point(0, 0), new Point(64, 64), Color.Blue, Color.Black);
+            newpath();
+            moveto(32,36); // (32,32)が中央だが、文字列描画位置がずれるので微調整
+            charpath("C#");
+            closepath();
+            fill();
+
+            // ----
+        }
+        finally {
+            curG.Dispose();
+            curG = null;
+        }
+
+        int zoom = 2;
+        Graphics g = Graphics.FromImage(pct.Image);
+        g.FillRectangle(Brushes.White, 0, 0, pct.Image.Width, pct.Image.Height);
+        g.DrawImage(bmp, 0, 0, bmp.Width*zoom, bmp.Height*zoom);
+        g.Dispose();
+
+
+        Icons icons;
+        icons = new Icons();
+        icons.AddIcon(bmp);
+        icons.SaveToFile("Output.ico");
+
+    }
+
+    // 透過色で初期化
+    Bitmap CreateTransparentBitmap(int width, int height)
+    {
+        Bitmap bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        BitmapData bd = bmp.LockBits(new Rectangle(0,0,width,height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+        try {
+            unsafe {
+                // 書き込み
+                byte* ptr = (byte*)bd.Scan0;
+                for ( int y=0 ; y&lt;height ; y++ ) {
+                    for ( int x=0 ; x&lt;width ; x++ ) {
+                        ptr[y*bd.Stride + 4*x    ] = 0;// B
+                        ptr[y*bd.Stride + 4*x + 1] = 0;// G
+                        ptr[y*bd.Stride + 4*x + 2] = 0;// R
+                        ptr[y*bd.Stride + 4*x + 3] = 0;// alpha = 0 (透過)
+                    }
+                }
+            }
+        }
+        finally {
+            bmp.UnlockBits(bd);
+        }
+
+        return bmp;
+    }
+
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new EasyDraw());
+    }
+}
+
+

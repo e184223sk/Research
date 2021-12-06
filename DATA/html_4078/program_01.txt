@@ -1,0 +1,31 @@
+
+using System;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Collections.Generic;
+
+public struct GetArrayFromListChache&lt;T&gt;
+{
+    // staticメソッドではなくstatic delegateを定義します。
+    public static readonly Func&lt;List&lt;T&gt;, T[]&gt; GetArray;
+    static GetArrayFromListChache()
+    {
+        DynamicMethod method = new DynamicMethod("GetArray", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, typeof(T[]), new Type[] { typeof(List&lt;T&gt;) }, typeof(List&lt;T&gt;), true);
+        FieldInfo[] fis = typeof(List&lt;T&gt;).GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
+        FieldInfo arrayField;
+        for(int i = 0; i &lt; fis.Length; ++i)
+        {
+            if(fis[i].FieldType.IsArray)
+            {
+                arrayField = fis[i];
+                break;
+            }
+        }
+        ILGenerator ilgen = method.GetILGenerator();
+        ilgen.Emit(OpCodes.Ldarg_0); // 第０引数について
+        ilgen.Emit(OpCodes.Ldfld, arrayField); // その内部に抱えているprivateなT[]なフィールドを
+        ilgen.Emit(OpCodes.Ret); // 戻り値とせよ
+        GetArray = (Func&lt;List&lt;T&gt;, T[]&gt;)method.CreateDelegate(typeof(Func&lt;List&lt;T&gt;, T[]&gt;));
+    }
+}
+

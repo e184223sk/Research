@@ -1,0 +1,130 @@
+
+
+// 配列に入力切り替わり時間と前回の入力を保存しておく(上左下右)
+private int[,] lastControlChangedTicks = new int[Main.player.Length, 4];
+
+private bool[,] lastPlayerControl = new bool[Main.player.Length, 4];
+
+private int currentGameTick = 0;
+
+private const int SHORT_TELEPORT_DOUBLE_TAP_TICK = 20;
+
+private const int SHORT_TELEPORT_DISTANCE_X = 320;
+
+private const int SHORT_TELEPORT_DISTANCE_Y = 320;
+
+public override void Initialize()
+{
+    ServerApi.Hooks.NetGetData.Register(this, OnGetData);
+    ServerApi.Hooks.GameUpdate.Register(this, UpdateGameTick);
+}
+
+protected override void Dispose(bool disposing)
+{
+    if (disposing)
+    {
+        ServerApi.Hooks.NetGetData.Deregister(this, OnGetData);
+        ServerApi.Hooks.GameUpdate.Deregister(this, UpdateGameTick);
+    }
+}
+
+private void UpdateGameTick(EventArgs args)
+{
+    currentGameTick++;
+}
+
+private void ShortTeleportGhost(Player player)
+{
+    int playerIndex = player.whoAmI;
+
+    // テレポート相対位置
+    Vector2 teleportOffset = Vector2.Zero;
+    if (player.controlUp || player.controlJump)
+    {
+        if (!lastPlayerControl[playerIndex, 0])
+        {
+            // プレイヤーコントロール入力変化(上入力なし→あり)
+            if (lastControlChangedTicks[playerIndex, 0] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+            {
+                teleportOffset.Y -= SHORT_TELEPORT_DISTANCE_Y;
+            }
+        }
+    }
+    else
+    {
+        if (lastPlayerControl[playerIndex, 0])
+        {
+            // プレイヤーコントロール入力変化(上入力あり→なし)
+            lastControlChangedTicks[playerIndex, 0] = currentGameTick;
+        }
+    }
+
+    if (player.controlLeft)
+    {
+        if (!lastPlayerControl[playerIndex, 1])
+        {
+            // プレイヤーコントロール入力変化(左入力なし→あり)
+            if (lastControlChangedTicks[playerIndex, 1] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+            {
+                teleportOffset.X -= SHORT_TELEPORT_DISTANCE_X;
+            }
+        }
+    }
+    else
+    {
+        if (lastPlayerControl[playerIndex, 1])
+        {
+            // プレイヤーコントロール入力変化(上入力あり→なし)
+            lastControlChangedTicks[playerIndex, 1] = currentGameTick;
+        }
+    }
+
+    if (player.controlDown)
+    {
+        if (!lastPlayerControl[playerIndex, 2])
+        {
+            // プレイヤーコントロール入力変化(下入力なし→あり)
+            if (lastControlChangedTicks[playerIndex, 2] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+            {
+                teleportOffset.Y += SHORT_TELEPORT_DISTANCE_Y;
+            }
+        }
+    }
+    else
+    {
+        if (lastPlayerControl[playerIndex, 2])
+        {
+            // プレイヤーコントロール入力変化(左入力あり→なし)
+            lastControlChangedTicks[playerIndex, 2] = currentGameTick;
+        }
+    }
+
+    if (player.controlRight)
+    {
+        if (!lastPlayerControl[playerIndex, 3])
+        {
+            // プレイヤーコントロール入力変化(右入力なし→あり)
+            if (lastControlChangedTicks[playerIndex, 3] + SHORT_TELEPORT_DOUBLE_TAP_TICK &gt; currentGameTick)
+            {
+                teleportOffset.X += SHORT_TELEPORT_DISTANCE_X;
+            }
+        }
+    }
+    else
+    {
+        if (lastPlayerControl[playerIndex, 3])
+        {
+            // プレイヤーコントロール入力変化(右入力あり→なし)
+            lastControlChangedTicks[playerIndex, 3] = currentGameTick;
+        }
+    }
+
+    // プレイヤー入力を記録(パケットが来るまで入力は変化しないため、リセット等は必要ない)
+    lastPlayerControl[playerIndex, 0] = player.controlUp || player.controlJump;
+    lastPlayerControl[playerIndex, 1] = player.controlLeft;
+    lastPlayerControl[playerIndex, 2] = player.controlDown;
+    lastPlayerControl[playerIndex, 3] = player.controlRight;
+
+    // TODO: 実際にテレポートさせる
+}
+

@@ -1,0 +1,78 @@
+using System;
+using TSQL;
+using TSQL.Statements;
+using TSQL.Tokens;
+using System.Collections.Generic;
+
+namespace TSQLParserExample
+{
+    public class ParseRule 
+    {
+        public string Field {get;set;}
+        public string Operator {get;set;}
+        public string FieldValue {get;set;}
+        public string SearchOperator { get; set; }
+    }
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            TSQLSelectStatement select = TSQLStatementReader.ParseStatements(@"
+SELECT id, name
+FROM hoge h
+WHERE h.id   = @id AND h.name = '@name'
+                ")[0] as TSQLSelectStatement;
+
+            List&lt;ParseRule&gt; rules = new List&lt;ParseRule&gt;();
+
+
+            if (select.Where != null)
+            {
+                Console.WriteLine("WHERE:");
+                ParseRule ruleValue = new ParseRule();
+                foreach (TSQLToken token in select.Where.Tokens)
+                {
+                    string tokenType = token.Type.ToString();
+                    string tokenText = token.Text;
+
+                    switch(tokenType)
+                    {
+                        case "Keyword":
+                            if(string.IsNullOrEmpty(ruleValue.SearchOperator))
+                            {
+                                ruleValue.SearchOperator = tokenText;
+                            }
+                            else 
+                            {
+                                ruleValue.Operator = tokenText;
+                            }
+                            break;
+                        case "Identifier":
+                            ruleValue.Field = tokenText;
+                            break;
+                        case "Variable":
+                        case "StringLiteral":
+                        case "NumericLiteral":
+                            ruleValue.FieldValue = tokenText;
+                            if(!string.IsNullOrEmpty(ruleValue.SearchOperator) &amp;&amp; ruleValue.SearchOperator.Equals("WHERE"))
+                            {
+                                ruleValue.SearchOperator = "AND";
+                            }
+                            rules.Add(ruleValue);
+                            ruleValue = new ParseRule();
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                for(var i = 0; i &lt; rules.Count; i++) 
+                {
+                    var rule1 = rules[i];
+                    Console.WriteLine("\t Field: " + rule1.Field + "\t Operator: " + rule1.Operator + " \t SearchOperator: " + rule1.SearchOperator + "\t Value: " + rule1.FieldValue);
+                }
+            }
+        }
+    }
+}
+

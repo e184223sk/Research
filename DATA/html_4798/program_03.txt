@@ -1,0 +1,33 @@
+
+        [TestMethod]
+        public async Task TestParallelThrottlingRx()
+        {
+            List&lt;int&gt; list = Enumerable.Range(0, 100).ToList&lt;int&gt;();
+            IReadOnlyList&lt;int&gt; col = new ReadOnlyCollection&lt;int&gt;(list);
+            var subject = new Subject&lt;int&gt;();
+            List&lt;Exception&gt; exs = new List&lt;Exception&gt;();
+            subject.Window(TimeSpan.FromSeconds(3))
+                .SelectMany(o =&gt; o.Sum())
+                .Subscribe(x =&gt;
+                {
+                    try
+                    {
+                        Assert.AreEqual(10, x);
+                    } catch(Exception e)
+                    {
+                        exs.Add(e);
+                    }
+                });
+
+            await col.ParallelForEachAsync&lt;int&gt;(10, async x =&gt;
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                subject.OnNext(1);
+                await Task.Delay(TimeSpan
+                    .FromSeconds(2));
+            });
+
+            Assert.AreEqual(0, exs.Count);
+
+        }
+

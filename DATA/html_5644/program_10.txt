@@ -1,0 +1,142 @@
+
+using System.Diagnostics;
+using SharpMKL;
+using static ShaprMKL.Blas1;
+using static SharpMKL.Lapack;
+using static System.Console;
+
+void CompareTimeLU() {
+  const int LoopLU = 100;
+  const int M = 49;
+  const int N = M * M;
+  const double h = 1.0 / (M + 1);
+  const double Heat = 4.0;
+  var aBase = new double[N * N];
+  var bBase = new double[N];
+  var ipiv = new int[N];
+  int generalIndex(int i, int j) =&gt; i * N + j;
+  for (var i = 1; i &lt;= M; i++) {
+    for (var j = 1; j &lt;= M; j++) {
+      var k = (i - 1) * M + j - 1;
+      aBase[generalIndex(k, k)] = 4.0 / (h * h);
+      if (i &gt; 1) {
+        var kDown = k - M;
+        aBase[generalIndex(k, kDown)] = -1.0 / (h * h);
+      }
+      if (i &lt; M) {
+        var kUp = k + M;
+        aBase[generalIndex(k, kUp)] = -1.0 / (h * h);
+      }
+      if (j &gt; 1) {
+        var kLeft = k - 1;
+        aBase[generalIndex(k, kLeft)] = -1.0 / (h * h);
+      }
+      if (j &lt; M) {
+        var kRight = k + 1;
+        aBase[generalIndex(k, kRight)] = -1.0 / (h * h);
+      }
+      bBase[k] = Heat;
+    }
+  }
+
+  var sw = new Stopwatch();
+  WriteLine("Calc Poisson eq by raw C#.");
+  sw.Reset();
+  var res = new double[bBase.Length];
+  for (var i = 0; i &lt; LoopLU; i++) {
+    copy(aBase.Length, aBase, 1, out var a, 1);
+    copy(bBase.Length, bBase, 1, out var b, 1);
+    sw.Start();
+    Decomp(N, N, a, ipiv);
+    Solve(N, N, a, b, ipiv);
+    sw.Stop();
+    if (i == LoopLU - 1) copy(b.Length, b, 1, res, 1);
+  }
+  WriteLine($"Result : {res[((M + 1) / 2 - 1) * M + M + 1]}\tTime : {sw.Elapsed / (double) LoopLU}");
+
+  WriteLine("Calc Poisson eq by LAPACK calls for general matrix.");
+  sw.Reset();
+  for (var i = 0; i &lt; LoopLU; i++) {
+    copy(aBase.Length, aBase, 1, out var a, 1);
+    copy(bBase.Length, bBase, 1, out var b, 1);
+    sw.Start();
+    getrf(LapackLayout.RowMajor, N, N, a, N, ipiv);
+    getrs(LapackLayout.RowMajor, LapackTranspose.NoTrans, N, 1, a, N, ipiv, b, 1);
+    sw.Stop();
+    if (i == LoopLU - 1) copy(b.Length, b, 1, res, 1);
+  }
+  WriteLine($"Result : {res[((M + 1) / 2 - 1) * M + M + 1]}\tTime : {sw.Elapsed / (double) LoopLU}");
+
+  const int bu = M;
+  const int bl = M;
+  const int ldab = 2 * bl + bu + 1;
+  int bandIndex(int i, int j) =&gt; j * ldab + bl + bu + (i - j);
+  var abBase = new double[ldab * N];
+  for (var i = 1; i &lt;= M; i++) {
+    for (var j = 1; j &lt;= M; j++) {
+      var k = (i - 1) * M + j - 1;
+      abBase[bandIndex(k, k)] = 4.0 / (h * h);
+      if (i &gt; 1) {
+        var kDown = k - M;
+        abBase[bandIndex(k, kDown)] = -1.0 / (h * h);
+      }
+      if (i &lt; M) {
+        var kUp = k + M;
+        abBase[bandIndex(k, kUp)] = -1.0 / (h * h);
+      }
+      if (j &gt; 1) {
+        var kLeft = k - 1;
+        abBase[bandIndex(k, kLeft)] = -1.0 / (h * h);
+      }
+      if (j &lt; M) {
+        var kRight = k + 1;
+        abBase[bandIndex(k, kRight)] = -1.0 / (h * h);
+      }
+      bBase[k] = Heat;
+    }
+  }
+  WriteLine("Calc Poisson eq by LAPACK calls for band matrix.");
+  sw.Reset();
+  for (var i = 0; i &lt; LoopLU; i++) {
+    copy(abBase.Length, abBase, 1, out var ab, 1);
+    copy(bBase.Length, bBase, 1, out var b, 1);
+    sw.Start();
+    gbtrf(LapackLayout.ColumnMajor, N, N, bl, bu, ab, ldab, ipiv);
+    gbtrs(LapackLayout.ColumnMajor, LapackTranspose.NoTrans, N, bl, bu, 1, ab, ldab, ipiv, b, N);
+    sw.Stop();
+    if (i == LoopLU - 1) copy(b.Length, b, 1, res, 1);
+  }
+  WriteLine($"Result : {res[((M + 1) / 2 - 1) * M + M + 1]}\tTime : {sw.Elapsed / (double) LoopLU}");
+
+  const int ldapb = bl + 1;
+  int packedIndex(int i, int j) =&gt; j * ldapb + i - j;
+  var apbBase = new double[ldapb * N];
+  for (var i = 1; i &lt;= M; i++) {
+    for (var j = 1; j &lt;= M; j++) {
+      var k = (i - 1) * M + j - 1;
+      apbBase[packedIndex(k, k)] = 4.0 / (h * h);
+      if (i &gt; 1) {
+        var kDown = k - M;
+        apbBase[packedIndex(k, kDown)] = -1.0 / (h * h);
+      }
+      if (j &gt; 1) {
+        var kLeft = k - 1;
+        apbBase[packedIndex(k, kLeft)] = -1.0 / (h * h);
+      }
+      bBase[k] = Heat;
+    }
+  }
+  WriteLine("Calc Poisson eq by LAPACK calls for positive difinite band matrix.");
+  sw.Reset();
+  for (var i = 0; i &lt; LoopLU; i++) {
+    copy(apbBase.Length, apbBase, 1, out var apb, 1);
+    copy(bBase.Length, bBase, 1, out var b, 1);
+    sw.Start();
+    pbtrf(LapackLayout.ColumnMajor, LapackUpLo.Lower, N, bl, apb, ldapb);
+    pbtrs(LapackLayout.ColumnMajor, LapackUpLo.Lower, N, bl, 1, apb, ldapb, b, N);
+    sw.Stop();
+    if (i == LoopLU - 1) copy(b.Length, b, 1, res, 1);
+  }
+  WriteLine($"Result : {res[((M + 1) / 2 - 1) * M + M + 1]}\tTime : {sw.Elapsed / (double) LoopLU}");
+}
+

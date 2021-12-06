@@ -1,0 +1,98 @@
+
+private ITokenValidator&lt;TestPayload&gt; m_Validator;
+
+/// &lt;summary&gt;
+/// Test method for token refresh.
+/// &lt;/summary&gt;
+[TestMethod]
+public void RefreshToken()
+{
+
+    // create the token manager.
+    int secondsBefore = 60;
+    TokenManager manager = CreateManager(secondsBefore);
+
+    // set a access token and a refresh token.
+    // omit the implemetation of GetClaim method and GetPayload method.
+    ITokenClaim claim = GetClaim();
+    TestPayload payload = GetPayload();
+    ITokenPair tokenPair = GetToken(claim, payload);
+    manager.SetToken(tokenPair);
+
+    // expect false.
+    Assert.IsFalse(manager.NeedRefreshToken());
+
+    // wait for the access token to expire...
+    System.Threading.Thread.Sleep(1000);
+
+    // expect true.
+    Assert.IsTrue(manager.NeedRefreshToken());
+
+    // refresh the token.
+    manager.RefreshToken();
+
+    // expect false.
+    Assert.IsFalse(manager.NeedRefreshToken());
+
+    // get the new token imformation.
+    string newAccessToken = manager.GetAccessToken();
+    DateTimeOffset? newAccessTokenExpiration = manager.GetTokenExpiration();
+
+}
+
+/// &lt;summary&gt;
+/// Create a token manager.
+/// &lt;/summary&gt;
+/// &lt;param name="secondsBefore"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private TokenManager CreateTokenManager(int secondsBefore)
+{
+    return new TokenManager(tokenString =&gt;
+    {
+        // refresh the token
+
+        if (!m_Validator.ValidateToken(
+            tokenString
+            , out ITokenClaim claim, out TestPayload payload
+            , out TokenState state, out string errorMessage
+            ))
+        {
+            throw new ArgumentException(errorMessage);
+        }
+
+        TokenClaim newClaim = new TokenClaim()
+        {
+            JwtID = claim.JwtID,
+            Audience = claim.Audience,
+            Expiration = DateTimeOffset.UtcNow.AddSeconds(120),
+        };
+
+        return GetToken(newClaim, payload);
+
+    }
+    , secondsBefore
+    );
+}
+
+/// &lt;summary&gt;
+/// Get a access token and a refresh token.
+/// &lt;/summary&gt;
+/// &lt;param name="claim"&gt;&lt;/param&gt;
+/// &lt;param name="payload"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private ITokenPair GetToken(TokenClaim claim, TestPayload payload)
+{
+
+    // get the token provider.(omit it's implemetation)
+    ITokenProvider&lt;TestPayload&gt; provider = GetProvider();
+
+    // create a access token.
+    TokenInfo accessToken = new TokenInfo(provider.CreateToken(claim, payload), claim.Expiration, claim.NotBefore);
+
+    // create a refresh token.
+    claim.Expiration = DateTimeOffset.UtcNow.AddSeconds(3600);
+    TokenInfo refreshToken = new TokenInfo(provider.CreateToken(claim, payload), claim.Expiration, claim.NotBefore);
+
+    return new TokenPair(accessToken, refreshToken);
+}
+

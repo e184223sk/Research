@@ -1,0 +1,86 @@
+
+
+    public class Randomizer&lt;T&gt;
+    {
+        private readonly IEnumerable&lt;T&gt; source;
+        private readonly Random r;
+
+        #region ctor
+        public Randomizer( IEnumerable&lt;T&gt; source, int? seed = null )
+        {
+            this.source = source;
+            this.r = null == seed
+                ? new Random()
+                : new Random( seed.Value );
+        }
+        #endregion
+
+        public IEnumerable&lt;T&gt; Randomize( int count, OrderOptions order = OrderOptions.KeepOrigin )
+        {
+            IEnumerable&lt;T&gt; random = this.Core( count );
+
+            switch ( order )
+            {
+                case OrderOptions.Random:
+                    return random.OrderBy( x =&gt; Guid.NewGuid() );
+
+                default:
+                    return random;
+            }
+        }
+
+
+        private IEnumerable&lt;T&gt; Core( int count )
+        {
+            if ( count &lt;= 0 )
+            {
+                return Enumerable.Empty&lt;T&gt;();
+            }
+
+            int size = this.source.Count();
+            if ( size &lt;= count )
+            {
+                return this.source;
+            }
+
+            int half = size / 2;
+            if ( half &lt; count )
+            {
+                return Skip( size, size - count );
+            }
+            else
+            {
+                return Take( size, count );
+            }
+        }
+
+        private IEnumerable&lt;T&gt; Take( int size, int count )
+        {
+            var blocks = Block.As( size, count );
+            foreach ( Block block in blocks )
+            {
+                int dx = r.Next( 0, block.Count );
+                int index = block.Begin + dx;
+
+                yield return this.source.ElementAt( index );
+            }
+        }
+
+        private IEnumerable&lt;T&gt; Skip( int size, int count )
+        {
+            var blocks = Block.As( size, count );
+            foreach ( Block block in blocks )
+            {
+                int dx = r.Next( 0, block.Count );
+                int skip = block.Begin + dx;
+
+                foreach ( int index in block.AsIndexes() )
+                {
+                    if ( index == skip ) continue;
+
+                    yield return this.source.ElementAt( index );
+                }
+            }
+        }
+    }
+

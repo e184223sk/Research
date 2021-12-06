@@ -1,0 +1,253 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.IO;
+using System.Net;
+using System.Xml;
+using System.Text;
+using System;
+
+public static class AssetBundleOperator 
+{
+    private static AssetBundle assetbundleCache;
+    private static AssetBundle assetbundle_manifest;
+    private static AssetBundleManifest manifest;
+    private static Hash128 hash;
+    private static bool complete;//ロードの完了判定
+    private static bool fullcomplete = false;
+    private static string directory_header = Application.dataPath+"/CacheFold";
+    private static string url_header = "http://localhost/AssetBundle";//仮URL
+    private static string _assetName = "image_a";
+    private const string assetDirectory_notslash = "/Cache";//~/Assets/CacheFold/--以降のディレクトリ
+    private const string manifestDirectory_notslash = "/Manifest";
+    private const string onetimedirectory_notslash = "/OneTimeDirectory";
+    private const string cachedirectory_inslash = "/Cache/";
+    private const string xmldirectory_notslash = "/Xml";
+
+    public static IEnumerator SetUp()
+    //ゲーム起動時のAssetBundleファイルのダウンロード
+    {
+#if UNITY_IPHONE
+        url_header="";
+#elif UNITY_ANDROID
+        url_header="";
+#else
+
+#endif
+
+        fullcomplete = false;
+        AssetBundle.UnloadAllAssetBundles(true);
+
+        foreach (var file in Directory.GetFiles(directory_header + manifestDirectory_notslash))
+        //マニフェストファイル消去
+        //ダウンロードするアセットバンドルが古いものかどうか確かめるためのAssetBundleManifestをダウンロード
+        {
+            FileInfo info = new FileInfo(file);
+            info.Delete();//古いのは消す
+            yield return null;
+            Debug.Log("manifestファイル消去");
+        }
+
+
+        WebClient downloadClient = null;//manifestfileのダウンロード
+        if (downloadClient == null)
+        {
+            complete = false;
+            downloadClient = new WebClient();
+            downloadClient.DownloadFileCompleted += new System.ComponentModel.AsyncCompletedEventHandler(DownloadClient_DownloadFileCompleted);
+　　　　　　　//上記はあくまでダウンロード完了を示すもの
+        }
+        System.Uri uri = new System.Uri(url_header + "/Images");
+        //manifestファイルを取得ダウンロード
+        downloadClient.DownloadFileAsync(uri, directory_header +manifestDirectory_notslash+"/Images");//Manifestfileはそのまま上書き
+        while (complete == false)//downloadClient.DownloadFileAsyncの返り値がvoidなので終了処理タイミングが分からない？のでasyncは使わない
+        //ダウンロードが完了するまで待機
+        {
+            if (complete == true)//ダウンロード完了時true
+            {
+                break;
+            }
+            yield return null;
+        }
+
+        downloadClient = null;//AssetBundleのアセットをダウンロード
+        if (downloadClient == null)
+        {
+            complete = false;
+            downloadClient = new WebClient();
+            downloadClient.DownloadFileCompleted += new System.ComponentModel.AsyncCompletedEventHandler(DownloadClient_DownloadFileCompleted);
+        }
+        uri = new System.Uri(url_header + "/image_1");
+        //アセットファイルを取得ダウンロード
+        downloadClient.DownloadFileAsync(uri, directory_header + onetimedirectory_notslash+"/image_1");
+        while (complete == false)
+        //ダウンロードが完了するまで待機
+        {
+            if (complete == true)
+            {
+                break;
+            }
+            yield return null;
+        }
+
+        assetbundle_manifest = AssetBundle.LoadFromFile(directory_header + manifestDirectory_notslash+"/Images");
+        manifest = assetbundle_manifest.LoadAsset&lt;AssetBundleManifest&gt;("assetbundlemanifest");//manifestファイル取得
+        assetbundleCache = AssetBundle.LoadFromFile(directory_header + onetimedirectory_notslash+"/image_1");//AssetBundleファイル取得
+        hash = manifest.GetAssetBundleHash(assetbundleCache.name);//hash値取得
+        Debug.Log(hash.ToString());
+        CreateXml(assetbundleCache.name, hash.ToString());//hash値を記録したxmlファイルを作成
+        complete = false;
+        fullcomplete = true;
+    }
+
+    public static void DownloadClient_DownloadFileCompleted(object sender,System.ComponentModel.AsyncCompletedEventArgs e)
+    //SetUp時に使用する完了時判定
+    {
+        if (e.Error != null)
+        {
+            Debug.Log(e.Error.Message);
+        }
+        else
+        {
+            complete = true;
+            Debug.Log("complete");
+        }
+    }
+
+    private static void CreateXml(string assetName, string hash)
+    //AssetBundleのhash値を記録するxmlファイルを作成する
+　　//ここから先はhash値の記録や実際のAssetBundleの使用方法なので本題とはそこまで関係がない
+    {
+        string a = "";
+        if (File.Exists(directory_header + xmldirectory_notslash+"/xml_text.xml"))
+        {
+            XmlDocument doc = new XmlDocument();
+            using (StreamReader file = new StreamReader(directory_header + xmldirectory_notslash+"/xml_text.xml", Encoding.GetEncoding("Shift-JIS")))
+            {
+                a = file.ReadToEnd();
+            }
+            Debug.Log("a=" + a);
+            if (a == "")
+            {
+                Debug.Log("ファイルが存在するので新規書き込み");
+                XmlElement root = doc.CreateElement("root");
+                doc.AppendChild(root);
+                XmlElement name = doc.CreateElement(assetName);
+                name.InnerText = hash;
+                root.AppendChild(name);
+                doc.Save(directory_header + "/Xml/xml_text.xml");
+                FileInfo file = new FileInfo(directory_header + onetimedirectory_notslash+"/image_1");
+                file.MoveTo(directory_header + cachedirectory_inslash + assetName);
+            }
+            else
+            {
+                Debug.Log("書き込みがあるので追加の書き込み");
+                doc.LoadXml(File.ReadAllText(directory_header + xmldirectory_notslash+"/xml_text.xml"));
+                XmlNode root = doc.FirstChild;
+                foreach (XmlElement element in root.ChildNodes)
+                {
+                    Debug.Log(element.Name);
+                    var name = element.Name;
+                    if (assetName != name)//assetbundle.nameと一致しているか
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        var hash_code = element.InnerText;
+                        if (hash_code == hash)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            Debug.Log("最新バージョンにアップデート");
+                            hash_code = hash;
+                            doc.Save(directory_header + xmldirectory_notslash+"/xml_text.xml");
+
+                            FileInfo _info = new FileInfo(directory_header + cachedirectory_inslash + assetName);//既にあるファイルを取得
+                            _info.Delete();//古いファイルを破棄
+                            FileInfo info_update = new FileInfo(directory_header + onetimedirectory_notslash+"/" + assetName);//新規に取得したファイルを取得
+                            info_update.MoveTo(directory_header + cachedirectory_inslash + assetName);//正式フォルダに保存
+
+                        }
+                    }
+                }
+            }
+
+        }
+        else
+        {
+            Debug.Log("新規作成");
+            File.Create(directory_header + xmldirectory_notslash+"/xml_text.xml");
+            CreateXml(assetName, hash);
+        }
+        foreach (var _file in Directory.GetFiles(directory_header + onetimedirectory_notslash, "*", System.IO.SearchOption.AllDirectories))
+        {
+            FileInfo info = new FileInfo(_file);
+            info.Delete();
+        }
+        complete = true;
+        Debug.Log("終了");
+
+    }
+    // Start is called before the first frame update
+    public static  Sprite LoadSprite(string assetName)//実際に使用する画像ファイルを呼び出すとき。欲しい画像の名前を引数で渡す
+    {
+        if (assetbundleCache != null)
+        {
+            try
+            {
+                if (assetbundleCache.LoadAsset&lt;Sprite&gt;(string.Format("{0}.png", assetName)))//pngかjpgなら返却される
+                {
+                    return assetbundleCache.LoadAsset&lt;Sprite&gt;(string.Format("{0}.png", assetName));
+                }else if (assetbundleCache.LoadAsset&lt;Sprite&gt;(string.Format("{0}.jpg", assetName)))
+                {
+                    return assetbundleCache.LoadAsset&lt;Sprite&gt;(string.Format("{0}.jpg", assetName));
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            catch(Exception e)
+            {
+                Debug.Log(e.Message);
+                return null;
+            }
+        }
+        else//多分ここから先はきちんと動くか分からないので、先に必ずSetUp関数を終了させておく方がよい
+        {
+            var i = 0;
+            SetUp().Reset();
+            while (SetUp().MoveNext() == true)
+            {
+                i++;
+
+                if (SetUp().MoveNext() == false||fullcomplete==true)
+                {
+                    SetUp().Reset();
+                    LoadSprite(assetName);
+                    break;
+                }else if (i&gt;100)
+                {
+                    Debug.Log("ロードできませんでした");
+                    break;
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            return null;
+            //return LoadSprite(assetName);再帰的な処理をしたいがどうなるか分からないので呼び出し下でやりたい
+        }
+    }
+
+    // Update is called once per frame
+
+}
+
+

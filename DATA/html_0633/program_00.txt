@@ -1,0 +1,57 @@
+    public static class Function2
+    {
+        [FunctionName("Function2")]
+        public static async Task&lt;List&lt;string&gt;&gt; RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context)
+        {
+            var outputs = new List&lt;string&gt;();
+
+            // Replace "hello" with the name of your Durable Activity Function.
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "Tokyo"));
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "Seattle"));
+            outputs.Add(await context.CallActivityAsync&lt;string&gt;("Function2_Hello", "London"));
+
+            // returns ["Hello Tokyo!", "Hello Seattle!", "Hello London!"]
+            return outputs;
+        }
+
+        [FunctionName("Function2_Hello")]
+        public static string SayHello([ActivityTrigger] IDurableOrchestrationContext inputs, ILogger log)
+        //public static string SayHello([ActivityTrigger] string name, ILogger log)
+        {
+            var name = inputs.GetInput&lt;string&gt;();
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Function3")]
+        public static string SayHello3([ActivityTrigger] string inputString, ILogger log)
+        {
+            var input = JsonConvert.DeserializeObject&lt;Function3Input&gt;(inputString);
+
+            var name = input.Name;
+            log.LogInformation($"Saying hello to {name}.");
+            return $"Hello {name}!";
+        }
+
+        [FunctionName("Function2_HttpStart")]
+        public static async Task&lt;HttpResponseMessage&gt; HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            // Function input comes from the request content.
+            string instanceId = await starter.StartNewAsync("Function2", null);
+
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+
+        public class Function3Input
+        {
+            public string Name { get; set; }
+            public string Age { get; set; }
+        }
+    }
+

@@ -1,0 +1,189 @@
+
+class Model
+{
+    /// &lt;summary&gt;
+    /// Cellの行数＆列数
+    /// &lt;/summary&gt;
+    public int CountRowColumn =&gt; 30;
+    /// &lt;summary&gt;
+    /// 世代の更新速度[msec]
+    /// &lt;/summary&gt;
+    public ReactiveProperty&lt;int&gt; IntervalMSec { get; } = new ReactiveProperty&lt;int&gt;(100);
+
+    /// &lt;summary&gt;
+    /// Cellのコレクション
+    /// &lt;/summary&gt;
+    public Cell[] Cells { get; }
+
+    /// &lt;summary&gt;
+    /// 現在の世代
+    /// &lt;/summary&gt;
+    public ReadOnlyReactiveProperty&lt;long&gt; Generation { get; }
+
+    ReactiveTimer timer = new ReactiveTimer(TimeSpan.FromSeconds(1));
+
+    /// &lt;summary&gt;
+    /// 保存されたパターンコレクション
+    /// &lt;/summary&gt;
+    public ObservableCollection&lt;WorldState&gt; SavedStates { get; private set; } = new ObservableCollection&lt;WorldState&gt;();
+
+    /// &lt;summary&gt;
+    /// パターン保存先ファイルパス
+    /// &lt;/summary&gt;
+    private const string filePath = "worldState.json";
+
+    public Model()
+    {
+        //セルの生成
+        Cells = Enumerable.Range(0, CountRowColumn)
+            .Select(row =&gt;
+                Enumerable.Range(0, CountRowColumn)
+                ///最初に2次元の位置コレクションを生成
+                .Select(col =&gt; new Position
+                {
+                    Row = row,
+                    Column = col
+                })
+                    //位置をセルに変換
+                    .Select(p =&gt; new Cell { Position = p }))
+            //1次元に平坦化
+            .SelectMany(x =&gt; x)
+            .ToArray();
+
+        //全セルに自身の隣人を登録させる
+        Cells.ForEach(cell =&gt; cell.SetNeiberCells(Cells));
+
+        IntervalMSec.Subscribe(x =&gt; timer.Interval = TimeSpan.FromMilliseconds(x));
+
+        //Timerの更新回数を現在の世代として公開
+        Generation = timer.ToReadOnlyReactiveProperty();
+
+        //Timer実行内容の登録
+        timer.Subscribe(_ =&gt;
+        {
+            //並列で全セルに次の世代での生死を決定
+            Cells.AsParallel().ForEach(c =&gt; c.DetermineNextGeneration());
+            //生死の更新
+            Cells.ForEach(c =&gt; c.UpdateGeneration());
+        });
+
+        //登録パターンをファイルから呼び出す
+        ReadSavedStatesFromFile();
+    }
+
+    /// &lt;summary&gt;
+    /// ゲーム開始
+    /// &lt;/summary&gt;
+    internal void StartGame()
+    {
+        timer.Reset();
+        timer.Start();
+    }
+
+    /// &lt;summary&gt;
+    /// ゲーム停止
+    /// &lt;/summary&gt;
+    internal void StopGame() =&gt; timer.Stop();
+
+    /// &lt;summary&gt;
+    /// 全てのCellの状態をランダムに変更
+    /// &lt;/summary&gt;
+    internal void RandomizeState()
+    {
+        var rand = new Random(DateTime.Now.Millisecond);
+        Cells.ForEach(c =&gt; c.IsAlive = rand.NextDouble() &lt; 0.5);
+    }
+
+    /// &lt;summary&gt;
+    /// 現在のセルパターンを保存
+    /// &lt;/summary&gt;
+    /// &lt;param name="saveName"&gt;登録名&lt;/param&gt;
+    internal void SaveState(string saveName)
+    {
+        //生存しているセルの位置情報を集める
+        var aliveCellPositions = GetAlivePositions();
+
+        //左上端の位置を計算
+        var minPosition = new Position();
+        if (aliveCellPositions.Count &gt; 0)
+        {
+            minPosition.Row = aliveCellPositions.Select(c =&gt; c.Row).Min();
+            minPosition.Column = aliveCellPositions.Select(c =&gt; c.Column).Min();
+        };
+
+        //保存パターンの生成
+        var currentState = new WorldState
+        {
+            Name = saveName,
+            AliveCellPositions = aliveCellPositions
+            //位置パターンを左上つめ（最小化）する
+                .Select(x =&gt; x - minPosition)
+                .ToList()
+        };
+
+        //パターンコレクションに追加
+        this.SavedStates.Add(currentState);
+        //パターンコレクションをファイル保存
+        WriteSavedStatesToFile();
+    }
+
+    /// &lt;summary&gt;
+    /// 現在のセル状態から生きているセルのポジションのリストを取得
+    /// &lt;/summary&gt;
+    private List&lt;Position&gt; GetAlivePositions()
+        =&gt; Cells
+        .Where(c =&gt; c.IsAlive)
+        .Select(c =&gt; c.Position)
+        .ToList();
+
+    /// &lt;summary&gt;
+    /// セルパターンを現在のセルに反映させる
+    /// &lt;/summary&gt;
+    /// &lt;param name="state"&gt;セルパターン&lt;/param&gt;
+    internal void LoadState(WorldState state)
+    {
+        var savedAlivePositions = SavedStates.FirstOrDefault(x =&gt; x.Name == state.Name)?.AliveCellPositions;
+        if (savedAlivePositions == null)
+        {
+            return;
+        }
+
+        //生存セルが中央に配置されるように調整
+        var maxPosition = new Position();
+        if (savedAlivePositions.Count() &gt;= 1)
+        {
+            maxPosition.Row = savedAlivePositions.Select(c =&gt; c.Row).Max();
+            maxPosition.Column = savedAlivePositions.Select(c =&gt; c.Column).Max();
+        };
+
+        var edgePosition = new Position { Row = CountRowColumn, Column = CountRowColumn, };
+        var offsetPosition = (edgePosition - maxPosition) / 2;
+        var centerdAlivePositions = savedAlivePositions.Select(p =&gt; p + offsetPosition).ToList();
+
+        //生存セルリストと位置が一致していたら生、していなかったら死に変更
+        Cells.ForEach(c =&gt;
+            c.IsAlive = centerdAlivePositions.Any(p =&gt; p == c.Position));
+    }
+
+    /// &lt;summary&gt;
+    /// パターンコレクションをファイルから読込
+    /// &lt;/summary&gt;
+    private void ReadSavedStatesFromFile()
+    {
+        var jsonText = File.ReadAllText(filePath);
+        JsonConvert.DeserializeObject&lt;List&lt;WorldState&gt;&gt;(jsonText)
+                .Where(x =&gt; !String.IsNullOrWhiteSpace(x?.Name))
+                .ToList()
+                .ForEach(SavedStates.Add);
+    }
+
+    /// &lt;summary&gt;
+    /// パターンコレクションをファイルに保存
+    /// &lt;/summary&gt;
+    internal void WriteSavedStatesToFile()
+    {
+        var jsonText = JsonConvert.SerializeObject(SavedStates);
+        File.WriteAllText(filePath, $"{jsonText}");
+    }
+}
+

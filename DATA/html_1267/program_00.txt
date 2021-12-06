@@ -1,0 +1,439 @@
+[UpdateAfter(typeof(EnemySystem))]
+public class GunSystem : JobComponentSystem
+{
+    public const int GUNNER_PLAYER = 1;
+    public const int GUNNER_OPTION = 2;
+    public const int GUNNER_ENEMY = 3;
+
+    private UtilSystem utilSystem;
+    private EntityQuery qGuns;
+    private EntityQuery qReading;
+    private EntityQuery qGunner;
+    private EntityQuery qBulletDefine;
+    private EntityQuery qColliderDefine;
+    private EntityQuery qColliderSetDefine;
+    private EntityArchetype bulletArchetype;
+    private CommandBufferSystem barrier;
+    private NativeArray&lt;Unity.Mathematics.Random&gt; randomArray;
+    private EntityManager manager;
+
+    protected override void OnCreate()
+    {
+        manager = World.DefaultGameObjectInjectionWorld.EntityManager;
+        utilSystem = World.GetExistingSystem&lt;UtilSystem&gt;();
+
+        barrier = World.GetExistingSystem&lt;CommandBufferSystem&gt;();
+        randomArray = World.GetExistingSystem&lt;UtilSystem&gt;().RandomArray;
+
+        List&lt;ComponentType&gt; componentList = new List&lt;ComponentType&gt;
+        {
+            typeof(Translation),
+            typeof(Rotation),
+            typeof(NeedMaterialSetting),
+            typeof(RenderSprite),
+            typeof(Bullet),
+            typeof(Damage),
+            typeof(MotionData),
+            typeof(LinearMotion),
+            typeof(Drifting)
+        };
+        bulletArchetype = manager.CreateArchetype(componentList.ToArray());
+
+        qGuns = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(HasParent), typeof(Gun), typeof(Translation) },
+        });
+
+        qReading = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(HasParent), typeof(Gun), typeof(Translation) },
+        });
+
+        qGunner = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(Gunner), typeof(Translation) },
+        });
+
+        qBulletDefine = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(BulletDefine) },
+        });
+        qColliderDefine = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(ColliderDefine) },
+        });
+        qColliderSetDefine = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] { typeof(ColliderSetDefine) },
+        });
+    }
+
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        // 親が存在していなければ破壊する
+        var hasParent_array = qGuns.ToComponentDataArray&lt;HasParent&gt;(Allocator.TempJob);
+        var guns_entities = qGuns.ToEntityArray(Allocator.TempJob);
+        for (int i = 0; i &lt; hasParent_array.Length; i++) {
+            if (!manager.Exists(hasParent_array[i].entity))
+                manager.DestroyEntity(guns_entities[i]);
+        }
+        hasParent_array.Dispose();
+        guns_entities.Dispose();
+        if (utilSystem.CanProceedFrame() &amp;&amp; !utilSystem.IsPause())
+        {
+            // 親の情報読み出し
+            inputDeps = new JReadParentData
+            {
+                translation_type = GetArchetypeChunkComponentType&lt;Translation&gt;(false),
+                hasParent_type = GetArchetypeChunkComponentType&lt;HasParent&gt;(true),
+                gun_type = GetArchetypeChunkComponentType&lt;Gun&gt;(false),
+                parentEntities_array = qGunner.ToEntityArray(Allocator.TempJob),
+                parentTranslations_array = qGunner.ToComponentDataArray&lt;Translation&gt;(Allocator.TempJob),
+                parentGunner_array = qGunner.ToComponentDataArray&lt;Gunner&gt;(Allocator.TempJob),
+            }.Schedule(qReading, inputDeps);
+
+            inputDeps.Complete();
+
+            // 銃のパラメータ更新
+            inputDeps = new JUpdate
+            {
+                gun_type = GetArchetypeChunkComponentType&lt;Gun&gt;(false),
+            }.Schedule(qGuns, inputDeps);
+
+            // 弾を撃つ
+            inputDeps = new JShot
+            {
+                translation_type = GetArchetypeChunkComponentType&lt;Translation&gt;(true),
+                gun_type = GetArchetypeChunkComponentType&lt;Gun&gt;(false),
+                bulletArchetype = bulletArchetype,
+                colliderArchetype = SettingManager.Get().ColliderArchetype,
+                commandBuffer = barrier.CreateCommandBuffer().ToConcurrent(),
+                random_array = randomArray,
+                bulletDefine_array = qBulletDefine.ToComponentDataArray&lt;BulletDefine&gt;(Allocator.TempJob),
+                colliderDefine_array = qColliderDefine.ToComponentDataArray&lt;ColliderDefine&gt;(Allocator.TempJob),
+                colliderSetDefine_array = qColliderSetDefine.ToComponentDataArray&lt;ColliderSetDefine&gt;(Allocator.TempJob),
+            }.Schedule(qGuns, inputDeps);
+
+        }
+
+
+        // Job内で生成コマンドを実行するため、Job完了させる
+        inputDeps.Complete();
+
+        return inputDeps;
+    }
+
+    [BurstCompile]
+    private struct JReadParentData : IJobChunk
+    {
+        public ArchetypeChunkComponentType&lt;Translation&gt; translation_type;
+        public ArchetypeChunkComponentType&lt;Gun&gt; gun_type;
+        [ReadOnly] public ArchetypeChunkComponentType&lt;HasParent&gt; hasParent_type;
+        [ReadOnly] [DeallocateOnJobCompletion] public NativeArray&lt;Entity&gt; parentEntities_array;
+        [ReadOnly] [DeallocateOnJobCompletion] public NativeArray&lt;Translation&gt; parentTranslations_array;
+        [ReadOnly] [DeallocateOnJobCompletion] public NativeArray&lt;Gunner&gt; parentGunner_array;
+
+        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        {
+            var translation_array = chunk.GetNativeArray(translation_type);
+            var hasParent_array = chunk.GetNativeArray(hasParent_type);
+            var gun_array = chunk.GetNativeArray(gun_type);
+            var c = translation_array.Length;
+            for (int i = 0; i &lt; c; i++)
+            {
+                Translation position = translation_array[i];
+                HasParent hasParent = hasParent_array[i];
+                Gun gun = gun_array[i];
+
+                for (int j = 0; j &lt; parentEntities_array.Length; j++) {
+                    if (parentEntities_array[j] == hasParent.entity) {
+                        // 親の位置を自身に反映し、書き戻す
+                        Translation parentPosition = parentTranslations_array[j];
+                        Gunner parentGunner = parentGunner_array[j];
+                        gun.isTriggered = parentGunner.isTriggered;
+                        gun.shotAngle = parentGunner.angle;
+                        gun.isNoInterval = parentGunner.isNoInterval;
+                        position.Value.x = parentPosition.Value.x + hasParent.xOffset;
+                        position.Value.y = parentPosition.Value.y + hasParent.yOffset;
+                        translation_array[i] = position;
+                        gun_array[i] = gun;
+                    }
+                }
+            }
+        }
+    }
+
+    [BurstCompile]
+    private struct JUpdate : IJobChunk
+    {
+        public ArchetypeChunkComponentType&lt;Gun&gt; gun_type;
+
+        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        {
+            var gun_array = chunk.GetNativeArray(gun_type);
+
+            for (int i = 0; i &lt; gun_array.Length; i++) {
+                var gun = gun_array[i];
+
+                // 待機カウンタを減算
+                if (!gun.isTriggered) continue;
+                if (gun.isNoInterval) gun.counter = 0;
+                gun.counter--;
+
+                // 待機カウンタ満了
+                if (gun.counter &lt; 0)
+                {
+                    // マガジンに弾がある(連射中)
+                    if (gun.magazine &gt; 0)
+                    {
+                        // 連射数と現在の射出数からイーズ用の進行度を割り出す
+                        // 連射数 - マガジンの残数 = 射撃した数
+                        // 射撃した数 / 連射数 = 進行度
+                        float progress = (float)(gun.shotBlazeCount - gun.magazine) / gun.shotBlazeCount;
+                        float ease = Easing.Get(gun.shotAngularEaseType, progress);
+                        if (gun.isEaseReversing) ease = -ease;
+
+                        gun.direction += gun.shotAngularSpeed * ease;
+                        gun.bulletSpeed += gun.bulletAcceralation;
+                    }
+                    // マガジンに弾がない(連射開始)
+                    else
+                    {
+                        gun.magazine = gun.shotBlazeCount;
+                        gun.direction = gun.shotAngle;
+                        gun.bulletSpeed = gun.bulletSpeedDefault;
+
+                        // 角速度反転
+                        if (gun.shotAngluarReverse) gun.isEaseReversing = !gun.isEaseReversing;
+                    }
+                }
+
+                // 値の書き戻し
+                gun_array[i] = gun;
+            }
+        }
+    }
+
+    [BurstCompile]
+    private struct JShot : IJobChunk
+    {
+        public NativeArray&lt;Unity.Mathematics.Random&gt; random_array;
+        public EntityCommandBuffer.Concurrent commandBuffer;
+        public ArchetypeChunkComponentType&lt;Gun&gt; gun_type;
+        [ReadOnly] public ArchetypeChunkComponentType&lt;Translation&gt; translation_type;
+        [DeallocateOnJobCompletion] public NativeArray&lt;BulletDefine&gt; bulletDefine_array;
+        [DeallocateOnJobCompletion] public NativeArray&lt;ColliderDefine&gt; colliderDefine_array;
+        [DeallocateOnJobCompletion] public NativeArray&lt;ColliderSetDefine&gt; colliderSetDefine_array;
+        public EntityArchetype bulletArchetype;
+        public EntityArchetype colliderArchetype;
+
+        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        {
+            var gun_array = chunk.GetNativeArray(gun_type);
+            var translation_array = chunk.GetNativeArray(translation_type);
+            var random = random_array[chunkIndex];
+
+            for (int i = 0; i &lt; gun_array.Length; i++) {
+                var translation = translation_array[i];
+                var gun = gun_array[i];
+
+                // カウンタが継続中の場合は何もしない
+                if (gun.counter &gt;= 0) continue;
+
+                // マガジンに弾がある(連射中)
+                if (gun.magazine &gt; 0)
+                {
+                    // 偶数Wayショットか否か
+                    bool isEvenWay = (gun.shotWays % 2 == 0);
+                    bool pairedWay = false;
+                    float wayInterval = 0f;
+
+                    // 射撃Way数だけループする
+                    for (int j = 0; j &lt; gun.shotWays; j++)
+                    {
+                        float wayDir = gun.direction;
+
+                        if (j == 0) {
+                            // 偶数Wayの場合は発射せず、射出方向角度の半分を加える
+                            if (isEvenWay) {
+                                wayInterval += gun.shotWaysAngleInterval / 2;
+                                wayDir += wayInterval;
+                                pairedWay = true;
+                            } else {
+                                wayInterval += gun.shotWaysAngleInterval;
+                            }
+                        } else {
+                            if (pairedWay) {
+                                wayDir -= wayInterval;
+                                wayInterval += gun.shotWaysAngleInterval;
+                            } else {
+                                wayDir += wayInterval;
+                            }
+                            pairedWay = !pairedWay;
+                        }
+
+                        // 同時射撃数回数だけループする
+                        bool isEvenShot = (gun.shotSimultaneousCount % 2 == 0);
+                        bool pairedShot = false;
+                        float bulletAngleInterval = 0f;
+                        float bulletPlaceInterval = 0f;
+                        for (int k = 0; k &lt; gun.shotSimultaneousCount; k++)
+                        {
+                            float moveDirection = wayDir;
+                            float placeDirection = wayDir;
+                            float initialSpeed = gun.bulletSpeed;
+
+                            if (k == 0)
+                            {
+                                // 偶数Wayの場合は発射せず、射出方向角度の半分を加える
+                                if (isEvenShot)
+                                {
+                                    bulletAngleInterval += gun.shotBulletAngleInterval / 2;
+                                    bulletPlaceInterval += gun.shotBulletPlaceInterval / 2;
+                                    moveDirection += bulletAngleInterval;
+                                    placeDirection += bulletPlaceInterval;
+                                    pairedShot = true;
+                                }
+                                else
+                                {
+                                    bulletAngleInterval += gun.shotBulletAngleInterval;
+                                    bulletPlaceInterval += gun.shotBulletPlaceInterval;
+                                }
+                            }
+                            else
+                            {
+                                if (pairedShot)
+                                {
+                                    moveDirection -= bulletAngleInterval;
+                                    placeDirection -= bulletPlaceInterval;
+                                    bulletAngleInterval += gun.shotBulletAngleInterval;
+                                    bulletPlaceInterval += gun.shotBulletPlaceInterval;
+
+                                }
+                                else
+                                {
+                                    moveDirection += bulletAngleInterval;
+                                    placeDirection += bulletPlaceInterval;
+                                }
+                                pairedShot = !pairedShot;
+                            }
+
+                            // 角度にランダム係数を加える
+                            if (gun.shotAngularRandomize &gt; 0)
+                            {
+                                moveDirection += random.NextFloat(-gun.shotAngularRandomize, gun.shotAngularRandomize);
+                                random_array[chunkIndex] = random; // ランダム配列に書き戻しが必要
+                            }
+                            // 射出速度にランダム係数を加える
+                            if (gun.bulletSpeedRandomize &gt; 0)
+                            {
+                                initialSpeed += random.NextFloat(0, gun.bulletSpeedRandomize);
+                                random_array[chunkIndex] = random; // ランダム配列に書き戻しが必要
+                            }
+
+                            // 弾定義データからIDに合致するものを拾い、弾エンティティの生成
+                            for (int bltInd = 0; bltInd &lt; bulletDefine_array.Length; bltInd++)
+                            {
+                                if (gun.bulletId == bulletDefine_array[bltInd].BulletId)
+                                {
+                                    BulletDefine bulletDefine = bulletDefine_array[bltInd];
+                                    Entity bulletEntity = commandBuffer.CreateEntity(chunkIndex, bulletArchetype);
+                                    float moveRad = moveDirection * math.PI * 2;
+                                    float3 moveDirectionVec = new float3(math.cos(moveRad), math.sin(moveRad), 0);
+                                    float placeRad = placeDirection * math.PI * 2;
+                                    float3 placeDirectionVec = new float3(math.cos(placeRad) * gun.shotOffsetRadius, math.sin(placeRad) * gun.shotOffsetRadius, 0);
+                                    float3 accelerationVec = new float3(bulletDefine.AccerelationX, bulletDefine.AccerelationY, 0);
+
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new Rotation { radian = moveRad });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new Translation { Value = translation.Value + placeDirectionVec });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new LinearMotion {
+                                        Activated = true,
+                                        direction = moveDirectionVec,
+                                        acceleration = accelerationVec,
+                                    });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new MotionData {
+                                        Velocity = math.normalize(moveDirectionVec) * initialSpeed,
+                                        friction = math.normalize(new float3(1, 1, 0)),
+                                    });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new RenderSprite
+                                    {
+                                        materialId = bulletDefine.MoveAnimationId,
+                                        speed = 10,
+                                        scaleCurrent = new float2(1, 1),
+                                        sortingOrder = SpriteRenderSystem.SORTING_BULLET,
+                                    });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new NeedMaterialSetting
+                                    {
+                                        Is = true,
+                                    });
+                                    commandBuffer.SetComponent(chunkIndex, bulletEntity, new Damage
+                                    {
+                                        value = gun.damage,
+                                    });
+
+                                    // コライダー作成
+                                    for (int setInd = 0; setInd &lt; colliderSetDefine_array.Length; setInd++) {
+                                        if (bulletDefine.ColliderSetId == colliderSetDefine_array[setInd].colliderSetId)
+                                        {
+                                            var target = colliderSetDefine_array[setInd].colliderId;
+                                            var xOffset = colliderSetDefine_array[setInd].xOffset;
+                                            var yOffset = colliderSetDefine_array[setInd].yOffset;
+                                            for (int colInd = 0; colInd &lt; colliderDefine_array.Length; colInd++)
+                                            {
+                                                if (target == colliderDefine_array[colInd].colliderId)
+                                                {
+                                                    var data = colliderDefine_array[colInd];
+                                                    Entity colliderEntity = commandBuffer.CreateEntity(chunkIndex, colliderArchetype);
+
+                                                    var bufferId = random.NextInt(0, HitCheckSystem.HIT_CHECK_BUFFER_COUNT);
+                                                    random_array[chunkIndex] = random; // ランダム配列に書き戻しが必要
+
+                                                    commandBuffer.SetComponent(chunkIndex, colliderEntity, new Collider
+                                                    {
+                                                        IsDestructive = bulletDefine.IsDestructive,
+                                                        kind = gun.colliderKind,
+                                                        width = data.width,
+                                                        height = data.height,
+                                                        range = data.range,
+                                                        radius = data.radius,
+                                                        shape = data.shape,
+                                                        IsBufferedCheck = true,
+                                                        hitCheckBufferId = bufferId,
+                                                        IsActive = true,
+                                                    });
+                                                    commandBuffer.SetComponent(chunkIndex, colliderEntity, new Translation { Value = new float3(0, 0, 0), });
+                                                    commandBuffer.SetComponent(chunkIndex, colliderEntity, new HasParent {
+                                                        entity = bulletEntity,
+                                                        xOffset = xOffset,
+                                                        yOffset = yOffset,
+                                                    });
+
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    gun.magazine--;
+
+                    // 残弾数があれば連射間隔をカウンタに設定
+                    // 残弾数が0になっていたら停止間隔をカウンタに設定
+                    if (gun.magazine &gt; 0) {
+                        gun.counter = gun.shotBlazeInterval;
+                    } else {
+                        gun.counter = gun.shotTimeInterval;
+                    }
+                }
+
+                gun_array[i] = gun;
+            }
+        }
+    }
+}
+

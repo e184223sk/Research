@@ -1,0 +1,196 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+
+public interface IBucketComparer&lt;TKey&gt; : IComparer&lt;TKey&gt; {
+
+    IEnumerable&lt;TKey&gt; KeyDomain { get; }
+
+}
+
+internal class BucketComparer&lt;TKey&gt; : IBucketComparer&lt;TKey&gt; {
+
+    internal IEnumerable&lt;TKey&gt; keyDomain;
+
+    internal BucketComparer(IEnumerable&lt;TKey&gt; keyDomain)
+    {
+        this.keyDomain = keyDomain;
+    }
+
+    public IEnumerable&lt;TKey&gt; KeyDomain { get { return keyDomain; } }
+
+    public int Compare(TKey lhs, TKey rhs)
+    {
+        throw new NotSupportedException();
+    }
+
+}
+
+internal abstract class BucketSortedEnumerable&lt;TSource&gt; : IOrderedEnumerable&lt;TSource&gt; {
+
+    internal IEnumerable&lt;TSource&gt; source;
+
+    internal abstract EnumerableSorter&lt;TSource&gt; GetEnumerableSorter(EnumerableSorter&lt;TSource&gt; next);
+
+    IOrderedEnumerable&lt;TSource&gt; IOrderedEnumerable&lt;TSource&gt;.CreateOrderedEnumerable&lt;TKey&gt;(Func&lt;TSource, TKey&gt; keySelector, IComparer&lt;TKey&gt; comparer, bool descending)
+    {
+        var result = new BucketSortedEnumerable&lt;TSource, TKey&gt;(source, keySelector, comparer, descending);
+        result.parent = this;
+        return result;
+    }
+
+    public IEnumerator&lt;TSource&gt; GetEnumerator()
+    {
+        return GetEnumerableSorter(null).Sort(source).GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+
+}
+
+internal class BucketSortedEnumerable&lt;TSource, TKey&gt; : BucketSortedEnumerable&lt;TSource&gt; {
+
+    internal BucketSortedEnumerable&lt;TSource&gt; parent;
+    internal Func&lt;TSource, TKey&gt; keySelector;
+    internal IComparer&lt;TKey&gt; comparer;
+    internal bool descending;
+
+    internal BucketSortedEnumerable(IEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IComparer&lt;TKey&gt; comparer, bool descending)
+    {
+        if (source == null) throw new ArgumentNullException("source");
+        if (keySelector == null) throw new ArgumentNullException("keySelector");
+
+        this.source = source;
+        this.parent = null;
+        this.keySelector = keySelector;
+        this.comparer = comparer != null ? comparer : Comparer&lt;TKey&gt;.Default;
+        this.descending = descending;
+    }
+
+    internal override EnumerableSorter&lt;TSource&gt; GetEnumerableSorter(EnumerableSorter&lt;TSource&gt; next)
+    {
+        var bucketComparer = comparer as IBucketComparer&lt;TKey&gt;;
+
+        var sorter = (bucketComparer != null) ?
+            (EnumerableSorter&lt;TSource&gt;)new BucketSorter&lt;TSource, TKey&gt;(keySelector, bucketComparer, descending, next) :
+            new DefaultSorter&lt;TSource, TKey&gt;(keySelector, comparer, descending, next);
+
+        if (parent != null) sorter = parent.GetEnumerableSorter(sorter);
+
+        return sorter;
+    }
+
+}
+
+internal abstract class EnumerableSorter&lt;TSource&gt; {
+
+    internal EnumerableSorter&lt;TSource&gt; next;
+    internal bool descending;
+
+    internal abstract IEnumerable&lt;TSource&gt; Sort(IEnumerable&lt;TSource&gt; source);
+
+}
+
+internal class DefaultSorter&lt;TSource, TKey&gt; : EnumerableSorter&lt;TSource&gt; {
+
+    private Func&lt;TSource, TKey&gt; keySelector;
+    private IComparer&lt;TKey&gt; comparer;
+
+    internal DefaultSorter(Func&lt;TSource, TKey&gt; keySelector, IComparer&lt;TKey&gt; comparer, bool descending, EnumerableSorter&lt;TSource&gt; next)
+    {
+        this.keySelector = keySelector;
+        this.comparer = comparer;
+        this.descending = descending;
+        this.next = next;
+    }
+
+    internal override IEnumerable&lt;TSource&gt; Sort(IEnumerable&lt;TSource&gt; source)
+    {
+        source = (descending) ? source.OrderByDescending(keySelector, comparer) : source.OrderBy(keySelector, comparer);
+        if (next != null) source = next.Sort(source);
+        return source;
+    }
+
+}
+
+internal class BucketSorter&lt;TSource, TKey&gt; : EnumerableSorter&lt;TSource&gt; {
+
+    private Func&lt;TSource, TKey&gt; keySelector;
+    private IBucketComparer&lt;TKey&gt; comparer;
+
+    internal BucketSorter(Func&lt;TSource, TKey&gt; keySelector, IBucketComparer&lt;TKey&gt; comparer, bool descending, EnumerableSorter&lt;TSource&gt; next)
+    {
+        this.keySelector = keySelector;
+        this.comparer = comparer;
+        this.next = next;
+        this.descending = descending;
+    }
+
+    internal override IEnumerable&lt;TSource&gt; Sort(IEnumerable&lt;TSource&gt; source)
+    {
+        var keyDomain = comparer.KeyDomain;
+        if (keyDomain == null) {
+            keyDomain = source.Select(keySelector).Distinct().OrderBy(v =&gt; v, comparer);
+        }
+
+        var buckets = (descending ? keyDomain.Reverse() : keyDomain).ToDictionary(k =&gt; k, _ =&gt; new List&lt;TSource&gt;());
+
+        foreach (var v in source) {
+            var key = keySelector(v);
+            buckets[key].Add(v);
+        }
+
+        return buckets.SelectMany(p =&gt; (next != null) ? next.Sort(p.Value) : p.Value);
+    }
+
+}
+
+public static class Extension {
+
+    public static IOrderedEnumerable&lt;TSource&gt; OrderWithDomainBy&lt;TSource, TKey&gt;(this IEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IEnumerable&lt;TKey&gt; keyDomain)
+    {
+        return new BucketSortedEnumerable&lt;TSource, TKey&gt;(source, keySelector, new BucketComparer&lt;TKey&gt;(keyDomain), false);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; OrderWithDomainBy&lt;TSource, TKey&gt;(this IEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IBucketComparer&lt;TKey&gt; comparer)
+    {
+        return new BucketSortedEnumerable&lt;TSource, TKey&gt;(source, keySelector, comparer, false);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; OrderWithReversedDomainBy&lt;TSource, TKey&gt;(this IEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IEnumerable&lt;TKey&gt; keyDomain)
+    {
+        return new BucketSortedEnumerable&lt;TSource, TKey&gt;(source, keySelector, new BucketComparer&lt;TKey&gt;(keyDomain), true);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; OrderWithReversedDomainBy&lt;TSource, TKey&gt;(this IEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IBucketComparer&lt;TKey&gt; comparer)
+    {
+        return new BucketSortedEnumerable&lt;TSource, TKey&gt;(source, keySelector, comparer, true);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; ThenWithDomainBy&lt;TSource, TKey&gt;(this IOrderedEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IEnumerable&lt;TKey&gt; keyDomain)
+    {
+        return source.CreateOrderedEnumerable(keySelector, new BucketComparer&lt;TKey&gt;(keyDomain), false);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; ThenWithDomainBy&lt;TSource, TKey&gt;(this IOrderedEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IBucketComparer&lt;TKey&gt; comparer)
+    {
+        return source.CreateOrderedEnumerable(keySelector, comparer, false);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; ThenWithReversedDomainBy&lt;TSource, TKey&gt;(this IOrderedEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IEnumerable&lt;TKey&gt; keyDomain)
+    {
+        return source.CreateOrderedEnumerable(keySelector, new BucketComparer&lt;TKey&gt;(keyDomain), true);
+    }
+
+    public static IOrderedEnumerable&lt;TSource&gt; ThenWithReversedDomainBy&lt;TSource, TKey&gt;(this IOrderedEnumerable&lt;TSource&gt; source, Func&lt;TSource, TKey&gt; keySelector, IBucketComparer&lt;TKey&gt; comparer)
+    {
+        return source.CreateOrderedEnumerable(keySelector, comparer, true);
+    }
+
+}
+

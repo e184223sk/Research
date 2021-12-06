@@ -1,0 +1,65 @@
+using System.Reactive.Subjects;
+using System.Reactive.Linq;
+
+namespace rxtest
+{
+    public class RxProg
+    {
+        private Subject&lt;int&gt; subj = new Subject&lt;int&gt;();
+        private UInt32 frame = 0;
+        public UInt32 GetFrameNow() =&gt; frame;
+        public void MoveFrame() =&gt; frame++;
+
+        // コンストラクタ
+        public RxProg()
+        {
+            // Observerを登録
+            subj.DistinctUntilChanged().Where((f) =&gt; f == 0).Take(1).Subscribe(ProcInit);
+            subj.DistinctUntilChanged().Where((f) =&gt; f &gt;= 0).Take(1).Subscribe(Proc0Frame);
+            subj.DistinctUntilChanged().Where((f) =&gt; f &gt;= 5).Take(1).Subscribe(Proc5Frame);
+            subj.DistinctUntilChanged().Where((f) =&gt; f &gt;= 7).Take(1).Subscribe(Proc7or11Frame);
+            subj.DistinctUntilChanged().Where((f) =&gt; f &gt;= 11).Take(1).Subscribe(Proc7or11Frame);
+            subj.DistinctUntilChanged().Where((f) =&gt; f &gt; 15).Take(1).Subscribe(ProcFinal, (ex) =&gt; { }, () =&gt; { this.subj.Dispose(); });
+
+        }
+
+        // ジェネリックデリゲートに処理を用意（直接ラムダ式でSubscribeに入れてもOK）
+        Action&lt;int&gt; ProcInit = (f) =&gt; { Console.WriteLine("Initialize"); };
+        Action&lt;int&gt; ProcFinal = (f) =&gt; { Console.WriteLine("Finalize"); };
+        Action&lt;int&gt; Proc0Frame = (f) =&gt; { Console.WriteLine("0frame proc."); };
+        Action&lt;int&gt; Proc5Frame = (f) =&gt; { Console.WriteLine("5frame proc."); };
+        Action&lt;int&gt; Proc7or11Frame = (f) =&gt; { Console.WriteLine("7 or 11frame proc."); };
+
+        public bool Move()
+        {
+            // フレーム更新
+            MoveFrame();
+
+            // 終了したか？
+            if ( subj.IsDisposed ) {
+                return (false);
+            }
+            else
+            {
+                // イベント通知
+                subj.OnNext((int)GetFrameNow());
+            }
+
+            return (true);
+        }
+    }
+
+    class Prog
+    {
+        static void Main(string[] args)
+        {
+            var _Inst = new RxProg();
+            while (true)
+            {
+                Console.WriteLine($"Frame = {_Inst.GetFrameNow()}");
+                if (!_Inst.Move()) break;
+            }
+        }
+    }
+}
+

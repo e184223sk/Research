@@ -1,0 +1,103 @@
+
+using System;
+using System.Reflection;
+using System.Threading.Tasks;
+using Discord;
+using Discord.Commands;
+using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace EmbedTest
+{
+    class Program
+    {
+        private DiscordSocketClient _client;
+        public static CommandService _commands;
+        public static System.IServiceProvider _services;
+
+        static void Main(string[] args)
+            =&gt; new Program().MainAsync().GetAwaiter().GetResult();
+
+        public async Task MainAsync()
+        {
+            _client = new DiscordSocketClient(new DiscordSocketConfig
+            {
+                LogLevel = LogSeverity.Info
+            });
+            _client.Log += Log;
+            _commands = new CommandService();
+            _services = new ServiceCollection().BuildServiceProvider();
+            _client.MessageReceived += CommandRecieved;
+            //DiscordTokenを指定
+            string token = "Token";
+            await _commands.AddModulesAsync(Assembly.GetEntryAssembly(), _services);
+            await _client.LoginAsync(TokenType.Bot, token);
+            await _client.StartAsync();
+
+            await Task.Delay(-1);
+        }
+
+        /// &lt;summary&gt;
+        /// 何かしらのメッセージの受信
+        /// &lt;/summary&gt;
+        /// &lt;param name="msgParam"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task CommandRecieved(SocketMessage messageParam)
+        {
+            var message = messageParam as SocketUserMessage;
+
+            //デバッグ用メッセージを出力
+            Console.WriteLine("{0} {1}:{2}", message.Channel.Name, message.Author.Username, message);
+            //メッセージがnullの場合
+            if (message == null) return;
+            //発言者がBotの場合無視する
+            if (message.Author.IsBot) return;
+            var context = new CommandContext(_client, message);
+            var CommandContext = message.Content;
+
+            //メッセージを送信したユーザー名の取得
+            var author = message.Author.Username;
+            //メッセージを送信したユーザーのアイコンの取得
+            var authorIcon = message.Author.GetAvatarUrl();
+            //メッセージを送信したユーザーのメンション
+            var autherMention = message.Author.Mention;
+            var now = DateTime.Now;
+
+            //Embedオブジェクトの定義
+            var embed = new EmbedBuilder();
+
+            if (CommandContext == "test")
+            {
+                //埋め込み要素を作成
+                embed.WithTitle("タイトル");
+                embed.WithDescription("ここに説明など");
+                embed.WithColor(Color.Green);                
+                embed.AddField("フィールド1", "値1", true);
+                embed.AddField("フィールド2", "値2", true);
+                embed.AddField("フィールド3", "値3", true);
+                embed.AddField("フィールド4", "値4", true);
+                embed.AddField("フィールド5", "値5", true);
+                embed.AddField("フィールド6", "値6", true);
+                embed.AddField("YouTubeリンク", "[こちら](https://www.youtube.com/) をクリック。");
+                embed.AddField("Yahooリンク", "[こちら](https://www.yahoo.co.jp/) をクリック。");
+                embed.AddField("Googleリンク", "[こちら](https://www.google.com/) をクリック。");
+                embed.AddField("メンション", autherMention);
+                embed.WithImageUrl("example.com/sample/image.png");
+                embed.WithAuthor(author, authorIcon);
+                embed.WithThumbnailUrl("example.com/sample/image.png");
+                embed.WithFooter("footer", "example.com/sample/image.png");
+                embed.WithTimestamp(now);
+
+                // 作成したEmbedをbotに送信させる。
+                await message.Channel.SendMessageAsync("テスト", embed: embed.Build());
+            }
+        }
+
+        private Task Log(LogMessage message)
+        {
+            System.Console.WriteLine(message.ToString());
+            return Task.CompletedTask;
+        }
+    }
+}
+

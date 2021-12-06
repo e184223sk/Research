@@ -1,0 +1,921 @@
+
+
+using System;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+
+
+public class DisAssembler
+{
+    public static Instruction ParseAsAnInstruction(long pc, byte[] buf, int offsetI)
+    {
+        if ( buf == null ) { return null; }
+        return Instruction.ParseBytes(buf, offsetI);
+    }
+
+    public static List&lt;Instruction&gt; ParseAsInstructions(long pc, byte[] buf, int offsetI)
+    {
+        if ( buf == null ) { return null; }
+        var ret = new List&lt;Instruction&gt;();
+
+        while ( offsetI+1 &lt; buf.Length ) { // G3KH の命令は最小でも 2byte なので左辺を +1 してある
+            var inst = ParseAsAnInstruction(pc, buf, offsetI);
+            ret.Add(inst);
+            offsetI += inst.Size;
+            pc += inst.Size;
+        }
+
+        return ret;
+    }
+}
+
+
+public class Instruction
+{
+    public static readonly int MaxInstSize = 8;
+    static readonly int SizeForUnknown = 2;
+
+    int    _instIdOfDef; // -1 means unknown
+
+    public int Size { get; private set; } //return (_instIdOfDef &lt; 0) ? SizeForUnknown : Ope.Size;
+    public byte[] Bytes { get; private set; }
+    public bool HasJump { get{ return (_instIdOfDef &lt; 0) ? false : Ope.HasJump; } }
+    OpcodeDef Ope { get{ return OpcodeDef.Opcodes[_instIdOfDef]; } }
+
+    // for unknown instruction
+    Instruction()
+    {
+        _instIdOfDef = -1;
+        Size = SizeForUnknown;
+        Bytes = null;
+    }
+
+    // 
+    Instruction(int opeDefinedIndex, byte[] buf, long offsetI)
+    {
+        int instSize = OpcodeDef.Opcodes[opeDefinedIndex].Size;
+
+        _instIdOfDef = opeDefinedIndex;
+        Size = instSize;
+
+        Bytes = new byte[instSize];
+        Array.Copy(buf, offsetI, Bytes, 0, instSize); // srcArray, srcI, destArray, destI, len
+    }
+
+
+
+    public static Instruction ParseBytes(byte[] buf, long offsetI)
+    {
+        if ( buf == null ) {
+            throw new Exception("Instruction.ParseBytes(null, offsetI="+offsetI.ToString()+") is called.");
+        }
+
+        for ( int i=0 ; i&lt;OpcodeDef.Opcodes.Length ; i++ ) {
+            if ( OpcodeDef.Opcodes[i].IsMatch(buf, offsetI) ) {
+                return new Instruction(i, buf, offsetI);
+            }
+        }
+
+        return new Instruction(); // unknown instruction
+    }
+
+    public string GetDescription()
+    {
+        if ( _instIdOfDef &gt;= 0 ) {
+            return OpcodeDef.Opcodes[_instIdOfDef].GetDesc(this);
+        }
+        return "(parse failed)";
+    }
+
+    // 
+    public long GetAbsoluteJumpDestinationIfJump(long pc)
+    {
+        long jumpAddr = -1;
+        if ( _instIdOfDef &gt;= 0 ) {
+            if ( HasJump ) {
+                jumpAddr = OpcodeDef.Opcodes[_instIdOfDef].GetAbsoluteJumpAddr(this, pc);
+            }
+        }
+        return jumpAddr;
+    }
+
+    enum FormatId {
+        I, IIa, IIb, III,
+        IVa, IVb, // 3words
+        V, VIa, VIb, VII, VIII,
+        IX, X, XI, XII,
+        XIIIa,
+        XIIIb, // 3words
+        XIIIc, // 4words
+        XIVa,
+        XIVb, // 3words
+        Copro,
+    };
+
+    class OpcodeDef
+    {
+        static readonly int BitsOfInstWord = 16;
+
+        public bool HasJump   {get;private set;}
+
+        public string   Name   {get;private set;}
+        public string   OpeStr1{get;private set;}
+        public string   OpeStr2{get;private set;}
+        public FormatId Fmt    {get;private set;}
+
+        public int Size {
+            get{
+                if ( Fmt == FormatId.I   ||
+                     Fmt == FormatId.IIa ||
+                     Fmt == FormatId.IIb ||
+                     Fmt == FormatId.III ||
+                     Fmt == FormatId.IVa ||
+                     Fmt == FormatId.IVb   ) {
+                    return 2;
+                 }
+                 else if ( Fmt == FormatId.VIb  ||
+                           Fmt == FormatId.XIVb ||
+                           Fmt == FormatId.XIIIb) {
+                    return 6;
+                 }
+                 else if ( Fmt == FormatId.XIIIc ) {
+                    return 8;
+                 }
+                 else {
+                    return 4;
+                 }
+            }
+        }
+
+        // 前提: t の bit位置 signedBitPos より左側の bit は立っていないものとする
+        static long ExtendSign(long t, int signedBitPos)
+        {
+            if ( signedBitPos &lt; 0 ) { return t; }
+
+            if ( ( (t &gt;&gt; signedBitPos) &amp; 1 ) == 0 ) {
+                return t;
+            }
+            return t - (2L &lt;&lt; signedBitPos); // 2倍の重みで引く
+        }
+
+
+        /////////////////////////////////////////////
+        // Delegate function table structure
+
+        public delegate string DescFunc       (Instruction inst);          // to make description
+        public delegate long   AbsJumpCalcFunc(Instruction inst, long pc); // to calc jump address ( independent with CpuReg other than PC )
+
+        DescFunc        _descFunc;
+        AbsJumpCalcFunc _absJumpCalcFunc;
+
+        /////////////////////////////////////////////
+        // クラス外部からの呼び出し用
+
+        public string GetDesc(Instruction inst)
+        {
+            return _descFunc(inst);
+        }
+
+        public long GetAbsoluteJumpAddr(Instruction inst, long pc)
+        {
+            return _absJumpCalcFunc(inst, pc);
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////
+        // for JumpCalcFunc
+        //
+        static long DummyFunc(Instruction inst, long pc)
+        {
+            return -1;
+        }
+
+        static long RelJmp(Instruction inst, long pc)
+        {
+            int cnt;
+            long d = ParseCharInOpe(inst, 'd', out cnt);
+            d = ExtendSign(d, cnt-1);
+            return (uint)(pc + 2*d);
+        }
+
+        static long RelLoop(Instruction inst, long pc)
+        {
+            long d = ParseCharInOpe(inst, 'd');
+            return (uint)(pc - 2*d);
+        }
+
+        static long RelJmp32(Instruction inst, long pc)
+        {
+            byte[] buf = inst.Bytes;
+
+            int cnt;
+            long d = ParseCharInOpe(inst, 'd', out cnt);
+
+            byte lo = buf[4];
+            byte hi = buf[5];
+            long dUpper = ((int)hi &lt;&lt; 8) | lo;
+
+            d |= (dUpper&lt;&lt;cnt);
+            cnt+=16;
+
+            d = ExtendSign(d, cnt-1);
+            return (uint)(pc + 2*d);
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////
+        // for DescFunc
+        //
+        static string DescText(Instruction inst)
+        {
+            return inst.Ope.Name;
+        }
+
+        static string DescReg123(Instruction inst)
+        {
+            string reg1 = CpuRegs.GetGRegName(GetReg1Id(inst));//ParseCharInOpe(inst, 'R'));
+            string reg2 = CpuRegs.GetGRegName(GetReg2Id(inst));//ParseCharInOpe(inst, 'r'));
+            string reg3 = CpuRegs.GetGRegName(GetReg3Id(inst));//ParseCharInOpe(inst, 'w'));
+            string t = inst.Ope.Name;
+            t = Regex.Replace(t, @"\breg1\b", reg1);
+            t = Regex.Replace(t, @"\breg2\b", reg2);
+            t = Regex.Replace(t, @"\breg3\b", reg3);
+            return t;
+        }
+
+
+        static string DescReg123Imm5s(Instruction inst) { return _Core_DescReg123Imm5(inst, true);  } // signed imm
+        static string DescReg123Imm5u(Instruction inst) { return _Core_DescReg123Imm5(inst, false); } // unsigned imm
+
+        static string DescReg123Imm9s(Instruction inst) { return _Core_DescReg123Imm9(inst, true);  } // signed imm
+        static string DescReg123Imm9u(Instruction inst) { return _Core_DescReg123Imm9(inst, false); } // unsigned imm
+
+        static string DescReg123Imm16s(   Instruction inst) { return _Core_DescReg123Imm16(inst, true , false);  } //   signed imm  dec
+        static string DescReg123Imm16u(   Instruction inst) { return _Core_DescReg123Imm16(inst, false, false);  } // unsigned imm  dec
+        static string DescReg123Imm16uHex(Instruction inst) { return _Core_DescReg123Imm16(inst, false, true);   } // unsigned imm  hex
+
+        static string DescReg123Disp4u( Instruction inst){ return _Core_DescReg123DispN(inst, 4, false); }
+        static string DescReg123Disp5u( Instruction inst){ return _Core_DescReg123DispN(inst, 5, false); }
+        static string DescReg123Disp7u( Instruction inst){ return _Core_DescReg123DispN(inst, 7, false); }
+        static string DescReg123Disp8u( Instruction inst){ return _Core_DescReg123DispN(inst, 8, false); }
+        static string DescReg123Disp9s( Instruction inst){ return _Core_DescReg123DispN(inst, 9, true);  } // signed disp
+        static string DescReg123Disp16s(Instruction inst){ return _Core_DescReg123DispN(inst,16, true);  } // signed disp
+
+        static string DescReg123Disp16sB(Instruction inst){ return _Core_DescReg123Disp16b(inst, true);  } // signed disp
+        static string DescReg123Disp23s(Instruction inst){ return _Core_DescReg123Disp23(inst, true);  } // signed disp
+        static string DescReg123Disp23u(Instruction inst){ return _Core_DescReg123Disp23(inst, false); } // unsigned disp
+
+        static string DescReg123Imm32(Instruction inst)
+        {
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bimm32\b", ((uint)GetImm32Value(inst)).ToString("X08")+"h");
+            return t;
+        }
+
+
+        static string DescReg123Bit3Disp16(Instruction inst)
+        {
+            string t = _Core_DescReg123DispN(inst, 16, true);
+            t = Regex.Replace(t, @"\bbit#3\b", "bit" + ParseCharInOpe(inst, 'b').ToString());
+            return t;
+        }
+
+
+        static string DescDispose(Instruction inst)
+        {
+            string t = _Core_DescReg123Imm5(inst, false);
+            t = Regex.Replace(t, @"\blist12\b", subFuncList12ToString(inst));
+            return t;
+        }
+
+        static string DescPrepare2word(Instruction inst)
+        {
+            string t = _Core_DescReg123Imm5(inst, false);
+            t = Regex.Replace(t, @"\blist12\b", subFuncList12ToString(inst));
+            return t;
+        }
+
+        static string DescPrepare_Imm16(Instruction inst)
+        {
+            long imm16 = subFuncGetValueForEpOfPrepare(inst);
+            string t = _Core_DescReg123Imm5(inst, false);
+            t = Regex.Replace(t, @"\blist12\b", subFuncList12ToString(inst));
+            t = Regex.Replace(t, @"\bimm16\b" , (imm16&lt;0)?"(parse error)":(imm16.ToString("X08")+"h"));
+            return t;
+        }
+        static string DescPrepare_Imm32(Instruction inst)
+        {
+            long imm32 = subFuncGetValueForEpOfPrepare(inst);
+            string t = _Core_DescReg123Imm5(inst, false);
+            t = Regex.Replace(t, @"\blist12\b", subFuncList12ToString(inst));
+            t = Regex.Replace(t, @"\bimm32\b" , (imm32&lt;0)?"(parse error)":(imm32.ToString("X08")+"h"));
+            return t;
+        }
+
+
+        static string subFuncList12ToString(Instruction inst)
+        {
+            List&lt;byte&gt; regIds = subFuncList12ToRegIds(inst);
+            var sb = new StringBuilder();
+            for (int i=0;i&lt;regIds.Count;i++) {
+                if(i&gt;0){sb.Append(",");}
+                sb.Append(CpuRegs.GetGRegName(regIds[i]));
+            }
+            return sb.ToString();
+        }
+
+        static bool subFuncHasFfOfPrepare(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            // byte1    byte0     byte3    byte2
+            // xxxxxxxx xxxxxxxx  xxxxxxxx xxxxxxXx
+            if ( buf.Length &lt; 2 ) { return false; } // invalid
+            return ((buf[2]&gt;&gt;1) &amp; 0x01) == 1;
+        }
+
+        // return -1 for use sp  or error
+        static long subFuncGetValueForEpOfPrepare(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            int ff = subFuncGetFfOfPrepare(buf);
+
+            // ff = 00: ep ← sp
+            // ff = 01: ep ← sign-extend (imm16)
+            // ff = 10: ep ← imm16 logically shift left by 16
+            // ff = 11: ep ← imm32
+            switch ( ff ) {
+            case 0: return -1;
+            case 1: if (buf.Length &lt; 6) { return -1; } else {return (long)(uint)(short)( (((uint)buf[5])&lt;&lt;8) | buf[4] ); }
+            case 2: if (buf.Length &lt; 6) { return -1; } else {return (long)(uint) ( ((((uint)buf[5])&lt;&lt;8) | buf[4]) &lt;&lt; 16 ); }
+            case 3: if (buf.Length &lt; 8) { return -1; } else {return (long)(uint) ( (((uint)buf[7])&lt;&lt;24) | (((uint)buf[6])&lt;&lt;16) | (((uint)buf[5])&lt;&lt;8) | buf[4] );}
+            }
+            return -1; // ここにはこない
+        }
+        static int subFuncGetFfOfPrepare(byte[] buf)
+        {
+            // byte1    byte0     byte3    byte2
+            // xxxxxxxx xxxxxxxx  xxxxxxxx xxxffxxx
+            if ( buf.Length &lt; 2 ) { return -1; } // invalid
+            return ((buf[2]&gt;&gt;3) &amp; 0x03);
+        }
+        static List&lt;byte&gt; subFuncList12ToRegIds(Instruction inst)
+        {
+            // byte1    byte0     byte3    byte2
+            // xxxxxxxx xxxxxxxL  LLLLLLLL LLLxxxxx
+            //                 3  22222222 223
+            //                 0  45670123 891
+            byte[] buf = inst.Bytes;
+
+            var ret = new List&lt;byte&gt;();
+            if( ((buf[3]&gt;&gt;3)&amp;1) == 1 ){ ret.Add(20); }
+            if( ((buf[3]&gt;&gt;2)&amp;1) == 1 ){ ret.Add(21); }
+            if( ((buf[3]&gt;&gt;1)&amp;1) == 1 ){ ret.Add(22); }
+            if( ((buf[3]   )&amp;1) == 1 ){ ret.Add(23); }
+            if( ((buf[3]&gt;&gt;7)&amp;1) == 1 ){ ret.Add(24); }
+            if( ((buf[3]&gt;&gt;6)&amp;1) == 1 ){ ret.Add(25); }
+            if( ((buf[3]&gt;&gt;5)&amp;1) == 1 ){ ret.Add(26); }
+            if( ((buf[3]&gt;&gt;4)&amp;1) == 1 ){ ret.Add(27); }
+            if( ((buf[2]&gt;&gt;7)&amp;1) == 1 ){ ret.Add(28); }
+            if( ((buf[2]&gt;&gt;6)&amp;1) == 1 ){ ret.Add(29); }
+            if( ((buf[0]   )&amp;1) == 1 ){ ret.Add(30); }
+            if( ((buf[2]&gt;&gt;5)&amp;1) == 1 ){ ret.Add(31); }
+            return ret;
+        }
+
+        static string DescLdsr(Instruction inst)
+        {
+            // rrrrr：regID, sssss：selID, RRRRR：reg2
+            long reg2index = ParseCharInOpe(inst, 'R');
+            long regID = ParseCharInOpe(inst, 'r');
+            long selID = ParseCharInOpe(inst, 's');
+
+            string t = inst.Ope.Name;
+            t = Regex.Replace(t, @"\bGReg\b",   CpuRegs.GetGRegName(reg2index));
+            t = Regex.Replace(t, @"\bSysReg\b", CpuRegs.GetSysRegName(regID,selID));
+            return t;
+        }
+
+        static string DescStsr(Instruction inst)
+        {
+            // rrrrr：reg2, sssss：selID, RRRRR：regID
+            long regID = ParseCharInOpe(inst, 'R');
+            long selID = ParseCharInOpe(inst, 's');
+            long reg2index = ParseCharInOpe(inst, 'r');
+
+            string t = inst.Ope.Name;
+            t = Regex.Replace(t, @"\bGReg\b",   CpuRegs.GetGRegName(reg2index));
+            t = Regex.Replace(t, @"\bSysReg\b", CpuRegs.GetSysRegName(regID,selID));
+            return t;
+        }
+
+        static string DescTrapVector5(Instruction inst)
+        {
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bvector5\b", ((uint)ParseCharInOpe(inst, 'v')+0x40).ToString("X02")+"h");
+            return t;
+        }
+
+        static string DescBcondDisp9(Instruction inst)
+        {
+            long cond = ParseCharInOpe(inst, 'c');
+            string t = inst.Ope.Name;
+            t = Regex.Replace(t, @"\bBcond\b", "B" + CondOpeNames[cond] );
+            // long disp9 = DescReg123Disp9s(inst);
+
+            return t;
+        }
+
+        static string DescBcondDisp17(Instruction inst)
+        {
+            long cond = ParseCharInOpe(inst, 'c');
+            string t = inst.Ope.Name;
+            t = Regex.Replace(t, @"\bBcond\b", "B" + CondOpeNames[cond] );
+            // long disp17 = DescReg123Disp17s(inst);
+
+            return t;
+        }
+
+        static string DescCondReg123Imm5(Instruction inst)
+        {
+            long cond = ParseCharInOpe(inst, 'c');
+            string t = _Core_DescReg123Imm5(inst, true);
+            t = Regex.Replace(t, @"\bcccc\b", CondOpeNames[cond] );
+
+            return t;
+        }
+
+        // rrrrr111111RRRRR MMMML0001001LLL0
+        //  (メモ: 原文はMMMML...LLL ではなく MMMMK...LLL だが、 KLLL を4bitの塊としてみなす処理を簡略化するためMMML...LLLとしている)
+        static string DescBins1(Instruction inst) { return _Core_DescBins(inst, true,  true ); }
+        static string DescBins2(Instruction inst) { return _Core_DescBins(inst, true,  false); }
+        static string DescBins3(Instruction inst) { return _Core_DescBins(inst, false, false); }
+
+        static string _Core_DescBins(Instruction inst, bool msbAdd16, bool lsbAdd16)
+        {
+            int msb = (int)ParseCharInOpe(inst, 'M') + (msbAdd16 ? 16 : 0);
+            int lsb = (int)ParseCharInOpe(inst, 'L') + (lsbAdd16 ? 16 : 0);
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bwidth\b", (msb-lsb+1).ToString() );
+            t = Regex.Replace(t, @"\bpos\b"  ,         lsb.ToString() );
+            return t;
+        }
+
+
+        //----
+
+        static string _Core_DescReg123Imm5(Instruction inst, bool signed)
+        {
+            long imm =  ParseCharInOpe(inst, 'i');
+            if ( signed ) { imm = ExtendSign(imm, 5 - 1); }
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bimm5\b", imm.ToString());
+            return t;
+        }
+
+        static string _Core_DescReg123Imm9(Instruction inst, bool signed)
+        {
+            long imm =  ParseCharInOpe(inst, 'i') | ( ParseCharInOpe(inst, 'I') &lt;&lt; 5 );
+            if ( signed ) { imm = ExtendSign(imm, 9 - 1); }
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bimm9\b", imm.ToString());
+            return t;
+        }
+
+        static string _Core_DescReg123Imm16(Instruction inst, bool signed, bool showAsHex)
+        {
+            long imm =  ParseCharInOpe(inst, 'i');
+            if ( signed ) { imm = ExtendSign(imm, 16 - 1); }
+
+            string t = DescReg123(inst);
+            string s = ((showAsHex) ? (imm.ToString("X04")+"h") : imm.ToString());
+            t = Regex.Replace(t, @"\bimm16\b", s );
+            return t;
+        }
+
+        static string _Core_DescReg123DispN(Instruction inst, int nDigits, bool signed)
+        {
+            int bitN;
+            long disp =  ParseCharInOpe(inst, 'd', out bitN);
+            disp &lt;&lt;= nDigits - bitN;
+            if ( signed ) {
+                disp = ExtendSign(disp, nDigits - 1);
+            }
+            disp = (uint)disp;
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bdisp" + (nDigits.ToString()) + @"\b", disp.ToString("X08"));
+            return t;
+        }
+
+        static string _Core_DescReg123Disp16b(Instruction inst, bool signed)
+        {
+            long disp =  (ParseCharInOpe(inst, 'd')&lt;&lt;1) | ParseCharInOpe(inst, 'b');
+            if ( signed ) {
+                disp = ExtendSign(disp, 16 - 1);
+            }
+            disp = (uint)disp;
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bdisp16\b", disp.ToString("X08"));
+            return t;
+        }
+
+
+        static string _Core_DescReg123Disp23(Instruction inst, bool signed)
+        {
+            byte[] buf = inst.Bytes;
+
+            int bitN;
+            int disp23lower = (int)ParseCharInOpe(inst, 'd', out bitN);
+            disp23lower &lt;&lt;= 7 - bitN; // dddddd0 をケアするため
+            int disp23upper =  (buf[5]&lt;&lt;8) | buf[4];
+            long disp23 = ((disp23upper &lt;&lt; 7) | disp23lower);
+            if ( signed ) {
+                disp23 = ExtendSign(disp23, 23 - 1);
+            }
+
+            string t = DescReg123(inst);
+            t = Regex.Replace(t, @"\bdisp23\b", ((uint)disp23).ToString("X08")+"h");
+            return t;
+        }
+
+        //////
+        // sub functions
+
+        // 2wordまで読み取り
+        static long ParseCharInOpe(Instruction inst, char c)
+        {
+            int cnt; // dummy
+            return ParseCharInOpe(inst, c, out cnt);
+        }
+
+        static int GetReg1Id(Instruction inst) { return (int)ParseCharInOpe(inst, 'R'); }
+        static int GetReg2Id(Instruction inst) { return (int)ParseCharInOpe(inst, 'r'); }
+        static int GetReg3Id(Instruction inst) { return (int)ParseCharInOpe(inst, 'w'); }
+
+        static long GetImm5sValue(Instruction inst) { return ExtendSign(ParseCharInOpe(inst, 'i'), 5 - 1); }
+        static long GetImm5uValue(Instruction inst) { return            ParseCharInOpe(inst, 'i')        ; }
+
+        static long GetDisp4uValue    (Instruction inst) { return       ParseCharInOpe(inst, 'd');    }
+        static long GetDisp5uEvenValue(Instruction inst) { return       ParseCharInOpe(inst, 'd')&lt;&lt;1; }
+        static long GetDisp7uValue    (Instruction inst) { return       ParseCharInOpe(inst, 'd');    }
+        static long GetDisp8uEvenValue(Instruction inst) { return       ParseCharInOpe(inst, 'd')&lt;&lt;1; }        
+        static long GetDisp8uQuadValue(Instruction inst) { return       ParseCharInOpe(inst, 'd')&lt;&lt;2; }
+
+        static long GetDisp16sValueWithb(Instruction inst)
+        {
+            long valueSmallD = ParseCharInOpe(inst, 'd');
+            long valueSmallB = ParseCharInOpe(inst, 'b');
+            return ExtendSign((valueSmallD&lt;&lt;1) | valueSmallB, 16 - 1);
+        }
+
+        static long GetDisp16sValue(Instruction inst){ return ExtendSign(ParseCharInOpe(inst, 'd')   ,16 - 1); } // dddd dddd dddd dddd
+
+        static long GetDisp16sEvenValue(Instruction inst){ return ExtendSign(ParseCharInOpe(inst, 'd')&lt;&lt;1,16 - 1); } // dddd dddd dddd ddd(0 or 1)
+        static long GetDisp23sEvenValue(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            long valueLargeD = (buf[5] &lt;&lt; 8) | buf[4];
+            long valueSmallD = ParseCharInOpe(inst, 'd');
+            return ExtendSign((valueLargeD&lt;&lt;7) | (valueSmallD&lt;&lt;1), 23 - 1);
+        }
+
+        static long GetDisp23sValue(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            long valueLargeD = (buf[5] &lt;&lt; 8) | buf[4];
+            long valueSmallD = ParseCharInOpe(inst, 'd');
+            return ExtendSign((valueLargeD&lt;&lt;7) | valueSmallD, 23 - 1);
+        }
+
+        static long GetImm9sValue(Instruction inst)
+        {
+            long imm =  ParseCharInOpe(inst, 'i') | ( ParseCharInOpe(inst, 'I') &lt;&lt; 5 );
+            return ExtendSign(imm, 9 - 1);
+        }
+        static long GetImm9uValue(Instruction inst)
+        {
+            return (ParseCharInOpe(inst, 'i') | ( ParseCharInOpe(inst, 'I') &lt;&lt; 5 ));
+        }
+
+        static long GetImm16sValue(Instruction inst){ return ExtendSign(ParseCharInOpe(inst, 'i'),16 - 1); }
+        static long GetImm16uValue(Instruction inst){ return            ParseCharInOpe(inst, 'i')        ; }
+
+        static long GetImm32Value(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            long valueLargeI = (buf[5] &lt;&lt; 8) | buf[4];
+            long valueSmallI = ParseCharInOpe(inst, 'i');
+            return (valueLargeI&lt;&lt;16) | valueSmallI;
+        }
+
+        static long GetDisp32Value_Jmp(Instruction inst)
+        {
+            byte[] buf = inst.Bytes;
+            long valueLargeD = (buf[5] &lt;&lt; 8) | buf[4];
+            long valueSmallD = ParseCharInOpe(inst, 'd') &lt;&lt; 1; // ddddddddddddddd0
+            return (valueLargeD&lt;&lt;16) | valueSmallD;
+        }
+
+        static long ParseCharInOpe(Instruction inst, char c, out int cnt)
+        {
+            OpcodeDef opeDef = inst.Ope;
+            byte[] buf = inst.Bytes;
+
+            long t = 0;
+            cnt = 0;
+
+            if ( buf.Length &lt; 1 ) {return -1;}
+            AccumCharMaskedBits(opeDef.OpeStr1, c, buf[0] , buf[1], ref t, ref cnt);
+
+            if ( opeDef.Size &gt;= 4 ) {
+                if ( buf.Length &lt; 3 ) {return -1;}
+                AccumCharMaskedBits(opeDef.OpeStr2, c, buf[2] , buf[3], ref t, ref cnt);
+            }
+
+            return t;
+        }
+
+        static void AccumCharMaskedBits(string opeStr, char c, byte lo, byte hi, ref long t, ref int cnt)
+        {
+            int tmp = ((int)hi &lt;&lt; 8) | lo;
+            int bitForCompare = (int)1 &lt;&lt; (BitsOfInstWord-1);
+
+            for ( int i=0 ; i&lt;BitsOfInstWord ; i++ ) {
+                if ( opeStr[i] == c ) {
+                    t &lt;&lt;= 1;
+                    if ( (tmp &amp; bitForCompare) != 0 ) {
+                        t |= 1;
+                    }
+                    cnt++;
+                }
+                bitForCompare &gt;&gt;= 1;
+            }
+        }
+
+
+        public OpcodeDef(string _name,
+                         bool _hasJump, AbsJumpCalcFunc _arg_absJumpCalcFunc,
+                         string _opeStr1, string _opeStr2, FormatId _fmt,
+                         DescFunc _arg_descFunc)
+        {
+            Name    = _name;
+            HasJump = _hasJump;
+            _absJumpCalcFunc = _arg_absJumpCalcFunc;
+            OpeStr1 = _opeStr1;
+            OpeStr2 = _opeStr2;
+            Fmt     = _fmt;
+            _descFunc = _arg_descFunc;
+
+            // 一貫性チェック
+            if ( OpeStr1.Length != 16 ) {
+                throw new Exception("Bug opcode length unmatch#1");
+            }
+            // 2 byte 命令
+            if ( Size == 2 ) {
+                if ( OpeStr2 != null ) {
+                    throw new Exception("Bug opcode Fmt unmatch#1");
+                }
+
+                try{
+                    // opcode部分が0,1の数字であることをチェックする
+                    if ( Fmt == FormatId.I  ||
+                         Fmt == FormatId.IIa  ) {
+                        Convert.ToInt32(OpeStr1.Substring(5, 6), 2); // index 5 から 6文字(bit10..5)
+                    }
+                    else if ( Fmt == FormatId.III ||
+                              Fmt == FormatId.IVa   ) {
+                        Convert.ToInt32(OpeStr1.Substring(5, 4), 2); // index 5 から 4文字(bit10..7)
+                    }
+                    else if ( Fmt == FormatId.IVb ) {
+                        Convert.ToInt32(OpeStr1.Substring(5, 7), 2); // index 5 から 7文字(bit10..4)
+                    }
+                    else { // check対象外
+                    }
+                }
+                catch (Exception) {
+                    throw new Exception("Bug opcode Fmt unmatch:" + Name + ", " + OpeStr1 );
+                }
+            }
+            else if ( Size == 4 ) {
+                if ( OpeStr2 == null || OpeStr2.Length != 16 ) {
+                    throw new Exception("Bug opcode2 unmatch#2");
+                }
+            }
+            else { // check対象外
+            }
+        }
+
+        public bool IsMatch(byte[] buf, long offsetI)
+        {
+            long size = Size;
+
+            if ( buf == null ) {
+                throw new Exception("OpcodeDef.IsMatch(null, offsetI="+offsetI.ToString()+") is called.");
+            }
+
+            if ( buf.Length - offsetI &lt; size ) {
+                return false;
+            }
+
+            if ( size == 2 ) {
+                return IsMatchSubSeq(buf[offsetI], buf[offsetI+1], OpeStr1);
+            }
+            else { // 4 or 6 or 8
+                return IsMatchSubSeq(buf[offsetI  ], buf[offsetI+1], OpeStr1)
+                    &amp;&amp; IsMatchSubSeq(buf[offsetI+2], buf[offsetI+3], OpeStr2);
+            }
+        }
+
+        bool IsMatchSubSeq(byte lo, byte hi, string s)
+        {
+            int tmp = ((int)hi &lt;&lt; 8) | lo;
+            int bitForCompare = (int)1 &lt;&lt; (BitsOfInstWord-1);
+            for (int pos=0 ; pos&lt;BitsOfInstWord ; pos++) {
+                if ( s[pos] == '0' ) {
+                    if ( (tmp &amp; bitForCompare) != 0 ) {
+                        return false;
+                    }
+                }
+                else if ( s[pos] == '1' ) {
+                    if ( (tmp &amp; bitForCompare) == 0 ) {
+                        return false;
+                    }
+                }
+                bitForCompare &gt;&gt;= 1;
+            }
+            return true;
+        }
+
+        public static readonly OpcodeDef[] Opcodes = new OpcodeDef[]{
+            // 固定値を優先的にマッチングさせる
+            // 左の桁から  0-&gt;1-&gt;don't care  の順で並べる
+
+            // メモ: "!"から始まっているものは未実装
+
+            // G3KH は little endian (byte 0が下位データ)
+            //                                                              byte1,0           byte3,2
+            new OpcodeDef("Nop"                          ,false ,DummyFunc,"0000000000000000",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Synci"                        ,false ,DummyFunc,"0000000000011100",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Synce"                        ,false ,DummyFunc,"0000000000011101",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Syncm"                        ,false ,DummyFunc,"0000000000011110",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Syncp"                        ,false ,DummyFunc,"0000000000011111",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Rie"                          ,false ,DummyFunc,"0000000001000000",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Switch reg1"                  ,false ,DummyFunc,"00000000010RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Jmp [reg1]"                   ,true  ,DummyFunc,"00000000011RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Zxb reg1"                     ,false ,DummyFunc,"00000000100RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Sxb reg1"                     ,false ,DummyFunc,"00000000101RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Zxh reg1"                     ,false ,DummyFunc,"00000000110RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Sxh reg1"                     ,false ,DummyFunc,"00000000111RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("!Callt imm6"                  ,false ,DummyFunc,"0000001000iiiiii",null              ,FormatId.IIb  ,DescText             ), // マニュアルが仕様矛盾している...
+            new OpcodeDef("Jr disp32"                    ,true  ,RelJmp32, "0000001011100000","ddddddddddddddd0",FormatId.VIb  ,DescText             ), // 3rd word
+            new OpcodeDef("Jarl disp32,reg1"             ,true  ,RelJmp32, "00000010111RRRRR","ddddddddddddddd0",FormatId.VIb  ,DescReg123           ), // 3rd word
+            new OpcodeDef("Mov imm32,reg1"               ,false ,DummyFunc,"00000110001RRRRR","iiiiiiiiiiiiiiii",FormatId.VIb  ,DescReg123Imm32      ), // 3rd word
+            new OpcodeDef("Dispose imm5,list12"          ,false ,DummyFunc,"0000011001iiiiiL","LLLLLLLLLLL00000",FormatId.XIIIa,DescDispose          ),
+            new OpcodeDef("Dispose imm5,list12,[reg1]"   ,false ,DummyFunc,"0000011001iiiiiL","LLLLLLLLLLLRRRRR",FormatId.XIIIa,DescDispose          ),
+            new OpcodeDef("Prepare list12,imm5"          ,false ,DummyFunc,"0000011110iiiiiL","LLLLLLLLLLL00001",FormatId.XIIIa,DescPrepare2word     ),
+            new OpcodeDef("Prepare list12,imm5,ep:=sp"   ,false ,DummyFunc,"0000011110iiiiiL","LLLLLLLLLLL00011",FormatId.XIIIa,DescPrepare2word     ),
+            new OpcodeDef("Prepare list12,imm5,ep:=imm32",false ,DummyFunc,"0000011110iiiiiL","LLLLLLLLLLL11011",FormatId.XIIIc,DescPrepare_Imm32    ), // 4th word
+            new OpcodeDef("Prepare list12,imm5,ep:=imm16",false ,DummyFunc,"0000011110iiiiiL","LLLLLLLLLLLff011",FormatId.XIIIb,DescPrepare_Imm16    ), // 3rd word
+            new OpcodeDef("Jmp disp32 [reg1]"            ,true  ,DummyFunc,"00000110111RRRRR","ddddddddddddddd0",FormatId.VIb  ,DescReg123           ), // 3rd word
+            new OpcodeDef("Loop reg1,disp16"             ,true  ,RelLoop,  "00000110111RRRRR","ddddddddddddddd1",FormatId.VII  ,DescReg123           ),
+            new OpcodeDef("Ld.h disp23 [reg1],reg3"      ,false ,DummyFunc,"00000111100RRRRR","wwwwwdddddd00111",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("Ld.w disp23 [reg1],reg3"      ,false ,DummyFunc,"00000111100RRRRR","wwwwwdddddd01001",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("St.w reg3,disp23 [reg1]"      ,false ,DummyFunc,"00000111100RRRRR","wwwwwdddddd01111",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("Ld.b disp23 [reg1],reg3"      ,false ,DummyFunc,"00000111100RRRRR","wwwwwddddddd0101",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("St.b reg3,disp23 [reg1]"      ,false ,DummyFunc,"00000111100RRRRR","wwwwwddddddd1101",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("St.h reg3,disp23 [reg1]"      ,false ,DummyFunc,"00000111101RRRRR","wwwwwdddddd01101",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("Ld.hu disp23 [reg1],reg3"     ,false ,DummyFunc,"00000111101RRRRR","wwwwwdddddd00111",FormatId.XIVb ,DescReg123Disp23u    ), // 3rd word
+            new OpcodeDef("Ld.dw disp23 [reg1],reg3"     ,false ,DummyFunc,"00000111101RRRRR","wwwwwdddddd01001",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("St.dw reg3,disp23 [reg1]"     ,false ,DummyFunc,"00000111101RRRRR","wwwwwdddddd01111",FormatId.XIVb ,DescReg123Disp23s    ), // 3rd word
+            new OpcodeDef("Ld.bu disp23 [reg1],reg3"     ,false ,DummyFunc,"00000111101RRRRR","wwwwwddddddd0101",FormatId.XIVb ,DescReg123Disp23u    ), // 3rd word
+            new OpcodeDef("Jr disp22"                    ,true  ,RelJmp,   "0000011110dddddd","ddddddddddddddd0",FormatId.V    ,DescText             ),
+            new OpcodeDef("Halt"                         ,false ,DummyFunc,"0000011111100000","0000000100100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Ctret"                        ,false ,DummyFunc,"0000011111100000","0000000101000100",FormatId.X    ,DescText             ),
+            new OpcodeDef("Eiret"                        ,false ,DummyFunc,"0000011111100000","0000000101001000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Feret"                        ,false ,DummyFunc,"0000011111100000","0000000101001010",FormatId.X    ,DescText             ),
+            new OpcodeDef("Di"                           ,false ,DummyFunc,"0000011111100000","0000000101100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Trap vector5"                 ,false ,DummyFunc,"00000111111vvvvv","0000000100000000",FormatId.X    ,DescTrapVector5      ),
+            new OpcodeDef("Bcond disp17"                 ,true  ,RelJmp,   "00000111111dcccc","ddddddddddddddd1",FormatId.VII  ,DescBcondDisp17      ),
+            new OpcodeDef("!Ldl.w disp16 [reg1],reg3"    ,false ,DummyFunc,"00000111111RRRRR","wwwww01101111000",FormatId.VII  ,DescText             ),
+            new OpcodeDef("Stc.w reg3, [reg1]"           ,false ,DummyFunc,"00000111111RRRRR","wwwww01101111010",FormatId.VII  ,DescReg123           ),
+            new OpcodeDef("Snooze"                       ,false ,DummyFunc,"0000111111100000","0000000100100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Set1 bit#3,disp16[reg1]"      ,false ,DummyFunc,"00bbb111110RRRRR","dddddddddddddddd",FormatId.VIII ,DescReg123Bit3Disp16 ),
+            new OpcodeDef("!Pushsp rh-rt"                ,false ,DummyFunc,"01000111111RRRRR","wwwww00101100000",FormatId.XI   ,DescText             ),
+            new OpcodeDef("!Popsp rh-rt"                 ,false ,DummyFunc,"01100111111RRRRR","wwwww00101100000",FormatId.XI   ,DescText             ),
+            new OpcodeDef("Not1 bit#3,disp16[reg1]"      ,false ,DummyFunc,"01bbb111110RRRRR","dddddddddddddddd",FormatId.VIII ,DescReg123Bit3Disp16 ),
+            new OpcodeDef("!Fetrap vector4"              ,false ,DummyFunc,"0vvvv00001000000",null              ,FormatId.I    ,DescText             ),
+            new OpcodeDef("Ei"                           ,false ,DummyFunc,"1000011111100000","0000000101100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Clr1 bit#3,disp16[reg1]"      ,false ,DummyFunc,"10bbb111110RRRRR","dddddddddddddddd",FormatId.VIII ,DescReg123Bit3Disp16 ),
+            new OpcodeDef("Jarl [reg1],reg3"             ,true  ,DummyFunc,"11000111111RRRRR","wwwww00101100000",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("!Syscall vector8"             ,false ,DummyFunc,"11010111111vvvvv","00VVV00101100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Cll"                          ,false ,DummyFunc,"1111111111111111","1111000101100000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Tst1 bit#3,disp16[reg1]"      ,false ,DummyFunc,"11bbb111110RRRRR","dddddddddddddddd",FormatId.VIII ,DescReg123Bit3Disp16 ),
+            new OpcodeDef("Mov reg1,reg2"                ,false ,DummyFunc,"rrrrr000000RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Not reg1,reg2"                ,false ,DummyFunc,"rrrrr000001RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("?Divh reg1,reg2"              ,false ,DummyFunc,"rrrrr000010RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Sld.bu disp4 [ep],reg2"       ,false ,DummyFunc,"rrrrr0000110dddd",null              ,FormatId.IVb  ,DescReg123Disp4u     ),
+            new OpcodeDef("Sld.hu disp5 [ep],reg2"       ,false ,DummyFunc,"rrrrr0000111dddd",null              ,FormatId.IVb  ,DescReg123Disp5u     ),
+            new OpcodeDef("Satsubr reg1,reg2"            ,false ,DummyFunc,"rrrrr000100RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Satsub reg1,reg2"             ,false ,DummyFunc,"rrrrr000101RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Satadd reg1,reg2"             ,false ,DummyFunc,"rrrrr000110RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Mulh reg1,reg2"               ,false ,DummyFunc,"rrrrr000111RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Or reg1,reg2"                 ,false ,DummyFunc,"rrrrr001000RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Xor reg1,reg2"                ,false ,DummyFunc,"rrrrr001001RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("And reg1,reg2"                ,false ,DummyFunc,"rrrrr001010RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Tst reg1,reg2"                ,false ,DummyFunc,"rrrrr001011RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Subr reg1,reg2"               ,false ,DummyFunc,"rrrrr001100RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Sub reg1,reg2"                ,false ,DummyFunc,"rrrrr001101RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Add reg1,reg2"                ,false ,DummyFunc,"rrrrr001110RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Cmp reg1,reg2"                ,false ,DummyFunc,"rrrrr001111RRRRR",null              ,FormatId.I    ,DescReg123           ),
+            new OpcodeDef("Mov imm5,reg2"                ,false ,DummyFunc,"rrrrr010000iiiii",null              ,FormatId.IIa  ,DescReg123Imm5s      ),
+            new OpcodeDef("Satadd imm5,reg2"             ,false ,DummyFunc,"rrrrr010001iiiii",null              ,FormatId.IIa  ,DescReg123Imm5s      ),
+            new OpcodeDef("Add imm5,reg2"                ,false ,DummyFunc,"rrrrr010010iiiii",null              ,FormatId.IIa  ,DescReg123Imm5s      ),
+            new OpcodeDef("Cmp imm5,reg2"                ,false ,DummyFunc,"rrrrr010011iiiii",null              ,FormatId.IIa  ,DescReg123Imm5s      ),
+            new OpcodeDef("Shr imm5,reg2"                ,false ,DummyFunc,"rrrrr010100iiiii",null              ,FormatId.IIa  ,DescReg123Imm5u      ),
+            new OpcodeDef("Sar imm5,reg2"                ,false ,DummyFunc,"rrrrr010101iiiii",null              ,FormatId.IIa  ,DescReg123Imm5u      ),
+            new OpcodeDef("Shl imm5,reg2"                ,false ,DummyFunc,"rrrrr010110iiiii",null              ,FormatId.IIa  ,DescReg123Imm5u      ),
+            new OpcodeDef("Mulh imm5,reg2"               ,false ,DummyFunc,"rrrrr010111iiiii",null              ,FormatId.IIa  ,DescReg123Imm5s      ),
+            new OpcodeDef("Sld.b disp7 [ep],reg2"        ,false ,DummyFunc,"rrrrr0110ddddddd",null              ,FormatId.IVa  ,DescReg123Disp7u     ),
+            new OpcodeDef("Sst.b reg2,disp7[ep]"         ,false ,DummyFunc,"rrrrr0111ddddddd",null              ,FormatId.IVa  ,DescReg123Disp7u     ),
+            new OpcodeDef("Sld.h disp8 [ep],reg2"        ,false ,DummyFunc,"rrrrr1000ddddddd",null              ,FormatId.IVa  ,DescReg123Disp8u     ),
+            new OpcodeDef("Sst.h reg2,disp8[ep]"         ,false ,DummyFunc,"rrrrr1001ddddddd",null              ,FormatId.IVa  ,DescReg123Disp8u     ),
+            new OpcodeDef("Sld.w disp8 [ep],reg2"        ,false ,DummyFunc,"rrrrr1010dddddd0",null              ,FormatId.IVa  ,DescReg123Disp8u     ),
+            new OpcodeDef("Sst.w reg2,disp8[ep]"         ,false ,DummyFunc,"rrrrr1010dddddd1",null              ,FormatId.IVa  ,DescReg123Disp8u     ),
+            new OpcodeDef("Bcond disp9"                  ,true  ,RelJmp,   "ddddd1011dddcccc",null              ,FormatId.III  ,DescBcondDisp9       ),
+            new OpcodeDef("Addi imm16,reg1,reg2"         ,false ,DummyFunc,"rrrrr110000RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16s     ),
+            new OpcodeDef("Movea imm16,reg1,reg2"        ,false ,DummyFunc,"rrrrr110001RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16s     ),
+            new OpcodeDef("Movhi imm16,reg1,reg2"        ,false ,DummyFunc,"rrrrr110010RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16u     ),
+            new OpcodeDef("!Satsubi imm16,reg1,reg2"     ,false ,DummyFunc,"rrrrr110011RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16s     ),
+            new OpcodeDef("Ori imm16,reg1,reg2"          ,false ,DummyFunc,"rrrrr110100RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16uHex  ),
+            new OpcodeDef("Xori imm16,reg1,reg2"         ,false ,DummyFunc,"rrrrr110101RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16uHex  ),
+            new OpcodeDef("Andi imm16,reg1,reg2"         ,false ,DummyFunc,"rrrrr110110RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16uHex  ),
+            new OpcodeDef("Mulhi imm16,reg1,reg2"        ,false ,DummyFunc,"rrrrr110111RRRRR","iiiiiiiiiiiiiiii",FormatId.VIa  ,DescReg123Imm16u     ),
+            new OpcodeDef("Ld.b disp16 [reg1],reg2"      ,false ,DummyFunc,"rrrrr111000RRRRR","dddddddddddddddd",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("Ld.h disp16 [reg1],reg2"      ,false ,DummyFunc,"rrrrr111001RRRRR","ddddddddddddddd0",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("Ld.w disp16 [reg1],reg2"      ,false ,DummyFunc,"rrrrr111001RRRRR","ddddddddddddddd1",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("St.b reg2,disp16 [reg1]"      ,false ,DummyFunc,"rrrrr111010RRRRR","dddddddddddddddd",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("St.h reg2,disp16 [reg1]"      ,false ,DummyFunc,"rrrrr111011RRRRR","ddddddddddddddd0",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("St.w reg2,disp16 [reg1]"      ,false ,DummyFunc,"rrrrr111011RRRRR","ddddddddddddddd1",FormatId.VII  ,DescReg123Disp16s    ),
+            new OpcodeDef("Jarl disp22,reg2"             ,true  ,RelJmp,   "rrrrr11110dddddd","ddddddddddddddd0",FormatId.V    ,DescReg123           ), // 仮desc
+            new OpcodeDef("Ld.bu disp16 [reg1],reg2"     ,false ,DummyFunc,"rrrrr11110bRRRRR","ddddddddddddddd1",FormatId.VII  ,DescReg123Disp16sB   ),
+            new OpcodeDef("Bsw reg2,reg3"                ,false ,DummyFunc,"rrrrr11111100000","wwwww01101000000",FormatId.XII  ,DescReg123           ),
+            new OpcodeDef("Bsh reg2,reg3"                ,false ,DummyFunc,"rrrrr11111100000","wwwww01101000010",FormatId.XII  ,DescReg123           ),
+            new OpcodeDef("Hsw reg2,reg3"                ,false ,DummyFunc,"rrrrr11111100000","wwwww01101000100",FormatId.XII  ,DescReg123           ),
+            new OpcodeDef("Hsh reg2,reg3"                ,false ,DummyFunc,"rrrrr11111100000","wwwww01101000110",FormatId.XII  ,DescReg123           ),
+            new OpcodeDef("sch0r reg2,reg3"              ,false ,DummyFunc,"rrrrr11111100000","wwwww01101100000",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("sch1r reg2,reg3"              ,false ,DummyFunc,"rrrrr11111100000","wwwww01101100010",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("sch0l reg2,reg3"              ,false ,DummyFunc,"rrrrr11111100000","wwwww01101100100",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("sch1l reg2,reg3"              ,false ,DummyFunc,"rrrrr11111100000","wwwww01101100110",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Setf cccc reg2"               ,false ,DummyFunc,"rrrrr1111110cccc","0000000000000000",FormatId.IX   ,DescCondReg123Imm5   ),
+            new OpcodeDef("Sasf cccc,reg2"               ,false ,DummyFunc,"rrrrr1111110cccc","0000001000000000",FormatId.IX   ,DescCondReg123Imm5   ),
+            new OpcodeDef("!Rie imm5,imm4"               ,false ,DummyFunc,"iiiii1111111IIII","0000000000000000",FormatId.X    ,DescText             ),
+            new OpcodeDef("Shr reg1,reg2"                ,false ,DummyFunc,"rrrrr111111RRRRR","0000000010000000",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Sar reg1,reg2"                ,false ,DummyFunc,"rrrrr111111RRRRR","0000000010100000",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Shl reg1,reg2"                ,false ,DummyFunc,"rrrrr111111RRRRR","0000000011000000",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Set1 reg2,[reg1]"             ,false ,DummyFunc,"rrrrr111111RRRRR","0000000011100000",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Not1 reg2,[reg1]"             ,false ,DummyFunc,"rrrrr111111RRRRR","0000000011100010",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Clr1 reg2,[reg1]"             ,false ,DummyFunc,"rrrrr111111RRRRR","0000000011100100",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("Tst1 reg2,[reg1]"             ,false ,DummyFunc,"rrrrr111111RRRRR","0000000011100110",FormatId.IX   ,DescReg123           ),
+            new OpcodeDef("!Mac reg1,reg2,reg3,reg4"     ,false ,DummyFunc,"rrrrr111111RRRRR","wwww0011110mmmm0",FormatId.XI   ,DescText             ),
+            new OpcodeDef("!Macu reg1,reg2,reg3,reg4"    ,false ,DummyFunc,"rrrrr111111RRRRR","wwww0011111mmmm0",FormatId.XI   ,DescText             ),
+            new OpcodeDef("Ldsr GReg,SysReg"             ,false ,DummyFunc,"rrrrr111111RRRRR","sssss00000100000",FormatId.IX   ,DescLdsr             ),
+            new OpcodeDef("Stsr SysReg,GReg"             ,false ,DummyFunc,"rrrrr111111RRRRR","sssss00001000000",FormatId.IX   ,DescStsr             ),
+            new OpcodeDef("Shr reg1,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww00010000010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Bins reg1,pos,width,reg2"     ,false ,DummyFunc,"rrrrr111111RRRRR","MMMML0001001LLL0",FormatId.IX   ,DescBins1            ),
+            new OpcodeDef("Sar reg1,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww00010100010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Bins reg1,pos,width,reg2"     ,false ,DummyFunc,"rrrrr111111RRRRR","MMMML0001011LLL0",FormatId.IX   ,DescBins2            ),
+            new OpcodeDef("Shl reg1,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww00011000010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Rotl imm5,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111iiiii","wwwww00011000100",FormatId.XII  ,DescReg123Imm5u      ),
+            new OpcodeDef("Bins reg1,pos,width,reg2"     ,false ,DummyFunc,"rrrrr111111RRRRR","MMMML0001101LLL0",FormatId.IX   ,DescBins3            ),
+            new OpcodeDef("Caxi [reg1],reg2,reg3"        ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww00011101110",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Mul reg1,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01000100000",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Mulu reg1,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01000100010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Mul imm9,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111iiiii","wwwww01001IIII00",FormatId.XII  ,DescReg123Imm9s      ),
+            new OpcodeDef("Mulu imm9,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111iiiii","wwwww01001IIII10",FormatId.XII  ,DescReg123Imm9u      ),
+            new OpcodeDef("Divh reg1,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01010000000",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Divhu reg1,reg2,reg3"         ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01010000010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Div reg1,reg2,reg3"           ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01011000000",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Divu reg1,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01011000010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Divq reg1,reg2,reg3"          ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01011111100",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Divqu reg1,reg2,reg3"         ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01011111110",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Cmov(cccc) imm5,reg2,reg3"    ,false ,DummyFunc,"rrrrr111111iiiii","wwwww011000cccc0",FormatId.XII  ,DescCondReg123Imm5   ),
+            new OpcodeDef("Cmov(cccc) reg1,reg2,reg3"    ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww011001cccc0",FormatId.XI   ,DescCondReg123Imm5   ),
+            new OpcodeDef("Satsub reg1,reg2,reg3"        ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01110011010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Sbf(cccc) reg1,reg2,reg3"     ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww011100cccc0",FormatId.XI   ,DescCondReg123Imm5   ),
+            new OpcodeDef("Satadd reg1,reg2,reg3"        ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww01110111010",FormatId.XI   ,DescReg123           ),
+            new OpcodeDef("Adf(cccc) reg1,reg2,reg3"     ,false ,DummyFunc,"rrrrr111111RRRRR","wwwww011101cccc0",FormatId.XI   ,DescCondReg123Imm5   ),
+            new OpcodeDef("Ld.hu disp16 [reg1],reg2"     ,false ,DummyFunc,"rrrrr111111RRRRR","ddddddddddddddd1",FormatId.VII  ,DescReg123Disp16s    ),
+        };
+    }
+
+    static readonly string[] CondOpeNames = new string[]{
+        "v" , "l" ,"e" ,"nh",
+        "n" ,"r" ,"lt","le",
+        "nv","nl","f" ,"h" ,
+        "p" ,"sa","ge","gt",
+    };
+}
+

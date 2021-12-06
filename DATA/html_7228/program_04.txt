@@ -1,0 +1,61 @@
+
+/// &lt;summary&gt;
+///     シーケンスを指定した要素数ごとに分割したブロックシーケンスに変換します。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="T"&gt;要素の型&lt;/typeparam&gt;
+/// &lt;param name="source"&gt;シーケンス&lt;/param&gt;
+/// &lt;param name="numInBlock"&gt;1ブロック当たりの要素数&lt;/param&gt;
+/// &lt;param name="includeLastFractionBlock"&gt;1ブロック当たりの要素数に満たない末尾のブロックを含めるかどうか&lt;/param&gt;
+/// &lt;returns&gt;&lt;paramref name="numInBlock"/&gt;ごとに分割したブロックシーケンス&lt;/returns&gt;
+private static IEnumerable&lt;T[]&gt; ToBlockSequenceCore&lt;T&gt;( this IEnumerable&lt;T&gt; source, int numInBlock, bool includeLastFractionBlock ) {
+
+    // ブロック内のインデックスです。
+    int indexInBlock = numInBlock - 1;
+    // ブロックとなる配列です。
+    var block = new T[numInBlock];
+
+    // 各要素にインデックスを付加して、numInBlockで割った余り（ = ブロック内のインデックス ）と要素の値とのペアを作成し、それらを列挙します。
+    foreach( var s in source.Select( ( v, i ) =&gt; new KeyValuePair&lt;int, T&gt;( i % numInBlock, v ) ) ) {
+        indexInBlock = s.Key;
+        // ブロック内の要素にシーケンスの要素を代入します。
+        block[s.Key] = s.Value;
+
+        // 現在のブロック内のインデックスが末尾であるかどうかを判別します。
+        if( s.Key == numInBlock - 1 ) {
+            // ブロックを返します。
+            yield return block;
+            // 新しいブロックを作成します。
+            block = new T[numInBlock];
+        }
+    }
+
+    // indexInBlockの値が、ブロック内の末尾のインデックスより前にいる時、
+    // シーケンスの末尾にある端数の要素がforeach文内でまだ返していないので、
+    // ここで返します。
+    if( includeLastFractionBlock &amp;&amp; indexInBlock &lt; numInBlock - 1 ) {
+        yield return block;
+    }
+}
+
+/// &lt;summary&gt;
+///     シーケンスを指定した要素数ごとに分割したブロックシーケンスに変換します。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="T"&gt;要素の型&lt;/typeparam&gt;
+/// &lt;param name="source"&gt;シーケンス&lt;/param&gt;
+/// &lt;param name="numInBlock"&gt;1ブロック当たりの要素数&lt;/param&gt;
+/// &lt;param name="includeLastFractionBlock"&gt;1ブロック当たりの要素数に満たない末尾のブロックを含めるかどうか&lt;/param&gt;
+/// &lt;returns&gt;&lt;paramref name="numInBlock"/&gt;ごとに分割したブロックシーケンス&lt;/returns&gt;
+/// &lt;exception cref="ArgumentNullException"&gt;&lt;paramref name="source"/&gt;がnullの時&lt;/exception&gt;
+/// &lt;exception cref="ArgumentOutOfRangeException"&gt;&lt;paramref name="numInBlock"/&gt;が0以下の時&lt;/exception&gt;
+public static IEnumerable&lt;T[]&gt; ToBlockSequence&lt;T&gt;( this IEnumerable&lt;T&gt; source, int numInBlock, bool includeLastFractionBlock = false ) {
+
+    if( source == null ) {
+        throw new ArgumentNullException( nameof( source ) );
+    }
+    else if( numInBlock &lt;= 0 ) {
+        throw new ArgumentOutOfRangeException( nameof( numInBlock ), "1ブロック当たりの要素数は、1以上にする必要があります。" );
+    }
+
+    return source.ToBlockSequenceCore( numInBlock, includeLastFractionBlock );
+}
+

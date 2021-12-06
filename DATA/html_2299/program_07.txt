@@ -1,0 +1,84 @@
+
+private static void ReadAloudEventTitle(WindowsDriver&lt;WindowsElement&gt; driver, WindowsElement eventButton)
+{
+    // Tab キーで対象のイベントボタンに移動
+    new Actions(driver).SendKeys(Keys.Tab).Perform();
+
+    // 【例】18:00～24:00、残業&amp;amp;奇跡、仕事の予定、承諾済み、場所: 会社、2019年 12月 24日
+    string eventText = eventButton.Text;
+    Console.WriteLine(eventText);
+
+    // イベントダイアログを開く
+    eventButton.SendKeys(Keys.Enter);
+
+    // タイトル文字列
+    string title = WebUtility.HtmlDecode(eventButton.Text.Split('、')[1]);
+    if (title == "タイトルなし")
+    {
+        // タイトルなしは括弧をつける
+        title = $"（{title}）";
+    }
+    title = Regex.Replace(title, "^リマインダー: ", "");
+
+    // タイトル要素を見つける
+    WindowsElement dialog;
+    By titleElementBy;
+    WindowsElement titleElement;
+    try
+    {
+        dialog = WaitUntilElementToBe(driver, By.XPath($"//*/Pane[@Name=\"{title}\"]"), TimeSpan.FromSeconds(5));
+        titleElementBy = By.XPath($"//*/Group/Text[@Name=\"{title}\"]");
+        titleElement = (WindowsElement)dialog.FindElement(titleElementBy);
+    }
+    catch (WebDriverException ex)
+    {
+        Console.WriteLine(ex.ToString());
+        Assert.Fail($"「{eventText}」のタイトル要素を見つけることができませんでした。");
+        return;
+    }
+
+    // タイトルの読み上げ
+    new Actions(driver)
+        // ダイアログ内をクリックしてアクティブにする
+        .Click(titleElement)
+        // タイトル欄の左上端まで移動
+        .MoveToElement(whenElement, 0, -50)
+        // ドラッグを開始し
+        .ClickAndHold()
+        // タイトル欄の右端で
+        .MoveByOffset(titleElement.Size.Width + 10, titleElement.Size.Height - 20)
+        // ドロップして
+        .Release()
+        // コンテキストメニューを開き
+        .ContextClick()
+        // 音声読み上げのショートカットキー "U" を送る
+        .SendKeys("U")
+        .Perform();
+
+    Thread.Sleep(TimeSpan.FromSeconds(1));
+
+    // 読み上げ終了待機
+    try
+    {
+        // 「選択部分を音声で読み上げる」の終了を待つ
+        var readAloudBy = By.XPath("//*/Document[@Name=\"音声で読み上げる\"]");
+        new WebDriverWait(driver, TimeSpan.FromSeconds(10))
+            .Until(d =&gt; !d.FindElements(readAloudBy).Any());
+    }
+    catch (WebDriverTimeoutException)
+    {
+        // 「ここから音声で読み上げる」になっていた場合、強制的に打ち切る
+        var readAloudCloseButton = driver.FindElement(By.XPath("//*/ToolBar[@Name=\"音声で読み上げる\"]/Group/Group/Button[@Name=\"閉じる\"]"));
+        readAloudCloseButton.Click();
+    }
+
+    // タイトル要素を再取得
+    titleElement = (WindowsElement)dialog.FindElement(titleElementBy);
+
+    // 以降のショートカットを効かせるためにフォーカスを戻す
+    titleElement.Click();
+
+    // イベントダイアログを閉じる
+    titleElement.SendKeys(Keys.Escape);
+}
+

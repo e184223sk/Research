@@ -1,0 +1,49 @@
+
+
+using Microsoft.VisualStudio.DebuggerVisualizers;
+using MsgPack;
+using MsgPack.Serialization;
+using System.IO;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace EntityVisualizer
+{
+    public class ListEntityVisualizerObjectSource : VisualizerObjectSource
+    {
+        /// &lt;summary&gt;
+        /// シリアライズを行なう
+        /// &lt;/summary&gt;
+        public override void GetData(object target, Stream outgoingData)
+        {
+            var context = new SerializationContext();
+            context.SerializationMethod = SerializationMethod.Map;
+
+            var serializer = MessagePackSerializer.Get(target.GetType(), context);
+
+            serializer.Pack(outgoingData, target);
+            outgoingData.Position = 0;
+        }
+    }
+
+    public class ListEntityVisualizer : DialogDebuggerVisualizer
+    {
+        protected override void Show(IDialogVisualizerService windowService, IVisualizerObjectProvider objectProvider)
+        {
+            // Dictionary&lt;string, ocbect&gt;[]へのデシリアライズ
+            var rawObject = Unpacking.UnpackObject(objectProvider.GetData());
+            var entity = rawObject
+                .AsList()
+                .Select(x =&gt; x.AsDictionary())
+                .Select(x =&gt; x.ToDictionary(y =&gt; y.Key.ToString(), y =&gt; y.Value.ToObject()))
+                .ToArray();
+
+            using (var dialog = new EntityDialog(entity))
+            {
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.ShowDialog();
+            }
+        }
+    }
+}
+

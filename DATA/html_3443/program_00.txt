@@ -1,0 +1,43 @@
+public void DoMerge(List&lt;string&gt; mergedFiles)
+{
+    // ソースドキュメントの準備
+    List&lt;XpsDocument&gt; sourceXps = new List&lt;XpsDocument&gt;();
+
+    foreach (var f in mergedFiles)
+    {
+        sourceXps.Add(new XpsDocument(f, FileAccess.Read));
+    }
+
+    // 出力先
+    var name = destinationPath;
+    if (File.Exists(name))
+    {
+        File.Delete(name);
+    }
+    XpsDocument destXps = new XpsDocument(name, System.IO.FileAccess.ReadWrite);
+
+    // ライター
+    XpsDocumentWriter writer = XpsDocument.CreateXpsDocumentWriter(destXps);
+    FixedDocumentSequence seq = new FixedDocumentSequence();
+
+    // マージ
+    foreach (XpsDocument doc in sourceXps)
+    {
+        FixedDocumentSequence sourceSeq = doc.GetFixedDocumentSequence();
+
+        foreach (DocumentReference dr in sourceSeq.References)
+        {
+            DocumentReference newDr = new DocumentReference();
+            newDr.Source = dr.Source;
+            (newDr as System.Windows.Markup.IUriContext).BaseUri = (dr as System.Windows.Markup.IUriContext).BaseUri;
+            FixedDocument fd = newDr.GetDocument(true);
+            newDr.SetDocument(fd);
+            seq.References.Add(newDr);
+        }
+    }
+
+    // 終了処理
+    writer.Write(seq);
+    destXps.Close();
+}
+

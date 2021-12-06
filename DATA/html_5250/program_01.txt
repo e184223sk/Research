@@ -1,0 +1,69 @@
+
+// usingは省略
+
+namespace DotNetKafkaExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("please input bootstrap servers.");
+
+            var bootstrapServers = Console.ReadLine();
+
+            // Taskキャンセルトークン
+            var tokenSource = new CancellationTokenSource();
+
+            Console.WriteLine($"start .Net Kafka Example. Ctl+C to exit");
+
+            // プロデューサータスク
+            var pTask = Task.Run(() =&gt; new Action&lt;string, CancellationToken&gt;(async (bs, cancel) =&gt;
+            {
+                var cf = new Dictionary&lt;string, object&gt; {
+                    { "bootstrap.servers", bs }
+                };
+
+                using (var producer = new Producer&lt;string, string&gt;(cf, new StringSerializer(Encoding.UTF8), new StringSerializer(Encoding.UTF8)))
+                {
+                    producer.OnError += (_, error) =&gt; Console.WriteLine($"fail send. reason: {error.Reason}");
+
+                    while (true)
+                    {
+                        if (cancel.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        var timestamp = DateTime.UtcNow.ToBinary();
+
+                        var pa = producer.ProduceAsync("test.C", timestamp.ToString(), JsonConvert.SerializeObject(new SendMessage
+                        {
+                            Message = "Hello",
+                            Timestamp = timestamp
+                        }));
+
+                        await pa.ContinueWith(t =&gt; Console.WriteLine($"success send. message: {t.Result.Value}"));
+                        await Task.Delay(10000);
+                    }
+
+                    // 停止前処理
+                    producer.Flush(TimeSpan.FromMilliseconds(10000));
+                }
+            })(bootstrapServers, tokenSource.Token), tokenSource.Token);
+
+            // Ctl+C待機
+            Console.CancelKeyPress += (_, e) =&gt;
+            {
+                e.Cancel = true;
+                tokenSource.Cancel(); // Taskキャンセル
+            };
+
+            Task.WaitAll(pTask, cTask);
+
+            Console.WriteLine("stop .Net Kafka Example. press any key to close.");
+
+            Console.ReadKey();
+        }
+    }
+}
+

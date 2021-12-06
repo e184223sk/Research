@@ -1,0 +1,148 @@
+namespace Matrix
+{
+    class Program
+    {
+        static Mat X = new Mat(
+                new double[] { 6.3, 10.4, 11.1, 16.4 }
+                ),
+            W1 = new Mat(
+                new double[] { 4.0, 2.0, 6.0, 1.0, 5.0 },
+                new double[] { 1.0, 3.0, 7.0, 2.0, 1.0 },
+                new double[] { 4.0, 2.0, 6.0, 1.0, 5.0 },
+                new double[] { 1.0, 3.0, 7.0, 2.0, 1.0 }
+                ),
+            B1 = new Mat(
+                new double[] { 2.0, 6.0, 4.0, 4.0, 1.0 }
+                ),
+            W2 = new Mat(
+                new double[] { 3.0, 5.0 },
+                new double[] { 6.0, 3.0 },
+                new double[] { 1.0, 5.0 },
+                new double[] { 3.0, 5.0 },
+                new double[] { 6.0, 3.0 }
+                ),
+            B2 = new Mat(
+                new double[] { 3.0, 6.0 }
+                ),
+            W3 = new Mat(
+                new double[] { 7.0, 5.0, 7.0, 6.0 },
+                new double[] { 4.0, 2.0, 4.0, 2.0 }
+                ),
+            B3 = new Mat(
+                new double[] { 4.0, 6.0, 5.0, 4.0 }
+                ),
+            T = new Mat(
+                new double[] { 0, 0, 1, 0 }
+                );
+        static Mat A1 = new Mat(
+                new double[] { 0.0, 0.0, 0.0, 0.0, 0.0 }
+                ),
+                Z1 = new Mat(
+                new double[] { 0.0, 0.0, 0.0, 0.0, 0.0 }
+                ),
+                A2 = new Mat(
+                new double[] { 0.0, 0.0 }
+                ),
+                Z2 = new Mat(
+                new double[] { 0.0, 0.0 }
+                ),
+                A3 = new Mat(
+                new double[] { 0.0, 0.0, 0.0, 0.0 }
+                ),
+                Y = new Mat(
+                new double[] { 0.0, 0.0, 0.0, 0.0 }
+                );
+
+        static double loss()     //交差エントロピー誤差を求める
+        {
+            A1.Matrix_data = Mat.dot(X, W1) + B1;
+            Z1.Matrix_data = A1.sigmoid();
+            A2.Matrix_data = Mat.dot(Z1, W2) + B2;
+            Z2.Matrix_data = A2.sigmoid();
+            A3.Matrix_data = Mat.dot(Z2, W3) + B3;
+            Y.Matrix_data = A3.softmax();
+
+            return Y.cross_etp_err(T);
+        }
+        static Mat loss_forward()     //誤差逆伝播時に使用する　交差エントロピー誤差とソフトマックス関数の微分
+        {
+            Mat dx = new Mat(
+                new double[] { 0.0, 0.0, 0.0, 0.0 }
+                );
+
+            dx.Matrix_data = Y - T;
+            dx.Matrix_data = dx / 2;
+
+            return dx;
+        }
+        static void Main(string[] args)
+        {
+            double rate = 0.1;     //学習率
+
+            Mat W1_grad = new Mat(W1.Zero_matrix),
+                B1_grad = new Mat(B1.Zero_matrix),
+                W2_grad = new Mat(W2.Zero_matrix),
+                B2_grad = new Mat(B2.Zero_matrix),
+                W3_grad = new Mat(W3.Zero_matrix),
+                B3_grad = new Mat(B3.Zero_matrix);
+
+            System.Console.WriteLine("誤差逆伝播：しない　0　、する　1");
+            var deeplearning = int.Parse(System.Console.ReadLine());
+            System.Console.WriteLine("学習回数");
+            var learn = int.Parse(System.Console.ReadLine());
+
+            for (int i = 0; i &lt; learn; i++)
+            {
+                if (deeplearning == 0)            //誤差逆伝播法を使用しない場合
+                {
+                    W1_grad.Matrix_data = W1.numerical_gradient(loss);
+                    B1_grad.Matrix_data = B1.numerical_gradient(loss);
+                    W2_grad.Matrix_data = W2.numerical_gradient(loss);
+                    B2_grad.Matrix_data = B2.numerical_gradient(loss);
+                    W3_grad.Matrix_data = W3.numerical_gradient(loss);
+                    B3_grad.Matrix_data = B3.numerical_gradient(loss);
+
+                    W1.Matrix_data = W1 - (rate * W1_grad);
+                    B1.Matrix_data = B1 - (rate * B1_grad);
+                    W2.Matrix_data = W2 - (rate * W2_grad);
+                    B2.Matrix_data = B2 - (rate * B2_grad);
+                    W3.Matrix_data = W3 - (rate * W3_grad);
+                    B3.Matrix_data = B3 - (rate * B3_grad);
+                }
+                else                     //誤差逆伝播法を使用する場合
+                {
+                    loss();
+                    Mat affine3 = loss_forward();
+                    Mat affine3_dx = new Mat(Mat.dot(affine3, new Mat(W3.T)));   //癖のあるプログラムなので、Matクラスの設計を考え直す必要あり。
+                    W3_grad.Matrix_data = Mat.dot(new Mat(Z2.T), affine3);
+                    B3_grad.Matrix_data = affine3.Matrix_data;
+
+                    Mat sigmoid_2 = new Mat(A2.sigmoid_backword(affine3_dx.Matrix_data));
+
+                    Mat affine2 = sigmoid_2;
+                    Mat affine2_dx = new Mat(Mat.dot(affine2, new Mat(W2.T)));
+                    W2_grad.Matrix_data = Mat.dot(new Mat(Z1.T), affine2);
+                    B2_grad.Matrix_data = affine2.Matrix_data;
+
+                    Mat sigmoid_1 = new Mat(A1.sigmoid_backword(affine2_dx.Matrix_data));
+
+                    Mat affine1 = sigmoid_1;
+                    Mat affine1_dx = new Mat(Mat.dot(affine1, new Mat(W1.T)));
+                    W1_grad.Matrix_data = Mat.dot(new Mat(X.T), affine1);
+                    B1_grad.Matrix_data = affine1.Matrix_data;
+
+                    W1.Matrix_data = W1 - (rate * W1_grad);
+                    B1.Matrix_data = B1 - (rate * B1_grad);
+                    W2.Matrix_data = W2 - (rate * W2_grad);
+                    B2.Matrix_data = B2 - (rate * B2_grad);
+                    W3.Matrix_data = W3 - (rate * W3_grad);
+                    B3.Matrix_data = B3 - (rate * B3_grad);
+                }
+
+                loss();            //パラメータ更新後、最終的な出力を得、表示。
+                System.Console.WriteLine(i.ToString() + ":" + Y.Matrix_data[0][0].ToString() + "==" + Y.Matrix_data[0][2].ToString());
+            }
+        }
+    }
+}
+

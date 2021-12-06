@@ -1,0 +1,52 @@
+
+public class ProgressViewModel : ViewModelBase
+{
+    private MonitorableSequencer Sequencer { get; set; }
+
+    public ProgressViewModel(MonitorableSequencer sequencer, object parameter = null)
+    {
+        Sequencer = sequencer;
+
+        Sequencer.Update += (o, e) =&gt;
+        {
+            if (o == null || !int.TryParse(o.ToString(), out int value)) return;
+
+            if (value &lt; 0 || 100 &lt; value) return;
+
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                ProgressValue = value;
+            }
+            else
+            {
+                Application.Current.Dispatcher.BeginInvoke((Action)(() =&gt;
+                {
+                    ProgressValue = value;
+                }));
+            }
+        };
+
+        Execute(parameter);
+    }
+
+    private int _progressValue = 0;
+    public int ProgressValue
+    {
+        get =&gt; _progressValue;
+        set
+        {
+            _progressValue = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private void Execute(object parameter)
+    {
+        Task.Factory.StartNew(() =&gt;
+        {
+            Sequencer.SequenceStart(parameter);
+            CloseWindowRequest = new CloseWindowRequest();
+        });
+    }
+}
+

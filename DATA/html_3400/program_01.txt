@@ -1,0 +1,161 @@
+
+    /// &lt;summary&gt;
+    /// 背景をグラデーション描画するコントロール
+    /// &lt;/summary&gt;
+    public abstract partial class GradientShape : ContentView
+    {
+        // コンストラクタとプロパティの定義は省略(詳細はGitHubのソースコード参照)
+
+        // 描画するハンドラ
+        private void SkCanvasView_OnPaintSurface(object sender, SKPaintSurfaceEventArgs e)
+        {
+            SKImageInfo info = e.Info;
+            SKSurface surface = e.Surface;
+            SKCanvas canvas = surface.Canvas;
+            PaintSurface(canvas, info);
+        }
+
+        /// &lt;summary&gt;
+        /// 対象キャンバスを描画する
+        /// &lt;/summary&gt;
+        /// &lt;param name="canvas"&gt;描画対象のキャンバス&lt;/param&gt;
+        /// &lt;param name="info"&gt;描画対象領域のサイズなどの情報&lt;/param&gt;
+        protected virtual void PaintSurface(SKCanvas canvas, SKImageInfo info)
+        {
+            // 初期描画済みとする
+            Initialized = true;
+
+            // canvas上にすでに何かを描画済みであればいったんクリアする(透明色にする)
+            canvas.Clear();
+
+            // 描画範囲をコントロール全体として指定
+            SKRect rect = new SKRect(0, 0, info.Width, info.Height);
+
+            // グラデーション設定を取得
+            GradientModel gradientModel = GradientModelFactory.Instance.CreateGradientModel(BackGradientColor);
+            if (gradientModel == null &amp;&amp; BackgroundColor == Color.Transparent)
+            {
+                // グラデーション設定もグラデーション無しの背景色も、どちらも未設定であれば透明とする
+                return;
+            }
+
+            // 塗りつぶしのグラデーション用のSKPaintを作成
+            using (SKPaint paint = CreateSKPaint())
+            {
+                if (gradientModel != null)
+                {
+                    // 背景グラデーション用のShaderの設定
+                    paint.Shader = CreateShader(gradientModel, rect);
+                }
+                else
+                {
+                    // グラデーション設定がない場合はBackgroundColorから取得
+                    paint.Color = BackgroundColor.ToSKColor();
+                }
+
+                // 背景を描画
+                DrawFill(canvas, paint, rect);
+            }
+
+            // 枠線の太さが0に近ければ枠線は描画しない
+            if (StrokeWidth &lt; 0.01) return;
+
+            // 枠線用のSKPaintを作成
+            using (SKPaint paint = CreateSKPaint(BorderColor.ToSKColor(), SKPaintStyle.Stroke, StrokeWidth))
+            {
+                // 枠線を描画
+                DrawStroke(canvas, paint, rect);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 背景を描画する
+        /// &lt;/summary&gt;
+        /// &lt;param name="canvas"&gt;描画対象のキャンバス&lt;/param&gt;
+        /// &lt;param name="paint"&gt;描画する色の設定&lt;/param&gt;
+        /// &lt;param name="rect"&gt;描画サイズ&lt;/param&gt;
+        protected abstract void DrawFill(SKCanvas canvas, SKPaint paint, SKRect rect);
+
+        /// &lt;summary&gt;
+        /// 枠線を描画する
+        /// &lt;/summary&gt;
+        /// &lt;param name="canvas"&gt;描画対象のキャンバス&lt;/param&gt;
+        /// &lt;param name="paint"&gt;描画する色の設定&lt;/param&gt;
+        /// &lt;param name="rect"&gt;描画サイズ&lt;/param&gt;
+        protected abstract void DrawStroke(SKCanvas canvas, SKPaint paint, SKRect rect);
+
+        /// &lt;summary&gt;
+        /// 矩形から円の半径を算出する
+        /// &lt;/summary&gt;
+        /// &lt;param name="rect"&gt;矩形&lt;/param&gt;
+        /// &lt;returns&gt;半径&lt;/returns&gt;
+        protected static float GetRadius(SKRect rect)
+        {
+            // 円から絶対にはみ出ないように半径は1小さくする
+            return (float)Math.Min(rect.Width, rect.Height) / 2 - 1;
+        }
+
+        /// &lt;summary&gt;
+        /// SKPaintを作成する
+        /// &lt;/summary&gt;
+        /// &lt;param name="style"&gt;塗りつぶしか枠線か&lt;/param&gt;
+        /// &lt;param name="strokeWidth"&gt;枠線の場合の線の太さ&lt;/param&gt;
+        /// &lt;returns&gt;作成したSKPaint&lt;/returns&gt;
+        protected static SKPaint CreateSKPaint(SKPaintStyle style = SKPaintStyle.Fill, float strokeWidth = 0)
+        {
+            return CreateSKPaint(SKColors.Black, style, strokeWidth);
+        }
+
+        /// &lt;summary&gt;
+        /// SKPaintを作成する
+        /// &lt;/summary&gt;
+        /// &lt;param name="color"&gt;色&lt;/param&gt;
+        /// &lt;param name="style"&gt;塗りつぶしか枠線か&lt;/param&gt;
+        /// &lt;param name="strokeWidth"&gt;枠線の場合の線の太さ&lt;/param&gt;
+        /// &lt;returns&gt;作成したSKPaint&lt;/returns&gt;
+        protected static SKPaint CreateSKPaint(SKColor color, SKPaintStyle style = SKPaintStyle.Fill, float strokeWidth = 0)
+        {
+            return new SKPaint()
+            {
+                IsAntialias = true,
+                Color = color,
+                Style = style,
+                StrokeWidth = strokeWidth,
+            };
+        }
+
+        /// &lt;summary&gt;
+        /// グラデーション用のShaderを作成する
+        /// &lt;/summary&gt;
+        /// &lt;param name="gradientModel"&gt;グラデーション設定&lt;/param&gt;
+        /// &lt;param name="rect"&gt;対象の矩形範囲&lt;/param&gt;
+        /// &lt;returns&gt;作成したShader&lt;/returns&gt;
+        protected static SKShader CreateShader(GradientModel gradientModel, SKRect rect)
+        {
+            switch (gradientModel.ShaderType)
+            {
+                case ShaderType.Liner:
+                    // 矩形の場合
+                    return SKShader.CreateLinearGradient(
+                        new SKPoint(rect.Left, rect.Top),
+                        new SKPoint(rect.Left, rect.Bottom),
+                        gradientModel.Colors,
+                        gradientModel.ColorPos,
+                        SKShaderTileMode.Clamp);
+                case ShaderType.Radial:
+                    // 円の場合
+                    // 矩形のサイズから円の半径を算出する
+                    float radius = GetRadius(rect);
+                    // グラデーションの始点位置を中心から左上にずらし、そのずれた分だけ半径を大きくする
+                    return SKShader.CreateRadialGradient(
+                        new SKPoint(rect.MidX - radius * 0.5f, rect.MidY - radius * 0.5f),
+                        radius + radius * 0.5f,
+                        gradientModel.Colors,
+                        gradientModel.ColorPos,
+                        SKShaderTileMode.Clamp);
+                default:
+                    return null;
+            }
+        }
+    }
+

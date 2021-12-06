@@ -1,0 +1,153 @@
+
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+class SampleKeyHookAndInput
+{
+    static void Main(string[] args)
+    {
+        var myHookAndInput = new MyHookAndInput();
+        myHookAndInput.Hook();
+
+        Application.Run();
+
+        myHookAndInput.HookEnd();
+    }
+}
+
+class MyHookAndInput
+{
+    delegate int delegateHookCallback(int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    static extern IntPtr SetWindowsHookEx(int idHook, delegateHookCallback lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    static extern IntPtr GetModuleHandle(string lpModuleName);
+
+    IntPtr hookPtr = IntPtr.Zero;
+
+    [DllImport("user32.dll")]
+    static extern void SendInput(int nInputs, ref INPUT pInputs, int cbsize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public int mouseData;
+        public int dwFlags;
+        public int time;
+        public int dwExtraInfo;
+    };
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct KEYBDINPUT
+    {
+        public short wVk;
+        public short wScan;
+        public int dwFlags;
+        public int time;
+        public int dwExtraInfo;
+    };
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct HARDWAREINPUT
+    {
+        public int uMsg;
+        public short wParamL;
+        public short wParamH;
+    };
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct INPUT
+    {
+        [FieldOffset(0)]
+        public int type;
+        [FieldOffset(4)]
+        public MOUSEINPUT no;
+        [FieldOffset(4)]
+        public KEYBDINPUT ki;
+        [FieldOffset(4)]
+        public HARDWAREINPUT hi;
+    };
+
+    public void Hook()
+    {
+        using (Process curProcess = Process.GetCurrentProcess())
+        using (ProcessModule curModule = curProcess.MainModule)
+        {
+            hookPtr = SetWindowsHookEx(
+                13,
+                HookCallback,
+                GetModuleHandle(curModule.ModuleName),
+                0
+            );
+        }
+    }
+
+    int HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        Keys v = (Keys)(short)Marshal.ReadInt32(lParam);
+        // Jキーの入力の場合
+        if (v == Keys.J)
+        {
+            switch ((int)wParam)
+            {
+                // キー押下の時
+                case 256:
+                    INPUT input = new INPUT
+                    {
+                        type = 1,
+                        ki = new KEYBDINPUT()
+                        {
+                            // 85はUキー
+                            wVk = 85,
+                            wScan = 0,
+                            // キーボードダウンの場合は、0(ゼロ)
+                            dwFlags = 0,
+                            time = 0,
+                            dwExtraInfo = 0
+                        },
+                    };
+                    SendInput(1, ref input, Marshal.SizeOf(input));
+
+                    return 1;
+
+                // キー離した時
+                case 257:
+                    INPUT input2 = new INPUT
+                    {
+                        type = 1,
+                        ki = new KEYBDINPUT()
+                        {
+                            // 85はUキー
+                            wVk = 85,
+                            wScan = 0,
+                            // キーボードアップの場合は、2
+                            dwFlags = 2,
+                            time = 0,
+                            dwExtraInfo = 0
+                        },
+                    };
+                    SendInput(1, ref input2, Marshal.SizeOf(input2));
+
+                    return 1;
+            }
+        }
+
+        return 0;
+    }
+
+    public void HookEnd()
+    {
+        UnhookWindowsHookEx(hookPtr);
+        hookPtr = IntPtr.Zero;
+    }
+}
+

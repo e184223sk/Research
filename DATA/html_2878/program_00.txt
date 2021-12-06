@@ -1,0 +1,137 @@
+
+/// &lt;summary&gt;
+/// timelineにトラックをセットする
+/// &lt;/summary&gt;
+/// &lt;param name="_targetValue"&gt;&lt;/param&gt;
+/// &lt;param name="_skinnedMeshRenderer"&gt;&lt;/param&gt;
+/// &lt;param name="_blendShapeIndex"&gt;&lt;/param&gt;
+private void SetTimelineTrackSave(float _targetValue, SkinnedMeshRenderer _skinnedMeshRenderer,int _blendShapeIndex)
+{
+    var _propertyName = "blendShape." + _skinnedMeshRenderer.sharedMesh.GetBlendShapeName(_blendShapeIndex);
+    var playableDirector = serializedObject.FindProperty("_playableDirector").objectReferenceValue as PlayableDirector;
+
+    if (playableDirector == null)
+        return;
+
+    var timelineAsset = playableDirector.playableAsset as TimelineAsset;
+    var currentTime = playableDirector.time;
+    var weightValue = _targetValue;
+    foreach (var timelineClip in timelineAsset.GetRootTracks())
+    {
+        // タイムラインのそれぞれのタイプを取得
+        var type = timelineClip.GetType();
+        //Debug.Log($"name {timelineClip.name} {timelineClip.GetType()}");
+
+        // アニメーショントラックか判定
+        if (type.Name == "AnimationTrack")
+        {
+            // TrackAssetをAnimationTrackで取得
+            var animationTrack = timelineClip as AnimationTrack;
+
+            // playableDirectorから各トラックを取得する
+            var binding = playableDirector.GetGenericBinding(animationTrack);
+            //Debug.Log($"binding: {binding?.name}");
+
+            bool isParent = false;
+           //　トラックに設定されている、オブジェクトと比較する
+            if (GameObjectNameInclude(binding, _skinnedMeshRenderer, ref isParent))
+            {
+                //　トラックに設定されている、オブジェクトと比較する
+                if (binding.name == _skinnedMeshRenderer.name)
+                {
+                    AnimationCurve curve;
+
+                    //  アニーしょんタックに設定されているアニメーションクリップを取得
+                    var animationClip = animationTrack.infiniteClip;
+                    // アニメーションがすげにある場合
+                    // 新たにアニメーションを上書きすると情報がおかしくなるので
+                    // 少々違った方法で
+                    if (animationClip)
+                    {
+                            // アニメーショントラックからアニメーションカーブを取得する
+                        var animationCurveList = AnimationUtility.GetAllCurves(animationClip).Where(_ =&gt; _.propertyName == _propertyName).ToList();
+                        // 
+                        var animationCurve = animationCurveList.Count == 0 ? null : animationCurveList[0];
+
+
+                        EditorCurveBinding curveBinding = new EditorCurveBinding();
+　　　　　　　　　　　　　//親がいるならパスに書いてあげないといけない
+                        if (isParent)
+                        {
+                            curveBinding.path = _skinnedMeshRenderer.name;
+                        }
+                        curveBinding.type = typeof(SkinnedMeshRenderer);
+                        curveBinding.propertyName = _propertyName;
+
+
+                        // セットするカーブ
+                        if (animationCurve!=null)
+                        {
+                            animationCurve.curve.AddKey((float)currentTime, weightValue);
+                        }
+                        else
+                        {
+                            curve = new AnimationCurve(new Keyframe(((float)currentTime), weightValue));
+                        }
+
+                        // アニメーションクリップを再セットする
+                        AnimationUtility.SetEditorCurve(animationClip, curveBinding, animationCurve!=null?  animationCurve.curve : curve);
+
+                        // 再描画を依頼する
+                        Repaint();
+                    }
+                    else
+                    {
+
+                        animationTrack.CreateInfiniteClip("");
+                        animationClip =  animationTrack.infiniteClip;
+
+                        curve = new AnimationCurve( new Keyframe(((float)currentTime), weightValue));
+
+                        // アニメーションクリップをセットする
+                        animationClip.SetCurve(isParent == false ? "" : _skinnedMeshRenderer.name, typeof(SkinnedMeshRenderer), _propertyName, curve);
+                        // 再描画を依頼する
+                        Repaint();
+
+                    }
+                }
+            }
+        }
+    }
+}
+/// &lt;summary&gt;
+/// セットされているオブジェクトの親に自分が含まれているかチェック
+/// &lt;/summary&gt;
+/// &lt;param name="_binding"&gt;&lt;/param&gt;
+/// &lt;param name="_skinnedMeshRenderer"&gt;&lt;/param&gt;
+/// &lt;param name="_isRoot"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private bool GameObjectNameInclude(Object _binding, SkinnedMeshRenderer _skinnedMeshRenderer,ref bool _isParent)
+{
+    var ret = false;
+    _isParent = false;
+
+    if (_binding.name == _skinnedMeshRenderer.name)
+         ret = true;
+    if (!ret)
+    {
+        var parent = _skinnedMeshRenderer.gameObject.transform.parent;
+        while (parent)
+        {
+            if (_binding.name == parent.name)
+            {
+                _isParent = true;
+                ret = true;
+                break;
+            }
+
+            parent = parent.parent;
+        }
+    }
+    return ret;
+}
+private void Repaint()
+{
+    TimelineEditor.Refresh(RefreshReason.ContentsAddedOrRemoved);
+}
+

@@ -1,0 +1,46 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using System.Runtime.InteropServices;
+
+namespace PInvokeTest
+{
+    class Program
+    {
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate int CallbackDelegate([MarshalAs(UnmanagedType.LPWStr)]string message);
+
+        [DllImport("TestDll32.dll", EntryPoint = "TestFunction", CharSet = CharSet.Unicode)]
+        private extern static int TestFunction_32(string message, [MarshalAs(UnmanagedType.FunctionPtr)] CallbackDelegate callback);
+        [DllImport("TestDll64.dll", EntryPoint = "TestFunction", CharSet = CharSet.Unicode)]
+        private extern static int TestFunction_64(string message, [MarshalAs(UnmanagedType.FunctionPtr)] CallbackDelegate callback);
+
+        /// &lt;summary&gt;
+        /// DLL関数のラッパー
+        /// &lt;/summary&gt;
+        private static int TestFunction(string startMessage, CallbackDelegate callback)
+        {
+            return System.Environment.Is64BitProcess ? TestFunction_64(startMessage, callback) : TestFunction_32(startMessage, callback);
+        }
+
+        static void Main(string[] args)
+        {
+            CallbackDelegate pn = ProgressNotifier;
+            TestFunction("処理を開始します（C#側で定義した文字列）", pn);
+        }
+        /// &lt;summary&gt;
+        /// DLL側の処理内の各チェックポイントでコールバックされる。
+        /// &lt;param name="progressMessage"&gt;処理状況を示すメッセージ&lt;/param&gt;
+        /// &lt;/summary&gt;
+        private static int ProgressNotifier(string progressMessage)
+        {
+            Console.WriteLine($"Progress :{progressMessage}.");
+
+            return 0;
+        }
+    }
+}
+

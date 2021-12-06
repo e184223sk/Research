@@ -1,0 +1,173 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UniRx;
+using UniRx.Triggers;
+
+public class GameManager : MonoBehaviour {
+
+  [SerializeField] string FilePath;
+  [SerializeField] string ClipPath;
+
+  [SerializeField] Button Play;
+  [SerializeField] Button SetChart;
+
+  [SerializeField] GameObject Don;
+  [SerializeField] GameObject Ka;
+
+  [SerializeField] Transform SpawnPoint;
+  [SerializeField] Transform BeatPoint;
+
+  AudioSource Music;
+
+  float PlayTime;
+  float Distance;
+  float During;
+  bool isPlaying;
+  int GoIndex;
+
+  float CheckRange;
+  float BeatRange;
+  List&lt;float&gt; NoteTimings;
+
+  string Title;
+  int BPM;
+  List&lt;GameObject&gt; Notes;
+
+  Subject&lt;string&gt; SoundEffectSubject = new Subject&lt;string&gt;();
+
+  public IObservable&lt;string&gt; OnSoundEffect {
+     get { return SoundEffectSubject; }
+  }
+
+  // イベントを通知するサブジェクトを追加
+  Subject&lt;string&gt; MessageEffectSubject = new Subject&lt;string&gt;();
+
+  // イベントを検知するオブザーバーを追加
+  public IObservable&lt;string&gt; OnMessageEffect {
+     get { return MessageEffectSubject; }
+  }
+
+  void OnEnable() {
+    Music = this.GetComponent&lt;AudioSource&gt;();
+
+    Distance = Math.Abs(BeatPoint.position.x - SpawnPoint.position.x);
+    During = 2 * 1000;
+    isPlaying = false;
+    GoIndex = 0;
+
+    CheckRange = 120;
+    BeatRange = 80;
+
+    Play.onClick
+      .AsObservable()
+      .Subscribe(_ =&gt; play());
+
+    SetChart.onClick
+      .AsObservable()
+      .Subscribe(_ =&gt; loadChart());
+
+    this.UpdateAsObservable()
+      .Where(_ =&gt; isPlaying)
+      .Where(_ =&gt; Notes.Count &gt; GoIndex)
+      .Where(_ =&gt; Notes[GoIndex].GetComponent&lt;NoteController&gt;().getTiming() &lt;= ((Time.time * 1000 - PlayTime) + During))
+      .Subscribe(_ =&gt; {
+        Notes[GoIndex].GetComponent&lt;NoteController&gt;().go(Distance, During);
+        GoIndex++;
+      });
+
+    this.UpdateAsObservable()
+      .Where(_ =&gt; isPlaying)
+      .Where(_ =&gt; Input.GetKeyDown(KeyCode.D))
+      .Subscribe(_ =&gt; {
+        beat("don", Time.time * 1000 - PlayTime);
+        SoundEffectSubject.OnNext("don");
+      });
+
+    this.UpdateAsObservable()
+      .Where(_ =&gt; isPlaying)
+      .Where(_ =&gt; Input.GetKeyDown(KeyCode.K))
+      .Subscribe(_ =&gt; {
+        beat("ka", Time.time * 1000 - PlayTime);
+        SoundEffectSubject.OnNext("ka");
+      });
+  }
+
+  void loadChart() {
+    Notes = new List&lt;GameObject&gt;();
+    NoteTimings = new List&lt;float&gt;();
+
+    string jsonText = Resources.Load&lt;TextAsset&gt;(FilePath).ToString();
+    Music.clip = (AudioClip)Resources.Load(ClipPath);
+
+    JsonNode json = JsonNode.Parse(jsonText);
+    Title = json["title"].Get&lt;string&gt;();
+    BPM = int.Parse(json["bpm"].Get&lt;string&gt;());
+
+    foreach(var note in json["notes"]) {
+      string type = note["type"].Get&lt;string&gt;();
+      float timing = float.Parse(note["timing"].Get&lt;string&gt;());
+
+      GameObject Note;
+      if (type == "don") {
+        Note = Instantiate(Don, SpawnPoint.position, Quaternion.identity);
+      } else if (type == "ka") {
+        Note = Instantiate(Ka, SpawnPoint.position, Quaternion.identity);
+      } else {
+        Note = Instantiate(Don, SpawnPoint.position, Quaternion.identity); // default don
+      }
+
+      Note.GetComponent&lt;NoteController&gt;().setParameter(type, timing);
+
+      Notes.Add(Note);
+      NoteTimings.Add(timing);
+    }
+  }
+
+  void play() {
+    Music.Stop();
+    Music.Play();
+    PlayTime = Time.time * 1000; 
+    isPlaying = true;
+    Debug.Log("Game Start!");
+  }
+
+  void beat(string type, float timing) {
+    float minDiff = -1;
+    int minDiffIndex = -1;
+
+    for (int i = 0; i &lt; Notes.Count; i++) {
+      if(NoteTimings[i] &gt; 0) {
+        float diff = Math.Abs(NoteTimings[i] - timing);
+        if(minDiff == -1 || minDiff &gt; diff) {
+          minDiff = diff;
+          minDiffIndex = i;
+        }
+      }
+    }
+
+    if(minDiff != -1 &amp; minDiff &lt; CheckRange) {
+      if(minDiff &lt; BeatRange &amp; Notes[minDiffIndex].GetComponent&lt;NoteController&gt;().getType() == type) {
+        NoteTimings[minDiffIndex] = -1;
+        Notes[minDiffIndex].SetActive(false);
+
+        MessageEffectSubject.OnNext("good"); // イベントを通知
+        Debug.Log("beat " + type + " success.");
+      }
+      else {
+        NoteTimings[minDiffIndex] = -1;
+        Notes[minDiffIndex].SetActive(false);
+
+        MessageEffectSubject.OnNext("failure"); // イベントを通知
+        Debug.Log("beat " + type + " failure.");
+      }
+    }
+    else {
+      Debug.Log("through");
+    }
+  }
+}
+

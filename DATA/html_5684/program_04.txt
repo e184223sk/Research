@@ -1,0 +1,213 @@
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.Callbacks;
+using UnityEngine;
+
+namespace StyleCop
+{
+    /// &lt;summary&gt;
+    /// StyleCopを実行する
+    /// &lt;/summary&gt;
+    static class StyleCopRunner
+    {
+        /// &lt;summary&gt;
+        /// StyleCopの対象としたいディレクトリを指定してください。
+        /// &lt;/summary&gt;
+        static readonly List&lt;string&gt; TargetPathList = new List&lt;string&gt;
+        {
+            Application.dataPath + "/Scripts/"
+        };
+
+        /// &lt;summary&gt;
+        /// monoの場所
+        /// "brew install mono" でmonoをインストールするか、パスを変更してください。
+        /// &lt;/summary&gt;
+#if !UNITY_EDITOR_WIN
+        const string MonoCommand = "/usr/local/bin/mono";
+#endif
+
+#if UNITY_EDITOR_WIN
+        /// &lt;summary&gt;xbuildの場所&lt;/summary&gt;
+        const string XBuildCommand = @"C:\Program Files\Unity\Editor\Data\MonoBleedingEdge\bin\xbuild.bat";
+
+        /// &lt;summary&gt;StyleCopビルド時の引数&lt;/summary&gt;
+        const string XBuildArgs = " /p:Platform=\"Any CPU\" ";
+#else
+        /// &lt;summary&gt;xbuildの場所&lt;/summary&gt;
+        const string XBuildCommand = "/usr/local/bin/xbuild";
+
+        /// &lt;summary&gt;StyleCopビルド時の引数&lt;/summary&gt;
+        const string XBuildArgs = "";
+#endif
+
+        /// &lt;summary&gt;
+        /// StyleCopのディレクトリ
+        /// https://github.com/Nylle/StyleCop.Console を利用しています。
+        /// こちらのリポジトリをCloneしたフォルダを指定してください。
+        /// &lt;/summary&gt;
+        static readonly string StyleCopDirectory = Application.dataPath + "/StyleCop.Console/";
+
+        /// &lt;summary&gt;
+        /// StyleCop実行ファイルのパス
+        /// &lt;/summary&gt;
+        static readonly string StyleCopExePath = StyleCopDirectory + "StyleCop.Console/bin/Debug/StyleCop.Console.exe";
+
+        /// &lt;summary&gt;
+        /// 設定ファイルとオプションをArgsに詰める
+        /// &lt;/summary&gt;
+#if UNITY_EDITOR_WIN
+        static readonly string Args = "-s Settings.StyleCop -p ";
+#else
+        static readonly string Args = StyleCopExePath + " -s Settings.StyleCop -p ";
+#endif
+
+        /// &lt;summary&gt;
+        /// ログ収集用
+        /// &lt;/summary&gt;
+        static List&lt;string&gt; logs;
+
+        /// &lt;summary&gt;
+        /// 出力受け取り時のイベント
+        /// &lt;/summary&gt;
+        static void OnReceiveOutputData(object sender, DataReceivedEventArgs e)
+        {
+            logs.Add(e.Data + '\n');
+        }
+
+        /// &lt;summary&gt;
+        /// 終了時のイベント
+        /// &lt;/summary&gt;
+        static void OnFinished()
+        {
+            var violationCount = logs.Count(c =&gt; c.StartsWith("  Line"));
+
+            // 全ファイルを表示するとログ出力がTruncateされるので違反が出たファイルと箇所だけ表示するように整形
+            var tmpLogs = new List&lt;string&gt;();
+            for (int i = 0; i &lt; logs.Count; i++)
+            {
+                if (logs[i].StartsWith("Pass") &amp;&amp; logs[i + 1].StartsWith("  Line"))
+                {
+                    tmpLogs.Add(logs[i]);
+                }
+
+                if (logs[i].StartsWith("  Line"))
+                {
+                    tmpLogs.Add(logs[i]);
+                }
+            }
+
+            logs.Clear();
+
+            // 結果をまとめる
+            bool existsViolation = violationCount &gt; 0;
+            var logTitle = string.Format(
+                "&lt;color='{0}'&gt;----- Run StyleCop -----&lt;/color&gt;\n",
+                existsViolation ? "magenta" : "cyan");
+
+            tmpLogs.Insert(0, logTitle);
+            tmpLogs.Insert(1, string.Format("&lt;color='yellow'&gt;{0} Violations&lt;/color&gt;\n", violationCount));
+
+            string logText = string.Join("", tmpLogs.ToArray());
+            if (existsViolation)
+            {
+                UnityEngine.Debug.LogWarning(logText);
+                return;
+            }
+
+            UnityEngine.Debug.Log(logText);
+        }
+
+        /// &lt;summary&gt;
+        /// スクリプト読み込み時にStyleCopが実行される
+        /// &lt;/summary&gt;
+        [DidReloadScripts(1)]
+        static void DidReloadScripts()
+        {
+            // DidReloadSciptsは再生直後にも発火するのでガードしておく
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                return;
+            }
+
+            if (logs == null)
+            {
+                logs = new List&lt;string&gt;();
+            }
+
+            var pathes = string.Join(" ", TargetPathList.ToArray());
+            RunStyleCop(pathes, OnReceiveOutputData, (_, __) =&gt; OnFinished());
+        }
+
+        /// &lt;summary&gt;
+        /// StyleCopを別プロセスで起動する
+        /// &lt;/summary&gt;
+        /// &lt;param name="targetPath"&gt;StyleCop対象のパス&lt;/param&gt;
+        /// &lt;param name="dataReceivedEventHandler"&gt;ログ出力ハンドラ&lt;/param&gt;
+        /// &lt;param name="exitedHandler"&gt;プロセス終了ハンドラ&lt;/param&gt;
+        public static void RunStyleCop(
+            string targetPath,
+            DataReceivedEventHandler dataReceivedEventHandler,
+            EventHandler exitedHandler)
+        {
+            if (!File.Exists(StyleCopExePath))
+            {
+                RunXBuild();
+            }
+
+            var info = new ProcessStartInfo();
+            info.WindowStyle = ProcessWindowStyle.Normal;
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.Arguments = Args + targetPath;
+            info.RedirectStandardOutput = true;
+
+#if UNITY_EDITOR_WIN
+            info.FileName = StyleCopExePath;
+#else
+            info.FileName = MonoCommand;
+#endif
+
+            var process = new Process();
+            process.StartInfo = info;
+            process.EnableRaisingEvents = true;
+            process.OutputDataReceived += dataReceivedEventHandler;
+            process.Exited += exitedHandler;
+
+            process.Start();
+            process.BeginOutputReadLine();
+        }
+
+        /// &lt;summary&gt;
+        /// StyleCopのビルド
+        /// &lt;/summary&gt;
+        static void RunXBuild()
+        {
+            var info = new ProcessStartInfo();
+            info.WindowStyle = ProcessWindowStyle.Normal;
+            info.UseShellExecute = false;
+            info.FileName = XBuildCommand;
+            info.Arguments = StyleCopDirectory + "StyleCop.sln" + XBuildArgs;
+            info.CreateNoWindow = true;
+            info.RedirectStandardError = true;
+
+            var process = new Process();
+            process.StartInfo = info;
+
+            process.Start();
+            var error = process.StandardError.ReadToEnd();
+            if (!string.IsNullOrEmpty(error))
+            {
+                UnityEngine.Debug.Log(error);
+            }
+
+            process.WaitForExit();
+        }
+    }
+}
+
+

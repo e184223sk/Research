@@ -1,0 +1,24 @@
+More than 3 years have passed since last update.　タイトルの通りの記事です。次の記事で紹介されていて興味を持ったのと、今でも更新され続けているので信頼できると思ったからですね。
+　　クロスプラットフォームなGUIフレームワーク「Eto.Forms」の紹介 - ごった日記　Visual Studioを起動した後、初手で「ツール(T)→拡張機能と更新プログラム(U)...」を選択して「拡張機能と更新プログラム」ウィンドウを開き、「オンライン」タブからEto.Formsを導入します。
+　具体的には、次のウィンドウで「ダウンロード」ボタンを押してダウンロードした後、 VisualStudioを再起動 すればEto.Formsが導入されます。　導入後は、新しいプロジェクトを作成する際に、Eto.Formsを利用したプロジェクトをテンプレートとして選択することができます。　プロジェクトの設定画面ですが、私はWPF使いなので、「XAML」でFormを編集することにしました。　まずフォルダパスがこんな感じです。　次に実行ファイルですが、上記の図で言えば「HDC2\HDC2.Desktop\bin\Debug\net461」フォルダ内に「HDC2.Desktop.exe」といった名前で収められています(リリースビルドだとDebugがReleaseになる)。
+　フォルダ比較したところ、「HDC2\HDC2.Desktop\bin\Debug\net461」フォルダの中身は「HDC2\HDC2.Desktop\bin\Debug\net461\HDC2.Desktop.app\Contents\MonoBundle」フォルダとほぼ同じだと分かりました……重複して存在する意味は？？　……確かにXAMLですが、サンプルがサンプルなせいで コードビハインド前提 のように見えます。　XAMLでMVVMを使うのは当然 なのでどう対策するかですが、実は「INotifyPropertyChangedを継承したViewModelをDataContextに宛がう」といったベタな戦法で対処することができます。
+　　Data Binding · picoe/Eto Wiki　　テンプレートに載っているサンプルコードを、そのままMVVMモデルとして使えるように書き直すとこんな感じ。
+　※WPFと違い、メニュー部分はコードビハインドする必要があります　MVVM支援用ライブラリとして個人的に重宝しているものとして ReactiveProperty があります。
+　　【C#】ReactiveProperty全然分からねぇ！って人向けのFAQ集【修正済】　Eto.Formsはフレームワークとして.NET Standardを使用していますが、ReactivePropertyも同様に.NET Standardに対応しています。
+　ゆえに使えるはず……と思って試してみたところ、 あっさり成功しました。 変更箇所はこんな感じです。ちなみにReactiveCollectionもちゃんと使えます。　Eto.Formsでは、「共通コード」を実現するために裏で「WPF」や「Gtk」などのフレームワークが動いています。
+　その辛みで、プロパティの値を変更する際に例外が出てしまうといったとんでもない事案を見つけました。
+　　※現象が再現する最小コードを作って投げたIssue→Raise an exception when overwrite the value of ReactiveProperty.Value not in constructor method · Issue #1041 · picoe/Eto
+　ところが、この問題について「Eto.Forms は Gtk しか SynchronizationContext に対応していないみたいなので自前でセットしたら動きました」との助言を頂きました。つまり、Eto.DesktopにおけるProgram.csについて、とあるところを、と書き換えてしまえば正常に動くというのです。実際試したら例外も出ず普通に動くのですがそれはorz　試行錯誤して見つけたのですが、WPFのノリに似た感じでした。以下はListBoxでの例です。　なお、後述するメニューにCommandをBindingできない不具合はこのコンテキストメニューでも同様ですので注意！　なんでググってもこれぐらいのことのサンプルソース出てこないんだよと思いながら試行錯誤して見つけました。
+　以下、ListBoxでの例です(他のコントロールでも可能)。　ただし、Eto.Formsで言えばVer.2.4.0からという比較的新しい機能なせいか、Linuxではまだ動かないのですけれどねorz　Eto.Formsプルダウンメニューの翻訳対応 - ごった日記
+　この記事によるととんでもないことが書かれています。つまり、　……明らかに ローカライズのことを考えてないクソ仕様 だと思いますが、幸いにも「コードビハインドで上書きする」技が使えます。つまり、何食わぬ顔でXAMLを読み込んだ後、当該文字列をダイレクトに書き換えてやればいいのです。　例えばButtonMenuItemにおけるCommandプロパティにCommand="Binding SampleCommand"とセットしても無駄でした。つまりコードビハインドでないとメニュー関係は処理できないわけで、看板に偽りありとしか言いようがありませんね。
+　なおButtonとかのCommandプロパティにはBindingできる謎……。　Eto.Formsのサンプルを読めば気づくと思いますが、AboutDialog型のインスタンスに対してShowDialog(Window型)メソッドを発動することにより、バージョン情報のダイアログを表示することができます。
+　ソフト名や概要などの設定項目は、プロジェクトのプロパティから「パッケージ」を選ぶことによってある程度は編集できますが、たぶん 直接AboutDialog型のプロパティを弄った方が楽です 。　全体的に見て、表現能力はWPFより明らかに見劣りします。
+　例えば&lt;TableLayout&gt;はWPFで言うところの&lt;Grid&gt;っぽいコンテナですが、&lt;Grid&gt;ではGrid.ColumnおよびGrid.Rowプロパティで位置決めしていたものを、&lt;TableLayout&gt;では`&lt;TableRow&gt;の中に1行づつコンテナを詰め込む方向の実装になります。また、ColumnSpanやRowSpanが無いので、それっぽいものを作りたい場合は&lt;StackLayout&gt;をネストさせて組むしかありません。
+　ところが、様々なオブジェクト・コンテナに指定するSpacingおよびPaddingプロパティは、WPFのMarinおよびPaddingプロパティと違い、周囲を同じピクセル数でしか空けることができません。一応"10,5"のようにカンマ区切りで2個の引数を取れるものもありますがそれでも2個まで。その結果、かなりレイアウト構築に制限を受けることになります。
+　しかも、これはおま環かもしれませんが、レイアウトを表すXMLファイル(*.xeto)を標準のテキストエディター(Eto.Forms preview)で開いて作業していると、しばらくしたらVisualStudioごとフリーズし、強制終了を余儀なくされます。上記のようにプレビュー欄が何の役にも立たないくせにこの体たらくですので、編集する際は「XML(テキスト)エディター」を使用することを推奨します。
+　とはいえ、Eto.Forms previewじゃないと使えないプロパティがIntelliSenseで表示されることがあるといったふざけた仕様により、Eto.Forms previewの使用を余儀なくされることはあるでしょうorz　Linuxで動かす際は、Monoを利用してビルド後のexeファイルを動かします。
+　ただ、その辺のUbuntu 16.04 LTSなどで何気なく「sudo apt-get install mono-complete」としただけだと、最新のMonoじゃないのでEto.Forms製アプリが動かないといったドツボにはまります。
+　したがって、公式に記載された手順に従い、事前にリポジトリを追加してからインストールする必要があります(以下はUbuntu 16.04の場合)。　LabelコントロールやButtonコントロールにおけるTextプロパティや、ImageViewコントロールにおけるImageプロパティのように、1要素でOKなプロパティについてはReactiveProperty&lt;Hoge&gt;型を割り当てることができます。
+　また、ListBoxコントロールにおけるDataStoreプロパティのように、複数要素を割り当てるプロパティにはReactiveCollection&lt;Hoge&gt;型を割り当てることができます。ただ、WPFとオブジェクト名やプロパティ名が一部異なっているので覚えるのが大変ですわ……。　System.Drawing.Bitmapのような名前のEto.Drawing.Bitmap型がありますので、そこからEto.Drawing.Graphics型のインスタンスを引き出して叩くのが基本です。画像に画像を合成したい時はこんな感じ。
+
+

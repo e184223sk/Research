@@ -1,0 +1,39 @@
+        private void DoRenderPreview(bool setMaterial, AudioClip clip, AudioImporter audioImporter, Rect wantedRect, float scaleFactor)
+        {
+            scaleFactor *= 0.95f; // Reduce amplitude slightly to make highly compressed signals fit.
+            float[] minMaxData = (audioImporter == null) ? null : AudioUtil.GetMinMaxData(audioImporter);
+            int numChannels = clip.channels;
+            int numSamples = (minMaxData == null) ? 0 : (minMaxData.Length / (2 * numChannels));
+            float h = (float)wantedRect.height / (float)numChannels;
+            for (int channel = 0; channel &lt; numChannels; channel++)
+            {
+                Rect channelRect = new Rect(wantedRect.x, wantedRect.y + h * channel, wantedRect.width, h);
+                Color curveColor = new Color(1.0f, 140.0f / 255.0f, 0.0f, 1.0f);
+
+                AudioCurveRendering.AudioMinMaxCurveAndColorEvaluator dlg = delegate(float x, out Color col, out float minValue, out float maxValue)
+                {
+                    col = curveColor;
+                    if (numSamples &lt;= 0)
+                    {
+                        minValue = 0.0f;
+                        maxValue = 0.0f;
+                    }
+                    else
+                    {
+                        float p = Mathf.Clamp(x * (numSamples - 2), 0.0f, numSamples - 2);
+                        int i = (int)Mathf.Floor(p);
+                        int offset1 = (i * numChannels + channel) * 2;
+                        int offset2 = offset1 + numChannels * 2;
+                        minValue = Mathf.Min(minMaxData[offset1 + 1], minMaxData[offset2 + 1]) * scaleFactor;
+                        maxValue = Mathf.Max(minMaxData[offset1 + 0], minMaxData[offset2 + 0]) * scaleFactor;
+                        if (minValue &gt; maxValue) { float tmp = minValue; minValue = maxValue; maxValue = tmp; }
+                    }
+                };
+
+                if (setMaterial)
+                    AudioCurveRendering.DrawMinMaxFilledCurve(channelRect, dlg);
+                else
+                    AudioCurveRendering.DrawMinMaxFilledCurveInternal(channelRect, dlg);
+            }
+        }
+

@@ -1,0 +1,61 @@
+
+namespace SeiyuSale
+{
+    public class CalendarConverter
+    {
+        private const string ProdId = "SeiyuSale";
+
+        public HttpResponseMessage Convert(IEnumerable&lt;SaleDay&gt; saleDays)
+        {
+            var timestamp = System.DateTime.Now.ToString("yyyyMMddTHHmmssZ");
+
+            // http://www.asahi-net.or.jp/~ci5m-nmr/iCal/ref.html
+            var body = new StringBuilder();
+            {
+                body.AppendLine("BEGIN:VCALENDAR");
+                body.AppendLine($"PRODID:{ProdId}");
+                body.AppendLine("VERSION:2.0");
+                body.AppendLine("METHOD:PUBLISH");
+                {
+                    body.AppendLine("BEGIN:VTIMEZONE");
+                    body.AppendLine("TZID:Asia/Tokyo");
+                    {
+                        body.AppendLine("BEGIN:STANDARD");
+                        body.AppendLine("DTSTART:19390101T000000");
+                        body.AppendLine("TZOFFSETFROM:+0900");
+                        body.AppendLine("TZOFFSETTO:+0900");
+                        body.AppendLine("TZNAME:JST");
+                        body.AppendLine("END:STANDARD");
+                    }
+                    body.AppendLine("END:VTIMEZONE");
+                }
+                // セール日をそれぞれイベントとして生成する
+                foreach (var _ in saleDays)
+                {
+                    body.AppendLine("BEGIN:VEVENT");
+                    {
+                        body.AppendLine("CLASS:PUBLIC");
+                        body.AppendLine($"UID:{_.UniqueId}");
+                        body.AppendLine($"DTSTAMP:{timestamp}");
+                        body.AppendLine($"SUMMARY:{_.Summary}");
+                        body.AppendLine($"DESCRIPTION:{_.Description}");
+                        body.AppendLine($"DTSTART;VALUE=DATE:{_.StartDateTime:yyyyMMdd}");
+                        body.AppendLine($"DTEND;VALUE=DATE:{_.EndDateTime:yyyyMMdd}");
+                    }
+                    body.AppendLine("END:VEVENT");
+                }
+                body.AppendLine("END:VCALENDAR");
+            }
+
+            var response = new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent(body.ToString()),
+            };
+            response.Content.Headers.ContentType =  new MediaTypeHeaderValue("text/calendar");
+
+            return response;
+        }
+    }
+}
+

@@ -1,0 +1,33 @@
+More than 1 year has passed since last update.//タイトルがなげぇ先日の記事で作ったモデルを変更しました。これをこんな感じ。Migration作るとうんうん。AlterColumnとかそれっぽいメソッド名ついとる。
+update-databaseします。まさかのエラー。
+なんで…とりあえずエラーメッセージ中のリンク先に飛んでみる。→こちら
+下の方を読んでみると結構未対応なMigrationがあるようで。Webページ[SQLite データベース プロバイダー - 制限事項 - EF Core | Microsoft Docs] https://docs.microsoft.com/ja-jp/ef/core/providers/sqlite/limitations より引用
+
+うーん、ぱっと見、テーブルはそのままに既存の列やインデックスの情報を変更するタイプが未対応なのかな？
+AlterColumnもしっかり「×」になっております。同ページ内の「以降の制限の回避策」から飛べるサイトが→こちらWebページ[SQLite Query Language: ALTER TABLE] https://sqlite.org/lang_altertable.html#otheralter より引用
+
+なるほど。
+まぁ早い話がっていう手順を手動でやれってことね。
+ではせっかくなのでやってみましょう。まずはMigrationクラス内でSQLを実行する方法を探します。
+SQLの実行に必要なのは接続文字列。DbContextではこんな感じで指定しています。これを取得して使う形になると思いますがはてさて…MigrationBuilder Class (Microsoft.EntityFrameworkCore.Migrations) | Microsoft DocsMethods
+Sql(String, Boolean)  Builds an SqlOperation to execute raw SQL.これやんけ。
+SQLを直接実行できるメソッドがありました。さすがEF。
+MigrationBuilder.Sql()を使用すればSQLを実行できるようです。新しいテーブルの作成については、既存テーブルの作成クエリを基に、変更部分に手を加える方法が一番楽かと思います。
+私が使っているツールは「DB Browser For SQLite」です。
+このツールですでに作成されているデータベースファイルを開くと
+こんな感じでテーブルのCREATE用スクリプトを拾うこともできます。
+今のCREATE用スクリプトはこんな感じ。なので別名テーブルはこれでいいでしょう。プログラム中に記述する際はSQLのコメントは消しておきましょう。これは特に語ることはありません。普通にinsertを実行します。まぁこんな感じでしょうか。これも普通にdropを使いましょう。最後です。テーブル名を古いテーブルと同じにします。ここまでのSQL文を、MigrationクラスのUpメソッドで実行されるように実装していきます。
+なお、今回は関係ありませんが、[SQLite Query Language: ALTER TABLE]によると、スキーマ変更前には外部キー制約をオフにしなさいよ的な記述があるので、併せて実装します。Migrationクラスには、変更を元に戻すためのDownメソッドも存在します。元に戻す変更なので、今回の変更と逆の変更を実行するSQLを実装します。
+アプローチは割愛して結果だけ掲載します。ここまでやったのでもう一度DBの更新を実行します。ちゃんと通るかな…？Done!!
+出来たのでは？
+テーブル定義を確認します。
+
+「"UnitPrice" NUMERIC NOT NULL」ということで無事NUMERIC型になっています。プログラムを実行してみます(前回とデータが違う点はご愛嬌ということでよろしくです)。
+
+
+
+一番下の行が新しく追加したレコードです。小数を保存できています。
+
+データベースのデータも問題ありません。以上です。
+
+

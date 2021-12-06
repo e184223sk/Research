@@ -1,0 +1,39 @@
+
+// submitボタンがクリックされてpostリクエストを受け付けたときに動く
+public async Task&lt;IActionResult&gt; OnPostAsync(string returnUrl = null) {
+  // 必須入力がないなどの場合ログインさせない。（ログインページに戻る）
+  if (!ModelState.IsValid) return Page();
+
+  // ==================================================
+  // ダミーの認証処理（実際にはDBを使います）
+  var mockDB = new[] {
+    (email: "nossa@example.com", password: "pazzword1"),
+    (email: "nyaan@example.com", password: "pazzword2")
+  };
+  bool isValid = mockDB.SingleOrDefault(x =&gt; x.email == Input.Email &amp;&amp; x.password == Input.Password) != null;
+  // ===================================================
+  // Eメール・パスワードが間違っている場合ログインさせない。
+  if (!isValid) return Page();
+
+  // ★以下ログイン処理
+  // 名前、電子メール アドレス、年齢、Sales ロールのメンバーシップなど、id 情報の一部
+  Claim[] claims = {
+    new Claim(ClaimTypes.NameIdentifier, Input.Email), // ユニークID
+    new Claim(ClaimTypes.Name, Input.Email),
+  };
+
+  // 一意の ID 情報
+  var claimsIdentity = new ClaimsIdentity(
+    claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+  // ログイン
+  await HttpContext.SignInAsync(
+    CookieAuthenticationDefaults.AuthenticationScheme,
+    new ClaimsPrincipal(claimsIdentity),
+    new AuthenticationProperties {
+      // Cookie をブラウザー セッション間で永続化するか？（ブラウザを閉じてもログアウトしないかどうか）
+      IsPersistent = Input.RememberMe
+    });
+  return LocalRedirect(returnUrl ?? Url.Content("~/"));
+}
+

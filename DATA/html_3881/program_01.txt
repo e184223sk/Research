@@ -1,0 +1,229 @@
+
+/*
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+*/
+
+class WaveReader : IDisposable
+{
+    private readonly FileStream fs;
+    private readonly UInt32 fileSize;
+
+    private long chunkPos;
+    private long chunkSize;
+
+    public WaveReader(string path)
+    {
+        fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+
+        if ("RIFF" != readStr(4, Encoding.ASCII))
+        {
+            throw (new Exception());
+        }
+
+        fileSize = read32u();
+
+        if ("WAVE" != readStr(4, Encoding.ASCII))
+        {
+            throw (new Exception());
+        }
+
+        chunkPos = fs.Position;
+        chunkSize = 0;
+    }
+
+    public IEnumerable&lt;ChunkBase&gt; ReadChunks()
+    {
+        while (true)
+        {
+            byte[] tmp = new byte[8];
+
+            fs.Position = chunkPos + chunkSize;
+
+            if (fs.Read(tmp, 0, tmp.Length) != tmp.Length)
+            {
+                yield break;
+            }
+
+            string type = Encoding.ASCII.GetString(tmp, 0, 4);
+            UInt32 size = BitConverter.ToUInt32(tmp, 4);
+
+            long chunkStart = fs.Position;
+            chunkPos = chunkStart + size;
+
+            switch (type)
+            {
+            case "fmt ":
+                yield return (new ChunkFormat(type, size, fs, chunkStart));
+                break;
+
+            case "data":
+                yield return (new ChunkData(type, size, fs, chunkStart));
+                break;
+
+            default:
+                yield return (new ChunkBase(type, size, fs, chunkStart));
+                break;
+            }
+        }
+    }
+
+    protected UInt32 read32u()
+    {
+        byte[] buff = new byte[4];
+        fs.Read(buff, 0, buff.Length);
+        return (BitConverter.ToUInt32(buff, 0));
+    }
+
+    protected string readStr(int bytes, Encoding encoding)
+    {
+        byte[] buff = new byte[bytes];
+        fs.Read(buff, 0, buff.Length);
+        return (encoding.GetString(buff));
+    }
+
+    #region IDisposable Support
+    private bool disposedValue = false; // 重複する呼び出しを検出するには
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                fs.Dispose();
+
+                // TODO: マネージ状態を破棄します (マネージ オブジェクト)。
+            }
+
+            // TODO: アンマネージ リソース (アンマネージ オブジェクト) を解放し、下のファイナライザーをオーバーライドします。
+            // TODO: 大きなフィールドを null に設定します。
+
+            disposedValue = true;
+        }
+    }
+
+    // TODO: 上の Dispose(bool disposing) にアンマネージ リソースを解放するコードが含まれる場合にのみ、ファイナライザーをオーバーライドします。
+    // ~WaveReader() {
+    //   // このコードを変更しないでください。クリーンアップ コードを上の Dispose(bool disposing) に記述します。
+    //   Dispose(false);
+    // }
+
+    // このコードは、破棄可能なパターンを正しく実装できるように追加されました。
+    public void Dispose()
+    {
+        // このコードを変更しないでください。クリーンアップ コードを上の Dispose(bool disposing) に記述します。
+        Dispose(true);
+        // TODO: 上のファイナライザーがオーバーライドされる場合は、次の行のコメントを解除してください。
+        // GC.SuppressFinalize(this);
+    }
+    #endregion
+
+    public class ChunkBase
+    {
+        private readonly string type;
+        public string Type { get { return (type); } }
+
+        private readonly UInt32 size;
+        public UInt32 Size { get { return (size); } }
+
+        protected readonly FileStream fs;
+        protected readonly long chunkStart; // chunk head + 8 (type + size)
+
+        public ChunkBase(string Type, UInt32 Size, FileStream fs, long chunkStart)
+        {
+            type = Type;
+            size = Size;
+            this.fs = fs;
+            this.chunkStart = chunkStart;
+        }
+
+        protected void seek(long a)
+        {
+            fs.Position = chunkStart + a;
+        }
+
+        protected bool tryRead(out byte[] data, int length)
+        {
+            data = new byte[length];
+            return (fs.Read(data, 0, length) == length);
+        }
+    }
+
+    public class ChunkFormat : ChunkBase
+    {
+        private readonly UInt16 channels;
+        public UInt16 Channels { get { return (channels); } }
+
+        private readonly UInt32 samplingRate;
+        public UInt32 SamplingRate { get { return (samplingRate); } }
+
+        private readonly UInt16 bitPerSample;
+        public UInt16 BitPerSample { get { return (bitPerSample); } }
+
+        public ChunkFormat(string Type, UInt32 Size, FileStream fs, long ChunkStart)
+            : base(Type, Size, fs, ChunkStart)
+        {
+            seek(0);
+
+            bool success = false;
+
+            byte[] data;
+            if (false) { }
+            else if (Size == 16 &amp;&amp; tryRead(out data, (int)Size))
+            {
+                UInt16 formatId = BitConverter.ToUInt16(data, 0);
+
+                if (formatId == 1)
+                {
+                    channels = BitConverter.ToUInt16(data, 2);
+                    samplingRate = BitConverter.ToUInt32(data, 4);
+                    bitPerSample = BitConverter.ToUInt16(data, 14);
+
+                    success = true;
+                }
+            }
+
+            if (!success)
+            {
+                throw new Exception();
+            }
+        }
+    }
+
+    public class ChunkData : ChunkBase
+    {
+        public ChunkData(string Type, UInt32 Size, FileStream fs, long ChunkStart)
+            : base(Type, Size, fs, ChunkStart)
+        {
+
+        }
+
+        public IEnumerable&lt;Int16[,]&gt; ReadDataS16x2(int blockSize)
+        {
+            for (long dataPos = 0; dataPos &lt; Size; dataPos += 2 * 2 * blockSize)
+            {
+                byte[] rawData;
+
+                seek(dataPos);
+                if (!tryRead(out rawData, 2 * 2 * blockSize))
+                {
+                    yield break;
+                }
+
+                Int16[,] waveData = new Int16[blockSize, 2];
+
+                for (int i = 0; i &lt; blockSize; i++)
+                {
+                    waveData[i, 0] = BitConverter.ToInt16(rawData, i * 2 * 2 + 0);
+                    waveData[i, 1] = BitConverter.ToInt16(rawData, i * 2 * 2 + 2);
+                }
+
+                yield return (waveData);
+            }
+        }
+    }
+}
+

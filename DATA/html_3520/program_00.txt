@@ -1,0 +1,41 @@
+using System;
+using static System.Linq.Expressions.Expression;
+
+namespace IntPtrToSpan
+{
+    public static class IntPtrToSpanExtention
+    {
+        public static Span&lt;T&gt; AsSpan&lt;T&gt;(this IntPtr pointer, int length) =&gt;
+            //return new Span&lt;T&gt;(pointer.ToPointer(), length);
+            Impl&lt;T&gt;.Delegate(pointer, length);
+        public static ReadOnlySpan&lt;T&gt; AsReadOnlySpan&lt;T&gt;(this IntPtr pointer, int length) =&gt;
+            //return new ReadOnlySpan&lt;T&gt;(pointer.ToPointer(), length);
+            Impl&lt;T&gt;.ReadOnlyDelegate(pointer, length);
+
+        private delegate Span&lt;T&gt; AsSpanDelegate&lt;T&gt;(IntPtr pointer, int length);
+        private delegate ReadOnlySpan&lt;T&gt; AsReadOnlySpanDelegate&lt;T&gt;(IntPtr pointer, int length);
+        static class Impl&lt;T&gt;
+        {
+            private static Func Generate&lt;Func&gt;(bool readOnly)
+            {
+                var pointer = Parameter(typeof(IntPtr), "pointer");
+                var length = Parameter(typeof(int), "length");
+
+                var constructor = (readOnly ? typeof(ReadOnlySpan&lt;T&gt;) : typeof(Span&lt;T&gt;)).GetConstructor(new[] { typeof(void*), typeof(int) });
+                var lambda = Lambda&lt;Func&gt;(
+                    New(constructor,
+                        Call(
+                            pointer,
+                            typeof(IntPtr).GetMethod(nameof(IntPtr.ToPointer), Type.EmptyTypes)),
+                        length),
+                    pointer,
+                    length
+                    );
+                return lambda.Compile();
+            }
+            public static AsSpanDelegate&lt;T&gt; Delegate = Generate&lt;AsSpanDelegate&lt;T&gt;&gt;(false);
+            public static AsReadOnlySpanDelegate&lt;T&gt; ReadOnlyDelegate = Generate&lt;AsReadOnlySpanDelegate&lt;T&gt;&gt;(true);
+        }
+    }
+}
+

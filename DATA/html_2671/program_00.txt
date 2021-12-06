@@ -1,0 +1,145 @@
+using OpenCvSharp;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+namespace OpenCv
+{
+    public class GuiAuto
+    {
+        // https://culage.hatenablog.com/entry/20130611/1370876400
+        [DllImport("user32.dll")]
+        extern static uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct INPUT
+        {
+            public int type;
+            public MOUSEINPUT mi;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public int mouseData;
+            public int dwFlags;
+            public int time;
+            public IntPtr dwExtraInfo;
+        }
+
+        const int MOUSEEVENTF_LEFTDOWN = 0x0002;
+        const int MOUSEEVENTF_LEFTUP = 0x0004;
+
+        static public void Click()
+        {
+            //struct 配列の宣言
+            INPUT[] input = new INPUT[2];
+            //左ボタン Down
+            input[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            //左ボタン Up
+            input[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            //イベントの一括生成
+            SendInput(2, input, Marshal.SizeOf(input[0]));
+        }
+
+        static public void Move(int x, int y)
+        {
+            var pt = new System.Drawing.Point(x, y);
+            System.Windows.Forms.Cursor.Position = pt;
+        }
+
+        public class TemplateResult
+        {
+            public int TargetWidth { set; get; }
+            public int TargetHeight { set; get; }
+
+            public List&lt;OpenCvSharp.Point&gt; MatchList { set; get; }
+
+            public TemplateResult()
+            {
+                this.MatchList = new List&lt;OpenCvSharp.Point&gt;();
+            }
+        }
+
+
+
+        static public TemplateResult MatchTemplate(int ScreenNo, string targetPath, double threshold) 
+        {
+            TemplateResult result = new TemplateResult();
+            var screen = Screen.AllScreens[ScreenNo];
+
+            Bitmap bitmap = new Bitmap(screen.Bounds.Width, screen.Bounds.Height);
+            Graphics graphics = Graphics.FromImage(bitmap as Image);
+            graphics.CopyFromScreen(screen.Bounds.X, screen.Bounds.Y, 0, 0, bitmap.Size);
+
+            using (var targetImg = Cv2.ImRead(targetPath))
+            using (var img = OpenCvSharp.Extensions.BitmapConverter.ToMat(bitmap))
+            using (var img3ch = img.CvtColor(ColorConversionCodes.BGRA2BGR))
+            {
+                result.TargetWidth = targetImg.Width;
+                result.TargetHeight = targetImg.Height;
+
+                var tmplRet = img3ch.MatchTemplate(targetImg, TemplateMatchModes.CCoeffNormed);
+                double minVal, maxVal;
+                OpenCvSharp.Point minLoc, maxLoc;
+                tmplRet.MinMaxLoc(out minVal, out maxVal, out minLoc, out maxLoc);
+                Mat thresholdRet = tmplRet.Threshold(threshold, 1.0, ThresholdTypes.Tozero);
+                while (true)
+                {
+                    thresholdRet.MinMaxLoc(out minVal, out maxVal, out minLoc, out maxLoc);
+                    if (maxVal &lt; threshold)
+                    {
+                        break;
+                    }
+                    result.MatchList.Add(maxLoc);
+                    thresholdRet.FloodFill(maxLoc, 0);
+                }
+            }
+            return result;
+        }
+
+        static public bool ClickImg(int ScreenNo, string targetPath, double threshold, int offsetX, int offsetY)
+        {
+            TemplateResult tmplRet = MatchTemplate(ScreenNo, targetPath, threshold);
+            if (tmplRet.MatchList.Count == 0)
+            {
+                return false;
+            }
+            var screen = Screen.AllScreens[ScreenNo];
+
+            Move(screen.Bounds.X + tmplRet.MatchList[0].X, screen.Bounds.Y + tmplRet.MatchList[0].Y);
+            Click();
+            return true;
+        }
+        static public bool ClickImg(int ScreenNo, string targetPath, double threshold)
+        {
+            TemplateResult tmplRet = MatchTemplate(ScreenNo, targetPath, threshold);
+            if (tmplRet.MatchList.Count == 0)
+            {
+                return false;
+            }
+            var screen = Screen.AllScreens[ScreenNo];
+
+            Move(screen.Bounds.X + tmplRet.MatchList[0].X + tmplRet.TargetWidth/ 2, screen.Bounds.Y + tmplRet.MatchList[0].Y + tmplRet.TargetHeight / 2);
+            Click();
+            return true;
+        }
+    }
+
+    class Program
+    {
+
+
+        static void Main(string[] args)
+        {
+            Console.ReadLine();
+            var targetPath = @"target.bmp";
+            GuiAuto.ClickImg(0, targetPath, 0.75);
+        }
+    }
+}
+

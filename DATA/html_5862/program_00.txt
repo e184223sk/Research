@@ -1,0 +1,75 @@
+using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace cstx64
+{
+    class Program
+    {
+        private static void ExecuteNonQuery(string sql, SQLiteConnection conn)
+        {
+            using (var command = new SQLiteCommand(sql, conn))
+            {
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static void ExecuteScalar(string sql, SQLiteConnection conn)
+        {
+            using (var command = new SQLiteCommand(sql, conn))
+            {
+                command.ExecuteScalar();
+            }
+        }
+
+        private static void LoadExtension(SQLiteConnection conn)
+        {
+            var modulePath = @"mod_spatialite";
+            conn.EnableExtensions(true);
+            conn.LoadExtension(modulePath);
+        }
+
+        public static void Main(string[] args)
+        {
+            string fileName = @".\test.db";
+            if (System.IO.File.Exists(fileName))
+            {
+                System.IO.File.Delete(fileName);
+            }
+
+            using (var conn = new SQLiteConnection(string.Format("Data Source={0};Version=3", fileName)))
+            {
+                conn.Open();
+
+                LoadExtension(conn);
+                string sql = " CREATE TABLE IF NOT EXISTS t (id, name, point)";
+                ExecuteNonQuery(sql, conn);
+
+                sql = "INSERT INTO t VALUES(1, 'some', ST_GeomFromText('POINTZ(1.0 2.0 3.0)'))";
+                ExecuteNonQuery(sql, conn);
+
+                sql = "SELECT id, name, ST_AsText(point) AS pt FROM t";
+                using (var command = new SQLiteCommand(sql, conn))
+                {
+                    using (var dr = command.ExecuteReader())
+                    {
+                        while (dr.Read())
+                        {
+                            int id = Convert.ToInt32(dr["id"].ToString());
+                            string name = dr["name"].ToString();
+                            string pt = dr["pt"].ToString(); ;
+                            Console.WriteLine(String.Format("{0}, {1}, {2}", id, name, pt));
+                        }
+                    }
+                }
+                conn.Close();
+            }
+        }
+    }
+}
+
+
+

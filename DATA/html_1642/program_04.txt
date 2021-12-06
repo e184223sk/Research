@@ -1,0 +1,55 @@
+
+public class MainWindowViewModel : INotifyPropertyChanged
+{
+    //メモリリークを防ぐためのダミー実装
+    public event PropertyChangedEventHandler PropertyChanged;
+
+    public RpNames Names { get; } = new RpNames();
+
+    public ReactiveProperty&lt;string&gt; MessagePackSerializedNames { get; } = new ReactiveProperty&lt;string&gt;();
+    public ReactiveProperty&lt;string&gt; JsonSerializedNames { get; } = new ReactiveProperty&lt;string&gt;();
+
+    public ReactiveCommand SerializeCommand { get; }
+    public ReactiveCommand DesirializeCommand { get; }
+
+    public MainWindowViewModel()
+    {
+        SerializeCommand = Names.NameRorps
+            .Select(x =&gt; x?.Length &gt;= 3)
+            .ToReactiveCommand()
+            .WithSubscribe(() =&gt; Serialize());
+
+        DesirializeCommand = JsonSerializedNames
+            .Select(x =&gt; x?.Length &gt; 5)
+            .ToReactiveCommand()
+            .WithSubscribe(() =&gt; Desirialize());
+
+        //ReactiveProperty用を含んだResolverのセットをデフォルトに設定しておく
+        var resolver = MessagePack.Resolvers.CompositeResolver.Create(
+            ReactivePropertyResolver.Instance,
+            MessagePack.Resolvers.ContractlessStandardResolver.Instance,
+            MessagePack.Resolvers.StandardResolver.Instance
+        );
+        MessagePackSerializer.DefaultOptions = MessagePack.MessagePackSerializerOptions.Standard.WithResolver(resolver);
+    }
+
+    private void Serialize()
+    {
+        var messagePackNames = MessagePackSerializer.Serialize(Names);
+        this.MessagePackSerializedNames.Value = String.Join(" ",
+            messagePackNames.Select(x =&gt; $"{x:X2}"));
+
+        this.JsonSerializedNames.Value = MessagePackSerializer.SerializeToJson(Names);
+    }
+
+    private void Desirialize()
+    {
+        //JSON側からデシリアライズ
+        var mPack = MessagePack.MessagePackSerializer.ConvertFromJson(JsonSerializedNames.Value);
+        var deserializedRPNames = MessagePackSerializer.Deserialize&lt;RpNames&gt;(mPack);
+
+        this.Names.NameRp.Value = deserializedRPNames.NameRp.Value;
+        this.Names.NameRps.Value = deserializedRPNames.NameRps.Value;
+    }
+}
+

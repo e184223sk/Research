@@ -1,0 +1,249 @@
+// OS  : Windows 10
+// IDE : Visual Studio 2015
+//       Install : NuGet   : Install-Package RabbitMQ.Client -Version 4.1.1
+//
+// OS  : Ubuntu 16.04
+//       Compile : Command : mcs /r:RabbitMQ.Client.dll -define:UBUNTU tamesi33a2_cs.cs
+//               : Command : chmod 755 tamesi33a2_cs.cs
+//       Execute : Command : // バックグラウンドで実行する
+//                         : nohup ./tamesi33a2_cs.exe &gt; ./tamesi33a2_cs.out.log 2&gt; ./tamesi33a2_cs.err.log &lt; /dev/null &amp;
+//       Check   :         : // tamesi33a1_cs.exe を使う
+//--------------------------------------------------------------------------------
+// tamesi33a2_cs.cs
+
+// Ubuntu の RabbitMQ はソースのバージョンが古いのか、API が異なった。
+// #define UBUNTU
+
+using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+using System;
+using System.Collections.ObjectModel;
+using System.Text;
+using System.Threading;
+
+namespace UsagiMQ
+{
+    /// &lt;summary&gt;
+    /// メッセージの末尾に daze を付けます。
+    /// デキューは「1112」、エンキューは「1113」キューに向けて行います。
+    /// 標準入出力は、キーボード、画面には接続しないようにします。
+    /// 
+    /// 参照 : QueueDeclare http://docs.spring.io/spring-amqp-net/docs/1.0.x/api/html/Spring.Messaging.Amqp.Rabbit~Spring.Messaging.Amqp.Rabbit.Connection.CachedModel~QueueDeclare(String,Boolean,Boolean,Boolean,Boolean,Boolean,IDictionary).html
+    /// 参照 : EventingBasicConsumer https://www.rabbitmq.com/releases/rabbitmq-dotnet-client/v1.4.0/rabbitmq-dotnet-client-1.4.0-net-2.0-htmldoc/type-RabbitMQ.Client.Events.EventingBasicConsumer.html
+    /// 参照 : BasicConsume https://www.rabbitmq.com/releases/rabbitmq-dotnet-client/v1.4.0/rabbitmq-dotnet-client-1.4.0-net-2.0-htmldoc/type-RabbitMQ.Client.IModel.html#method-M:RabbitMQ.Client.IModel.BasicConsume(System.UInt16,System.String,System.Boolean,System.Collections.IDictionary,RabbitMQ.Client.IBasicConsumer)
+    /// 参照 : C#でconstな配列を実現する (もっとクールにプログラミング) http://pgnote.net/?p=885
+    /// &lt;/summary&gt;
+    class Program
+    {
+        public const string HOST_NAME = "localhost";
+        public static readonly ReadOnlyCollection&lt;string&gt; QUEUE_NAMES =
+            Array.AsReadOnly(new string[] { "1113", "1112" });
+        public const int ENQUEUE_INDEX = 0;
+        public const int DEQUEUE_INDEX = 1;
+
+        // 回転式バッファー
+        public static RotationBuffer rollingBuffer = new RotationBuffer();
+
+        public static ConnectionFactory GetFactory()
+        {
+            if (null == m_factory_)
+            {
+                m_factory_ = new ConnectionFactory() { HostName = HOST_NAME };
+            }
+            return m_factory_;
+        }
+        static ConnectionFactory m_factory_;
+
+        public static IConnection GetConnection()
+        {
+            if (null == m_connection_)
+            {
+                m_connection_ = GetFactory().CreateConnection();
+            }
+            return m_connection_;
+        }
+        static IConnection m_connection_;
+
+        public static bool IsConnected()
+        {
+            if (null != m_connection_)
+            {
+                return m_connection_.IsOpen;
+            }
+            return false;
+        }
+
+        public static IModel GetChannel(int index)
+        {
+            if (null == m_channels_[index])
+            {
+                m_channels_[index] = GetConnection().CreateModel();
+#if UBUNTU
+                // Ubuntuでは何故か Spring.Messaging.Amqp.Rabbit の引数 7 つのやつになっている。
+                m_channels_[index].QueueDeclare(QUEUE_NAMES[index], false, false, false, false, false, null);
+#else
+                m_channels_[index].QueueDeclare(QUEUE_NAMES[index], false, false, false, null);
+#endif
+            }
+            return m_channels_[index];
+        }
+        static IModel[] m_channels_ = new IModel[2];
+
+        public static EventingBasicConsumer GetConsumer(int index)
+        {
+            if (null == m_consumers_[index])
+            {
+#if UBUNTU
+                // Ubuntuでは何故か v1.4.0 の引数が 0 個のやつになっている。調べたが引数が1個～6個のものは無かった。
+                m_consumers_[index] = new EventingBasicConsumer();
+#else
+                m_consumers_[index] = new EventingBasicConsumer(GetChannel(index));
+#endif
+
+            }
+            return m_consumers_[index];
+        }
+        static EventingBasicConsumer[] m_consumers_ = new EventingBasicConsumer[2];
+
+        /// &lt;summary&gt;
+        /// 受信できたときに割り込んでくる処理
+        /// &lt;/summary&gt;
+#if UBUNTU
+        public static BasicDeliverEventHandler GetReceiveHandler()
+#else
+        public static EventHandler&lt;BasicDeliverEventArgs&gt; GetReceiveHandler()
+#endif
+        {
+            if (null == m_eventHandler_)
+            {
+#if UBUNTU
+                m_eventHandler_ = new BasicDeliverEventHandler((model, ea) =&gt;
+#else
+                m_eventHandler_ = new EventHandler&lt;BasicDeliverEventArgs&gt;((model, ea) =&gt;
+#endif
+                {
+                    byte[] body = ea.Body;
+                    string message = Encoding.UTF8.GetString(body);
+
+                    // 末尾に daze を付ける。
+                    message += "daze";
+
+                    // 回転式バッファーに入れる
+                    rollingBuffer.PutMessage(message);
+                });
+            }
+
+            return m_eventHandler_;
+        }
+
+#if UBUNTU
+        static BasicDeliverEventHandler m_eventHandler_;
+#else
+        static EventHandler&lt;BasicDeliverEventArgs&gt; m_eventHandler_;
+#endif
+
+        /// &lt;summary&gt;
+        /// 対応するオープンは無いけれど、開けたら閉める、を完璧に対応する必要がある。
+        /// &lt;/summary&gt;
+        static void CloseChannel(int index)
+        {
+            if (null != m_channels_[index])
+            {
+                m_channels_[index].Close();
+                m_channels_[index] = null;
+            }
+        }
+
+        static void Main(string[] args)
+        {
+            // 常時監視をスタート
+            StartDequeue();
+
+            // 無限ループ
+            while (IsConnected())
+            {
+                string message = rollingBuffer.GetMessage();
+                if (null != message)
+                {
+                    // エンキューする
+                    Enqueue(message);
+                }
+                Thread.Sleep(20);
+            }
+
+            // このプログラムは、自分では接続を切らない。
+        }
+
+        static void Enqueue(string message)
+        {
+            IModel channel = GetChannel(ENQUEUE_INDEX);
+
+            byte[] body = Encoding.UTF8.GetBytes(message);
+            channel.BasicPublish("", QUEUE_NAMES[ENQUEUE_INDEX], null, body);
+
+            // 対応するオープンは無いが、ちゃんと閉じないと、レシーブしてくれない。
+            CloseChannel(ENQUEUE_INDEX);
+        }
+
+        static void StartDequeue()
+        {
+            IModel channel = GetChannel(DEQUEUE_INDEX);
+            EventingBasicConsumer consumer = GetConsumer(DEQUEUE_INDEX);
+            // 受信できたときに割り込んでくる処理
+            consumer.Received += GetReceiveHandler();
+
+#if UBUNTU
+            // Ubuntuでは何故か引数が 5 個のやつになっている。
+            channel.BasicConsume( QUEUE_NAMES[DEQUEUE_INDEX], true, "", null, consumer);
+#else
+            channel.BasicConsume( QUEUE_NAMES[DEQUEUE_INDEX], true, consumer);
+#endif
+
+            // 割込み処理の削除
+            // consumer.Received -= GetReceiveHandler();
+
+            // 対応するオープンは無いが、ちゃんと閉じないと、レシーブしてくれない。
+            // CloseChannel(DEQUEUE_INDEX);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 回転式バッファー。
+    /// これはメイン・スレッドに置く。
+    /// デキューのスレッドでエンキューすることはできない。
+    /// デキュー処理は、回転式バッファーを仲介にしてエンキュー処理にメッセージを渡す。
+    /// &lt;/summary&gt;
+    public class RotationBuffer
+    {
+        public const int bufferSize = 100;
+        public string[] buffer = new string[bufferSize];
+        public int[] bufferCursors = new int[] { 0, 0 };
+        public const int PUT_INDEX = 0;
+        public const int GET_INDEX = 1;
+        public void PutMessage(string message)
+        {
+            buffer[bufferCursors[PUT_INDEX]] = message;
+            bufferCursors[PUT_INDEX]++;
+            if (!(bufferCursors[PUT_INDEX] &lt; bufferSize))
+            {
+                bufferCursors[PUT_INDEX] = 0;
+            }
+        }
+        public string GetMessage()
+        {
+            if (null != buffer[bufferCursors[GET_INDEX]])
+            {
+                string message = buffer[bufferCursors[GET_INDEX]];
+                buffer[bufferCursors[GET_INDEX]] = null;
+                bufferCursors[GET_INDEX]++;
+                if (!(bufferCursors[GET_INDEX] &lt; bufferSize))
+                {
+                    bufferCursors[GET_INDEX] = 0;
+                }
+                return message;
+            }
+            return null;
+        }
+    }
+}
+

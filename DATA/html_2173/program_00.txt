@@ -1,0 +1,356 @@
+
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Forms;
+
+
+internal class TaskbarInfo
+{
+    public IntPtr WindowHandle{get; private set;}
+    bool _lockInfo; // trueを設定時、情報更新を停止させる
+    Rectangle _windowRect;
+    Rectangle _screenRect;
+
+    public enum TaskbarDockStyle {
+        Top=0,
+        Bottom=1,
+        Left=2,
+        Right=3
+    }
+
+    // -----------------------------------------------------------
+
+    public void UpdateInfo()
+    {
+        UpdateInfo(false);
+    }
+
+    public bool UpdateInfo(bool throwError)
+    {
+        bool retCode;
+        NativeMethods.WINDOWINFO wi;
+        wi = MyGetWindowInfo(WindowHandle, out retCode);
+
+        if ( retCode ) {
+            _windowRect = wi.rcWindow.rect;
+
+            // タスクバーが配置されているスクリーンを取得する
+            Point p = new Point(_windowRect.X + _windowRect.Width/2, _windowRect.Y + _windowRect.Height/2);
+            Screen screen = Screen.FromPoint(p);
+            _screenRect = screen.Bounds;
+        }
+        else {
+            // failed
+            throw new Win32Exception( Marshal.GetLastWin32Error() );
+        }
+
+        return retCode;
+    }
+
+    public void LockInfo()
+    {
+        UpdateInfo();
+        _lockInfo = true; // trueを設定時、情報更新を停止させる
+    }
+    public void UnlockInfo()
+    {
+        UpdateInfo();
+        _lockInfo = false;
+    }
+
+    // -----------------------------------------------------------
+
+    public Rectangle Rect{
+        get {
+            if ( !_lockInfo ) { UpdateInfo(); }
+            return _windowRect;
+        }
+    }
+
+    public Size Size{
+        get {
+            if ( !_lockInfo ) { UpdateInfo(); }
+            return _windowRect.Size;
+        }
+    }
+
+    public TaskbarDockStyle Dock{
+        get{
+            if ( !_lockInfo ) { UpdateInfo(); }
+
+            // ※※※ 以下、UpdateInfoが呼ばれないように、プロパティではなくフィールドを直接参照すること。
+
+            // タスクバーの移動やスクリーン設定の変更などのタイミングによっては
+            // おそらく、情報の整合性が取れない場合がありえる。
+            // その場合は一番使われていそうな bottom を返すようにする。
+            if ( _screenRect.Width == _windowRect.Width ) {
+                if ( _screenRect.Top == _windowRect.Top ) {
+                    return TaskbarDockStyle.Top;
+                }
+                else if ( _screenRect.Bottom == _windowRect.Bottom ) {
+                    return TaskbarDockStyle.Bottom;
+                }
+            }
+            if ( _screenRect.Height == _windowRect.Height ) {
+                if ( _screenRect.Left == _windowRect.Left ) {
+                    return TaskbarDockStyle.Left;
+                }
+                else if ( _screenRect.Right == _windowRect.Right ) {
+                    return TaskbarDockStyle.Right;
+                }
+            }
+            return TaskbarDockStyle.Bottom;
+        }
+    }
+
+    // -----------------------------------------------------------
+
+    static readonly string PrimaryTaskbarClassName = "Shell_TrayWnd";
+    static readonly string TaskbarExeName = "explorer.exe";
+
+    static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern IntPtr FindWindowEx(IntPtr parentWnd, IntPtr previousWnd, string className, string windowText);
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int GetWindowInfo(IntPtr hwnd, ref WINDOWINFO pwi);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWINFO
+        {
+            public int   cbSize;
+            public RECT  rcWindow;
+            public RECT  rcClient;
+            public int   dwStyle;
+            public int   dwExStyle;
+            public int   dwWindowStatus;
+            public uint  cxWindowBorders;
+            public uint  cyWindowBorders;
+            public short atomWindowType;
+            public short wCreatorVersion;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+            public int width{get{return right-left;}}
+            public int height{get{return bottom-top;}}
+            public Rectangle rect{get{return new Rectangle(left,top,width,height);}}
+        }
+    }
+
+    private TaskbarInfo(IntPtr windowHandle)
+    {
+        _lockInfo = false;
+        WindowHandle = windowHandle;
+        UpdateInfo(true);
+    }
+
+    public static TaskbarInfo GetPrimaryTaskbarInfo()
+    {
+        string expectedExePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), TaskbarExeName).ToLowerInvariant();
+
+        IntPtr hWnd = IntPtr.Zero;
+        while ( IntPtr.Zero != (hWnd = NativeMethods.FindWindowEx(IntPtr.Zero, hWnd, PrimaryTaskbarClassName, ""))) {
+            int pid;
+            NativeMethods.GetWindowThreadProcessId(hWnd, out pid);
+            Process p = Process.GetProcessById(pid);
+
+            ProcessModule pm = p.MainModule; // ※MainModuleでよいのかよくわからない
+            //Console.WriteLine(pm.FileName);
+            if ( pm.FileName.ToLowerInvariant() == expectedExePath ) {
+                // c:\windows\explorer.exe がつくった正規のタスクバーと判定した
+                return CreateTaskbarInfo(hWnd);
+            }
+        }
+        return null; // failed
+    }
+
+    static TaskbarInfo CreateTaskbarInfo(IntPtr windowHandle)
+    {
+        try {
+            return new TaskbarInfo(windowHandle);
+        }
+        catch(Win32Exception e) {
+            Console.WriteLine(e);
+        }
+        return null;
+    }
+
+    public Rectangle CalcNearRect(Point baseP, Size sz)
+    {
+        bool backup = _lockInfo;
+
+        try {
+            _lockInfo = true;
+
+            var dock = Dock;
+
+            Point p = new Point();
+            switch ( dock ) {
+                case TaskbarDockStyle.Left:
+                    p.X = _windowRect.Right;
+                    p.Y = baseP.Y - sz.Height/2;
+                break;
+                case TaskbarDockStyle.Right:
+                    p.X = _windowRect.Left - sz.Width;
+                    p.Y = baseP.Y - sz.Height/2;
+                break;
+                case TaskbarDockStyle.Top:
+                    p.X = baseP.X - sz.Width/2;
+                    p.Y = _windowRect.Bottom;
+                break;
+                case TaskbarDockStyle.Bottom:
+                    p.X = baseP.X - sz.Width/2;
+                    p.Y = _windowRect.Top - sz.Height;
+                break;
+            }
+            /*
+            if ( p.X + sz.Width &gt; _screenRect.Right ) {
+                p.X = _screenRect.Right - sz.Width;
+            }
+            if ( p.X &lt; _screenRect.Left ) {
+                p.X = _screenRect.Left;
+            }
+            if ( p.Y + sz.Height &gt; _screenRect.Bottom ) {
+                p.Y = _screenRect.Bottom - sz.Height;
+            }
+            if ( p.Y &lt; _screenRect.Top ) {
+                p.Y = _screenRect.Top;
+            }
+            */
+            return new Rectangle(p, sz);
+        }
+        finally {
+            _lockInfo = backup;
+        }
+    }
+
+    // if GetWindowInfo failed, retCode = false.
+    static NativeMethods.WINDOWINFO MyGetWindowInfo(IntPtr hWnd, out bool retCode)
+    {
+        var wi = new NativeMethods.WINDOWINFO();
+        wi.cbSize = Marshal.SizeOf(wi);
+        retCode = (NativeMethods.GetWindowInfo(hWnd, ref wi) != 0);
+        return wi;
+    }
+}
+
+
+
+class JohchuTest : Form
+{
+    NotifyIcon notifyIcon;
+    Button btn;
+
+    JohchuTest()
+    {
+        this.Visible = false;
+        this.ShowInTaskbar = false;
+        this.WindowState = FormWindowState.Minimized;
+        this.ControlBox = false;
+        this.Text = "";
+        this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
+        this.StartPosition = FormStartPosition.Manual;
+        //this.Visible = false;
+        this.Size = new Size(200, 150);
+
+        btn = new Button(){Text="Exit"};
+        btn.Click += (s,e)=&gt;{MyExit();};
+        btn.Location = new Point((200-btn.Width)/2, (150-btn.Height)/2);
+        Controls.Add(btn);
+
+        notifyIcon = new NotifyIcon();
+        notifyIcon.Icon = Create16x16Icon();
+        notifyIcon.Visible = true;
+        notifyIcon.MouseClick += NotifyIcon_MouseClick;
+
+        var menu = new ContextMenuStrip();
+        menu.Items.AddRange(new ToolStripMenuItem[]{
+            new ToolStripMenuItem("E&amp;xit", null, (s,e)=&gt;{MyExit();}, "Exit")
+        });
+        notifyIcon.ContextMenuStrip = menu;
+
+        //HandleCreated+=(s,e)=&gt;{Console.WriteLine("HandleCreated event occured.");};
+        //Load+=(s,e)=&gt;{Console.WriteLine("Load event occured.");};
+        //Shown+=(s,e)=&gt;{Console.WriteLine("Shown event occured.");};
+        //Activated+=(s,e)=&gt;{Console.WriteLine("Activated event occured.");};
+    }
+
+
+    void NotifyIcon_MouseClick(object sender, MouseEventArgs e)
+    {
+        if ( e.Button == MouseButtons.Left ) {
+            if ( this.WindowState == FormWindowState.Normal ) {
+                this.WindowState = FormWindowState.Minimized;
+            }
+            else {
+                try {
+                    this.Opacity = 0; // 移動前に表示されてしまうので透過させておく
+                    this.WindowState = FormWindowState.Normal;
+                    MoveFormTo(Cursor.Position);
+                }
+                finally {
+                    this.Opacity = 1;
+                }
+            }
+        }
+    }
+
+    bool MoveFormTo(Point p)
+    {
+        TaskbarInfo taskbar = TaskbarInfo.GetPrimaryTaskbarInfo();
+        Rectangle rect = taskbar.CalcNearRect(p, Size);
+        this.Location = rect.Location;
+
+        if ( taskbar == null ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // -------------------------------------------
+
+    static Icon Create16x16Icon()
+    {
+        Bitmap bmp = new Bitmap(16,16);
+        using ( Graphics g = Graphics.FromImage(bmp) ) { g.Clear(Color.Blue); }
+        return Icon.FromHandle(bmp.GetHicon());
+    }
+
+    void MyExit()
+    {
+        var e = new CancelEventArgs();
+        notifyIcon.Visible = false;
+        Application.Exit(e);
+        if (e.Cancel) {
+            Console.WriteLine("Application.Exit is canceled.");
+            notifyIcon.Visible = true;
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        //Application.EnableVisualStyles();
+        Application.Run(new JohchuTest());
+    }
+}
+

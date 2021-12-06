@@ -1,0 +1,103 @@
+using System;
+using System.Drawing;
+using System.Linq;
+using System.Windows.Forms;
+using Windows.Devices.Bluetooth.Advertisement;
+using System.Runtime.InteropServices.WindowsRuntime;        //Asbuffer
+
+namespace WindowsFormsAppEnOceanSwitchBle
+{
+    public partial class Form1 : Form
+    {
+        //状態確認用コメントを表示
+        string textBleScanStatus;
+        //Scanの準備
+        static BluetoothLEAdvertisementWatcher watcherEnOcean;
+        //対象のBleDeviceAddress
+        ulong addressBleDevice = 0xE215000183BE,addressTextBox;
+        public Form1()
+        {
+            InitializeComponent();
+            //Scanの準備
+            watcherEnOcean = new BluetoothLEAdvertisementWatcher();
+            labelCommnetButton.Text = "( Watcher initialized ) click button -&gt; Scan start";
+            //テキストボックスの数値の初期化
+            textBoxBleDeviceAddress.Text = addressBleDevice.ToString("X");
+        }
+        private void buttonScan_Click(object sender, EventArgs e)
+        {
+            //TextBoxの数値を取得 -&gt; 変換
+            string textBox = textBoxBleDeviceAddress.Text;
+            addressTextBox = ulong.Parse(textBox, System.Globalization.NumberStyles.HexNumber);        //16進数で変換
+            textBleScanStatus = watcherEnOcean.Status.ToString();
+            //Started -&gt; Scan Stop ,Created or Stopped -&gt; Scan Start ,その他 -&gt; よくわからんのでもう一回押してみる
+            if (textBleScanStatus == "Started")
+            {
+                watcherEnOcean.Stop();
+                buttonScan.Text = "Start Scan";
+                labelCommnetButton.Text = "( Scan Stoped ) click button -&gt; Scan start";
+            }
+            else if ((textBleScanStatus == "Created") || (textBleScanStatus == "Stopped"))
+            {
+                BleScanStart();
+                buttonScan.Text = "Stop Scan";
+                labelCommnetButton.Text = "( Scanning ) click button -&gt; Scan start";
+            }
+            else
+            {
+                labelCommnetButton.Text = "( Error Occured ) click button after a while";
+            }
+        }
+        void BleScanStart()
+        {
+            watcherEnOcean.Received += Watcher_Received;
+            //追加データがあった場合に取得できるようにスキャン要求を可能にする（必要なのか？）。
+            watcherEnOcean.ScanningMode = BluetoothLEScanningMode.Active;
+            watcherEnOcean.Start();
+        }
+        void Watcher_Received(BluetoothLEAdvertisementWatcher sender, BluetoothLEAdvertisementReceivedEventArgs args)
+        {
+            //BleDeviceのAddressを取得し、Textboxの中身と比較
+            if (args.BluetoothAddress == addressTextBox)
+            {
+                //ManufacturerDataの中身を取得する。
+                var dataScanManufacturerData = args.Advertisement.ManufacturerData;
+                foreach (var dataM in dataScanManufacturerData)
+                {
+                    var dataA = dataM.Data.ToArray();
+                    //ManufacturerDataの内、Status（dataA[4]に相当）の中身を分解し、格納する。
+                    //SwitchID A0 = dataSwitchNumber[0] , A1 = dataSwitchNumber[1] , B0 = dataSwitchNumber[2] , B1 = dataSwitchNumber[3] 
+                    //dataSwitchPress Press=1,Release＝0
+                    int[] dataSwitchNumber = new int[4];
+                    int dataSwitchPress;
+                    dataSwitchPress = dataA[4] % 2;
+                    int dataP = dataA[4];
+                    for (int a = 0 ; a &lt; 4 ; a++)
+                    {
+                        dataP = dataP / 2;
+                        dataSwitchNumber[a] = dataP % 2;
+                    }
+                    //ボタンの表示用の4つの四角形を変更する。
+                    PictureBox[] pictureBoxSwitch = { pictureBoxSwitchA0, pictureBoxSwitchA1, pictureBoxSwitchB0, pictureBoxSwitchB1 };
+                    Bitmap[] canvasSwitch = new Bitmap[4];
+                    Graphics[] graphicSwitch = new Graphics[4];
+                    for (int a = 0; a &lt; 4; a++)
+                    {
+                        if (dataSwitchNumber[a] == 1)
+                        {
+                            canvasSwitch[a] = new Bitmap(pictureBoxSwitch[a].Width, pictureBoxSwitch[a].Height);                            //pictureBoxSwitchと同じサイズのビットマップを作成
+                            graphicSwitch[a] = Graphics.FromImage(canvasSwitch[a]);
+                            Brush brush;
+                            if (dataSwitchPress == 1) brush = Brushes.Blue;
+                            else brush = Brushes.Gray;
+                            graphicSwitch[a].FillRectangle(brush, 0, 0, canvasSwitch[a].Width, canvasSwitch[a].Height);        //pictureBoxSwitchと同じサイズの四角形をGrayで塗りつぶし
+                            graphicSwitch[a].Dispose();
+                            pictureBoxSwitch[a].Image = canvasSwitch[a];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

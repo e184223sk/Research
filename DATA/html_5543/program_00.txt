@@ -1,0 +1,173 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using System.IO;
+using MiniJSON;
+using System;
+using Newtonsoft.Json;
+using UnityEngine.UI;
+
+
+
+public class GetHttpSample : MonoBehaviour {
+
+
+    //ここから使う
+
+    private string apikey = "xxxx";//APIキー  
+
+    private string searchBaseURI = "https://www.googleapis.com/youtube/v3/search?key=[APIkey]&amp;part=snippet&amp;channelId=";
+
+    private string searchBaseChannnel = "UCBGdwqBtOebIhrtOPzOXj0w";//ここを書き換えるYoutubeチャンネル
+
+    private string searchBaseStr = "&amp;eventType=live&amp;type=video";
+
+    private string videoId;
+
+    private string youtubeAPIbase = "https://www.googleapis.com/youtube/v3/";
+
+    private string channnelSearch = "videos?part=liveStreamingDetails&amp;id=";
+
+    private string chatId;
+
+    private string pagetoken = "&amp;pageToken=";
+
+    private string chatURIUp = "liveChat/messages?liveChatId=";
+
+    private bool connectionflag = false;
+
+    private string nextPageTokenstr = null;
+
+    private string jsontext;
+
+    //コメントと投稿時間だけ出るやつ
+    private string chatURIbottom = "&amp;part=snippet&amp;hl=ja&amp;maxResults=2000&amp;fields=items/snippet/displayMessage,items/snippet/publishedAt,items/authorDetails/displayName&amp;key=";//&amp;part=snippet&amp;hl=ja&amp;maxResults=2000&amp;fields=items/snippet/displayMessage,items/snippet/publishedAt&amp;key=
+    //全部出るやつ
+    private string chatURIbottom2 = "&amp;part=snippet,authorDetails&amp;key=";
+
+    [SerializeField]
+    private GameObject canvas;
+
+    // Use this for initialization
+    void Start () {
+        StartCoroutine(GetYoutubeAPI());
+    }
+
+    // Update is called once per frame
+    void Update () {
+    }
+
+    private IEnumerator GetYoutubeAPI()
+    {
+        var urisample = searchBaseURI + searchBaseChannnel + searchBaseStr;
+
+        UnityWebRequest liverequest = UnityWebRequest.Get(urisample);//testURI + apikey);
+        yield return liverequest.SendWebRequest();
+
+        if (liverequest.isHttpError || liverequest.isNetworkError)
+        {
+            Debug.Log(liverequest.error);
+        }
+        else
+        {
+            jsontext = liverequest.downloadHandler.text;
+            //MiniJSON　つかうー！！！！
+            var mjson = (IDictionary)MiniJSON.Json.Deserialize(jsontext);
+
+            var mitems = (IList)mjson["items"];
+            var mid = (IDictionary)mitems[0];
+            var sid = (IDictionary)mid["id"];
+            string mvideoId = (string)sid["videoId"];
+
+            //videoIdを取得
+            videoId = (string)sid["videoId"];
+
+            /*vs2017ならできる？？
+            var chatJsonObj = JsonConvert.DeserializeObject&lt;dynamic&gt;(jsontext);
+            string videoId2 = chatJsonObj.items[0].id.videoId;
+            Debug.Log("videoID2017 : " + videoId2);
+            */           
+            StartCoroutine(GetChatId());
+        }
+    }
+
+    private IEnumerator GetChatId()
+    {
+        StopCoroutine(GetYoutubeAPI());
+
+        //ChatIdを取得しにいくよ！！
+        var searchChannel = youtubeAPIbase + channnelSearch + videoId + "&amp;key=" + apikey;
+
+        UnityWebRequest channelrequest = UnityWebRequest.Get(searchChannel);
+        yield return channelrequest.SendWebRequest();
+
+        var mchanjson = (IDictionary)Json.Deserialize(channelrequest.downloadHandler.text);
+
+        var citems = (IList)mchanjson["items"];
+        var cslsd = (IDictionary)citems[0];
+        var clad = (IDictionary)cslsd["liveStreamingDetails"];
+        string mvchatId = (string)clad["activeLiveChatId"];
+        //chatIdを取得
+        chatId = (string)clad["activeLiveChatId"];
+
+        StartCoroutine(GetComment());
+    }
+
+    private IEnumerator GetComment()
+    {
+        StopCoroutine(GetChatId());
+        yield return new WaitForSeconds(5.0f);
+
+        //チャットを取りに行く！！！
+        var chatURI = youtubeAPIbase + chatURIUp + chatId + pagetoken + nextPageTokenstr + chatURIbottom2 + apikey;
+
+        UnityWebRequest connectChatrequest = UnityWebRequest.Get(chatURI);
+        yield return connectChatrequest.SendWebRequest();
+
+        var commentlogjson = (IDictionary)Json.Deserialize(connectChatrequest.downloadHandler.text);
+
+        //このif文は全くの無意味
+        if(nextPageTokenstr == (string)commentlogjson["nextPageToken"])
+        {
+            Debug.Log("sameToken");
+        }
+        else
+        {
+            nextPageTokenstr = (string)commentlogjson["nextPageToken"];
+
+            var pageinfo = (IDictionary)commentlogjson["pageInfo"];
+            int commentcount = int.Parse(pageinfo["totalResults"].ToString());
+
+            //コメント分だけ描画
+            for(var i = 0; i &lt; (int)commentcount; i++)
+            {
+                GameObject cvn = Instantiate(canvas);
+
+                var citems = (IList)commentlogjson["items"];
+                var cslsd = (IDictionary)citems[i];
+                var clad = (IDictionary)cslsd["snippet"];
+                string message = (string)clad["displayMessage"];
+
+                cvn.transform.Find("Description").gameObject.GetComponent&lt;Text&gt;().text = message;
+
+                var author = (IDictionary)cslsd["authorDetails"];
+                var dispName = (string)author["displayName"];
+
+                cvn.transform.Find("Name").gameObject.GetComponent&lt;Text&gt;().text = dispName;
+
+                float _x = UnityEngine.Random.Range(-400f, 400f);
+                float _y = UnityEngine.Random.Range(-250f, 250f);
+                cvn.transform.position = new Vector3(_x, _y, cvn.transform.position.z);
+            }
+        }
+        StartCoroutine(stopWait());
+    }
+
+    IEnumerator stopWait()
+    {
+        yield return new WaitForSeconds(1f);
+        StartCoroutine(GetComment());
+    }
+}
+

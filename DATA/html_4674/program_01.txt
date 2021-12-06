@@ -1,0 +1,159 @@
+
+using UnityEngine;
+using UnityEngine.Events;
+using UniRx;
+using UniRx.Triggers;
+
+public class PlayerController3 : MonoBehaviour
+{
+    ///&lt;summary&gt;
+    ///    ジャンプの強さ
+    ///&lt;/summary&gt;
+    [SerializeField] private float jumpPower = 5f;
+
+
+    ///&lt;summary&gt;
+    ///    Start()
+    ///&lt;/summary&gt;
+    private void Start()
+    {
+        var rigidBody = GetComponent&lt;Rigidbody&gt;();
+
+        var jumpInput = false;
+        var isJumping = false;
+/*
+        //入力ストリーム
+        var inputStream = this.UpdateAsObservable()
+            .Select(_ =&gt; {
+                //if (jumpInput || JumpInput()) jumpInput = true;
+                if (jumpInput || Input.GetButton("Jump")) jumpInput = true;
+                return jumpInput;
+            });
+        // 入力ストリームを通すと処理が遅れるようでリアルタイムなやり取りが難しかったので
+        // 今回はパス
+*/
+        //FixedUpdateを主軸にし、そこにinputStreamを合成する
+        this.FixedUpdateAsObservable()
+            //.WithLatestFrom(inputStream, (_, jump_input) =&gt; jump_input)
+            .Subscribe(x =&gt;
+            {
+                if (jumpInput &amp;&amp; !isJumping)  {
+                    isJumping = true;
+                    Debug.Log("jumping : " + (Vector3.up * jumpPower).ToString());
+                    rigidBody.AddForce(Vector3.up * jumpPower, ForceMode.Impulse);
+                }
+            });
+
+        this.UpdateAsObservable().Subscribe(x =&gt; {
+            if (jumpInput || Input.GetButton("Jump")) jumpInput = true;
+            CheckGroundDistance();
+        });
+
+        // 接地後またはジャンプ後、特定フレーム分状態の変化が無ければ、
+        // 状態が安定したものとして接地処理またはジャンプ処理を行う
+        _is_ground.Where(value =&gt; value == _isGroundStateChange).Subscribe(x =&gt; {
+            jumpInput = false;
+            isJumping = false;
+        });
+/*
+        _not_ground.Where(v =&gt; v == _isGroundStateChange).Subscribe(x =&gt; {
+                jumpInput = false;
+                isJumping = false;
+        });
+*/
+    }
+
+
+    ///&lt;summary&gt;
+    ///    接地してから何フレーム経過したか
+    ///    接地してない間は常にゼロとする
+    ///&lt;/summary&gt;
+    private ReactiveProperty&lt;int&gt; _is_ground = new ReactiveProperty&lt;int&gt;();
+
+    ///&lt;summary&gt;
+    ///    接地してない間、何フレーム経過したか
+    ///    接地している間は常にゼロとする
+    ///&lt;/summary&gt;
+    private ReactiveProperty&lt;int&gt; _not_ground = new ReactiveProperty&lt;int&gt;();
+
+    ///&lt;summary&gt;
+    ///    このフレーム数分接地していたらor接地していなかったら
+    ///    状態が変わったと認識する（ジャンプ開始したor着地した）
+    ///    接地してからキャラの状態が安定するまでに数フレーム用するため、
+    ///    キャラが安定する前に再ジャンプ入力を受け付けてしまうとバグる（ジャンプ出来なくなる）
+    ///    筆者PCでは 3 で安定するが、安全をとって今回は 5 とした
+    ///&lt;/summary&gt;
+    private int _isGroundStateChange = 5;
+
+    ///&lt;summary&gt;
+    ///    プレイヤーと地面の間の距離
+    ///    IsGround()が呼ばれるたびに更新される
+    ///&lt;/summary&gt;
+    [SerializeField] private float _groundDistance = 0f;
+
+    ///&lt;summary&gt;
+    ///    _groundDistanceがこの値以下の場合接地していると判定する
+    ///&lt;/summary&gt;
+    private float _groundDistanceLimit = 0.01f;
+
+    ///&lt;summary&gt;
+    ///    判定元の原点が地面に極端に近いとrayがヒットしない場合があるので、
+    ///    オフセットを設けて確実にヒットするようにする
+    ///&lt;/summary&gt;
+    private Vector3 _raycastOffset = new Vector3(0f, 0.005f, 0f);
+
+    ///&lt;summary&gt;
+    ///    プレイヤーキャラから下向きに地面判定のrayを飛ばす時の上限距離
+    ///    ゲーム中でプレイヤーキャラと地面が最も離れると考えられる場面の距離に、
+    ///    マージンを多少付けた値にしておくのが良
+    ///    Mathf.Infinityを指定すれば無制限も可能だが重くなる可能性があるかも？
+    ///&lt;/summary&gt;
+    private float _raycastSearchDistance = 100f;
+
+    ///&lt;summary&gt;
+    ///    接地判定
+    ///&lt;/summary&gt;
+    private void CheckGroundDistance()
+    {
+        RaycastHit hit;
+        var layerMask = LayerMask.GetMask("Ground");
+
+        // プレイヤーの位置から下向きにRaycast
+        // レイヤーマスクでGroundを設定しているので、
+        // 地面のGameObjectにGroundのレイヤーを設定しておけば、
+        // Groundのレイヤーを持つGameObjectで一番近いものが一つだけヒットする
+        var isGroundHit = Physics.Raycast(
+                transform.position + _raycastOffset,
+                transform.TransformDirection(Vector3.down),
+                out hit,
+                _raycastSearchDistance,
+                layerMask
+            );
+
+        if (isGroundHit) {
+            _groundDistance = hit.distance;
+        } else {
+            // ヒットしなかった場合はキャラの下方に地面が存在しないものとして扱う
+            _groundDistance = float.MaxValue;
+        }
+
+        // 地面とキャラの距離は環境によって様々で
+        // 完全にゼロにはならない時もあるため、
+        // ジャンプしていない時の値に多少のマージンをのせた
+        // 一定値以下を接地と判定する
+        // 通常あり得ないと思われるが、オーバーフローされると再度アクションが実行されてしまうので、越えたところで止める
+        if (_groundDistance &lt; _groundDistanceLimit) {
+            if (_is_ground.Value &lt;= _isGroundStateChange) {
+                _is_ground.Value += 1;
+                _not_ground.Value = 0;
+            }
+        } else {
+            if (_not_ground.Value &lt;= _isGroundStateChange) {
+                _is_ground.Value = 0;
+                _not_ground.Value += 1;
+            }
+        }
+
+    }
+}
+

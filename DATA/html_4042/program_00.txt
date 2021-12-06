@@ -1,0 +1,150 @@
+using System;
+using System.Collections.Generic;
+using CrossLink;
+
+#pragma warning disable SA1300
+
+namespace ConsoleApp1
+{
+    [CrossLinkObject] // 対象のクラスに CrossLinkObject属性を追加します
+    public partial class TestClass // ソースジェネレーターでコード追加するので、partial classが必須
+    {
+        [Link(Type = ChainType.Ordered)] // 対象のメンバーにLink属性を追加します。TypeにChainType（Collectionの種類のようなもの）を指定します。
+        private int id; // 対象となるメンバー。これを元に、プロパティ Id と IdLink が追加されます。
+        // プロパティ Id を使用して、値の取得・更新（値、リンク）を行います。
+        // プロパティ IdLink はオブジェクト間の情報を保存します。CollectionのNodeのようなものです。
+
+        [Link(Type = ChainType.Ordered)] // ChainType.Ordered はソート済みコレクション。SortedDictionary と考えていただけば
+        public string name { get; private set; } = string.Empty; // プロパティ Name と NameLink が追加
+
+        [Link(Type = ChainType.Ordered)]// 同上
+        private int age; // プロパティ Age と AgeLink が追加
+
+        [Link(Type = ChainType.StackList, Name = "Stack")] // Nameで名称を指定して、StackListを追加。コンストラクターには複数のLinkを付加出来ます。
+        [Link(Type = ChainType.List, Name = "List")] // Listを追加
+        public TestClass(int id, string name, int age)
+        {
+            this.id = id;
+            this.name = name;
+            this.age = age;
+        }
+
+        public override string ToString() =&gt; $"ID:{this.id,2}, {this.name,-5}, {this.age,2}";
+    }
+
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            Console.WriteLine("CrossLink Quick Start.");
+            Console.WriteLine();
+
+            var g = new TestClass.GoshujinClass(); // まずは、オブジェクト管理のクラス Goshujin を作成
+            new TestClass(1, "Hoge", 27).Goshujin = g; // TestClassを作成し、Goshujinを設定します。Goshujin側にもTestClassが登録されます。
+            new TestClass(2, "Fuga", 15).Goshujin = g;
+            new TestClass(1, "A", 7).Goshujin = g;
+            new TestClass(0, "Zero", 50).Goshujin = g;
+
+            ConsoleWriteIEnumerable("[List]", g.ListChain); // ListChain（コンストラクタにLinkが追加されたやつ）は実質的に List&lt;TestClass&gt; です
+            /* Result;  作成順に並びます
+                 ID: 1, Hoge , 27
+                 ID: 2, Fuga , 15
+                 ID: 1, A    ,  7
+                 ID: 0, Zero , 50 */
+
+            Console.WriteLine("ListChain[2] : "); // インデックスアクセスが可能
+            Console.WriteLine(g.ListChain[2]); // ID: 1, A    ,  7
+            Console.WriteLine();
+
+            ConsoleWriteIEnumerable("[Sorted by Id]", g.IdChain);
+            /* IdChain は ChainType.Ordered なので、ソート済み
+                 ID: 0, Zero , 50
+                 ID: 1, Hoge , 27
+                 ID: 1, A    ,  7
+                 ID: 2, Fuga , 15 */
+
+            ConsoleWriteIEnumerable("[Sorted by Name]", g.NameChain);
+            /* 同様にNameでソート済み
+                 ID: 1, A    ,  7
+                 ID: 2, Fuga , 15
+                 ID: 1, Hoge , 27
+                 ID: 0, Zero , 50 */
+
+            ConsoleWriteIEnumerable("[Sorted by Age]", g.AgeChain);
+            /* 同様にAgeでソート済み
+                 ID: 1, A    ,  7
+                 ID: 2, Fuga , 15
+                 ID: 1, Hoge , 27
+                 ID: 0, Zero , 50 */
+
+            var t = g.ListChain[1];
+            Console.WriteLine($"{t.Name} age {t.Age} =&gt; 95");
+            t.Age = 95; // Fugaの年齢を95にすると、
+            ConsoleWriteIEnumerable("[Sorted by Age]", g.AgeChain);
+            /* なんと AgeChain が更新されています！
+                 ID: 1, A    ,  7
+                 ID: 1, Hoge , 27
+                 ID: 0, Zero , 50
+                 ID: 2, Fuga , 95 */
+
+            ConsoleWriteIEnumerable("[Stack]", g.StackChain);
+            /* こちらは Stack
+                 ID: 1, Hoge , 27
+                 ID: 2, Fuga , 95
+                 ID: 1, A    ,  7
+                 ID: 0, Zero , 50 */
+
+            t = g.StackChain.Pop(); // Stackの先頭のオブジェクトを取得し、Stackから削除します。影響するのはStackChainだけなのでご注意ください。
+            Console.WriteLine($"{t.Name} =&gt; Pop");
+            t.Goshujin = null; // 他のChainから削除するには、Goshujinをnullにします。
+            Console.WriteLine();
+
+            ConsoleWriteIEnumerable("[Stack]", g.StackChain);
+            /* Zero が解放されました・・・
+                 ID: 1, Hoge , 27
+                 ID: 2, Fuga , 95
+                 ID: 1, A    ,  7 */
+
+            var g2 = new TestClass.GoshujinClass(); // Goshujin2 を作成
+            t = g.ListChain[0];
+            Console.WriteLine($"{t.Name} Goshujin =&gt; Goshujin2");
+            Console.WriteLine();
+            t.Goshujin = g2; // Goshujin から Goshujin2 に変更すると
+            ConsoleWriteIEnumerable("[Goshujin]", g.ListChain);
+            ConsoleWriteIEnumerable("[Goshujin2]", g2.ListChain);
+            /*  各種Chainが更新されます
+             *  [Goshujin]
+                 ID: 2, Fuga , 95
+                 ID: 1, A    ,  7
+                [Goshujin2]
+                 ID: 1, Hoge , 27*/
+
+            // g.IdChain.Remove(t); // t は Goshujin2 の所有物なので、これはエラー
+            // t.Goshujin.IdChain.Remove(t); // こちらはOK（t.GosjujinはGoshujin2）
+
+            Console.WriteLine("[IdChain First/Next]");
+            t = g.IdChain.First; // Link interfaceを使って、オブジェクトを列挙します
+            while (t != null)
+            {
+                Console.WriteLine(t);
+                t = t.IdLink.Next; // Nextの型はLinkではなく、Objectそのものなのでご注意ください
+            }
+
+            static void ConsoleWriteIEnumerable&lt;T&gt;(string? header, IEnumerable&lt;T&gt; e)
+            {// オブジェクトを画面に出力
+                if (header != null)
+                {
+                    Console.WriteLine(header);
+                }
+
+                foreach (var x in e)
+                {
+                    Console.WriteLine(x!.ToString());
+                }
+
+                Console.WriteLine();
+            }
+        }
+    }
+}
+

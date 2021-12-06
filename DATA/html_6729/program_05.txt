@@ -1,0 +1,116 @@
+
+public struct NativeJaggedArray&lt;T&gt; : IDisposable, IEnumerable&lt;NativeJaggedArraySlice&lt;T&gt;&gt;
+    where T : unmanaged, IEquatable&lt;T&gt;
+{
+    internal struct ElemIndex
+    {
+        public int Start { get; private set; }
+        public int Length { get; private set; }
+        public int End { get { return this.Start + this.Length; } }
+
+        public ElemIndex(int st, int len)
+        {
+            this.Start = st;
+            this.Length = len;
+        }
+    }
+
+    private NativeList&lt;T&gt; _buff;
+    private NativeList&lt;ElemIndex&gt; _elemIndexList;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    private NativeArray&lt;long&gt; genTrace;
+    private PtrHandle&lt;long&gt; genSignature;
+#endif
+
+    public unsafe NativeJaggedArray(Allocator alloc)
+    {
+        _buff = new NativeList&lt;T&gt;(alloc);
+        _elemIndexList = new NativeList&lt;ElemIndex&gt;(alloc);
+        _alloc = alloc;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        genTrace = new NativeArray&lt;long&gt;(1, alloc);
+        genSignature = new PtrHandle&lt;long&gt;((long)_buff.GetUnsafePtr(), alloc);  // sigunature = address value of ptr for char_arr.
+#endif
+    }
+
+    public void Clear()
+    {
+        this._buff.Clear();
+        this._elemIndexList.Clear();
+    }
+
+    public int Length { get { return this._elemIndexList.Length; } }
+    public int Size { get { return this._buff.Length; } }
+
+    public unsafe NativeJaggedArraySlice&lt;T&gt; this[int index]
+    {
+        get
+        {
+            var elem_index = this._elemIndexList[index];
+            T* elem_ptr = (T*)this._buff.GetUnsafePtr() + elem_index.Start;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            return new NativeJaggedArraySlice&lt;T&gt;(elem_ptr, elem_index.Length, this.GetGenPtr(), this.GetGen());
+#else
+            return new NativeJaggedArraySlice&lt;T&gt;(elem_ptr, elem_index.Length);
+#endif
+        }
+    }
+
+    public unsafe void Add(T* ptr, int Length)
+    {
+        int Start = this._buff.Length;
+        this._buff.AddRange((void*)ptr, Length);
+        this._elemIndexList.Add(new ElemIndex(Start, Length));
+
+        this.UpdateSignature();
+    }
+    /// &lt;summary&gt;
+    /// specialize for NativeJaggedArraySlice&lt;T&gt;
+    /// &lt;/summary&gt;
+    /// &lt;param name="slice"&gt;&lt;/param&gt;
+    public unsafe void Add(NativeJaggedArraySlice&lt;T&gt; slice)
+    {
+        this.Add((T*)slice.GetUnsafePtr(), slice.Length);
+    }
+
+    public void RemoveAt(int index)
+    {
+        this.CheckElemIndex(index);
+        for (int i = index; i &lt; this.Length - 1; i++)
+        {
+            this._elemIndexList[i] = this._elemIndexList[i + 1];
+        }
+        this._elemIndexList.RemoveAtSwapBack(this.Length - 1);
+    }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        if (gap &gt; 0) this.NextGen();
+#endif
+    }
+
+    [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+    unsafe private void UpdateSignature()
+    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        long now_sig = GetGenSigneture();
+        if (now_sig != this.genSignature)
+        {
+            this.NextGen();
+            this.genSignature.Value = now_sig;
+        }
+#endif
+    }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    private void NextGen()
+    {
+        long now_gen = this.genTrace[0];
+        this.genTrace[0] = now_gen + 1;
+    }
+    private unsafe long GetGenSigneture() { return (long)this._buff.GetUnsafePtr(); }
+    private long GetGen() { return this.genTrace[0]; }
+    unsafe private long* GetGenPtr() { return (long*)this.genTrace.GetUnsafePtr(); }
+#endif
+} 
+

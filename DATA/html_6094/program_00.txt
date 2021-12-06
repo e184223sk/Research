@@ -1,0 +1,143 @@
+using System;
+using System.Collections.Generic;
+
+namespace test
+{
+    /// &lt;summary&gt;
+    /// CSVバイト操作スーパークラス
+    /// &lt;/summary&gt;
+    class CSVByteOperation_Base
+    {
+        /// &lt;summary&gt;
+        /// バイト配列から位置、長さでバイト配列を取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="InputData"&gt;Byteデータ配列&lt;/param&gt;
+        /// &lt;param name="StartPoint"&gt;開始ポイント&lt;/param&gt;
+        /// &lt;param name="Length"&gt;取得したい長さ&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected List&lt;byte&gt; GetByteFromByte(List&lt;byte&gt; InputData, int StartPoint, int Length)
+        {
+            List&lt;byte&gt; rtnValue;
+
+            if (Length == 0)
+                Length = InputData.Count - StartPoint;
+
+            if (Length &lt; 1)
+            {
+                rtnValue = new List&lt;byte&gt;();
+                return rtnValue;
+            }
+
+            rtnValue = new List&lt;byte&gt;();
+
+            for (int i = 0; i &lt; Length; i++)
+            {
+                if (StartPoint + i &lt; InputData.Count)
+                    rtnValue.Add(InputData[StartPoint + i]);
+            }
+
+            return rtnValue;
+        }
+
+        /// &lt;summary&gt;
+        /// テキストデータを読み込んでバイト配列を取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="FilePath"&gt;テキストデータのパス&lt;/param&gt;
+        /// &lt;returns&gt;List型&lt;/returns&gt;
+        protected List&lt;byte&gt; GetBinaryData(string FilePath)
+        {
+            List&lt;byte&gt; rtnValue = new List&lt;byte&gt;();
+
+            System.IO.FileStream fs = null;
+            System.IO.BinaryReader br = null;
+
+            try
+            {
+                fs = new System.IO.FileStream(FilePath, System.IO.FileMode.Open);
+                br = new System.IO.BinaryReader(fs);
+
+                int Length = (int)fs.Length;
+
+                var ForConvertion = br.ReadBytes(Length);
+                fs.Close();
+
+                foreach (var item in ForConvertion)
+                {
+                    rtnValue.Add(item);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (br != null)
+                    br.Close();
+
+                if (fs != null)
+                    fs.Close();
+
+                throw ex;
+            }
+
+            return rtnValue;
+        }
+
+        /// &lt;summary&gt;
+        /// 改行を区切りとして、バイトデータを1行ずつまとめてリストに取得する
+        /// &lt;/summary&gt;
+        /// &lt;param name="InputData"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected List&lt;List&lt;byte&gt;&gt; DivideLine(List&lt;byte&gt; InputData)
+        {
+            List&lt;List&lt;byte&gt;&gt; rtnValue = new List&lt;List&lt;byte&gt;&gt;();
+
+            int StartPoint = 0;
+            int EndPoint = 0;
+            int Length = 0;
+
+            while (EndPoint &gt;= 0)
+            {
+                EndPoint = SearchCRLF(InputData, StartPoint);
+
+                if (EndPoint &lt; 0)
+                {
+                    Length = InputData.Count - StartPoint;
+
+                    if (Length &lt;= 0)
+                        break;
+                }
+                else
+                    Length = EndPoint - StartPoint;
+
+                var LineData = GetByteFromByte(InputData, StartPoint, Length);
+
+                rtnValue.Add(LineData);
+
+                StartPoint = EndPoint + 1;
+            }
+
+            return rtnValue;
+        }
+
+        /// &lt;summary&gt;
+        /// 読み込みデータからCRLFの位置を取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="InputData"&gt;バイト配列&lt;/param&gt;
+        /// &lt;param name="StartPoint"&gt;開始ポイント&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        protected int SearchCRLF(List&lt;byte&gt; InputData, int StartPoint)
+        {
+            int EndPoint = -1;
+
+            for (int i = StartPoint; i &lt; InputData.Count - 1; i++)
+            {
+                if (InputData[i] == 0xD &amp; InputData[i + 1] == 0xA)
+                {
+                    EndPoint = i + 1;
+                    break;
+                }
+            }
+
+            return EndPoint;
+        }
+    }
+}
+

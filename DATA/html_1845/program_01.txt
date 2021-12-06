@@ -1,0 +1,123 @@
+
+using System;
+using System.Data.SQLite;
+using System.Collections.Generic;
+
+namespace FormApp1.DatabaseConnectors
+{
+    public class SqliteDatabaseConnector : IDatabaseConnectors&lt;SQLiteDataReader&gt;, IDisposable
+    {
+        // Nuget で SQLite 関連は読み込み済み
+        private SQLiteConnection _SQLiteConnection;
+        private SQLiteTransaction _SQLiteTransaction;
+        private string _dbConnectionString = "";
+        // SQLiteDB ファイルのパス
+        private readonly string _path;
+        // SQLiteDB ファイルの名称
+        private readonly string _fileName;
+
+        // コンストラクタ
+        public SqliteDatabaseConnector(string path, string fileName)
+        {
+            _path = path;
+            _fileName = fileName;
+            Initialize();
+        }
+        // 初期化：DB接続を確立させる
+        public void Initialize()
+        {
+            BuildSqlConnectionString();
+            _SQLiteConnection = new SQLiteConnection(_dbConnectionString);
+            _SQLiteConnection.Open();
+        }
+        // コネクションストリングを作成
+        public void BuildSqlConnectionString()
+        {
+            // DB ファイルネームが指定されなかった場合は、"default" を定義値にします。
+            string fName = (_fileName.Length == 0) ? "default" : _fileName;
+            if(_path.Length == 0)
+                _dbConnectionString = $"Data Source ={fName}.db";
+            else
+                _dbConnectionString = $"Data Source ={_path}/{fName}.db";
+
+        }
+        public void Dispose()
+        {
+            this.Disconnect();
+            this._SQLiteConnection.Dispose();
+            this._SQLiteTransaction.Dispose();
+        }
+        public void Disconnect()
+        {
+            _SQLiteConnection.Close();
+        }
+
+
+        public void BeginTransaction()
+        {
+            this._SQLiteTransaction = this._SQLiteConnection.BeginTransaction();
+        }
+        public void CommitTransaction()
+        {
+            if (this._SQLiteTransaction.Connection != null)
+            {
+                this._SQLiteTransaction.Commit();
+                this.Dispose();
+            }
+        }
+        public void RollBack()
+        {
+            if (this._SQLiteTransaction.Connection != null)
+            {
+                this._SQLiteTransaction.Rollback();
+                this.Dispose();
+            }
+        }
+
+        // SQL発行
+        public void ExecuteNonQuery(string query)
+        {
+            this.ExecuteNonQuery(query, new Dictionary&lt;string, object&gt;());
+        }
+        public void ExecuteNonQuery(string query, Dictionary&lt;string, object&gt; keyValuePairs)
+        {
+            using(var cmd = new SQLiteCommand())
+            {
+                cmd.Connection = _SQLiteConnection;
+                cmd.Transaction = _SQLiteTransaction;
+                // パラメータをバインド
+                foreach (KeyValuePair&lt;string, object&gt; item in keyValuePairs)
+                {
+                    if ( query.IndexOf(item.Key) &gt; 0 ) 
+                        cmd.Parameters.Add(new SQLiteParameter(item.Key, item.Value));
+                }
+                cmd.CommandText = query;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        public SQLiteDataReader ExecuteQuery(string query)
+        {
+            return this.ExecuteQuery(query, new Dictionary&lt;string, object&gt;());
+        }
+        public SQLiteDataReader ExecuteQuery(string query, Dictionary&lt;string, object&gt; keyValuePairs)
+        {
+            SQLiteDataReader reader;
+            using (var cmd = new SQLiteCommand())
+            {
+                cmd.Connection = this._SQLiteConnection;
+                cmd.Transaction = this._SQLiteTransaction;
+                // パラメータをバインド
+                foreach (KeyValuePair&lt;string, object&gt; item in keyValuePairs)
+                {
+                    if (query.IndexOf(item.Key) &gt; 0)
+                        cmd.Parameters.Add(new SQLiteParameter(item.Key, item.Value));
+                }
+                cmd.CommandText = query;
+                reader = cmd.ExecuteReader();
+            }
+            return reader;
+        }
+
+    }
+}
+

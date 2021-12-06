@@ -1,0 +1,286 @@
+using System;
+using System.Text;
+
+namespace TimePeriod
+{
+    /// &lt;summary&gt;
+    /// 2つの時刻の範囲を表現するクラス
+    /// 
+    /// (boostのtime_periodを参考に作成)
+    /// &lt;/summary&gt;
+    public class TimePeriod
+    {
+        public DateTime Begin { get; protected set; }      //!&lt; 開始時刻(期間の最初)
+        public DateTime Last { get; protected set; }       //!&lt; 終了時刻(期間の最後)
+        public DateTime End {  get { return Last + TimeSpan.FromTicks(1); } }   //!&lt; 期間の最後の次
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="start"&gt;開始(この時刻は期間に含まれる)&lt;/param&gt;
+        /// &lt;param name="last"&gt;終了(この時刻は期間に含まれない)&lt;/param&gt;
+        public TimePeriod(DateTime start, DateTime end)
+        {
+            Begin = start;
+            Last = end - TimeSpan.FromTicks(1);
+        }
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="start"&gt;開始(この時刻は期間に含まれる)&lt;/param&gt;
+        /// &lt;param name="len"&gt;期間の長さ&lt;/param&gt;
+        public TimePeriod(DateTime start, TimeSpan len)
+        {
+            Begin = start;
+            Last = start + len - TimeSpan.FromTicks(1);
+        }
+
+        /// &lt;summary&gt;
+        /// コピーコンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="tp"&gt;範囲&lt;/param&gt;
+        public TimePeriod(TimePeriod tp)
+        {
+            Begin = tp.Begin;
+            Last = tp.Last;
+        }
+
+        /// &lt;summary&gt;
+        /// 期間が正しいかどうかの検査
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;true:期間が正しい形式でない時(begin &gt;= end)&lt;/returns&gt;
+        public bool IsNull()
+            =&gt; End &lt;= Begin;
+
+        /// &lt;summary&gt;
+        /// 期間の長さをTimeSpanで返す
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;期間の長さ&lt;/returns&gt;
+        public TimeSpan Length()
+            =&gt; End - Begin;
+
+        /// &lt;summary&gt;
+        /// 範囲をずらす
+        /// &lt;/summary&gt;
+        /// &lt;param name="d"&gt;ずらし量&lt;/param&gt;
+        public void Shift(TimeSpan d)
+        {
+            Begin += d;
+            Last += d;
+        }
+
+        /// &lt;summary&gt;
+        /// 範囲を拡張する(両端同じ長さ)
+        /// &lt;/summary&gt;
+        /// &lt;param name="d"&gt;拡張幅&lt;/param&gt;
+        public void Expnad(TimeSpan d)
+        {
+            Begin -= d;
+            Last += d;
+        }
+
+        /// &lt;summary&gt;
+        /// 指定した日時が範囲に含まれるかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="t"&gt;チェックする日時&lt;/param&gt;
+        /// &lt;returns&gt;true:範囲に含まれる、false:範囲に含まれない&lt;/returns&gt;
+        public bool Contains(DateTime t)
+            =&gt; ((t &gt;= Begin) &amp;&amp; (t &lt;= Last));
+
+        /// &lt;summary&gt;
+        /// 指定した範囲が含まれているかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;チェックする範囲&lt;/param&gt;
+        /// &lt;returns&gt;true:範囲に含まれる、false:範囲に含まれない&lt;/returns&gt;
+        public bool Contains(TimePeriod range)
+            =&gt; ((Begin &lt;= range.Begin) &amp;&amp; (Last &gt;= range.Last));
+
+        /// &lt;summary&gt;
+        /// 指定した範囲が隣接(adjacent)しているかどうかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;チェックする範囲&lt;/param&gt;
+        /// &lt;returns&gt;true:隣接している、false:隣接していない(重なっている場合もある)&lt;/returns&gt;
+        public bool IsAdjacent(TimePeriod range)
+            =&gt; ((range.Begin == End) || (Begin == range.End));
+
+        /// &lt;summary&gt;
+        /// 指定した日時より後かどうかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="t"&gt;指定日時&lt;/param&gt;
+        /// &lt;returns&gt;true:この範囲が指定日よりあと&lt;/returns&gt;
+        public bool IsAfter(DateTime t)
+        {
+            if (IsNull())
+            {
+                return false;
+            }
+            return t &lt; Begin;
+        }
+
+        /// &lt;summary&gt;
+        /// 指定した日時より前かどうかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="t"&gt;指定日時&lt;/param&gt;
+        /// &lt;returns&gt;true:この範囲が指定日より前&lt;/returns&gt;
+        public bool IsBefore(DateTime t)
+        {
+            if (IsNull())
+            {
+                return false;
+            }
+            return Last &lt; t;
+        }
+
+        /// &lt;summary&gt;
+        /// 指定した範囲が重なっているかどうかの検査
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;チェックする範囲&lt;/param&gt;
+        /// &lt;returns&gt;true:期間が重なっている、false:期間の重なりはない&lt;/returns&gt;
+        public bool Intersects(TimePeriod range)
+            =&gt; (Contains(range.Begin) ||
+                range.Contains(Begin) ||
+                ((range.Begin &lt; Begin) &amp;&amp; (range.Last &gt;= Begin)));
+
+        /// &lt;summary&gt;
+        /// 指定した範囲と重複する部分を期間として返す
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;チェックする範囲&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public TimePeriod Intersection(TimePeriod range)
+        {
+            if (Begin &gt; range.Begin)
+            {
+                if (Last &lt;= range.Last)
+                {
+                    return this;
+                }
+                return new TimePeriod(Begin, range.End);
+            }
+            else
+            {
+                if (Last &lt;= range.Last)
+                {
+                    return new TimePeriod(range.Begin, End);
+                }
+                return range;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 2つの範囲を結合して返す
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;結合する範囲&lt;/param&gt;
+        /// &lt;returns&gt;結合された範囲(重複しない場合はnullな期間を返す)&lt;/returns&gt;
+        public TimePeriod Merge(TimePeriod range)
+        {
+            if (Intersects(range))
+            {
+                if (Begin &lt; range.Begin)
+                {
+                    return new TimePeriod(Begin, (Last &gt; range.Last) ? End : range.End);
+                }
+                return new TimePeriod(range.Begin, (Last &gt; range.Last) ? End : range.End);
+            }
+            return new TimePeriod(Begin, Begin);
+        }
+
+        /// &lt;summary&gt;
+        /// 2つの範囲の一番早い時刻と一番遅い時刻の範囲を返す
+        /// &lt;/summary&gt;
+        /// &lt;param name="range"&gt;もう1つの時刻範囲&lt;/param&gt;
+        /// &lt;returns&gt;結合した時刻範囲&lt;/returns&gt;
+        public TimePeriod Span(TimePeriod range)
+        {
+            var start = (Begin &lt; range.Begin) ? Begin : range.Begin;
+            var newend = (Last &lt; range.Last) ? range.End : End;
+            return new TimePeriod(start, newend);
+        }
+
+        /// &lt;summary&gt;
+        /// 比較演算子(==)
+        /// &lt;/summary&gt;
+        /// &lt;param name="l"&gt;比較する側&lt;/param&gt;
+        /// &lt;param name="r"&gt;比較される側&lt;/param&gt;
+        /// &lt;returns&gt;true:範囲が一致&lt;/returns&gt;
+        public static bool operator==(TimePeriod l, TimePeriod r)
+        {
+            // 参照が同じならtrue
+            if (ReferenceEquals(l, r))
+            {
+                return true;
+            }
+            // どちらかがnullならfalse
+            // objectでキャストしないと無限ループになるので注意
+            if (((object)l == null) || ((object)r == null))
+            {
+                return false;
+            }
+
+            return ((l.Begin == r.Begin) &amp;&amp; (l.Last == r.Last));
+        }
+
+        /// &lt;summary&gt;
+        /// 比較演算子(!=)
+        /// &lt;/summary&gt;
+        /// &lt;param name="l"&gt;比較する側&lt;/param&gt;
+        /// &lt;param name="r"&gt;比較される側&lt;/param&gt;
+        /// &lt;returns&gt;true:範囲が違う&lt;/returns&gt;
+        public static bool operator!=(TimePeriod l, TimePeriod r)
+            =&gt; !(l == r);
+
+        /// &lt;summary&gt;
+        /// 比較演算子(＜)
+        /// &lt;/summary&gt;
+        /// &lt;param name="l"&gt;比較する側&lt;/param&gt;
+        /// &lt;param name="r"&gt;比較される側&lt;/param&gt;
+        /// &lt;returns&gt;true:左側のLastが右側のBeginより小さい&lt;/returns&gt;
+        public static bool operator&lt;(TimePeriod l, TimePeriod r)
+            =&gt; (l.Last &lt; r.Begin);
+
+        /// &lt;summary&gt;
+        /// 比較演算子(＞)
+        /// &lt;/summary&gt;
+        /// &lt;param name="l"&gt;比較する側&lt;/param&gt;
+        /// &lt;param name="r"&gt;比較される側&lt;/param&gt;
+        /// &lt;returns&gt;true:左側のLastが右側のBeginより大きい&lt;/returns&gt;
+        public static bool operator&gt;(TimePeriod l, TimePeriod r)
+            =&gt; (r.Last &lt; l.Begin);
+
+        /// &lt;summary&gt;
+        /// Equalsのオーバーライド
+        /// &lt;/summary&gt;
+        /// &lt;param name="obj"&gt;オブジェクト&lt;/param&gt;
+        /// &lt;returns&gt;一致していればtrueを返す&lt;/returns&gt;
+        public override bool Equals(object obj)
+        {
+            if (obj == null || GetType() != obj.GetType())
+            {
+                return false;
+            }
+
+            TimePeriod tp = (TimePeriod)obj;
+            return this == tp;
+        }
+
+        /// &lt;summary&gt;
+        /// GetHashCodeのオーバーライド
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;Hash Code&lt;/returns&gt;
+        public override int GetHashCode()
+            =&gt; Begin.GetHashCode() ^ Last.GetHashCode();
+
+        /// &lt;summary&gt;
+        /// ToString()のオーバーライド関数
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;文字列&lt;/returns&gt;
+        public override string ToString()
+        {
+            var build = new StringBuilder();
+            build.AppendFormat("Begin:{0},", Begin)
+                .AppendFormat("End:{0}", End);
+            return build.ToString();
+        }
+    }
+}
+

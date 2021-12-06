@@ -1,0 +1,59 @@
+        public async Task RefreshFollowerIds()
+        {
+            if (MyCommon._endingFlag) return;
+
+            var cursor = -1L;
+            var newFollowerIds = new HashSet&lt;long&gt;();
+            do
+            {
+                var ret = await this.Api.FollowersIds(cursor)
+                    .ConfigureAwait(false);
+
+                if (ret.Ids == null)
+                    throw new WebApiException("ret.ids == null");
+
+                newFollowerIds.UnionWith(ret.Ids);
+                cursor = ret.NextCursor;
+            } while (cursor != 0);
+
+            foreach (long Id in newFollowerIds)
+            {
+                this.followerId.Add(Id);
+            }
+            TabInformations.GetInstance().RefreshOwl(this.followerId);
+
+            this._GetFollowerResult = true;
+
+
+            HashSet&lt;long&gt; oldFollowerIds = new HashSet&lt;long&gt;();
+            string line;
+            try
+            {
+                using (StreamReader sr = new StreamReader(@"FollowerIds.txt"))
+                {
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        oldFollowerIds.Add(long.Parse(line));
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Console.WriteLine(error.Message);
+            }
+            StreamWriter writer = new StreamWriter(@"FollowerIds.txt", false);
+            writer.Write("");
+            writer.Close();
+            writer = new StreamWriter(@"FollowerIds.txt", true);
+            foreach (long Id in this.followerId)
+            {
+                writer.WriteLine(Id);
+                if (oldFollowerIds.Contains(Id))
+                {
+                    oldFollowerIds.Remove(Id);
+                    newFollowerIds.Remove(Id);
+                }
+            }
+            writer.Close();
+        }
+

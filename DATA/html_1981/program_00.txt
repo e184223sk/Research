@@ -1,0 +1,68 @@
+using Microsoft.JScript;
+using System;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Text;
+
+namespace OST_Host
+{
+    [DataContract]
+    public class Message
+    {
+        [DataMember]
+        public string SelectedText { get; set; }
+    }
+
+    class NativeMessage
+    {
+        public static string StringRead()
+        {
+            // JSONデータの受信
+            string inStr = OpenStandardStreamIn();
+            inStr = GlobalObject.decodeURIComponent(inStr);
+
+            // JSONデータのデシリアライズ
+            var serializer = new DataContractJsonSerializer(typeof(Message));
+            using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(inStr)))
+            {
+                var data = (Message)serializer.ReadObject(ms);
+                return data.SelectedText;
+            }
+        }
+
+        public static void StringWrite(string stringData)
+        {
+            int limit = 1024 * 1024 - 2;
+            string stringText = GlobalObject.encodeURIComponent(stringData);
+            while (stringText.Length &gt;= limit)
+            {
+                OpenStandardStreamOut("\"" + stringText.Substring(0, limit) + "\"");
+                stringText = stringText.Substring(limit);
+            }
+            OpenStandardStreamOut("\"" + stringText + "\"");
+        }
+
+        private static string OpenStandardStreamIn()
+        {
+            Stream stdin = Console.OpenStandardInput();
+            byte[] bytes = new byte[4];
+            stdin.Read(bytes, 0, 4);
+            int length = BitConverter.ToInt32(bytes, 0);
+            string input = "";
+            for (int i = 0; i &lt; length; i++) input += (char)stdin.ReadByte();
+            stdin.Close();
+            return input;
+        }
+
+        private static void OpenStandardStreamOut(string stringData)
+        {
+            byte[] bytes = BitConverter.GetBytes(stringData.Length);
+            Stream stdout = Console.OpenStandardOutput();
+            for (int i = 0; i &lt; 4; i++) stdout.WriteByte(bytes[i]);
+            Console.Write(stringData);
+            stdout.Close();
+        }
+    }
+}
+

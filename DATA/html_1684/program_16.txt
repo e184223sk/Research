@@ -1,0 +1,596 @@
+
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace Ruler
+{
+    class RulerMain : Form
+    {
+        public static void Main()
+        {
+            Application.Run(new RulerMain());
+        }
+
+        private Panel panel1;               // 定規を配置するパネル
+        private Panel panel2;               // 定規のメモリを指す矢印を配置するパネル
+
+        private PictureBox pictureBox1;     // 定規を描画するpictureBox
+        private PictureBox baseArrow;     // 矢印タグのホーム
+        private PictureBox cursorLinePictureBox;     // 定規の目盛りを読むためのカーソル
+
+        private Button button1;     // 拡大ボタン
+        private Button button2;     // 縮小ボタン
+        private Label label1;       // 矢印が指している目盛りの値を表示するラベル
+
+
+        private const int MAXGRADUATIONVALUE = 30;          // 定規の最大値
+        private const int MINIMUMGRADUATIONPERLARGE = 10;   // 大きい目盛りの分割数
+        private const int PIXELPERMINIMUMGRADUATION = 5;    // 最小メモリのピクセル数
+        private const int RULERWIDTH = 50;                  // 定規の幅
+        private const int PIXELPERBLANK = 15;               // 定規の左右にある余白のピクセル数
+        private const int FOUNDAMENTALgRADUATIN = 10;       // 一番短い目盛りの線の長さ
+        private double scale = 1.0;                         // 定規の表示を拡大するための倍率
+
+        private const int ArrowWidth = 21;                  // 矢印の幅
+        private const int ArrowHeight = 44;                 // 矢印の高さ
+        private Size arrowSize = new Size(ArrowWidth, ArrowHeight);     // 矢印のサイズ
+        private int ArrowCenterX = ArrowWidth / 2;          // 矢印の幅(X軸)の中心の値
+
+        private ContextMenuStrip contextMenuStripOnArrow;     // 矢印のコンテキストメニュー
+
+
+        private RulerMain()
+        {
+
+
+            // 定規を表示するPictueBox1の定義　
+            this.pictureBox1 = new PictureBox();
+            this.pictureBox1.Size = new Size((MAXGRADUATIONVALUE * MINIMUMGRADUATIONPERLARGE * PIXELPERMINIMUMGRADUATION + 2 * PIXELPERBLANK + 1), RULERWIDTH);
+            this.pictureBox1.Location = new Point(0, 0);
+            this.pictureBox1.Image = MakeRuler(MAXGRADUATIONVALUE, MINIMUMGRADUATIONPERLARGE, PIXELPERMINIMUMGRADUATION, PIXELPERBLANK, RULERWIDTH);
+            this.pictureBox1.BorderStyle = BorderStyle.None;   //境界線
+            this.pictureBox1.BackColor = Color.LightBlue;
+
+
+            // 定規を乗せるパネル panel1の定義
+            this.panel1 = new Panel();
+            this.panel1.BorderStyle = BorderStyle.FixedSingle;   //境界線
+            this.panel1.Location = new Point(10, 5);
+            this.panel1.Size = new Size((MAXGRADUATIONVALUE * MINIMUMGRADUATIONPERLARGE * PIXELPERMINIMUMGRADUATION + 2 * PIXELPERBLANK + 1) + 2, 125);
+            this.panel1.BackColor = Color.MintCream;
+            this.panel1.AutoScroll = true;
+            this.panel1.Controls.Add(pictureBox1);
+
+
+            // 黄色い矢印の定位置を表示する矢印の定義　
+            this.baseArrow = new Arrow();
+            this.baseArrow.Location = new Point(250, 155);
+            this.baseArrow.MouseDown += new MouseEventHandler(baseArrow_MouseDown);
+            this.baseArrow.MouseMove += new MouseEventHandler(baseArrow_MouseMove);
+            this.baseArrow.MouseUp += new MouseEventHandler(baseArrow_MouseUp);
+
+
+            // 定規のメモリを指す矢印を配置するパネル
+            this.panel2 = new Panel();
+            this.panel2.Location = new Point(pictureBox1.Location.X, pictureBox1.Location.Y + pictureBox1.Height);
+            this.panel2.Size = new Size(pictureBox1.Width, baseArrow.Height + 10);
+            this.panel2.BorderStyle = BorderStyle.None;
+            this.panel2.BackColor = Color.LightGreen;
+            this.panel1.Controls.Add(panel2);
+
+
+            // 拡大ボタン（bottun1)の定義
+            this.button1 = new Button();
+            this.button1.Location = new Point(10, 170);
+            this.button1.Size = new Size(100, 30);
+            this.button1.Text = "拡大";
+            this.button1.Click += new EventHandler(button1_click);
+
+
+            // 縮小ボタン（bottun2)の定義
+            this.button2 = new Button();
+            this.button2.Location = new Point(130, 170);
+            this.button2.Size = new Size(100, 30);
+            this.button2.Text = "縮小";
+            this.button2.Click += new EventHandler(button2_click);
+
+
+            // 定規の目盛りを読むためのカーソルの定義
+            this.cursorLinePictureBox = new PictureBox();
+            this.cursorLinePictureBox.Size = new Size(1, pictureBox1.Height);
+            this.cursorLinePictureBox.BackColor = Color.Red;
+
+
+            // Form1の定義
+            this.Text = "定規";
+            //this.Size = new Size(1600, 480);
+            this.Size = new Size(panel1.Width + 37, 280);
+            this.MinimumSize = new Size(panel1.Width + 37, 280);
+            this.MaximumSize = new Size(panel1.Width + 37, 280);
+            this.Controls.Add(this.panel1);
+            this.Controls.Add(baseArrow);
+            this.Controls.Add(button1);
+            this.Controls.Add(button2);
+
+
+            // 矢印の上で表示するコンテキストメニューを作る
+            contextMenuStripOnArrow = new ContextMenuStrip();
+            ToolStripMenuItem tsmiDelete = new ToolStripMenuItem("削除(&amp;D)");   // コンテキストメニューで表示される項目
+            tsmiDelete.Click += new EventHandler(tsmiDelete_Click);             // コンテキストメニューの中で「削除」を選択した時のデリゲート
+            contextMenuStripOnArrow.Items.Add(tsmiDelete);                      // コンテキストメニューにtsmiDelete(削除)を追加する
+        }
+
+
+        //
+        // 定規のBitmapを画くメソッド
+        private Image MakeRuler(int maxGraduationValue, int minimumGraduationPerLarge, int pixelPerMinimumGraduation, int pixelPerBlank, int rulerWidth)
+        {
+            int graduationLength = 10;
+            Bitmap b = new Bitmap(maxGraduationValue * minimumGraduationPerLarge * pixelPerMinimumGraduation + 2 * pixelPerBlank, rulerWidth);
+            Pen dp = new Pen(Color.Black, 1);
+
+            using (var g = Graphics.FromImage(b))
+            {
+                for (int x1 = 0; x1 &lt;= maxGraduationValue; x1++)
+                {
+                    int x2Max;
+                    if (x1 &lt; maxGraduationValue - 1) x2Max = minimumGraduationPerLarge;
+                    else x2Max = minimumGraduationPerLarge + 1;
+
+                    for (int x2 = 0; x2 &lt; x2Max &amp;&amp; x1 &lt; maxGraduationValue; x2++)
+                    {
+                        if (x2 == 0 || x2 == 10)
+                        {
+                            graduationLength = FOUNDAMENTALgRADUATIN * 3;
+                        }
+                        else if (x2 == 5)
+                        {
+                            graduationLength = FOUNDAMENTALgRADUATIN * 2;
+                        }
+                        else graduationLength = FOUNDAMENTALgRADUATIN;
+
+                        g.DrawLine(dp, (x1 * minimumGraduationPerLarge + x2)
+                                                 * pixelPerMinimumGraduation + pixelPerBlank,
+                                       b.Height,
+                                       (x1 * minimumGraduationPerLarge + x2)
+                                                 * pixelPerMinimumGraduation + pixelPerBlank,
+                                           b.Height - graduationLength);
+                    }
+
+                    int letterPositionOffset;   // 定規の目盛りの値を書く位置のオフセット
+
+                    if (x1 &lt; 10)
+                    {
+                        letterPositionOffset = pixelPerBlank - 8;
+                    }
+                    else
+                    {
+                        letterPositionOffset = pixelPerBlank - 14;
+                    }
+
+                    g.DrawString(x1.ToString(),
+                                 new Font("MS UI Gothic", 16),
+                                 Brushes.Blue,
+                                 x1 * minimumGraduationPerLarge * pixelPerMinimumGraduation
+                                        + letterPositionOffset,
+                                 0,
+                                 new StringFormat());
+                }
+            }
+            return b;
+        }
+
+        //
+        // 拡大ボタンを押したときの処理
+        private void button1_click(Object sender, EventArgs e)
+        {
+            panel2.Controls.Remove(label1);
+
+            scale = scale * 2.0;
+
+            this.pictureBox1.Size = new Size((MAXGRADUATIONVALUE * MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale) + 2 * PIXELPERBLANK + 1), RULERWIDTH);
+
+            this.pictureBox1.Image = MakeRuler(MAXGRADUATIONVALUE, MINIMUMGRADUATIONPERLARGE, (int)(PIXELPERMINIMUMGRADUATION * scale), PIXELPERBLANK, RULERWIDTH);
+
+            this.panel2.Size = new Size(pictureBox1.Width, baseArrow.Height + 10);
+
+            foreach (Control c in panel2.Controls)
+            {
+                int x = (int)(((Arrow)c).Graduation * MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale)) + PIXELPERBLANK - 10;
+                Point p = new Point(x, 0);
+                c.Location = p;
+            }
+        }
+
+        //
+        // 縮小ボタンを押したときの処理
+        private void button2_click(Object sender, EventArgs e)
+        {
+            panel2.Controls.Remove(label1);
+
+            scale = scale / 2.0;
+            if (scale &lt; 1.0) scale = 1.0;　  // 倍率が1.0以下にならないようにする
+
+            this.pictureBox1.Size = new Size((MAXGRADUATIONVALUE * MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale) + 2 * PIXELPERBLANK + 1), RULERWIDTH);
+
+            this.pictureBox1.Image = MakeRuler(MAXGRADUATIONVALUE, MINIMUMGRADUATIONPERLARGE, (int)(PIXELPERMINIMUMGRADUATION * scale), PIXELPERBLANK, RULERWIDTH);
+
+            this.panel2.Size = new Size(pictureBox1.Width, baseArrow.Height + 10);
+
+            foreach (Control c in panel2.Controls)
+            {
+                int x = (int)(((Arrow)c).Graduation * MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale)) + PIXELPERBLANK - 10;
+                Point p = new Point(x, 0);
+                c.Location = p;
+            }
+        }
+
+        Arrow movingArrow;     // メモリを指し示す矢印のArrow(灰色）
+        bool isDragPictureBox = false;    // メモリを指し示す矢印がドラッグされているかを判定する変数
+
+
+        //
+        // 黄色のpictureBox2をクリックした時の操作
+        private void baseArrow_MouseDown(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                isDragPictureBox = true;
+                movingArrow = new Arrow();
+
+                this.Controls.Add(movingArrow);
+                this.Controls.SetChildIndex(movingArrow, 0);
+                this.movingArrow.Image = Properties.Resources.VMoveTag;
+                this.movingArrow.Location = ConvertDrugedArrowCoordinates(e, baseArrow, this);
+            }
+        }
+
+        // MouseEventArgs eで与えられるマウスポインタの点をマウスの座標系であるc1から、座標系c2に変換しPoint型で返す。
+        private Point ConvertArrowCoordinates(MouseEventArgs e, Control c1, Control c2)
+        {
+            return ConvertArrowCoordinates(e, c1, c2, 0, 0);
+        }
+
+        // MouseEventArgs eで与えられる点をマウスポインタが矢印をの座標を(ArrowCenterX, 10)の位置でドラッグするようにオフセットし、座標系をマウスのあるc1から、座標系c2に変換し、Point型で返す。
+        private Point ConvertDrugedArrowCoordinates(MouseEventArgs e, Control c1, Control c2)
+        {
+            return ConvertArrowCoordinates(e, c1, c2, ArrowCenterX, 10);
+        }
+
+
+        //
+        // MouseEventArgs eで与えられるマウスポインタの座標をオフセット（xOffset, yOffset）だけずらし、座標系をマウスのあるc1から、座標系c2に変換し、Point型で返す。
+        private Point ConvertArrowCoordinates(MouseEventArgs e, Control c1, Control c2, int xOffest, int yOffset)
+        {
+            Point pTemp = new Point();  // マウスポインタの値ーオフセットの値が代入される
+            Point pInC1;                // C1(マウス)の座標系
+            Point pInC2;                // C2の座標系
+
+            pTemp.X = e.X - xOffest; // ArrowCenterX(=11)は矢印のｘ軸の原点をずらすため（マウスポインタが矢印のX軸の中心を指すようにするため）
+            pTemp.Y = e.Y - yOffset;
+            pInC1 = c1.PointToScreen(pTemp);
+            pInC2 = c2.PointToClient(pInC1);
+
+            return pInC2;
+        }
+
+
+        //
+        // 初期位置にある矢印をドラッグしながら移動させる為のメソッド
+        private void baseArrow_MouseMove(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                this.ActiveControl = null; // フォーカスされているコントロールのフォーカスを解除（これをしないとbaseArrowをクリックしたときに、スクロールで隠れているフォーカスされている矢印が、矢印の移動とともに表示されてしまう。
+
+                if (isDragPictureBox)
+                {
+                    // マウスの位置を座標変換した後、矢印の位置を変換する
+                    this.movingArrow.Location = ConvertDrugedArrowCoordinates(e, baseArrow, this);
+                }
+            }
+        }
+
+
+        //
+        //
+        private int count = 0;  // 矢印に通し番頭を与えるためのカウンタ
+
+        //
+        // 矢印を定規の矢印配置エリアにドロップするためのメソッド
+        private void baseArrow_MouseUp(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                Point pTemp;
+                Point pMouse = new Point();
+                pMouse.X = e.X;
+                pMouse.Y = e.Y;
+
+                //
+                //
+                // 矢印がドロップできる領域に入っているかをマウスの位置から判定し、ドロップする
+                if (IsInArea(baseArrow, pMouse, panel2, new Point(panel2.Location.X + PIXELPERBLANK, -FOUNDAMENTALgRADUATIN + 10), new Point(panel2.Width - PIXELPERBLANK, FOUNDAMENTALgRADUATIN + 10)))
+                {
+                    pTemp = ConvertDrugedArrowCoordinates(e, baseArrow, panel2);
+                    pTemp.Y = 0;
+
+                    // 矢印をドロップしたときに新しい矢印を作り、panel2に配置する
+                    Arrow arrow = new Arrow();
+                    arrow.Tag = count;
+                    arrow.Location = pTemp;
+                    // 矢印にデリゲートによってイベントハンドラを登録する
+                    arrow.DoubleClick += arrow_DoubleClick;     // 重なったarrowの順番を変える
+                    arrow.MouseEnter += arrow_MouseEnter;       // 矢印が示す指示値を表示する
+                    arrow.MouseLeave += arrow_MouseLeave;       // 矢印が示す指示値を隠す
+                    arrow.MouseDown += arrow_MouseDown;         // 矢印の位置を変えるためにドラッグする
+                    arrow.MouseMove += arrow_MouseMove;         // 矢印の位置を変える
+                    arrow.MouseUp += arrow_MouseUp;             // 矢印の位置を定める
+                    arrow.KeyDown += arrow_KeyDown;             // 矢印を矢印キーで動かすためのデリゲート
+                    arrow.KeyUp += arrow_keyUp;                 // 矢印を動かした矢印キーを離したときのデリゲート
+
+                    panel2.Controls.Add(arrow);
+
+                    // 矢印が置かれた場所を目盛りの値に変換する
+                    double x = (arrow.Location.X - PIXELPERBLANK + ArrowCenterX) / (double)(MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale));
+                    arrow.Graduation = x;   // 矢印のGraduationプロパティに目盛りの値を与える
+
+                    arrow.Focus();  // 矢印をフォーカスし、矢印キーで移動できるようにする。
+
+                    arrow.ContextMenuStrip = contextMenuStripOnArrow;       // 矢印ArrowのContextMenuStripプロパティーにコンテキストメニューに書かれた内容であるContextMenuStrip型のインスタンスを指定する。矢印の上で左クリックしたときに、ContextMenuStrip型のインスタンスであるcontextMenuStripOnArrowに登録されたコンテキストメニューが表示されるようになる。
+
+                    ++count;       // 矢印（の arrow.Tag = count;）に通し番号を与えるためのカウンタのカウントアップ
+                }
+
+                // フォームのコントロールからmovedPictueBoxを削除する。
+                this.Controls.Remove(movingArrow);
+
+                isDragPictureBox = false;
+            }
+        }
+
+        //
+        // 矢印をダブルクリックしたときに、その矢印を最背面に移す
+        private void arrow_DoubleClick(object sender, EventArgs e)
+        {
+            this.ActiveControl = null; 
+            panel2.Controls.Remove((Arrow)sender);
+            panel2.Controls.Add((Arrow)sender);
+        }
+
+
+        //
+        //
+        private void arrow_MouseEnter(object sender, EventArgs e)
+        {
+            panel2.Controls.SetChildIndex((Arrow)sender, 0);    // マウスが矢印の中に入ったら、その矢印を最前面に移動する。
+
+            showGraduation(sender);     // 矢印が示している目盛りの値を表示する
+
+        }
+
+        //
+        // 矢印の横に、矢印が示している値を表示するメソッド
+        private void showGraduation(object sender)
+        {
+            panel2.Controls.Remove(label1); //残像として残っているlabel1を消去する
+
+            Point pArrow = ((Arrow)sender).Location;
+            object tagNum = ((Arrow)sender).Tag;
+
+            // マウスポインタの入った矢印の座標を取得し、位置を表示するラベルのLocationに変換する
+            Point p1 = new Point(); // label1の位置
+            label1 = new Label();
+            label1.AutoSize = true;
+            label1.Text = $"矢印{tagNum}の位置は{((Arrow)sender).Graduation}です。";
+
+            // 矢印が示す値を表示するlabe1が、矢印を表示する領域panel2からはみ出さないようにする。はみ出しそうになるとlabel1が矢印の左側に表示される。
+            if (panel1.PointToClient(panel2.PointToScreen(pArrow)).X &lt; panel1.Width - (label1.Width + PIXELPERBLANK + ArrowWidth + 23))
+            {
+                label1.TextAlign = ContentAlignment.TopLeft;
+                p1.X = pArrow.X + 23;
+            }
+            else
+            {
+                label1.TextAlign = ContentAlignment.TopRight;
+                p1.X = pArrow.X - label1.Width - 39;
+            }
+
+            p1.Y = pArrow.Y + 5;    // ラベルを表示する位置のｙ成分を与える。矢印のトップより５ピクセルだけ下にする。
+            label1.Location = p1;
+
+            panel2.Controls.Add(label1);
+            panel2.Controls.SetChildIndex(label1, 0);   // ラベルを最前面にする
+
+            // カーソルラインをpictureBox1上に表示する
+            cursorLinePictureBox.Location = new Point(pArrow.X+ArrowCenterX, 0);
+            pictureBox1.Controls.Add(cursorLinePictureBox);
+        }
+
+
+        //
+        // マウスカーソルが矢印から離れたとき
+        private void arrow_MouseLeave(object sender, EventArgs e)
+        {
+            removeReadingAndCursor();       // 矢印の読み取り値とカーソルを消す
+        }
+
+
+        // 矢印の読み取り値とカーソルを消す
+        private void removeReadingAndCursor()
+        {
+            // 矢印の位置を表示するラベルを消す
+            panel2.Controls.Remove(label1);
+
+            // カーソルラインをpictureBox1上から消す。
+            pictureBox1.Controls.Remove(cursorLinePictureBox);
+        }
+
+
+        //
+        //
+        // マウスポインタが指定のエリアに入っているか判別するメソッド
+        private static bool IsInArea(Control c1, Point pMouse, Control c2, Point pStart, Point pEnd)
+        {
+            // スクリーン座標に変換
+            Point pMouseOnScreen = c1.PointToScreen(pMouse);    // マウスの位置
+            Point pStartOnScreen = c2.PointToScreen(pStart);    // 判定エリアの始点
+            Point pEndOnScreen = c2.PointToScreen(pEnd);        // 判定エリアの終点
+
+            Rectangle Rect = new Rectangle();
+            Rect = Rectangle.FromLTRB(pStartOnScreen.X, pStartOnScreen.Y, pEndOnScreen.X, pEndOnScreen.Y);
+
+            // 判定エリアに入っているか判定
+            return Rect.Contains(pMouseOnScreen);
+        }
+
+        //
+        // 矢印をドラッグするメソッド群　arrow_MouseDown()から_MouseUp()まで
+        private void arrow_MouseDown(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                slipOffset = e.X - ArrowCenterX;// ドラッグしたときに矢印がスリップすることを補正ためのオフセット、arrow_MouseMove()で補正
+                isDragPictureBox = true;
+
+                // 矢印の位置を表示するラベルを消す
+                panel2.Controls.Remove(label1);
+            }
+        }
+
+        //
+        //
+        int slipOffset;     // ドラッグしたときにマウスポインタと矢印の中心線がずれていることによっておこる矢印のスリップを補正ためのオフセット
+
+        //
+        // マウスの移動に伴い、矢印を移動する
+        private void arrow_MouseMove(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                Point p = new Point();
+
+                if (isDragPictureBox)
+                {
+                    p = ConvertDrugedArrowCoordinates(e, (Arrow)sender, panel2);    // マウスポインタの位置をドラッグした矢印の座標系から、panel2の座標系に変換する
+                    p.X = p.X - slipOffset;     // slipOffsetはドラッグしたときに矢印がスリップすることを補正
+                    p.Y = 0;                    // 矢印の位置を矢印配置パネル(panel2)のtopに固定する。
+
+                    moveArrow(sender, p);       // マウスの位置pに従って、矢印を移動する
+                    showGraduation(sender);         // 矢印が指している目盛りを表示する
+                }
+            }
+        }
+
+        //
+        // 矢印をドロップする
+        private void arrow_MouseUp(Object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)  // 左クリックをした時
+            {
+                isDragPictureBox = false;
+
+                // 矢印をドロップしたマウスの位置から、矢印が示している目盛りの値を計算する
+                double x = (((Arrow)sender).Location.X - PIXELPERBLANK + ArrowCenterX) / (double)(MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale));
+
+                ((Arrow)sender).Graduation = x;     // 矢印のが示している目盛りの値を矢印オブジェクトに書き込む
+
+                ((Arrow)sender).Focus();            //　矢印を矢印キーで操作(移動）できるように、フォーカスする
+            }
+        }
+
+        //
+        // 矢印arrowがフォーカスされているときに、矢印キーを押すと当該矢印arrowが移動する。
+        private void arrow_KeyDown(object sender, KeyEventArgs e)
+        {
+            Point p = ((Arrow)sender).Location;
+
+            if (e.KeyCode == Keys.Right)
+            {
+                p.X++;
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                p.X--;
+            }
+
+            moveArrow(sender, p);       // 矢印をpへ移動する
+            showGraduation(sender);     // 矢印が示している目盛りの値を表示
+        }
+
+
+        //
+        // 矢印キーを離したときに目盛りの読み値のlabelとカーソルラインを消す
+        private void arrow_keyUp(object sender, KeyEventArgs e)
+        {
+            removeReadingAndCursor();       // 矢印の読み取り値とカーソルを消す
+
+        }
+
+        //
+        // 矢印を指定した場所ｐに移動するメソッド
+        private void moveArrow(object sender, Point p)
+        {
+            Point p1 = new Point();     // ｐ１は矢印の先端を表す点に使用する
+            p1.X = p.X + ArrowCenterX;  // 矢印の先端を表す点（ｐが矢印のLocationであるからそこから、ArrowCenter分だけ右にずらし矢印の先端を表す。
+            p1.Y = 0;
+            Point p1Screen = (panel2).PointToScreen(p1);      // p1をスクリーン座標に変換
+            int p1ScreenX = p1Screen.X;
+
+            Point panel2Screen = panel1.PointToScreen(panel2.Location);                             // panel2の位置をスクリーン座標に変換
+            int rulerZeroPositionXInScreen = panel2Screen.X + PIXELPERBLANK;                        // スクリーン座標表示の目盛りゼロの位置のX成分
+            int ruler30PositionXInScreen = panel2Screen.X + panel2.Size.Width - PIXELPERBLANK;      // スクリーン座標表示の目盛り３０の位置のX成分
+
+
+            if (p1ScreenX &lt; rulerZeroPositionXInScreen)                 // 移動先が目盛りのゼロの位置より小さい値か判定
+            {
+                p.X = PIXELPERBLANK - ArrowCenterX;                       // 矢印がゼロを指す位置に強制的に戻す
+            }
+            else if (p1ScreenX &gt; ruler30PositionXInScreen)              // 移動先が目盛りの３０の位置より小さい値か判定
+            {
+                p.X = panel2.Size.Width - PIXELPERBLANK - ArrowCenterX;  // 矢印がゼロを指す位置に強制的に戻す
+            }
+
+            // 矢印の位置を変更し、矢印を動かす
+            ((Arrow)sender).Location = p;
+
+            // 矢印の現在の位置を目盛りの値に換算し、矢印のパラメータに代入する
+            ((Arrow)sender).Graduation
+                  = (((Arrow)sender).Location.X - PIXELPERBLANK + ArrowCenterX) / (double)(MINIMUMGRADUATIONPERLARGE * (int)(PIXELPERMINIMUMGRADUATION * scale));
+
+
+
+            // 矢印がpanel1右サイドを範囲を超えたら、スクロールバーをずらす
+            if (panel2.PointToScreen(p).X &gt; (this.PointToScreen(panel1.Location)).X + panel1.Size.Width - arrowSize.Width)
+            {
+                Point p2;
+                p2 = panel1.AutoScrollPosition;
+                p2.X = -panel1.AutoScrollPosition.X + 10;
+                panel1.AutoScrollPosition = p2;
+            }
+
+            // 矢印がpanel1左サイドを範囲を超えたら、スクロールバーをずらす
+            if (panel2.PointToScreen(p).X &lt; (this.PointToScreen(panel1.Location)).X)
+            {
+                Point p2;
+                p2 = panel1.AutoScrollPosition;
+                p2.X = -panel1.AutoScrollPosition.X - 10;
+                panel1.AutoScrollPosition = p2;
+            }
+        }
+
+        // Arrowの上でコンテキストメニューの「削除」を選択した時のイベントハンドラ
+        private void tsmiDelete_Click(object sender, EventArgs e)
+        {
+            Arrow deletingArrow = contextMenuStripOnArrow.SourceControl as Arrow;// コンテキストメニューを開いて削除を選択した矢印をdeletingArrowに代入する。as Arrowにより、deletingArrowはArrow型以外の時nullになる
+
+            if (deletingArrow != null)      // deletingArrowはArrow型以外の時nullになる
+            {
+                panel2.Controls.Remove(deletingArrow);  // panel2に登録されたArrow型のオブジェクトを消す
+            }
+            else MessageBox.Show("選択したのはArrow型ではありません！"); 
+        }
+    }
+}
+

@@ -1,0 +1,49 @@
+
+public class OSCHeadAndSpineRotator : MonoBehaviour
+{
+    float pitch, roll, yaw;
+    const string uuid = "[ZIG SIM内で確認できるデバイスID]";
+    private Animator animator;
+    private Transform head, spine;
+    private Quaternion initalRotationl, headInitialLocalRotation, spineInitialLocalRotation, preHeadLocalRotation, preSpineLocalRotation;
+
+    [SerializeField] Vector3 eularRotationOffset;
+    [SerializeField] float slerpRate = 10f;
+    [SerializeField] uOscServer server;
+
+    void Start()
+    {
+        server.onDataReceived.AddListener(OnDataReceived);
+        animator = GetComponent&lt;Animator&gt;();
+        head = animator.GetBoneTransform(HumanBodyBones.Head);
+        spine = animator.GetBoneTransform(HumanBodyBones.Spine);
+        headInitialLocalRotation = head.localRotation;
+        spineInitialLocalRotation = spine.localRotation;
+    }
+
+    void OnDataReceived(Message message)
+    {
+        if (message.address == "/ZIGSIM/" + uuid + "/facerotation")
+        {
+
+            Quaternion q = new Quaternion(
+                float.Parse(message.values[0].GetString()),
+                float.Parse(message.values[1].GetString()),
+                float.Parse(message.values[2].GetString()),
+                float.Parse(message.values[3].GetString())
+                );
+
+            var thisFrameHeadLocalRotation = Quaternion.Slerp(preHeadLocalRotation, headInitialLocalRotation * q * Quaternion.Euler(eularRotationOffset), Time.deltaTime * slerpRate);
+            var thisFrameSpineLocalRotation = Quaternion.Slerp(preSpineLocalRotation, spineInitialLocalRotation * q * Quaternion.Euler(eularRotationOffset), Time.deltaTime * slerpRate);
+
+            // 取得した回転の8割くらい頭を回転させ、4割くらい腰を回転させます（この値は好み）
+            head.localRotation = Quaternion.Lerp(headInitialLocalRotation, thisFrameHeadLocalRotation, 0.8f);
+            spine.localRotation = Quaternion.Lerp(spineInitialLocalRotation, thisFrameSpineLocalRotation, 0.4f);
+
+            preHeadLocalRotation = thisFrameHeadLocalRotation;
+            preSpineLocalRotation = thisFrameSpineLocalRotation;
+
+        }
+    }
+}
+

@@ -1,0 +1,71 @@
+
+using Npgsql;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var random = CreateData.ReadData();
+        var builder = new NpgsqlConnectionStringBuilder()
+        {
+            Host = "localhost",
+            Port = 5432,
+            Username = "postgres",
+            Password = "postgres",
+            Database = "foo",
+        };
+        using (var con = new NpgsqlConnection(builder.ConnectionString))
+        {
+            con.Open();
+
+            using (var cmd = new NpgsqlCommand())
+            {
+                cmd.Connection = con;
+                cmd.CommandText = "CREATE TABLE tstz (time TIMESTAMPTZ)";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "CREATE TABLE ts (time TIMESTAMP)";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "CREATE TABLE int (time BIGINT)";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "CREATE TABLE text (time TEXT)";
+                cmd.ExecuteNonQuery();
+                cmd.CommandText = "CREATE TABLE json (time JSONB)";
+                cmd.ExecuteNonQuery();
+            }
+
+            var tables = new string[] { "tstz", "ts", "int", "text", "json" };
+            foreach (var table in tables)
+            {
+                using (var writer = con.BeginBinaryImport($"COPY {table}(time) FROM STDIN (FORMAT BINARY)"))
+                {
+                    foreach (var r in random)
+                    {
+                        writer.StartRow();
+
+                        switch(table)
+                        {
+                            //参考：http://www.npgsql.org/doc/types/datetime.html
+                            case "tstz":
+                                writer.Write(r.DateTime, NpgsqlTypes.NpgsqlDbType.TimestampTZ);
+                                break;
+                            case "ts":
+                                writer.Write(r.DateTime, NpgsqlTypes.NpgsqlDbType.Timestamp);
+                                break;
+                            case "int":
+                                writer.Write(r.UnixEpoch, NpgsqlTypes.NpgsqlDbType.Bigint);
+                                break;
+                            case "text":
+                                writer.Write(r.TimeStamp, NpgsqlTypes.NpgsqlDbType.Text);
+                                break;
+                            case "json":
+                                writer.Write(r.ToTimestampOnlyJson(), NpgsqlTypes.NpgsqlDbType.Jsonb);
+                                break;
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+}
+

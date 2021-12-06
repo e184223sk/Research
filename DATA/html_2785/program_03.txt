@@ -1,0 +1,500 @@
+
+
+using System;
+using System.Drawing;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Reflection;
+
+
+public class MyNode
+{
+    int _codeIndex; // RegexCode._codeのindex
+    int _selfIndex; // nodeとしてのindex
+    List&lt;int&gt; _destCodeIndices;
+    int[] _destNodeIndices; // nodeとしてのindex
+    string _textOpCode;
+    string _text;
+    bool _charClassNotFlag;
+
+    public int CodeIndex{get{return _codeIndex;}}
+    public int[] NextIndices{get{return _destNodeIndices;}} // 横着...
+
+    public bool CharClassNotFlag{get{return _charClassNotFlag;}}
+
+    public string Text{get{return _text;}}
+    public string TextOpCode{get{return _textOpCode;}}
+
+    public enum RegexCodeOpCode {
+        Onerep = 0,//
+        Notonerep = 1,
+        Setrep = 2,//
+        Oneloop = 3,//
+        Notoneloop = 4,
+        Setloop = 5,
+        Onelazy = 6,//
+        Notonelazy = 7,
+        Setlazy = 8,//
+        One = 9,//
+        Notone = 10,//
+        Set = 11,//
+        Multi = 12,//
+        Ref = 13,
+        Bol = 14,
+        Eol = 15,
+        Boundary = 16,
+        Nonboundary = 17,
+        Beginning = 18,
+        Start = 19,
+        EndZ = 20,
+        End = 21,
+        Nothing = 22,
+        Lazybranch = 23,//
+        Branchmark = 24,//
+        Lazybranchmark = 25,
+        Nullcount = 26,
+        Setcount = 27,
+        Branchcount = 28,
+        Lazybranchcount = 29,
+        Nullmark = 30,//
+        Setmark = 31,//
+        Capturemark = 32,//
+        Getmark = 33,
+        Setjump = 34,
+        Backjump = 35,
+        Forejump = 36,
+        Testref = 37,
+        Goto = 38,//
+        Prune = 39,
+        Stop = 40,//
+        ECMABoundary = 41,
+        NonECMABoundary = 42,
+        Mask = 63,
+        Rtl = 64,
+        Back           = 128,  // bit to indicate that we're backtracking.
+        Back2          = 256,  // bit to indicate that we're backtracking on a second branch.
+        Ci             = 512,  
+    }
+
+
+    public MyNode(int selfIndex, int codeIndex, RegexCodeOpCode opCode, int[] args, string[] strings)
+    {
+        _selfIndex = selfIndex;
+        _codeIndex = codeIndex;
+        _text = "";
+        _textOpCode = "";
+
+        switch ( opCode ) {
+        case RegexCodeOpCode.Notone:/* through */
+            _charClassNotFlag = true;
+            break;
+        default:
+            _charClassNotFlag = false;
+            break;
+        }
+
+        _destCodeIndices = new List&lt;int&gt;();
+
+        switch ( opCode ) {
+        case RegexCodeOpCode.Lazybranch:/* through */
+        case RegexCodeOpCode.Branchmark:
+            _destCodeIndices.Add(codeIndex + args.Length + 1);
+            _destCodeIndices.Add(args[0]);
+            break;
+        case RegexCodeOpCode.Goto: 
+            _destCodeIndices.Add(args[0]);
+            break;
+        case RegexCodeOpCode.Stop:
+            break;
+        default:
+            _destCodeIndices.Add(codeIndex + args.Length + 1);
+            break;
+        }
+
+        _textOpCode = opCode.ToString();
+
+        switch ( opCode ) {
+        case RegexCodeOpCode.Lazybranch:
+            _textOpCode = "LazyBr";
+            break;
+        case RegexCodeOpCode.One:/* through */
+        case RegexCodeOpCode.Notone:
+            _text = MyParseCharClass(((char)args[0]).ToString());
+            break;
+        case RegexCodeOpCode.Onerep: // 指定回数繰り返し
+            _textOpCode += "{"+args[1].ToString()+"}";
+            _text = MyParseCharClass(((char)args[0]).ToString());
+            break;
+        case RegexCodeOpCode.Setrep: // 指定回数繰り返し
+            _textOpCode += "{"+args[1].ToString()+"}";
+            _text = MyParseCharClass(strings[args[0]]);
+            break;
+        case RegexCodeOpCode.Oneloop: // 0～最大で指定回数繰り返し
+            _textOpCode += "{0 to "+args[1].ToString()+"}";
+            _text = MyParseCharClass(((char)args[0]).ToString());
+            break;
+        case RegexCodeOpCode.Onelazy: // 0～最大で指定回数繰り返し (最短マッチ)
+            _text = MyParseCharClass(((char)args[0]).ToString());
+            break;
+        case RegexCodeOpCode.Setlazy: // 0～最大で指定回数繰り返し (最短マッチ)
+            _text = MyParseCharClass(strings[args[0]]);
+            break;
+        case RegexCodeOpCode.Set:
+            _text = MyParseCharClass(strings[args[0]]);
+            break;
+        case RegexCodeOpCode.Multi:
+            _text = MyParseCharClass(strings[args[0]]);
+            break;
+        default:
+            break;
+        }
+    }
+
+    public void UpdateDestIndices(List&lt;MyNode&gt; nodes)
+    {
+        _destNodeIndices = new int[_destCodeIndices.Count];
+        for ( int i = 0 ; i &lt; _destCodeIndices.Count ; i++ ) {
+            _destNodeIndices[i] = -1;
+            foreach ( MyNode node in nodes ) {
+                if ( node._codeIndex == _destCodeIndices[i] ) {
+                    _destNodeIndices[i] = node._selfIndex;
+                    break;
+                }
+            }
+            if ( _destNodeIndices[i] == -1 ) {
+                throw new Exception("bug!!!");
+            }
+        }
+    }
+
+    public static string MyParseCharClass(string s)
+    {
+        StringBuilder sb = new StringBuilder();
+
+        foreach ( char c in s ) {
+            if ( (int)c&lt;0x20 || ((int)c&gt;=0x7F &amp;&amp; (int)c&lt;=0xFF) ) {
+                sb.Append("[x" + ((int)c).ToString("X02")+"]");
+            }
+            else {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
+    }
+
+
+    public static List&lt;MyNode&gt; CreateNodes(Regex r)
+    {
+        var nodes = new List&lt;MyNode&gt;();
+
+        Type typeR = r.GetType();
+        FieldInfo fieldRC = typeR.GetField("code", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+
+        dynamic rc = fieldRC.GetValue(r);
+
+        Type typeRC = rc.GetType();
+        FieldInfo fieldRcCodes  = typeRC.GetField("_codes", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo fieldRcString = typeRC.GetField("_strings", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+
+        MethodInfo miOpcodeSize = typeRC.GetMethod("OpcodeSize", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+
+        int[] opCodes = (int[])fieldRcCodes.GetValue(rc);
+        string[] strings = (string[])fieldRcString.GetValue(rc);
+
+        int nodeCount = 0;
+
+        for ( int i=0 ; i&lt;opCodes.Length ; i++ ) {
+            int x = opCodes[i];
+            int argCount = ((int)miOpcodeSize.Invoke(null, new object[] {x} )) - 1;
+            if ( argCount &lt; 0 ) {
+                throw new Exception("Unexcepted opcode size.");
+            }
+
+            int[] args = new int[argCount];
+
+            for ( int j = 0 ; j &lt; argCount ; j++ ) {
+                if ( i+j+1 &gt;= opCodes.Length ) {
+                    throw new Exception("Argument parse error.");
+                }
+                args[j] = opCodes[i+j+1];
+            }
+
+            nodes.Add(new MyNode(nodeCount, i, (RegexCodeOpCode)x, args, strings));
+
+            nodeCount++;
+            i += argCount;
+        }
+
+        foreach ( var node in nodes ) {
+            node.UpdateDestIndices(nodes);
+        }
+
+        return nodes;
+    }
+}
+
+
+// 描画用
+public class MyEdge
+{
+    int _fromIndex;
+    int _toIndex;
+    Point[] _travelPoints; // 経由点の座標 (両端座標はダミー)
+
+    public Point[] TravelPoints{get{return _travelPoints;}} // ちょっと横着..
+
+
+    public MyEdge(int fromI, int toI)
+    {
+        _fromIndex = fromI;
+        _toIndex = toI;
+        _travelPoints = new Point[2];
+    }
+
+    public void UpdateTerminalPoints(MyGraph graph)
+    {
+        _travelPoints[0] = graph.CenterPointOf(_fromIndex);
+        _travelPoints[_travelPoints.Length-1] = graph.CenterPointOf(_toIndex);
+        Point tmp0 = graph.MyIntersect(_fromIndex, _travelPoints[1]);
+        Point tmp1 = graph.MyIntersect(_toIndex  , _travelPoints[_travelPoints.Length-2]);
+        _travelPoints[0]                      = tmp0;
+        _travelPoints[_travelPoints.Length-1] = tmp1;
+    }
+}
+
+public class MyGraph
+{
+    List&lt;MyNode&gt; _nodes;
+    Rectangle[] _rects; // same length of _nodes
+
+    List&lt;MyEdge&gt; _edges;
+
+    public Point CenterPointOf(int i)
+    {
+        return new Point( ( _rects[i].Left + _rects[i].Right  ) / 2 ,
+                          ( _rects[i].Top  + _rects[i].Bottom ) / 2 );
+    }
+
+    public MyGraph(List&lt;MyNode&gt; nodes)
+    {
+        _nodes = nodes;
+
+        _rects = new Rectangle[nodes.Count];
+
+        for ( int i = 0 ; i &lt; _rects.Length ; i++ ) {
+            _rects[i] = new Rectangle(new Point(5+i*60, 100), new Size(50,50));
+        }
+        if ( _rects.Length &gt; 0 ) {
+            _rects[0].Y -= 50;
+        }
+        if ( _rects.Length &gt;= 2 ) {
+            _rects[_rects.Length-1].Y -= 50;
+        }
+
+        _edges = new List&lt;MyEdge&gt;();
+
+        for ( int i=0 ; i&lt;nodes.Count ; i++ ) {
+            foreach ( int toI in nodes[i].NextIndices ) {
+                _edges.Add(new MyEdge(i,toI));
+            }
+        }
+    }
+
+
+    public void DrawGraph(Graphics g, Font fnt)
+    {
+        Pen pen = new Pen(Color.Blue, 1.5f);
+        pen.CustomEndCap = new System.Drawing.Drawing2D.AdjustableArrowCap(4, 4); // 矢印
+
+        foreach ( MyEdge edge in _edges ) {
+            edge.UpdateTerminalPoints(this);
+            g.DrawLines(pen, edge.TravelPoints);
+        }
+
+        for ( int i = 0 ; i &lt; _rects.Length ; i++ ) {
+            Rectangle rect = _rects[i];
+            if ( rect.Width &gt;= 1 ) {
+                g.FillRectangle(Brushes.White, rect);
+                g.DrawRectangle(Pens.Blue,     rect);
+                g.DrawString(_nodes[i].CodeIndex.ToString(), fnt, Brushes.Blue,  rect.Left+2, rect.Top);
+                g.DrawString(_nodes[i].TextOpCode,           fnt, Brushes.Blue,  rect.Left+2, rect.Top+18);
+                g.DrawString(_nodes[i].Text,                 fnt, Brushes.Black, rect.Left+2, rect.Top+36);
+            }
+        }
+    }
+
+    public int MyHitTest(Point p, out Point location)
+    {
+        // 昇順で検索すると、z-order（描画の順序）が奥のほうを先に拾ってしまうので、降順で検索する
+        for ( int i = _rects.Length - 1 ; i&gt;=0 ; i-- ) {
+            if ( _rects[i].Contains(p) ) {
+                location = _rects[i].Location;
+                return i;
+            }
+        }
+        location = new Point(0,0);
+        return -1;
+    }
+
+    public void MoveNodeTo(int nodeIndex, Point p)
+    {
+        _rects[nodeIndex].X = p.X;
+        _rects[nodeIndex].Y = p.Y;
+    }
+
+    // a が -intmax の場合はダメだけど..
+    private int MyAbsInt(int a)
+    {
+        return (a&lt;0)?(-a):a;
+    }
+
+    // p &lt;---&gt; CenterPointOf(nodeIndex)(=cと置く) をつなぐ線L(端点をcとする半直線)と、rectの交点を求める
+    public Point MyIntersect(int nodeIndex, Point p)
+    {
+        // まず、cを中央にもつ長方形rectと、半直線Lの交点がどの線と交わるかを判定する
+        // (memo: y座標は数学の座標系で考える)
+        //
+        // ＼1 ／
+        // 2 c 0
+        // ／ 3＼
+        //
+        // 傾きと、x同士,y同士の大小関係から判定する。ゼロ除算に注意する。
+
+        Point t = new Point();
+        Point c = CenterPointOf(nodeIndex);
+        int W = _rects[nodeIndex].Width;
+        int H = _rects[nodeIndex].Height;
+
+        if ( W == 0 || H == 0 ) { // 例外処理
+            return c;
+        }
+        if ( p.X == c.X &amp;&amp; p.Y == c.Y ) { // 例外処理
+            return c;
+        }
+
+        //   abs((p.Y-c.Y)/(p.X-c.X)) &lt;= H/W  なら  領域0か2
+        if ( MyAbsInt(p.Y-c.Y)*(long)W &lt;= MyAbsInt(p.X-c.X)*(long)H ) {
+            int dY = (int)((((long)W/2) * (p.Y-c.Y))/(p.X-c.X));
+            // p.X==c.X なら、p.Y==c.Yであり、先の例外処理でこのifには入らないのでゼロ除算は回避できる(W&gt;0が前提)
+
+            if ( c.X &lt; p.X ) {
+                t.X = c.X + W/2;
+                t.Y = c.Y + dY;
+            }
+            else{
+                t.X = c.X - W/2;
+                t.Y = c.Y - dY;
+            }
+        }
+        else {
+            int dX = (int)((((long)H/2) * (p.X-c.X))/(p.Y-c.Y));
+
+            if ( c.Y &lt; p.Y ) {
+                t.X = c.X + dX;
+                t.Y = c.Y + H/2;
+            }
+            else{
+                t.X = c.X - dX;
+                t.Y = c.Y - H/2;
+            }
+        }
+
+        return t;
+    }
+}
+
+
+
+class Test : Form
+{
+    MyGraph graph;
+    PictureBox pct;
+    const int WIDTH = 800;
+    const int HEIGHT = 300;
+    Font fnt;
+    Point dragStartPoint;
+    Point dragInitialNodeLocation;
+    int dragStartNodeIndex;
+
+    Test(Regex r)
+    {   
+        fnt = this.Font;
+        dragStartNodeIndex = -1;
+
+        ClientSize = new Size(WIDTH, HEIGHT);
+
+        pct = new PictureBox();
+        pct.Dock = DockStyle.Fill;
+        pct.Image = new Bitmap(WIDTH, HEIGHT);
+        Controls.Add(pct);
+
+        Console.WriteLine("Creating regex nodes...");
+        List&lt;MyNode&gt; nodes = MyNode.CreateNodes(r);
+        Console.WriteLine("done.");
+
+        graph = new MyGraph(nodes);
+
+        Load += (sender, e)=&gt;{RedrawGraph();};
+        pct.MouseDown += Pct_MouseDown;
+        pct.MouseMove += Pct_MouseMove;
+        pct.MouseUp   += (sender,e)=&gt;{dragStartNodeIndex = -1;};
+    }
+
+    void RedrawGraph()
+    {
+        Graphics g = Graphics.FromImage(pct.Image);
+        g.Clear(Color.LightGray);
+        graph.DrawGraph(g, fnt);
+        g.Dispose();
+        pct.Refresh();
+    }
+
+    void Pct_MouseDown(object sender, MouseEventArgs e)
+    {
+        if ( (e.Button &amp; MouseButtons.Left) == MouseButtons.Left ) {
+            dragStartPoint = e.Location;
+            dragStartNodeIndex = graph.MyHitTest(dragStartPoint, out dragInitialNodeLocation);
+        }
+    }
+
+    void Pct_MouseMove(object sender, MouseEventArgs e)
+    {
+        if ( (e.Button &amp; MouseButtons.Left) == MouseButtons.Left ) {
+            if ( dragStartNodeIndex &gt;= 0 ) {
+                if ( e.X &gt; 0 &amp;&amp; e.Y &gt; 0 &amp;&amp; e.X &lt; WIDTH &amp;&amp; e.Y &lt; HEIGHT ) {
+                    Point p = new Point();
+                    p.X = dragInitialNodeLocation.X + (e.X - dragStartPoint.X);
+                    p.Y = dragInitialNodeLocation.Y + (e.Y - dragStartPoint.Y);
+                    graph.MoveNodeTo(dragStartNodeIndex, p);
+                    RedrawGraph();
+                }
+            }
+        }
+    }
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        if(args.Length==0)return;
+
+        Regex r=null;
+
+        Console.WriteLine("Creating regex...");
+        try{
+            r = new Regex(args[0]);
+            Console.WriteLine("done.");
+        }
+        catch(Exception e){
+            Console.WriteLine(e);
+            return;
+        }
+
+        Application.Run(new Test(r));
+    }
+}
+
+

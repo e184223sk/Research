@@ -1,0 +1,108 @@
+
+using CSharpIDP.Utils;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
+
+namespace CSharpIDP.Controllers
+{
+  [ApiController]
+  [Route("[controller]")]
+  public class AuthenticationController : ControllerBase
+  {
+    private readonly ILogger&lt;AuthenticationController&gt; _logger;
+
+    public AuthenticationController(ILogger&lt;AuthenticationController&gt; logger)
+    {
+      _logger = logger;
+    }
+
+    [HttpPost]
+    public async Task&lt;IActionResult&gt; Token([FromBody] LoginModel model)
+    {
+      var tokenString = await AuthenticateAsync(model);
+      if (tokenString != "")
+      {
+        return Ok(new { token = tokenString });
+      }
+      return Unauthorized();
+    }
+
+    private async Task&lt;string&gt; AuthenticateAsync([FromBody] LoginModel model)
+    {
+      _logger.LogInformation("AuthenticateAsync");
+
+      var user = await FetchUserAsync(model.Email); // DB接続などを想定
+
+      if (user.Email == model.Email &amp;&amp; user.Password == model.Password)
+      {
+        var tokenString = GenerateToken(user);
+        return tokenString;
+      }
+      return "";
+    }
+
+    private async Task&lt;UserInfo&gt; FetchUserAsync(string email)
+    {
+      _logger.LogInformation($"fetch user data by email={email}");
+      return await Task.Run(() =&gt; new UserInfo
+      {
+        UserId = 888,
+        UserName = "jwtSignningUser",
+        Email = "aaa@gmail.com",
+        Password = "password",
+        Groups = new int[] { 1, 2, 3 }
+      });
+    }
+
+    private string GenerateToken(UserInfo user)
+    {
+      var claims = new[] {
+        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+        new Claim(JwtRegisteredClaimNames.Sid, user.UserId.ToString()),
+        new Claim(JwtRegisteredClaimNames.Sub, "JWT Sample for node.js"),
+        new Claim(JwtRegisteredClaimNames.Email, user.Email)
+      };
+
+      var pemStr = System.IO.File.ReadAllText(@"./jwtES256.key");
+      var der = StringUtil.ConvertX509PemToDer(pemStr);
+      using var ecdsa = ECDsa.Create();
+      ecdsa.ImportECPrivateKey(der, out _);
+      var key = new ECDsaSecurityKey(ecdsa);
+      var creds = new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256);
+      var jwtHeader = new JwtHeader(creds);
+      var jwtPayload = new JwtPayload(
+        issuer: "https://localhost:5001/",
+        audience: "https://localhost:3000/",
+        claims: claims,
+        notBefore: DateTime.Now,
+        expires: DateTime.Now.AddMinutes(600),
+        issuedAt: DateTime.Now
+      );
+
+      var token = new JwtSecurityToken(jwtHeader, jwtPayload);
+      return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+  }
+
+  public class LoginModel
+  {
+    public string Email { get; set; } = "";
+    public string Password { get; set; } = "";
+  }
+
+  public class UserInfo
+  {
+    public int UserId { get; set; }
+    public string? UserName { get; set; }
+    public string? Email { get; set; }
+    public string? Password { get; set; }
+    public int[]? Groups { get; set; }
+  }
+}
+

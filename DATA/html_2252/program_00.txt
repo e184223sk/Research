@@ -1,0 +1,364 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering.PostProcessing; //PostProcessingを扱うのに、この行が必要です。
+
+/// &lt;summary&gt;
+/// パラメータを追加したい場合は
+/// ①変数宣言
+/// ②OnEnable関数内を追加(必要あれば)
+/// ③Update関数内を追加
+/// ④ApplyParams関数内を追加
+/// &lt;/summary&gt;
+
+
+// 再生中じゃなくてもスクリプトを適用する
+[ExecuteInEditMode]
+
+
+// TimelineでパラメータをいじるにはAnimatorが付いている必要があるので、
+// このスクリプトを付けると自動でAnimatorがアタッチされるように以下を追記します。
+[RequireComponent(typeof(Animator))]
+
+
+public class PostProcessController : MonoBehaviour
+{
+    [SerializeField]
+    PostProcessProfile postProcessProfile;
+    PostProcessProfile postProcessProfileStored; //PostProcessProfleの取得・破棄の監視用
+    ///////////////////////////////////
+    /// PostProcessVolumeの要素たち
+    ///////////////////////////////////
+
+    //*********************
+    // AmbientOcclusion
+    //*********************
+    AmbientOcclusion ambientOcclusion;
+
+    //*********************
+    // AutoExposure
+    //*********************
+    AutoExposure autoExposure;
+
+    //*********************
+    // Bloom
+    //*********************
+    Bloom bloom;
+
+    //Intensity
+    [SerializeField, Range(0, 10)]
+    public float bloomIntensity;
+    float bloomIntensityStored;
+
+    //*********************
+    // ChromaticAberration
+    //*********************
+    ChromaticAberration chromaticAberration;
+
+    //*********************
+    // ColorGrading
+    //*********************
+    ColorGrading colorGrading;
+
+
+    //*********************
+    // DepthOfField
+    //*********************
+    DepthOfField depthOfField;
+
+    //FocusDistance
+    [SerializeField, Range(0, 10)]
+    public float depthOfFieldFocusDistance;
+    float depthOfFieldFocusDistanceStored;
+
+    //*********************
+    // Grain
+    //*********************
+    Grain grain;
+
+    //*********************
+    // LensDistortion
+    //*********************
+    LensDistortion lensDistortion;
+
+    //*********************
+    // MotionBlur
+    //*********************
+    MotionBlur motionBlur;
+
+    //*********************
+    // ScreenSpaceReflections
+    //*********************
+    ScreenSpaceReflections screenSpaceReflections;
+
+    //*********************
+    // Vignette
+    //*********************
+    Vignette vignette;
+
+
+    //Intensity
+    [SerializeField, Range(0, 1)]
+    public float vignetteIntensity;
+    float vignetteIntensityStored;
+
+
+
+
+// void OnValidate()は「インスペクター上で値が変化した時に処理する関数」です。
+// PostProsessingProfileを選択した時に、その要素を取得するのに使っています。
+// (BloomやDepth of Field, Vignetteなど、計11種類の要素を取得している。実際はこの3種類しか使ってない。他は拡張したい時用)
+// また、PostProsessingProfileを外した時に、取得した要素を破棄するようにもしています。
+// (破棄しないと、インスペクター上にはPostProsessingProfileがないのにパラメータ変更ができてしまう。)
+
+
+    void OnValidate()
+    {
+        if (postProcessProfile == null&amp;&amp; postProcessProfileStored == null)
+            return;
+        if (postProcessProfileStored == postProcessProfile)
+            return;
+        if (postProcessProfile == null&amp;&amp; postProcessProfileStored != null)
+        {
+            ambientOcclusion = null;
+            autoExposure = null;
+            bloom = null;
+            chromaticAberration = null;
+            colorGrading = null;
+            depthOfField = null;
+            grain = null;
+            lensDistortion = null;
+            motionBlur = null;
+            screenSpaceReflections = null;
+            vignette = null;
+            return;
+        }
+        // postProcessProfile.settings から要素を探して参照する
+        foreach (PostProcessEffectSettings item in postProcessProfile.settings)
+        {
+            if (item as AmbientOcclusion)
+            {
+                ambientOcclusion = item as AmbientOcclusion;
+            }
+            if (item as AutoExposure)
+            {
+                autoExposure = item as AutoExposure;
+            }
+            if (item as Bloom)
+            {
+                bloom = item as Bloom;
+            }
+            if (item as ChromaticAberration)
+            {
+                chromaticAberration = item as ChromaticAberration;
+            }
+            if (item as ColorGrading)
+            {
+                colorGrading = item as ColorGrading;
+            }
+            if (item as DepthOfField)
+            {
+                depthOfField = item as DepthOfField;
+            }
+            if (item as Grain)
+            {
+                grain = item as Grain;
+            }
+            if (item as LensDistortion)
+            {
+                lensDistortion = item as LensDistortion;
+            }
+            if (item as MotionBlur)
+            {
+                motionBlur = item as MotionBlur;
+            }
+            if (item as ScreenSpaceReflections)
+            {
+                screenSpaceReflections = item as ScreenSpaceReflections;
+            }
+            if (item as Vignette)
+            {
+                vignette = item as Vignette;
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Updateではこのスクリプトのprivate変数の値[C]をComp〇〇Paramメソッドで変更し、
+    /// 最後にPostProcessVolumeの変数の値[A]、このスクリプトのpublic変数の値[B]を[C]に統一する。
+    ///           
+    /// &lt;/summary&gt;
+    void Update()
+    {
+        if (ambientOcclusion) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (autoExposure) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (bloom) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            bloomIntensityStored = CompFloatParam(bloom.intensity.value, bloomIntensity, bloomIntensityStored);
+        }
+        if (chromaticAberration) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (colorGrading) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (depthOfField) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            depthOfFieldFocusDistanceStored = CompFloatParam(depthOfField.focusDistance.value, depthOfFieldFocusDistance, depthOfFieldFocusDistanceStored);
+        }
+        if (grain) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (lensDistortion) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (motionBlur) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (screenSpaceReflections) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+        }
+        if (vignette) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            vignetteIntensityStored = CompFloatParam(vignette.intensity.value, vignetteIntensity, vignetteIntensityStored);
+        }
+        ApplyParams();
+        postProcessProfileStored = postProcessProfile;
+    }
+
+    /// &lt;summary&gt;
+    /// PostProcessVolumeの変数の値[A]、このスクリプトのpublic変数の値[B]、このスクリプトのprivate変数の値[C]を比べて、正しい値に統一する。具体的には、
+    /// 
+    /// スクリプトアタッチ時 (A ≠ B = C)                                    ： 既に設定してあるPostProcessVolumeの値に合わせたいので[A]を優先
+    /// マウスでPostProcessVolumeの値を変えたとき (A ≠ B = C)               ： 変更したPostProcessVolumeの値に合わせたいので[A]を優先
+    /// マウスやTimelineでこのスクリプトのpublic値を変えたとき (B ≠ A = C)  : 変更したpublic値に合わせたいので[B]を優先
+    ///           
+    /// Cという保存用のprivate変数があることで、AとBどちらが変化したのかを判別できている。
+    /// &lt;/summary&gt;
+
+    bool CompBoolParam(bool A, bool B, bool C) 
+    {
+        if (A != C)
+        {
+            return A;
+        }
+        else if (B != C)
+        {
+            return B;
+        }
+        else
+        {
+            return C;
+        }
+    }
+    float CompFloatParam(float A, float B, float C) 
+    {
+        if (A != C)
+        {
+            return A;
+        }
+        else if (B != C)
+        {
+            return B;
+        }
+        else
+        {
+            return C;
+        }
+    }
+    Vector3 CompVectorParam(Vector3 A, Vector3 B, Vector3 C) 
+    {
+        if (A != C)
+        {
+            return A;
+        }
+        else if (B != C)
+        {
+            return B;
+        }
+        else
+        {
+            return C;
+        }
+    }
+    void ApplyParams() // 全ての値をprivate変数と同じにする
+    {
+        if (ambientOcclusion) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // AmbientOcclusion
+
+        }
+        if (autoExposure) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // AutoExposure
+
+        }
+        if (bloom) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            // Bloom
+
+            bloomIntensity = bloomIntensityStored;
+            bloom.intensity.value = bloomIntensityStored;
+
+        }
+        if (chromaticAberration) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // ChromaticAberration
+
+        }
+        if (colorGrading) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            // ColorGrading
+
+        }
+        if (depthOfField) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            // DepthOfField
+
+            depthOfFieldFocusDistance = depthOfFieldFocusDistanceStored;
+            depthOfField.focusDistance.value = depthOfFieldFocusDistanceStored;
+
+        }
+        if (grain) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // Grain
+
+        }
+        if (lensDistortion) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // LensDistortion
+
+        }
+        if (motionBlur) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // MotionBlur
+
+        }
+        if (screenSpaceReflections) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+
+            // ScreenSpaceReflections
+
+        }
+        if (vignette) // 該当するパラメータがPostProcessVolumeに存在する場合のみ処理をする
+        {
+            // Vignette
+
+            vignetteIntensity = vignetteIntensityStored;
+            vignette.intensity.value = vignetteIntensityStored;
+        }
+
+    }
+
+}
+

@@ -1,0 +1,78 @@
+
+using System;
+using System.Globalization;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Media;
+
+namespace TextBlockTrimmingSample
+{
+    class TextBlockTrimmingConverter : IMultiValueConverter
+    {
+        // ViewModel -&gt; Viewの通知が動作した時処理されるConverter
+        public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (values[0] is string == false) throw new ArgumentException("第1引数がstring型ではありません。");
+            if (values[1] is double == false) throw new ArgumentException("第2引数がdouble型ではありません。");
+            if (values[2] is TextBlock == false) throw new ArgumentException("第3引数がTextBlock型ではありません。");
+
+            var str = values[0] as string;
+            var actualWidth = (double)values[1];
+            var textBlock = values[2] as TextBlock;
+
+            double displayWidth = actualWidth - 10;
+            double currentWidth = GetDrawingWidth(str, textBlock);
+
+            // 省略時に末尾に設定する文字列
+            string ellipsis = "(略";
+            // Xaml側でConverterParameterに"(略"を設定している場合は以下でも処理できました
+            // string ellipsis = (string)parameter;
+
+            if (string.IsNullOrWhiteSpace(str) || displayWidth &lt;= 0)
+            {
+                return str + ellipsis;
+            }
+
+            if (currentWidth &lt; displayWidth)
+            {
+                return str;
+            }
+            else
+            {
+                string trimmedText = str;
+                while (currentWidth &gt; displayWidth)
+                {
+                    trimmedText = trimmedText.Substring(0, trimmedText.Length - 1);
+                    currentWidth = this.GetDrawingWidth(trimmedText + ellipsis, textBlock);
+                    if (string.IsNullOrWhiteSpace(trimmedText))
+                    {
+                        break;
+                    }
+                }
+
+                return trimmedText + ellipsis;
+            }
+        }
+
+        // 実際の書式設定で文字列の描画幅を取得します
+        private double GetDrawingWidth(string str, TextBlock textBlock)
+        {
+            var formattedText = new FormattedText(
+                str,
+                CultureInfo.CurrentCulture,
+                textBlock.FlowDirection,
+                new Typeface(textBlock.FontFamily, textBlock.FontStyle, textBlock.FontWeight, textBlock.FontStretch),
+                textBlock.FontSize,
+                textBlock.Foreground);
+
+            return formattedText.Width;
+        }
+
+        // View -&gt; ViewModelの通知が動作した時処理されるConverter
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+}
+

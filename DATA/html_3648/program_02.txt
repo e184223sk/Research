@@ -1,0 +1,108 @@
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ManagedInstance&lt;T&gt; : IDisposable where T : MonoBehaviour {
+    public int MaxInstances { get; protected set; } // 最大インスタンス数 (0で無制限)
+    public bool AutoDelete { get; protected set; } // 上限数を超えたら最古を破棄する
+    public List&lt;T&gt; Instances { get; protected set; } // インスタンス一覧
+    public T LastInstance { get { return (Instances == null || Instances.Count &lt;= 0) ? null : Instances [Instances.Count - 1]; } } // 最新のインスタンス
+    public bool OnMode { // ひとつ以上生成されている
+        get { return (Instances != null &amp;&amp; Instances.Count &gt; 0); }
+        set {
+            if (!value) { // 全インスタンス破棄
+                foreach (var instance in Instances) {
+                    if (instance != null) { GameObject.Destroy (instance.gameObject); }
+                }
+            }
+        }
+    }
+    public GameObject Prefab { // デフォルトプレハブ
+        get {
+            if (!prefab) {
+                prefab = Resources.Load (typeof (T).Name) as GameObject;
+                if (!prefab) {
+                    throw new System.ArgumentException ($"Resources.Load (\"{typeof (T).Name}\") failed");
+                } else {
+                    Debug.Log ($"Resources.Load (\"{typeof (T).Name}\") success");
+                }
+            }
+            return prefab;
+        }
+    }
+    private GameObject prefab;
+
+    public ManagedInstance (int max = 0, bool autoDelete = false) {
+        if (Instances == null) {
+            MaxInstances = max;
+            AutoDelete = autoDelete;
+            Instances = new List&lt;T&gt; { };
+        }
+    }
+
+    /// &lt;summary&gt;uGUIオブジェクト生成&lt;/summary&gt;
+    public T Create (GameObject parent, GameObject prefab = null, bool control = true) {
+        if (!preCreate ()) { return null; }
+        try {
+            return postCreate (GameObject.Instantiate (prefab ?? Prefab, parent.transform), control);
+        }
+        catch {
+            return null;
+        }
+    }
+
+    /// &lt;summary&gt;3Dオブジェクト生成&lt;/summary&gt;
+    public T Create (Vector3 position, Quaternion rotation, GameObject prefab = null, bool control = true) {
+        if (!preCreate ()) { return null; }
+        try {
+            return postCreate (GameObject.Instantiate (prefab ?? Prefab, position, rotation), control);
+        }
+        catch {
+            return null;
+        }
+    }
+
+    /// &lt;summary&gt;生成前処理&lt;/summary&gt;
+    private bool preCreate () {
+        if (MaxInstances &gt; 0 &amp;&amp; Instances.Count &gt;= MaxInstances) { // 制限数オーバー
+            if (AutoDelete) { // 最古を破棄して成り代わり
+                GameObject.Destroy (Instances [0].gameObject);
+            } else {
+                return false; // 生成忌避
+            }
+        }
+        return true;
+    }
+
+    /// &lt;summary&gt;生成後処理&lt;/summary&gt;
+    private T postCreate (GameObject obj, bool control) {
+        var instance = obj.GetComponent&lt;T&gt; () ?? obj.AddComponent&lt;T&gt; ();
+        if (instance != null) {
+            if (control) {
+                Instances.Add (instance);
+                obj.AddOnDestroyCallback (() =&gt; Instances.Remove (instance));
+            }
+        } else {
+            GameObject.Destroy (obj);
+        }
+        return instance;
+    }
+
+    /// &lt;summary&gt;全インスタンス破棄&lt;/summary&gt;
+    public void Destroy () {
+        foreach (var instance in Instances) {
+            if (instance != null) { GameObject.Destroy (instance.gameObject); }
+        }
+    }
+
+    /// &lt;summary&gt;後始末&lt;/summary&gt;
+    public void Dispose () {
+        OnMode = false;
+        if (prefab) {
+            Resources.UnloadAsset (prefab);
+            prefab = null;
+        }
+    }
+}
+

@@ -1,0 +1,68 @@
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (!(value is DiffPaneModel diffVM))
+            return Binding.DoNothing;
+
+        var paragraph = new Paragraph();
+        foreach (var lineVM in diffVM.Lines)
+        {
+            List&lt;Run&gt; lineView = ConvertLinveVmToRun(lineVM);
+
+            paragraph.Inlines.AddRange(lineView);
+
+            //改行を追加
+            paragraph.Inlines.Add(new LineBreak());
+        }
+        return new FlowDocument(paragraph);
+    }
+
+    private static List&lt;Run&gt; ConvertLinveVmToRun(DiffPiece lineVM)
+    {
+        //差分タイプによって、行頭の文字列内容と背景色を決定
+        var (color, preFix) = lineVM.Type switch
+        {
+            ChangeType.Deleted =&gt; (Colors.Pink, "💣| "),
+            ChangeType.Inserted =&gt; (Colors.GreenYellow, "➕| "),
+            ChangeType.Imaginary =&gt; (Colors.SkyBlue, "📌| "),
+            ChangeType.Modified =&gt; (Colors.Yellow, "✏| "),
+            _ =&gt; (Colors.Transparent, "🔏| "),
+        };
+
+        //見やすいように少し半透明にしておく
+        color.A = 0xC0;
+        var baseColorBrush = new SolidColorBrush(color);
+        var modifiedPieceBrush = new SolidColorBrush(Colors.Orange);
+
+        //ChangeType.Modified以外は行全体で同じ書式
+        if (lineVM.Type != ChangeType.Modified)
+        {
+            var lineView = new Run()
+            {
+                Text = preFix + lineVM.Text,
+                Background = baseColorBrush,
+
+            };
+            return new List&lt;Run&gt; { lineView };
+        }
+
+        //ChangeType.Modifiedだったら変更された部分だけハイライトしたいのでSubPieceからいろいろやる
+        var prefixRun = new Run()
+        {
+            Text = preFix,
+            Background = baseColorBrush,
+        };
+        var runs = new List&lt;Run&gt; { prefixRun };
+
+        foreach (var piece in lineVM.SubPieces)
+        {
+            runs.Add(new Run
+            {
+                Text = piece.Text,
+                Background = piece.Type == ChangeType.Unchanged
+                    ? baseColorBrush
+                    : modifiedPieceBrush,
+            });
+        }
+        return runs;
+    }
+

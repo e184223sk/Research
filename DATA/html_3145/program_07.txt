@@ -1,0 +1,33 @@
+
+        public ResolveShapeInfo Check(ShapePointList pointList)
+        {
+            if (pointList.Corners == null) return null;
+            if (pointList.Corners.Length != 4) return null; //そもそも頂点が足りない
+
+            //角度が90度±20のものだけを配列化
+            var corners = pointList.Corners.Where(corner =&gt; Math.Abs(corner.Angle - 90) &lt; angleThreshould).ToArray();
+
+            //4つ以外なら4角形ではない
+            if (corners.Length != 4) return null;
+
+            //中心点計算
+            var centerPos = corners.Select(corner =&gt; corner.CurrentPoint.Pos).Average();
+
+            //向き（法線）計算
+            var normal = corners.Select(corner =&gt; corner.Normal).Sum().normalized;
+
+            //四角形のどこから描き出すかわからないし、ユーザーがどの方向を向いてい描いたかもわからないので、ともかく決め打ちで(0-1,3-2)を右方向と(3-0,2-1)を上方向のベクトルと見なす
+            var rightVec = ((corners[1].CurrentPoint.Pos - corners[0].CurrentPoint.Pos) + (corners[2].CurrentPoint.Pos - corners[3].CurrentPoint.Pos)) * 0.5f;
+            var upVec = ((corners[0].CurrentPoint.Pos - corners[3].CurrentPoint.Pos) + (corners[1].CurrentPoint.Pos - corners[2].CurrentPoint.Pos)) * 0.5f;
+
+            var scaleX = rightVec.magnitude;
+            var scaleY = upVec.magnitude;
+
+            return new ResolveShapeInfo(
+                centerPos,                                                  //中心
+                new Vector3(scaleX, scaleY, Mathf.Min(scaleX , scaleY) ),   //奥行きは適当。今回は横幅と縦幅の小さいほうにしている
+                normal,                                                     //描いた図形の大体の向き
+                Quaternion.LookRotation(normal, upVec.normalized)           //法線方向に向かうQuaternion取得 上方向ベクトルは ↑ の決め打ちで作ったupVec
+            );
+        }
+

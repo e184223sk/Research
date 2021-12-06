@@ -1,0 +1,114 @@
+
+using System;
+using Gst;
+using Gst.Video;
+
+namespace MyApp.Controlls.UserControlls
+{
+    public partial class VideoPanel : USerControll
+    {
+        // パイプライン作成のための文字列.
+        public string PipelineSource;
+        // 文字列から生成したパイプライン格納変数.
+        private Element _pipeline { get; set; }
+        // コントロールのハンドル.
+        private IntPtr _handle;
+
+        public VideoPanel()
+        {
+            InitializeComponent();
+            SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+            // 開放処理を追加しておく.
+            this.Dispose += ( sender, args ) =&gt;
+            {
+                if( _pipeline == null )
+                    return;
+
+                _pipeline.Bus.SyncMessage -= Bus_SyncMessage;
+                _pipeline.Bus.Message -= Bus_Message;
+                _pipeline.SetState( State.Null );
+                _pipeline.Dispose();
+                _pipeline = null;
+            };
+        }
+
+        // 実行.
+        public void Execute()
+        {
+            if( string.IsNullOrEmpty( PipelineSource ) )
+                return;
+            if( InitGstreamerPipeline() )
+                HandleRealized();
+        }
+
+        // パイプライン作成.
+        private bool InitGstreamerPipeline()
+        {
+            if( _pipeline != null )
+                _pipeline.SetState( State.Null );
+            // パイプライン生成
+            _pipeline = Parse.Launch( PipelineSource );
+
+            if( _pipeline == null )
+                return false;
+
+            _pipeline.Bus.EnableSyncMessageEmission();
+            _pipeline.Bus.AddSignalWatch();
+            _pipeline.Bus.SyncMessage += Bus_SyncMessage;
+            _pipeline.Bus.Message += Bus_Message;
+            _pipeline.SetState( State.Playing );
+            return true;
+        }
+
+        private void Bus_SyncMessage( object o, SyncMessageArgs args )
+        {
+            string msg;
+            switch( args.Message.Type )
+            {
+                case MessageType.Error:
+                    GLib.GException err;
+                    args.Message.ParseError( out err, out msg );
+                    // エラー処理.
+                    break;
+                case MessageType.Eos:
+                    // ストリーム終了.
+                    break;
+                case MessageType.NewClock:
+                    // 再生開始.
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private void Bus_Message( object o, MessageArgs args )
+        {
+            Console.WriteLine( args );
+        }
+
+        // コントロールに映像を埋め込むためハンドルを渡す.
+        private void HandleRealized()
+        {
+            _handle = this.Handle();
+            Element overlay = ( ( Gst.Bin ) _pipeline ).GetByInterface( VideoOerlayAdapter.GType );
+            var adapter = new VideoOverlayAdapter( overlay.Handle );
+            adapter.WindowHandle = _handle;
+            adapter.HandleEvent( true );
+        }
+
+        // 停止.
+        public void Stop()
+        {
+            if( _pipeline == null )
+                return;
+
+            _pipeline.Bus.SyncMessage -= Bus_SyncMessage;
+            _pipeline.Bus.Message -= Bus_Message;
+            _pipeline.SetState( State.Null );
+            _pipeline.Dispose();
+            _pipeline = null;
+        }
+        ~~~~
+    }
+}
+

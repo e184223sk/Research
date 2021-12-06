@@ -1,0 +1,93 @@
+,&gt;)
+            };
+            public List&lt;Token&gt; FormulaParts;
+            public Type RtnType;
+            private FormulaParameterInfo[] Parameters;
+
+            //コンストラクタ
+            public FormStructure(string formula)
+            {
+                string[] paraNames = null;
+                string[] typeNames = null;
+                //スペースなどを取り除く→ (1+ +1)は(1++1)となるので必要があればこの前で文字チェックする
+                string formStr = new Regex("[ \t\n]").Replace(formula, string.Empty);
+                //関数定義部が存在するか
+                if (formStr.IndexOf('=') &gt;= 0)
+                {
+                    string[] formParts = formStr.Split('=');
+                    if (formParts.Length != 2)
+                        throw new FormatException();
+                    ParseFuncDef(formParts[0], out paraNames, out typeNames);
+                    formStr = formParts[1];
+                }
+                formStr = "(" + formStr + ")";
+                //式を分解する
+                List &lt; object &gt; parts = Regex.Split(formStr, "([,\\+\\-\\*\\/\\(\\)&amp;\\|%\\^~])")
+                    .Where(x =&gt; x != string.Empty).ToList&lt;object&gt;();
+                if (paraNames == null)
+                {
+                    //関数定義部が存在しない場合式からパラメータを抽出する 
+                    paraNames = DEFAULT_PARA_NAMES.Where(x =&gt; parts.IndexOf(x) &gt;= 0).ToArray();
+                    Parameters = paraNames.Select(x =&gt; new FormulaParameterInfo(x)).ToArray();
+                    RtnType = null;   //戻り値の型は不明とする
+                }
+                else
+                {
+                    //関数定義部がある場合
+                    Parameters = paraNames.Select((value, index) =&gt; new { Value = value, Index = index })
+                        .Select(x =&gt; new FormulaParameterInfo(x.Value, typeNames[x.Index])).ToArray();
+                    RtnType = GetFieldType(typeNames[typeNames.Length - 1]);
+                }
+                //パラメータ記述部分をParameterExpressionに変換
+                FormulaParts = parts.ConvertAll(x =&gt;
+                {
+                    ParameterExpression pExpr = Array.Find(Parameters, para =&gt; para.Name == (string)x)?.DeclExpression;
+                    if (pExpr != null)
+                        return new Token(pExpr);
+                    else
+                        return new Token(TryConvElement(x));
+                });
+            }
+
+            //関数定義部からパラメータ名と型を抽出する
+            private void ParseFuncDef(string defStr, out string[] paraNames, out string[] typeNames)
+            {
+                Regex reg = new Regex("^Func\\&lt;(?&lt;types&gt;.*?)\\&gt;\\((?&lt;paras&gt;.*)\\)$");
+                Match m = reg.Match(defStr);
+                typeNames = m.Groups["types"].Value.Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                paraNames = m.Groups["paras"].Value.Split(new string[] { "," }, StringSplitOptions.RemoveEmptyEntries);
+                //型の数=パラメータの数+1
+                if (typeNames.Length == paraNames.Length + 1)
+                {
+                    //型名とパラメータ名の合理性チェック
+                    if (typeNames.All(name =&gt; GetFieldType(name) != null))
+                    {
+                        Regex regVar = new Regex("^[a-zA-Z][a-zA-Z0-9_]*$");
+                        if (paraNames.All(value =&gt; regVar.IsMatch(value)))
+                            return;
+                    }
+                }
+                throw new FormatException();
+            }
+
+            //演算関数を作成する
+            public Delegate GetDelegete(Expression rootExp)
+            {
+                ParameterExpression[] paramExpressions = Parameters.Select(p =&gt; p.DeclExpression).ToArray();
+                List&lt;Type&gt; declTypes = Parameters.Select(p =&gt; p.DeclType).ToList();
+                declTypes.Add(RtnType);
+                Type lambdaDef = LAMBDA_DEFS[paramExpressions.Length];
+                Type genericType = lambdaDef.MakeGenericType(declTypes.ToArray());
+                ParameterExpression valueExpression = Expression.Variable(genericType);
+                return Expression.Lambda(
+                Expression.Block(
+                new[] { valueExpression },
+                rootExp
+                     ),
+                     paramExpressions
+                    ).Compile();
+            }
+        }
+    }
+}
+

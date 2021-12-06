@@ -1,0 +1,59 @@
+
+using System;
+using Mirror;
+using UnityEngine;
+
+public class MovePlatform : NetworkBehaviour
+{
+    [SerializeField] private Vector3 from;
+    [SerializeField] private Vector3 to;
+    [SerializeField] private float moveTime;
+
+    float baseTime = float.MinValue;
+
+    void Start()
+    {
+        if (isServer)
+        {
+            baseTime = Time.realtimeSinceStartup;
+            RpcSetBaseTime(DateTime.UtcNow.ToBinary());
+        }
+    }
+
+    void Update()
+    {
+        if (baseTime == float.MinValue) return;
+
+        var t = Time.realtimeSinceStartup - baseTime;
+        SetPosition(t);
+    }
+
+    // 時間で行ったり来たりする
+    private void SetPosition(float time)
+    {
+        var interval = (moveTime) * 2.0f;
+        time = time % interval;
+
+        if (time &lt;= moveTime)
+        {
+            var t = time / moveTime;
+            transform.position = Vector3.Lerp(from, to, t);
+        }
+        else
+        {
+            var t = (time - moveTime) / moveTime;
+            transform.position = Vector3.Lerp(to, from, t);
+        }
+    }
+
+    [ClientRpc]
+    void RpcSetBaseTime(long dateTime)
+    {
+        if (!isServer)
+        {
+            var delay = (float)(DateTime.UtcNow - DateTime.FromBinary(dateTime)).TotalSeconds;
+            baseTime = Time.realtimeSinceStartup - delay;
+        }
+    }
+}
+

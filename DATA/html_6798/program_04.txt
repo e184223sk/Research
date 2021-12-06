@@ -1,0 +1,58 @@
+
+    /// &lt;summary&gt;
+    /// パーティクルの更新
+    /// &lt;/summary&gt;
+    void UpdateParticle()
+    {
+        cs.SetFloat("_DT", Time.deltaTime);
+        cs.SetFloat("_LifeTime", lifeTime);
+        cs.SetFloat("_Gravity", gravity);
+        cs.SetBuffer(updateKernel, "_Particles", particleBuffer);
+        cs.SetBuffer(updateKernel, "_DeadList", particlePoolBuffer);
+
+        cs.Dispatch(updateKernel, particleNum / THREAD_NUM_X, 1, 1);
+    }
+
+    /// &lt;summary&gt;
+    /// パーティクルの発生
+    /// THREAD_NUM_X分発生
+    /// &lt;/summary&gt;
+    /// &lt;param name="position"&gt;&lt;/param&gt;
+    void EmitParticle(Vector3 position)
+    {
+        // ConsumeStructuredBuffer内のパーティクル数の残数を取得する
+        particleCountBuffer.SetData(particleCounts);
+        ComputeBuffer.CopyCount(particlePoolBuffer, particleCountBuffer, 0);
+        particleCountBuffer.GetData(particleCounts);
+
+        particlePoolNum = particleCounts[0];
+
+        if (particleCounts[0] &lt; emitNum) return;   // 残数がemitNum未満なら発生させない
+
+        cs.SetVector("_EmitPosition", position);
+        cs.SetFloat("_VelocityMax", velocityMax);
+        cs.SetFloat("_LifeTime", lifeTime);
+        cs.SetFloat("_ScaleMin", scaleMin);
+        cs.SetFloat("_ScaleMax", scaleMax);
+        cs.SetFloat("_Sai", sai);
+        cs.SetFloat("_Val", val);
+        cs.SetFloat("_Time", Time.time);
+        cs.SetBuffer(emitKernel, "_ParticlePool", particlePoolBuffer);
+        cs.SetBuffer(emitKernel, "_Particles", particleBuffer);
+
+        cs.Dispatch(emitKernel, emitNum / THREAD_NUM_X, 1, 1);   // emitNumの数だけ発生
+    }
+
+    // Update is called once per frame
+    void Update () {
+        // マウスボタンがクリックされたらカーソルの位置からパーティクルを生成する
+        if (Input.GetMouseButton(0))
+        {
+            Vector3 mpos = Input.mousePosition;
+            mpos.z = 10;
+            Vector3 pos = camera.ScreenToWorldPoint(mpos);
+            EmitParticle(pos);
+        }
+        UpdateParticle();
+    }
+

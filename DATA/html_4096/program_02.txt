@@ -1,0 +1,56 @@
+
+private async Task Sample()
+{
+    Debug.WriteLine("enter");
+
+    SampleExecutor executor;
+
+    executor = SampleExecutor.NewSync(HeavyFunc);
+    Debug.WriteLine(await executor.ExecuteAsync(5).ConfigureAwait(false));
+
+    executor = SampleExecutor.NewAsync(HeavyAsyncFunc);
+    Debug.WriteLine(await executor.ExecuteAsync(10).ConfigureAwait(false));
+
+    // ただ単に非同期で実行したいだけなら、Task.Run を使えばよいと思います。
+    Debug.WriteLine(await Task.Run(() =&gt; HeavyFunc(15)).ConfigureAwait(false));
+
+    Debug.WriteLine("exit");
+}
+
+private string HeavyFunc(int arg)
+{
+    System.Threading.Thread.Sleep(5000);
+    return arg.ToString("d5");
+}
+
+private async Task&lt;string&gt; HeavyAsyncFunc(int arg)
+{
+    await Task.Delay(5000);
+    return arg.ToString("d5");
+}
+
+private class SampleExecutor
+{
+    internal static SampleExecutor NewSync(Func&lt;int, string&gt; action)
+    {
+        return new SampleExecutor(action.ToAsync());
+    }
+
+    internal static SampleExecutor NewAsync(Func&lt;int, Task&lt;string&gt;&gt; asyncAction)
+    {
+        return new SampleExecutor(asyncAction);
+    }
+
+    private SampleExecutor(Func&lt;int, Task&lt;string&gt;&gt; asyncAction)
+    {
+        m_AsyncAction = asyncAction;
+    }
+
+    private readonly Func&lt;int, Task&lt;string&gt;&gt; m_AsyncAction;
+
+    internal Task&lt;string&gt; ExecuteAsync(int arg)
+    {
+        return m_AsyncAction(arg);
+    }
+}
+

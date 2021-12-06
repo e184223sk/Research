@@ -1,0 +1,182 @@
+
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+//using System.Drawing;
+using System.IO;
+using System.Text;
+//using System.Text.RegularExpressions;
+
+using ID3Util;
+
+class Mp3TagSetterCmd
+{
+
+    static void ShowHelp()
+    {
+        var enc = Console.OutputEncoding;
+        Console.WriteLine("Current code page is: "+enc.CodePage.ToString()+"("+enc.EncodingName+")");
+        Console.WriteLine("To change code page, use chcp command:");
+        Console.WriteLine("  chcp CODEPAGE");
+        Console.WriteLine("CODEPAGE");
+        Console.WriteLine("  932 = Shift_JIS");
+        Console.WriteLine("  65001 = UTF-8");
+        Console.WriteLine("");
+        Console.WriteLine("Mp3TagSetter OPTIONS...");
+        Console.WriteLine("");
+        Console.WriteLine("OPTIONS");
+        Console.WriteLine(" [--file] TEXT");
+        Console.WriteLine("   mp3 file.");
+        Console.WriteLine("");
+        Console.WriteLine(" --track NUMBER");
+        Console.WriteLine("   NUMBER = 0 to 255.");
+        Console.WriteLine("   0 means track number does not exist.");
+        Console.WriteLine("");
+        Console.WriteLine(" --title TEXT");
+        Console.WriteLine("   max length of TEXT is 30 bytes.");
+        Console.WriteLine("");
+        Console.WriteLine(" --artist TEXT");
+        Console.WriteLine("   max length of TEXT is 30 bytes.");
+        Console.WriteLine("");
+        Console.WriteLine(" --album TEXT");
+        Console.WriteLine("   max length of TEXT is 30 bytes.");
+        Console.WriteLine("");
+        Console.WriteLine(" --comment TEXT");
+        Console.WriteLine("   max length of TEXT is 28 bytes when track information exists.");
+        Console.WriteLine("   max length of TEXT is 30 bytes when track information does not exist.");
+        Console.WriteLine("");
+        Console.WriteLine(" --year NUMBER");
+        Console.WriteLine("   NUMBER = 0 to 9999.");
+        Console.WriteLine("");
+        Console.WriteLine(" --genre NUMBER");
+        Console.WriteLine("   NUMBER = 0 to 255.");
+        Console.WriteLine("");
+        Console.WriteLine(" --showgenre");
+        Console.WriteLine("   Shows genre list.");
+    }
+
+    static void ShowGenres()
+    {
+        for ( int i=0 ; i&lt;ID3v1.Genres.Length ; i++ ) {
+            Console.WriteLine(i.ToString("D3")+":"+ID3v1.Genres[i]);
+        }
+    }
+
+    static Dictionary&lt;string,string&gt; ParseCmdOptions(string[] args)
+    {
+        var d = new Dictionary&lt;string,string&gt;();
+
+        for ( int i=0 ; i&lt;args.Length ; i++ ) {
+            switch ( args[i] ) {
+            case "--track":
+            case "--title":
+            case "--artist":
+            case "--album":
+            case "--comment":
+            case "--year":
+            case "--genre":
+            case "--file":
+                if ( !d.ContainsKey(args[i]) &amp;&amp; i+1 &lt; args.Length ) {
+                    d.Add(args[i], args[i+1]);
+                    i++;
+                }
+                else {
+                    ShowHelp();
+                    return null;
+                }
+                break;
+            case "--showgenre":
+                ShowGenres();
+                return null;
+            default:
+                if ( args[i].StartsWith("-") ) {
+                    ShowHelp();
+                    return null;
+                }
+                if ( !d.ContainsKey("--file") ) {
+                    d.Add("--file", args[i]);
+                }
+                else {
+                    ShowHelp();
+                    return null;
+                }
+                break;
+            }
+        }
+        return d;
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        bool needToSave = false;
+
+        var opts = ParseCmdOptions(args);
+        if ( opts == null ) {
+            return;
+        }
+        if ( !opts.ContainsKey("--file") ) {
+            ShowHelp();
+            return;
+        }
+
+        string fileName = opts["--file"];
+        if ( !fileName.EndsWith(".mp3", true, null) ) {
+            Console.WriteLine("FileName must end with \".mp3\".");
+            return;
+        }
+        if ( !File.Exists(fileName) ) {
+            Console.WriteLine("File \""+fileName+"\" does not exists.");
+            return;
+        }
+
+        // 
+        var enc = Encoding.GetEncoding(932);
+        ID3v1 id3v1 = ID3v1.ParseFromFile(fileName, enc)??ID3v1.CreateDefault(enc);
+
+        if ( opts.ContainsKey("--track") ) {
+            needToSave = true;
+            try { id3v1.Track = Convert.ToInt32(opts["--track"]); }
+            catch (FormatException  ) { id3v1.Track = 0; Console.WriteLine("Warning: parameter of \"--track\" is invalid."); }
+            catch (OverflowException) { id3v1.Track = 0; Console.WriteLine("Warning: parameter of \"--track\" is invalid."); }
+            Console.WriteLine("Track overwrite");
+        }
+        if ( opts.ContainsKey("--genre") ) {
+            needToSave = true;
+            try { id3v1.GenreNumber = Convert.ToByte(opts["--genre"]); }
+            catch (FormatException  ) { id3v1.GenreNumber = 0; Console.WriteLine("Warning: parameter of \"--genre\" is invalid."); }
+            catch (OverflowException) { id3v1.GenreNumber = 0; Console.WriteLine("Warning: parameter of \"--genre\" is invalid."); }
+        }
+        if ( opts.ContainsKey("--year") ) {
+            needToSave = true;
+            try { id3v1.Year = Convert.ToInt32(opts["--year"]); }
+            catch (FormatException  ) { id3v1.Year = 0; Console.WriteLine("Warning: parameter of \"--year\" is invalid."); }
+            catch (OverflowException) { id3v1.Year = 0; Console.WriteLine("Warning: parameter of \"--year\" is invalid."); }
+        }
+        if ( opts.ContainsKey("--title") ) {
+            needToSave = true;
+            id3v1.Title = opts["--title"];
+        }
+        if ( opts.ContainsKey("--artist") ) {
+            needToSave = true;
+            id3v1.Artist = opts["--artist"];
+        }
+        if ( opts.ContainsKey("--album") ) {
+            needToSave = true;
+            id3v1.Album = opts["--album"];
+        }
+        if ( opts.ContainsKey("--comment") ) {
+            needToSave = true;
+            id3v1.Comment = opts["--comment"];
+        }
+
+        if ( needToSave ) {
+            id3v1.WriteToFile(fileName);
+        }
+    }
+}
+
+

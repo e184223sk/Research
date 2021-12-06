@@ -1,0 +1,69 @@
+
+using System;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace WindowsFormsApp6
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+        /// &lt;summary&gt;
+        /// ロードイベント
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            //巨大なファイルを読み込むつもりならここはあえてawaitキーワードを外すべき
+            //UIスレッドで処理をさせると固まってしまうのでスレッドプールに処理を投げる
+            //Task.Runメソッド内でawait を使用しているので、asyncキーワードを付ける
+            Task.Run(async () =&gt;
+            {
+                var builder = new StringBuilder();
+                var csvFileName = @"C:\temp\hoge.csv";
+
+                //無限ループ
+                while (true)
+                {
+                    byte[] result;
+                    builder.Clear();
+
+                    //ファイルオープン
+                    using (var file = new FileStream(csvFileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        result = new byte[file.Length];
+
+                        //バイナリデータを非同期的に読み込む
+                        //全部を読み込み終わるまで待っとくで～
+                        await file.ReadAsync(result, 0, (int)file.Length);
+                    }
+
+                    foreach (char c in result)
+                    {
+                        if (char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))
+                        {
+                            builder.Append(c);
+                        }
+                    }
+
+                    //UIを更新できるのはUIスレッドだけなので Invoke でUIスレッドに一旦処理を戻してやる
+                    Invoke(new Action(() =&gt;
+                    {
+                        textBox1.Text = builder.ToString();
+                    }));
+
+                    //タイマーイベントの代わり
+                    //1秒待つ
+                    await Task.Delay(1000);
+                }
+            });
+        }
+    }
+}
+

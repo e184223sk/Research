@@ -1,0 +1,48 @@
+
+// Copyright(c) 2017 Takahiro Miyaura
+// Released under the MIT license
+// http://opensource.org/licenses/mit-license.php
+
+        using (var waveStream = new FileStream(file, FileMode.Open))
+        {
+            var reader = new RawSourceWaveStream(waveStream, new WaveFormat(16000, 16, 1));
+
+            var buffer = new byte[reader.Length];
+            var bytesRead = reader.Read(buffer, 0, buffer.Length);
+
+            var samplesL = new float[bytesRead / reader.BlockAlign];
+
+            switch (reader.WaveFormat.BitsPerSample)
+            {
+                case 8:                    for (var i = 0; i &lt; samplesL.Length; i++)
+                        samplesL[i] = (buffer[i * reader.BlockAlign] - 128) / 128f;
+                    break;
+
+                case 16: 
+                    for (var i = 0; i &lt; samplesL.Length; i++)
+                        samplesL[i] = BitConverter.ToInt16(buffer, i * reader.BlockAlign) / 32768f;
+                    break;
+
+                case 32:
+                    for (var i = 0; i &lt; samplesL.Length; i++)
+                        samplesL[i] = BitConverter.ToSingle(buffer, i * reader.BlockAlign);
+                    break;
+            }
+            var w = new byte[16000];
+            for (var i = 0; i &lt; w.Length; i++)
+                w[i] = 0;
+            var data = 1000;
+            //この部分は再生するwaveに応じて変更してください。
+            //サンプルでは3～4秒程度のデータを送っていました。
+            service.AddSamplingData(buffer, 0, 32000);
+            await Task.Delay(data);
+            service.AddSamplingData(buffer, 32000, 32000);
+            await Task.Delay(data);
+            service.AddSamplingData(buffer, 64000, 32000);
+            await Task.Delay(data);
+            service.AddSamplingData(buffer, 96000, buffer.Length - 96000);
+            await Task.Delay(data);
+            //無音データを意図的に送っています。
+            service.AddSamplingData(w, 0, w.Length);
+        }
+

@@ -1,0 +1,38 @@
+
+//using System.IO;
+//using MessagePack;
+//using System.Diagnostics;
+//using lz4;
+
+var zipRootDir = @"C:\data\zip";
+var zipFiles = Directory.EnumerateFiles(zipRootDir, "*.zip", SearchOption.AllDirectories);
+
+var destRootDir = @"C:\data\msglz4";
+foreach (var zip in zipFiles)
+{
+    var binaries = new List&lt;byte[]&gt;();
+    using (var archive = ZipFile.OpenRead(zip))
+    {
+        foreach (var entry in archive.Entries)
+        {
+            using (var ms = new MemoryStream())
+            {
+                entry.Open().CopyTo(ms);
+                binaries.Add(ms.ToArray());
+            }
+        }
+    }
+
+    var msgpack = MessagePackSerializer.Serialize&lt;byte[][]&gt;(binaries.ToArray());
+
+    var destFileName = zip.Replace(zipRootDir, destRootDir).Replace(".zip", ".msg.lz4");
+    var destDir = Path.GetDirectoryName(destFileName);
+    if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+
+    using (var fs = new FileStream(destFileName, FileMode.Create, FileAccess.Write))
+    using (var lz4 = LZ4Stream.CreateCompressor(fs, LZ4StreamMode.Write))
+    {
+        lz4.Write(msgpack, 0, msgpack.Length);
+    }
+}
+

@@ -1,0 +1,75 @@
+
+[TestMethod]
+public void SomebodyShouldGiveMeLike_WinAppDriver_ByText()
+{
+    const string EdgeAppId = "Microsoft.MicrosoftEdge_8wekyb3d8bbwe!MicrosoftEdge";
+    const string QiitaUrl = "https://qiita.com/";
+    const string QiitaNotificationsUrl = "https://qiita.com/notifications";
+
+    var remoteAddress = new Uri("http://127.0.0.1:4723");
+    var edgeCapabilities = new AppiumOptions();
+    edgeCapabilities.AddAdditionalCapability("app", EdgeAppId);
+    var edgeWinDriver = new WindowsDriver&lt;WindowsElement&gt;(remoteAddress, edgeCapabilities);
+
+    // Qiita にアクセス
+    var addressEditBox = edgeWinDriver.FindElementByAccessibilityId("addressEditBox");
+    addressEditBox.Clear();
+    addressEditBox.SendKeys(QiitaUrl);
+    // 入力候補を消して検索実行
+    Thread.Sleep(TimeSpan.FromSeconds(2));
+    addressEditBox.SendKeys(Keys.Delete + Keys.Enter);
+
+    Thread.Sleep(TimeSpan.FromSeconds(5));
+
+    // 新着はあるか
+    var qiitaPane = edgeWinDriver.FindElementByXPath(
+        $".//Pane[@ClassName=\"Internet Explorer_Server\"][@Name=\"{QiitaUrl}\"]/Pane[@Name=\"Qiita\"]");
+
+    // [投稿する] の次の要素が通知ボックス
+    // ※ダイレクトに特定するための情報が得られない。
+    // 　Inspect.exe で見ると Name が "投稿する" だが、テスト実行時の Text 値は href 属性値だった。
+    // 　following-sibling も効かないので全子要素コレクションから Skip 取得。
+    var notificationGroup = qiitaPane.FindElementsByXPath("*/*").Cast&lt;WindowsElement&gt;()
+        .SkipWhile(e =&gt; e.Text != "https://qiita.com/drafts/new").Skip(1)
+        .First();
+    int notificationCount = int.Parse(notificationGroup.FindElementByTagName("Text").Text);
+    if (notificationCount == 0)
+    {
+        Assert.Fail("新着通知はありません。");
+    }
+
+    Console.WriteLine($"新着通知が{notificationCount}件ありました。");
+
+    // 新着の中に「いいね」はあるか
+    const int PageItemCount = 10;
+    int newLikeCount = 0;
+
+    // ※USキーボードレイアウトしかサポートされておらず、'=' は '^' に変わってしまうのでASCIIコードで入力。
+    // 　Keys.Shift + "-" + Keys.Shift でも '=' になる。
+    string usKeyboardEqual = Keys.Alt + Keys.NumberPad6 + Keys.NumberPad1 + Keys.Alt;
+
+    for (int pageIndex = 0; pageIndex &lt;= notificationCount / PageItemCount; pageIndex++)
+    {
+        string pageUrl = $"{QiitaNotificationsUrl}?page{usKeyboardEqual}{pageIndex + 1}";
+
+        addressEditBox.Clear();
+        addressEditBox.SendKeys(pageUrl);
+        Thread.Sleep(TimeSpan.FromSeconds(2));
+        addressEditBox.SendKeys(Keys.Delete + Keys.Enter);
+
+        Thread.Sleep(TimeSpan.FromSeconds(5));
+
+        var notifications = edgeWinDriver.FindElementsByXPath("//Pane[@Name=\"通知一覧 - Qiita\"]/List/ListItem");
+        newLikeCount += notifications
+            .Take(notificationCount - (pageIndex * PageItemCount))
+            .Count(n =&gt; n.Text.Contains("」 に いいね しました。"));
+    }
+
+    if (newLikeCount == 0)
+    {
+        Assert.Fail("「いいね」はありませんでした。");
+    }
+
+    Console.WriteLine($"{newLikeCount}件の「いいね」がつきました。");
+}
+

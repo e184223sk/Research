@@ -1,0 +1,42 @@
+//Unity 2018.4.11f1
+//  このスクリプトをプロジェクト下に置くだけで実行されます。
+//  エディター拡張機能なので Editor フォルダに置くと良いです。
+
+using UnityEngine;
+using UnityEditor;
+
+[InitializeOnLoad]
+static public class TraceSceneViewCamera
+{
+    static TraceSceneViewCamera()
+    {
+        //シーンビュー上のイベントを取得するためのメソッドを追加
+        //          ※この方法でないとメソッド内で全イベントが取得できない
+        SceneView.onSceneGUIDelegate += onSceneGUIDelegate;
+    }
+
+    static private void onSceneGUIDelegate(SceneView scene)
+    {
+        //3Dモード時にマウススクロールにトレースする
+        if (scene.in2DMode)
+            return;
+        if (Event.current.type != EventType.ScrollWheel)
+            return;
+
+        var camera = scene.camera.transform;
+
+        //カーソルの画面中央からの差を計算
+        var center = new Vector2(scene.position.width, scene.position.height) * 0.5f;
+        var difference = Event.current.mousePosition - center;
+        difference.x = difference.x / center.x * 0.1f;
+        difference.y = -difference.y / center.y * 0.1f;
+
+        //カメラの中心を拡大率に比例してカーソル方向に動かす
+        var pivot = scene.pivot;
+        pivot += camera.up * difference.y * -Event.current.delta.y * scene.size * 0.2f;
+        pivot += camera.right * difference.x * -Event.current.delta.y * scene.size * 0.2f;
+
+        scene.LookAtDirect(pivot, Quaternion.LookRotation(camera.forward));
+    }
+}
+

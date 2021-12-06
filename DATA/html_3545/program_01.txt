@@ -1,0 +1,93 @@
+
+using UnityEngine;
+using UnityEngine.UI;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+
+public class FileTranslateManager : MonoBehaviour
+{
+    [SerializeField] Button fileTranslateButton;
+    private string document_id;
+    private string document_key;
+
+    void Start()
+    {
+        fileTranslateButton.onClick.AddListener(async () =&gt;
+        {
+            string path = @"C:\Users\username\Documetns\test.docx";
+            string target_lang = "EN-US";
+            await DeeplFileTranslate(path, target_lang);
+        });
+    }
+
+    private async Task DeeplFileTranslate(string path, string target_lang)
+    {
+        string ext = Path.GetExtension(path);
+        string filenameWithoutExt = Path.GetFileNameWithoutExtension(path);
+        string output_path = "C:\\Users\\" + Environment.UserName + "\\Downloads\\" + filenameWithoutExt + "_" + target_lang + ext;
+
+        string jsonString = null;
+        int millisecond = null;
+
+        // Deeplにアップロード
+        jsonString = await DeeplFileTranslator.Upload(path, filenameWithoutExt+ext, target_lang, GetContentType(ext));
+        if (jsonString == "error") return;
+        var responsForUpload = JsonUtility.FromJson&lt;DeeplFileTranslator.ResponseForUpload&gt;(jsonString);
+        document_id = responsForUpload.document_id;
+        document_key = responsForUpload.document_key;
+
+        // 翻訳状況をチェック
+        while (true)
+        {
+            jsonString = await DeeplFileTranslator.CheckStatus(document_id, document_key);
+            if (jsonString == "error") return;
+
+            // 翻訳完了なら, ループを抜ける
+            var responseForCheck = JsonUtility.FromJson&lt;DeeplFileTranslator.ResponseForCheck&gt;(jsonString);
+            if (responseForCheck.status == "done") break;
+
+            if (!String.IsNullOrEmpty(responseForCheck.seconds_remaining))
+            {
+                millisecond = int.Parse(responseForCheck.seconds_remaining) * 1000;
+                Debug.Log($"{millisecond / 1000}s remaining.");
+            }
+            else
+            {
+                millisecond = 1000;
+            }
+
+            await Task.Delay(millisecond); // ミリ秒待つ
+        }
+
+        // Deeplからダウンロード
+        jsonString = await DeeplFileTranslator.Download(document_id, document_key, output_path);
+        if (jsonString == "error") return;
+
+        // 翻訳完了を知らせるために, ダウンロードフォルダを開く
+        Application.OpenURL("file:C:\\Users\\" + Environment.UserName + "\\Downloads");
+
+        document_id = null;
+        document_key = null;
+        return;
+    }
+
+    private static string GetContentType(string ext)
+    {
+        switch(ext)
+        {
+            case ".docx":
+                return "application/vnd.openxmlformats-officedocument.wordprocessingm";
+            case ".pptx":
+                return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case ".txt":
+                return "text/plain";
+            case ".html":
+                return "text/html";
+            default:
+                return null;
+        }
+    }
+
+}
+

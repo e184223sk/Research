@@ -1,0 +1,81 @@
+using System;
+using System.Security.Cryptography.X509Certificates;
+
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Services;
+using Google.Apis.FirebaseCloudMessaging.v1;
+
+namespace SendToFcm
+{
+    class Program
+    {
+
+        static void Main(string[] args)
+        {
+            String serviceAccountEmail = "hoge_webservices@appspot.gserviceaccount.com";
+
+
+            // fine on local. but it doesn't work on Azure. not sure why.
+            // var certificate = new X509Certificate2(@"key.p12", "notasecret", X509KeyStorageFlags.Exportable);
+            // this works on Azure.
+            var certificate = new X509Certificate2(file, "notasecret", X509KeyStorageFlags.MachineKeySet |
+                                                                        X509KeyStorageFlags.PersistKeySet |
+                                                                        X509KeyStorageFlags.Exportable);
+
+
+            ServiceAccountCredential credential = new ServiceAccountCredential(
+               new ServiceAccountCredential.Initializer(serviceAccountEmail)
+               {
+                   Scopes = new[] { Google.Apis.FirebaseCloudMessaging.v1.FirebaseCloudMessagingService.Scope.CloudPlatform }
+               }.FromCertificate(certificate));
+
+            // Create the service.
+            var service = new FirebaseCloudMessagingService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = "PUSH API Sample",
+            });
+
+
+
+            var requestBody = new Google.Apis.FirebaseCloudMessaging.v1.Data.SendMessageRequest();
+            requestBody.Message = new Google.Apis.FirebaseCloudMessaging.v1.Data.Message();
+
+            // token is a target which you want to send a PUSH to, and was made by an android-terminal with an android-app.
+            requestBody.Message.Token = "eGxxxxx0VxI:APA91xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxNG-f";
+            // Notification is to be seen on the android display.
+            requestBody.Message.Android = new Google.Apis.FirebaseCloudMessaging.v1.Data.AndroidConfig();
+            requestBody.Message.Android.Priority = "high";
+            requestBody.Message.Android.Notification = new Google.Apis.FirebaseCloudMessaging.v1.Data.AndroidNotification();
+            requestBody.Message.Android.Notification.Body = "body of your notif";
+            requestBody.Message.Android.Notification.Title = "title of your notif";
+            requestBody.Message.Android.Notification.ChannelId = "channelId";
+            // Data is data used by android app.
+            requestBody.Message.Data = new System.Collections.Generic.Dictionary&lt;string, string&gt;();
+            requestBody.Message.Data.Add("key1", "123");
+            requestBody.Message.Data.Add("key2", "456");
+
+            // projectId is from Firebase projcect
+            var projectId = "hoge_webservices";
+            // "Projects" is an instance of ProjectsResource. Projects.Messages is a REST resource.
+            var send = service.Projects.Messages.Send(requestBody, $"projects/{projectId}");
+
+            try
+            {
+                // Send HttpRequest
+                // Execute() returns a supposed-to-be "response" but no information in it, either success or error.
+                // Errors will be thrown as exceptions.
+                var response = send.Execute();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+
+
+            Console.WriteLine("Press any key to continue...");
+            Console.ReadKey();
+        }
+    }
+}
+

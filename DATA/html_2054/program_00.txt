@@ -1,0 +1,28 @@
+public class PostProcessBuild : IPostprocessBuildWithReport
+{
+    const string IOSPbxProjectPath = "/Unity-iPhone.xcodeproj/project.pbxproj";
+    int IOrderedCallback.callbackOrder =&gt; default;
+
+    void IPostprocessBuildWithReport.OnPostprocessBuild(BuildReport report)
+    {
+        var summary = report.summary;
+        if (summary.platformGroup != BuildTargetGroup.iOS) {
+            return;
+        }
+
+        string pbxPath = summary.outputPath + IOSPbxProjectPath;
+        var project = new PBXProject();
+        project.ReadFromFile(pbxPath);
+        string targetGuid = project.GetUnityMainTargetGuid();
+        // 指定パス以下にあるローカライズデータを紐づける
+        string[] languageArray = new string[] { "Base", "ja", "fr" }; // 紐づけたい言語を記載
+        foreach (string lang in languageArray) { 
+            string dirPath = Application.dataPath + $"/Editor/Localisations/{lang}.lproj"; // project内に設置したパスを指定
+            var lGuid = project.AddFolderReference(dirPath, $"{lang}.lproj");
+            project.AddFileToBuild(targetGuid, lGuid);
+        }
+        project.WriteToFile(pbxPath);
+    }
+}
+
+

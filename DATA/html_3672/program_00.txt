@@ -1,0 +1,67 @@
+using Leap;
+using System.Collections.Generic;
+using System.Linq;
+using UniRx;
+using UniRx.Triggers;
+using UnityEngine;
+
+/// &lt;summary&gt;
+/// カメラ制御
+/// &lt;/summary&gt;
+public class CameraController : MonoBehaviour
+{
+    /** カメラの移動スピード */
+    private float speed = 0.025f;
+
+    /** LeapMotionのコントローラー */
+    private Controller controller;
+
+    /** エントリポイント */
+    void Start()
+    {
+        // LeapMotionのコントローラー
+        controller = new Controller();
+
+        // LeapMotionから手の情報を取得
+        var handsStream = this.UpdateAsObservable()
+            .Select(_ =&gt; controller.Frame().Hands);
+
+        // グー終了判定ストリーム
+        var endRockGripStream = handsStream
+            .Where(hands =&gt; !IsRockGrip(hands));
+
+        // カメラ制御
+        handsStream
+            // グーなら
+            .Where(hands =&gt; IsRockGrip(hands))
+            // 手のひらの位置を取得
+            .Select(hands =&gt; ToVector3(hands[0].PalmPosition))
+            // バッファに前回と今回の２つの値を詰める
+            .Buffer(2, 1)
+            // 今回と前回の差から手のひらの移動ベクトルを計算
+            .Select(positions =&gt; positions[1] - positions[0])
+            // 値をログに出力
+            .Do(movement =&gt; Debug.Log("移動: " + movement))
+            // グーが終了したらバッファをクリアにする
+            .TakeUntil(endRockGripStream).RepeatUntilDestroy(this)
+            // カメラを移動
+            .Subscribe(movement =&gt; transform.Translate(-speed * movement));
+    }
+
+    /** グーかどうか */
+    bool IsRockGrip(List&lt;Hand&gt; hands)
+    {
+        return
+            // 片手なら
+            hands.Count == 1 &amp;&amp;
+            // 全ての指の内、開いている数が0個なら
+            hands[0].Fingers.ToArray().Count(x =&gt; x.IsExtended) == 0;
+    }
+
+    /** LeapのVectorからUnityのVector3に変換 */
+    Vector3 ToVector3(Vector v)
+    {
+        return new Vector3(v.x, v.y, -v.z);
+    }
+}
+

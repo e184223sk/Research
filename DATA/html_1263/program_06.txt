@@ -1,0 +1,117 @@
+
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace SqlServerColumnstoreSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            try
+            {
+                Console.WriteLine("*** SQL Server カラムストアのデモ ***");
+
+                // 接続文字列の構築
+                SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
+                builder.DataSource = "localhost";   // 接続先の SQL Server インスタンス
+                builder.UserID = "sa";              // 接続ユーザー名
+                builder.Password = "your_password"; // 接続パスワード
+                builder.InitialCatalog = "master";  // 接続するデータベース(ここは変えないでください)
+                // builder.ConnectTimeout = 60000;  // 接続タイムアウトの秒数(ms) デフォルトは 15 秒
+
+                // SQL Server に接続
+                Console.Write("SQL Serverへ接続しています... ");
+                using (SqlConnection connection = new SqlConnection(builder.ConnectionString))
+                {
+                    connection.Open();
+                    Console.WriteLine("接続完了。");
+
+                    // サンプルデータベースの作成
+                    Console.Write("'SampleDB' を再作成しています... ");
+                    String sql = "DROP DATABASE IF EXISTS [SampleDB]; CREATE DATABASE [SampleDB]";
+                    using (SqlCommand command = new SqlCommand(sql, connection))
+                    {
+                        command.CommandTimeout = 60000; // コマンドがタイムアウトする場合は秒数を変更(ms) デフォルトは 30秒
+                        command.ExecuteNonQuery();
+                        Console.WriteLine("完了。");
+                    }
+
+                    // 'Table_with_5M_rows' テーブルに500万行を挿入
+                    Console.Write("テーブル 'Table_with_5M_rows' に500万行を挿入します。1分ほどかかりますが、お待ちください... ");
+                    StringBuilder sb = new StringBuilder();
+                    sb.Append("USE SampleDB; ");
+                    sb.Append("WITH a AS (SELECT * FROM (VALUES(1),(2),(3),(4),(5),(6),(7),(8),(9),(10)) AS a(a))");
+                    sb.Append("SELECT TOP(5000000)");
+                    sb.Append("ROW_NUMBER() OVER (ORDER BY a.a) AS OrderItemId ");
+                    sb.Append(",a.a + b.a + c.a + d.a + e.a + f.a + g.a + h.a AS OrderId ");
+                    sb.Append(",a.a * 10 AS Price ");
+                    sb.Append(",CONCAT(a.a, N' ', b.a, N' ', c.a, N' ', d.a, N' ', e.a, N' ', f.a, N' ', g.a, N' ', h.a) AS ProductName ");
+                    sb.Append("INTO Table_with_5M_rows ");
+                    sb.Append("FROM a, a AS b, a AS c, a AS d, a AS e, a AS f, a AS g, a AS h;");
+                    sql = sb.ToString();
+                    using (SqlCommand command = new SqlCommand(sql, connection))
+                    {
+                        command.CommandTimeout = 60000; // コマンドがタイムアウトする場合は秒数を変更(ms) デフォルトは 30秒
+                        command.ExecuteNonQuery();
+                        Console.WriteLine("完了。");
+                    }
+
+                    // カラムストアインデックスなしで SQL クエリを実行
+                    double elapsedTimeWithoutIndex = SumPrice(connection);
+                    Console.WriteLine("カラムストアインデックスなしのクエリ時間: " + elapsedTimeWithoutIndex + "ms");
+
+                    // カラムストアインデックスを追加
+                    Console.Write("'Table_with_5M_rows' テーブルにカラムストアインデックスを追加中... ");
+                    sql = "CREATE CLUSTERED COLUMNSTORE INDEX columnstoreindex ON Table_with_5M_rows;";
+                    using (SqlCommand command = new SqlCommand(sql, connection))
+                    {
+                        command.CommandTimeout = 60000; // コマンドがタイムアウトする場合は秒数を変更(ms) デフォルトは 30秒
+                        command.ExecuteNonQuery();
+                        Console.WriteLine("完了。");
+                    }
+
+                    // カラムストアインデックスが追加された後、再度同じ SQL クエリを実行
+                    double elapsedTimeWithIndex = SumPrice(connection);
+                    Console.WriteLine("カラムストアありのクエリ時間: " + elapsedTimeWithIndex + "ms");
+
+                    // カラムストアインデックスの追加によるパフォーマンス向上を計算
+                    Console.WriteLine("カラムストアインデックスによる性能向上: "
+                        + Math.Round(elapsedTimeWithoutIndex / elapsedTimeWithIndex) + "x!");
+                }
+                Console.WriteLine("すべて完了しました。任意のキーを押して終了します...");
+                Console.ReadKey(true);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+            }
+        }
+
+        public static double SumPrice(SqlConnection connection)
+        {
+            String sql = "SELECT SUM(Price) FROM Table_with_5M_rows";
+            long startTicks = DateTime.Now.Ticks;
+            using (SqlCommand command = new SqlCommand(sql, connection))
+            {
+                try
+                {
+                    command.CommandTimeout = 60000; // コマンドがタイムアウトする場合は秒数を変更(ms) デフォルトは 30秒
+                    var sum = command.ExecuteScalar();
+                    TimeSpan elapsed = TimeSpan.FromTicks(DateTime.Now.Ticks) - TimeSpan.FromTicks(startTicks);
+                    return elapsed.TotalMilliseconds;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.ToString());
+                }
+            }
+            return 0;
+        }
+    }
+}
+

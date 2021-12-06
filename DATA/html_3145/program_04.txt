@@ -1,0 +1,59 @@
+
+    public class ShapePointList
+    {
+        private float _nearPointDetectValue;
+        private float _lineDetectValue;
+        private float _cornerDetectDot;
+
+        private ShapePoint lastAddPoint;
+        private Vector3 lineVec;//現在描いてる線の偏向
+        private List&lt;ShapePoint&gt; _points = new List&lt;ShapePoint&gt;();
+
+        public ShapePointList()
+        {
+            _nearPointDetectValue = 0.01f * 0.01f; //1cm以下は手の震えとみなす
+            _lineDetectValue = 0.05f * 0.05f;   //直線は5cmぐらいは欲しい
+            _cornerDetectDot = 0.8f;
+        }
+
+        public bool AddPoint(Vector3 p)
+        {
+            if (lastAddPoint == null)
+            {
+                lastAddPoint = new ShapePoint(p, true);
+                lineVec = Vector3.zero;
+            }
+            else
+            {
+                var currentVec = (p - lastAddPoint.Pos);
+                if (currentVec.sqrMagnitude &lt;= _nearPointDetectValue)
+                {
+                    lastAddPoint.AddNearPointCount();
+                    return false;
+                }
+
+                var isCorner = false;
+
+                //前回の角からのベクトル足しこみ
+                lineVec += currentVec;
+
+                //角度チェック
+                var dot = Vector3.Dot(lineVec.normalized, currentVec.normalized);
+
+                if (dot &lt;= _cornerDetectDot)
+                {
+                    //長さが足りない場合は、角近辺でごちゃごちゃしてる可能性
+                    if (lineVec.sqrMagnitude &gt; _lineDetectValue)
+                    {
+                        isCorner = true;
+                        lineVec = currentVec;
+                    }
+                }
+
+                lastAddPoint = new ShapePoint(p, isCorner);
+            }
+            _points.Add(lastAddPoint);
+            return true;
+        }
+    }
+

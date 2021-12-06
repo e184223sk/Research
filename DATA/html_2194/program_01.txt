@@ -1,0 +1,55 @@
+
+using System.Text;
+using System.Net;
+using System.Net.Http;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Microsoft.WindowsAzure.Storage.Table;
+using System.Collections.Generic;
+
+namespace LpNaviFunc
+{
+    public static class GetInfo
+    {
+        [FunctionName("GetInfo")]
+        public static HttpResponseMessage Run(
+            //[Table(“LPInfo”)]などでデータとバインディングしている。
+            //詳しい記法は Azure Functions の公式ドキュメントを読んでください。
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", Route = null)] HttpRequest req,
+            [Table("LPInfo")] CloudTable cloudTable,
+            ILogger log)
+        {
+            log.LogInformation("C# HTTP trigger function processed a request.");
+
+            //Azure Table Strageにアクセスし、データをリストに格納する。
+            var querySegment = cloudTable.ExecuteQuerySegmentedAsync(new TableQuery&lt;LPINFO&gt;(), null);
+            StringContent responseContent = null;
+            var ls = new List&lt;LPINFO&gt;();
+
+            foreach (LPINFO item in querySegment.Result)
+            {
+                ls.Add(item);
+            }
+            //すべての格納が終了した後に、Jsonファイルを生成している。
+            responseContent = new StringContent(JsonConvert.SerializeObject(ls,Formatting.Indented),Encoding.UTF8,"application/json");
+            //最後に生成したJsonファイルを返す。
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = responseContent
+            };
+        }
+    }
+
+    //レコードを取得する用のクラス。
+    //これを作ることによってListでの管理が可能になる。
+    public class LPINFO : TableEntity
+    {
+        public string Shops { get; set; }
+        public string Summary { get; set; }
+    }
+
+}
+

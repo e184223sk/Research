@@ -1,0 +1,56 @@
+
+using System.Collections.Generic;
+using Zenject;
+
+namespace MemoryPoolsSample.Scripts.Pool
+{
+    public class Foo
+    {
+        // Factoryと異なり、PlaceholderFactoryではなくMemoryPoolを継承する。
+        public class Pool : MemoryPool&lt;Foo&gt;
+        {
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Pool _fooPool = default;
+        private readonly List&lt;Foo&gt; _foos = new List&lt;Foo&gt;();
+
+        // Constructor Injection
+        public FooSpawner(Foo.Pool fooPool)
+        {
+            _fooPool = fooPool;
+        }
+
+        // AddFoo を呼び出たすと、生成時には新しくヒープが割り当てられるが、
+        // 未使用のFooがある場合そちらが再利用される。
+        public void AddFoo()
+        {
+            // Pool.Spawn()によってFooを生成、再利用する
+            _foos.Add(_fooPool.Spawn());
+        }
+
+        //　RemoveFoo が呼び出されるとFooSpawnerからはFooに対する参照は失われるが
+        // Pool内に未使用のFooとして山荘が残される。
+        public void RemoveFoo()
+        {
+            var foo = _foos[0];
+            // Pool.Despawn()によってPoolに使用していたFooを戻す
+            _fooPool.Despawn(foo);
+            _foos.Remove(foo);
+        }
+    }
+
+    public class FooInstaller : MonoInstaller&lt;FooInstaller&gt;
+    {
+        public override void InstallBindings()
+        {
+            Container.Bind&lt;FooSpawner&gt;().AsSingle();
+            // BindFactoryではなくBindMemoryPoolになる
+            Container.BindMemoryPool&lt;Foo, Foo.Pool&gt;();
+        }
+    }
+}
+
+

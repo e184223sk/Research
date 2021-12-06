@@ -1,0 +1,23 @@
+More than 1 year has passed since last update.C#でOpenGL + ImGuiをやろうとしたら情報がほとんど無かったのでまとめてみました。
+環境
+・OpenTK v3.0.1
+・OpenTK.GLControl v3.0.1
+・ImGui.NET v1.71.0
+・.Net framework 4.7.1動作イメージ
+Nugetから以下のパッケージを導入します。
+・OpenTK
+・OpenTK.GLControl
+・ImGui.NETこのとき、ImGui.NETは.NetStandard版しか提供されていないので、ビルド環境が.Net frameworkだと大量のdllが呼ばれます。調べた所、.Net framework 4.7.1以上にしておけばまだdllの数は15個くらいに減るみたいです。また、格納されたdllのうち、実際に使用されるdllはもっと少ないので、配布時に削除したらよいと思います。いろんなExampleのソースを読んで作成しました。
+OpenGL4世代向けです。FormにOpenTK.GLControlを貼り付けます。おそらくツールボックスにいないので適当なコントロールを張り付けてForm.designer.csを直接編集して型をOpenTK.GLControlに変える方が早いかもしれません。ゲームの場合はメインループを作成します。ゲーム以外の場合はGLControlのPaintイベントでOpenGLの描画を実施します。
+GLControlのPaintイベントを使用する場合、ImGuiの描画更新に対応するため、ImGui側からGLControl側へ描画リクエスト(GLControl.Invalidate())を送る必要があります。今回のサンプルではPaintイベントベースを前提として進めます。
+OptenTKの初期化や描画方法はここでは割愛します。
+まず、フォームのLoadイベントにてImGuiManagerを作成します。
+ImGuiManagerのコンストラクタ引数にはOpenTK.GLControlを渡します。今回描画はPaintイベントで実施しますので、フォームのPaintイベントにてOptenTKの描画開始処理(画面のクリア等)→ImGuiの描画→Swap(画面への描画反映)を実施します。コード内部のコメントにも書いていますがデフォルトのio.Fonts.GetGlyphRangesJapanese()は漢字の文字が足りないようです。→ imgui で日本語が「?」になる場合の対処
+記事を参考にして、C#で以下のようなクラスを作っておきます。MSUIGothicを使用する場合は以下のようにします。C#で作った配列は固定アドレス空間にコピーしてから渡す必要があります。キーボード入力はio.AddInputCharacter();で与えるのですが、FormやGLControlのProcessMessageをオーバーライドしてWM_CHARメッセージから取得する必要があります。また、GLControlは普通のWinFormsのUserControlですのでIMEが無効化されています。
+参考：C#でIMEの入力を受けるユーザーコントロールの作成
+上記記事を元にOpenTKのGLControlを継承してIME対応版を作成します。
+WM_CHARメッセージをキャッチして新たに追加したCharInputedイベントに文字を流します。ImGui側はIMGLControlで追加したCharInputedイベントを元にImGuiへ通知します。OpenTKのGL.GetIntegerで落ちたり落ちなかったりするケースがあり困りました。原因はGL.EnableVertexAttribArray()でした。使用しないVertexAttribArrayがある場合はかならずGL.DisableVertexAttribArray()を呼び出して無効化しておかないと内部のメモリがおかしくなって関係のない所AccessViolationが発生して落ちます。変更履歴
+2019.8.13 サンプルコードについて、OpenGLのVBAが適用されておらず、正常に描画できない問題を修正した。
+2019.8.13 IME対応版にサンプル全入れ替え
+
+

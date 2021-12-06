@@ -1,0 +1,81 @@
+using System;
+using System.Windows;
+using System.Collections.Generic;
+using Microsoft.Kinect;
+
+namespace Microsoft.Samples.Kinect.BodyBasics
+{
+    class SmoothingPoint
+    {
+        private static Dictionary&lt;JointType, Queue&lt;Point&gt;&gt; pointBufferS = new Dictionary&lt;JointType, Queue&lt;Point&gt;&gt;();
+        private static Dictionary&lt;JointType, Queue&lt;Point&gt;&gt; pointBufferE = new Dictionary&lt;JointType, Queue&lt;Point&gt;&gt;();
+
+        public SmoothingPoint()
+        {
+            foreach (JointType jt in Enum.GetValues(typeof(JointType)))
+            {
+                pointBufferS.Add(jt, new Queue&lt;Point&gt;());
+                pointBufferE.Add(jt, new Queue&lt;Point&gt;());
+            }
+        }
+
+        public Point Smoothing(JointType jType, Point p)
+        {
+            return DoubleMovingAverage(jType, p);
+        }
+
+        private Point SimpleAverageFilter(JointType jt, Point newPoint, int parameter)
+        {
+            pointBufferS[jt].Enqueue(newPoint);
+            if (pointBufferS[jt].Count &lt;= parameter)
+            {
+                return newPoint;
+            }
+            pointBufferS[jt].Dequeue();
+            Point[] list = pointBufferS[jt].ToArray();
+            Point point = new Point();
+            double x = 0;
+            double y = 0;
+
+            int n = pointBufferS[jt].Count;
+            for (int i = 0; i &lt; pointBufferS[jt].Count; i++)
+            {
+                Point p = list[i];
+                x += p.X;
+                y += p.Y;
+            }
+            point.X = x / n;
+            point.Y = y / n;
+
+            return point;
+        }
+
+        private Point DoubleMovingAverage(JointType jt, Point newPoint, int parameter = 5)
+        {
+            Point newSimpleAverage = SimpleAverageFilter(jt, newPoint, parameter);
+            pointBufferE[jt].Enqueue(newSimpleAverage);
+            if (pointBufferE[jt].Count &lt;= parameter)
+            {
+                return newSimpleAverage;
+            }
+            pointBufferE[jt].Dequeue();
+            Point[] list = pointBufferE[jt].ToArray();
+            Point point = new Point();
+            double x = 0;
+            double y = 0;
+
+            int n = pointBufferE[jt].Count;
+            for (int i = 0; i &lt; pointBufferE[jt].Count; i++)
+            {
+                Point p = list[i];
+                x += p.X;
+                y += p.Y;
+            }
+            point.X = x / n;
+            point.Y = y / n;
+
+            return point;
+        }
+    }
+}
+

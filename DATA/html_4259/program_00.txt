@@ -1,0 +1,126 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI; //Toggleで必要
+using UnityEngine.Audio; //Audio系で必要
+
+public class soundman : MonoBehaviour {
+
+    private AudioSource bgm_as; //bgmプレイヤーの場所
+    private AudioSource se_as; //seプレイヤーの場所
+    public static string bgm; //音楽を変更したい場合の名前を保存する場所
+    public static string se;
+
+    public AudioMixer mixer; //ミキサーの場所
+    public Slider bgms; //bgmのスライダーの場所
+    public Slider ses; //seのスライダーの場所
+    public Toggle tog; //音オンオフのトグルの場所
+
+    private List&lt;msta&gt; musics = new List&lt;msta&gt;(); //いろいろやった結果、Listに情報をまとめることにしました
+
+    public AudioClip bgm_0; //音楽
+    public AudioClip bgm_1; //bgmを増やす場合、bgm_2 bgm_3……と増やしていけばいい
+
+    public AudioClip se_0; //SE
+    public AudioClip se_1; //seも同様
+
+
+    void Awake () {
+        musics.Add(new msta("bgm_main",bgm_0)); //音楽を格納する場所 増やす場合これを増やしていく
+//      musics.Add(new msta("名前",bgm_1)); //名前はなんでも。soundman.bgm="名前"で呼び出せるようになります
+        musics.Add(new msta("se_buy",se_0)); //seも同じく
+        musics.Add(new msta("se_gold",se_1));
+
+        AudioSource[] audiosources = GetComponents&lt;AudioSource&gt; (); //プレイヤーを二つ作る
+        bgm_as = audiosources [0]; //０番はbgmのプレイヤー
+        se_as = audiosources [1]; //１番はseのプレイヤー
+        bgm_as.enabled = false; //一旦音をオフ
+        se_as.enabled = false;
+
+    }
+
+    void Start () {
+        StartCoroutine (opbgm ()); //最初に音が出ちゃうのを防止するため0.5秒待機してからオーディオをオン
+    }
+
+    private IEnumerator opbgm(){ //その格納された場所
+        yield return new WaitForSeconds (0.3f);
+        if(bgms != null){ //bgmスライダーを使うなら（この行があればアタッチしてなくてもエラーにならない）
+            bgms.value = PlayerPrefs.GetFloat ("sbgm",-80); //セーブされたbgm情報がなければ-80、あればそれを代入
+            mixer.SetFloat("bgm", bgms.value); //その音量に変更 この"bgm"というのがMixerで設定した名前
+        }
+        if(ses != null){
+            ses.value = PlayerPrefs.GetFloat ("sse",-80);
+            mixer.SetFloat("se", ses.value);
+        }
+        bgm = musics[0].mname; //最初から流れる曲
+        yield return new WaitForSeconds (0.2f);
+        bgm_as.enabled = true; //ディレイをかけてオンにすることで暴発を防ぐ
+        se_as.enabled = true;
+    }
+
+    void Update () {
+        if(bgm != null){ //外からbgm命令を受けたら
+            foreach (var ms in musics) { //listに入れたデータを全部参照
+                if(ms.mname == bgm){ //一致するものを見つけ
+                    bgm_as.clip = ms.mclip; //それをクリップに入れる（音を鳴らす）
+                    bgm = null; //bgm命令を初期化
+                }
+            }
+        }
+        if (bgm_as.enabled) {
+            if (bgm_as.clip == !bgm_as.isPlaying) { //もしbgmが終わってもまたプレイ（ループ再生）
+                bgm_as.Play ();
+            }
+        }
+        if(se != null){ //外からse命令を受けたら
+            foreach (var ms in musics) { //listに入れたデータを全部参照
+                if(ms.mname == se){ //一致するものを見つけ
+                    if (se_as.enabled) { //seオフ時に命令を受けてオン状態に変えるとその瞬間暴発するのでそれを阻止
+                        se_as.PlayOneShot (ms.mclip); //１度だけseを鳴らす
+                    }
+                    se = null; //se命令を初期化
+                }
+            }
+        }
+
+        if(tog != null){ //音オンオフのトグルを使うなら
+            if(!tog.isOn){ //TargetGraphicのみの画像状態
+                bgm_as.enabled = false;
+                se_as.enabled = false;
+            }else{ //TargetGraphicとGraphicの画像が重なって表示される状態
+                bgm_as.enabled = true;
+                se_as.enabled = true;
+            }
+        }
+    }
+
+    public void Changebgm(){
+        mixer.SetFloat("bgm", bgms.value); //スライダーを動かしたらその音量に変更
+        PlayerPrefs.SetFloat("sbgm", bgms.value); //すぐさまセーブ
+    }
+    public void Changese(){
+        mixer.SetFloat("se", ses.value);
+        PlayerPrefs.SetFloat("sse", ses.value);
+    }
+
+    public void seon(){ //seのつまみを動かして、タップを離したら音がなる設定
+        foreach (var ms in musics) {
+            if(ms.mclip == se_0){ //0に設定した音が鳴ります
+                se = ms.mname;
+            }
+        }
+    }
+
+}
+
+public class msta { //list情報のフォーマットを設定
+    public string mname;
+    public AudioClip mclip;
+    public msta (string m_name, AudioClip m_clip){
+        mname = m_name;
+        mclip = m_clip;
+    }
+}
+
+

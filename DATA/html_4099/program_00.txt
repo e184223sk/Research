@@ -1,0 +1,353 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+
+namespace RegexMatchingDictionary
+{
+    /// &lt;summary&gt;
+    /// 正規表現ディクショナリ
+    /// 
+    /// 正規表現をキーとして使えるディクショナリ
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TValue"&gt;ディクショナリ内の値の型&lt;/typeparam&gt;
+    /// &lt;remarks&gt;
+    /// 一般的なディクショナリと違って複数のキーにマッチするので注意。
+    /// 一つのディクショナリインスタンスに同一キー(同一の正規表現パターン)は登録不可。
+    /// 正規表現のオプション(RegexOptions)はディクショナリインスタンスごとに共通。(キーごとに別のオプションは需要が少なそうな割に複雑になるから)
+    /// &lt;/remarks&gt;
+    public class RegexMatchingDictionary&lt;TValue&gt; : IDictionary&lt;string, TValue&gt;
+    {
+        /// &lt;summary&gt;Key-Valueリスト&lt;/summary&gt;
+        protected readonly List&lt;(Regex RegexPattern, TValue Value)&gt; regexValuePairs;
+        /// &lt;summary&gt;正規表現オプション&lt;/summary&gt;
+        private readonly RegexOptions regexOptions;
+
+        #region Constructors
+        /// &lt;summary&gt;基底コンストラクタ&lt;/summary&gt;
+        /// &lt;param name="options"&gt;正規表現オプション&lt;/param&gt;
+        public RegexMatchingDictionary(RegexOptions options)
+        {
+            regexValuePairs = new List&lt;(Regex, TValue)&gt;();
+            regexOptions = options;
+        }
+
+        /// &lt;summary&gt;デフォルトコンストラクタ&lt;/summary&gt;
+        public RegexMatchingDictionary() : this(RegexOptions.None) { }
+
+        /// &lt;summary&gt;初期値リストつきコンストラクタ&lt;/summary&gt;
+        /// &lt;param name="collention"&gt;初期値としてセットするパターンと値のコレクション&lt;/param&gt;
+        /// &lt;param name="options"&gt;正規表現オプション&lt;/param&gt;
+        public RegexMatchingDictionary(IEnumerable&lt;(string, TValue)&gt; collention, RegexOptions options = RegexOptions.None)
+            : this(options)
+        {
+            foreach ((string, TValue) pv in collention)
+            { this.Add(pv.Item1, pv.Item2); }
+        }
+        #endregion
+
+        #region IDictionary implements
+        /// &lt;summary&gt;正規表現パターン文字列のリストを取得。&lt;/summary&gt;
+        public ICollection&lt;string&gt; Keys =&gt; regexValuePairs.Select(rv =&gt; rv.RegexPattern.ToString()).ToArray();
+
+        /// &lt;summary&gt;値のリストを取得。&lt;/summary&gt;
+        public ICollection&lt;TValue&gt; Values =&gt; regexValuePairs.Select(rv =&gt; rv.Value).ToArray();
+
+        /// &lt;summary&gt;指定した文字列にマッチした要素の値を取得。&lt;/summary&gt;
+        /// &lt;param name="key"&gt;検索対象文字列&lt;/param&gt;
+        /// &lt;returns&gt;一致したパターンに対応する値&lt;/returns&gt;
+        /// &lt;remarks&gt;
+        /// 複数のパターンに一致する場合は先に登録したパターンに対応する値を返す。
+        /// setは不可。
+        /// &lt;/remarks&gt;
+        public TValue this[string key]
+        {
+            get
+            {
+                if (key == null)
+                { throw new ArgumentNullException(); }
+                int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.IsMatch(key));
+                if (idx &lt; 0)
+                { throw new KeyNotFoundException(); }
+                return regexValuePairs[idx].Value;
+            }
+            set { throw new NotImplementedException(); }
+        }
+
+        /// &lt;summary&gt;指定した正規表現パターンと対応する値のセットを登録する。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;param name="value"&gt;追加する要素の値&lt;/param&gt;
+        /// &lt;remarks&gt;リスト末尾に追加されるので既存のパターンより高い優先度にしたい場合はInsert()を使用する。&lt;/remarks&gt;
+        public void Add(string pattern, TValue value)
+        {
+            //空文字も正規表現としては無意味なのでnull扱いにする。
+            if (string.IsNullOrEmpty(pattern))
+            { throw new ArgumentNullException(); }
+            //同一パターンを登録済みならエラー
+            if (regexValuePairs.Any(rv =&gt; rv.RegexPattern.ToString() == pattern))
+            { throw new ArgumentException(); }
+            regexValuePairs.Add((new Regex(pattern, regexOptions), value));
+        }
+
+        /// &lt;summary&gt;正規表現パターンが登録済みかチェックする。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;returns&gt;同一パターンが登録されていればtrue&lt;/returns&gt;
+        public bool ContainsKey(string pattern)
+        {
+            return regexValuePairs.Any(rv =&gt; rv.RegexPattern.IsMatch(pattern));
+        }
+
+        /// &lt;summary&gt;指定したパターンと対応する値を削除する。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;returns&gt;指定したパターンが存在していればtrue&lt;/returns&gt;
+        public bool Remove(string pattern)
+        {
+            if (string.IsNullOrEmpty(pattern))
+            { throw new ArgumentNullException(); }
+            int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.ToString() == pattern);
+            if (idx &lt; 0)
+            { return false; }
+            regexValuePairs.RemoveAt(idx);
+            return true;
+        }
+
+        /// &lt;summary&gt;指定した文字列と一致したパターンがあれば対応付けられた値を返す。&lt;/summary&gt;
+        /// &lt;param name="key"&gt;検索対象文字列&lt;/param&gt;
+        /// &lt;returns&gt;一致したパターンに対応する値&lt;/returns&gt;
+        /// &lt;returns&gt;一致したパターンがあればtrue&lt;/returns&gt;
+        public bool TryGetValue(string key, out TValue value)
+        {
+            int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.IsMatch(key));
+            if (idx &lt; 0)
+            {
+                value = default;
+                return false;
+            }
+            value = regexValuePairs[idx].Value;
+            return true;
+        }
+        #endregion
+
+        #region ICollention&lt;T&gt; implements
+        /// &lt;summary&gt;登録されている要素数&lt;/summary&gt;
+        public int Count =&gt; regexValuePairs.Count;
+        /// &lt;summary&gt;読み取り専用かどうか&lt;/summary&gt;
+        public bool IsReadOnly =&gt; false;
+
+        /// &lt;summary&gt;指定した正規表現パターンと対応する値のセットを登録する。&lt;/summary&gt;
+        /// &lt;param name="item"&gt;登録する正規表現パターンと値のペア&lt;/param&gt;
+        public void Add(KeyValuePair&lt;string, TValue&gt; item)
+            =&gt; Add(item.Key, item.Value);
+
+        /// &lt;summary&gt;登録内容をすべて消去する&lt;/summary&gt;
+        public void Clear()
+            =&gt; regexValuePairs.Clear();
+
+        /// &lt;summary&gt;指定した正規表現パターンと対応する値のセットが登録済みかチェックする。&lt;/summary&gt;
+        /// &lt;param name="item"&gt;存在チェックする正規表現パターンと値のペア&lt;/param&gt;
+        /// &lt;returns&gt;登録されていればtrue&lt;/returns&gt;
+        /// &lt;remarks&gt;ICollentionの実装を満たすために必要なだけで、使うことはまずないはず。&lt;/remarks&gt;
+        public bool Contains(KeyValuePair&lt;string, TValue&gt; item)
+            =&gt; regexValuePairs.Any(rv =&gt; rv.RegexPattern.ToString() == item.Key &amp;&amp; object.Equals(rv.Value, item.Value));
+
+        /// &lt;summary&gt;リストに登録された内容を配列として取り出す。&lt;/summary&gt;
+        /// &lt;param name="array"&gt;正規表現パターン文字列と値のペアを格納する配列&lt;/param&gt;
+        /// &lt;param name="arrayIndex"&gt;抽出開始位置のインデックス&lt;/param&gt;
+        /// &lt;remarks&gt;ICollentionの実装を満たすために必要なだけで、使うことはまずないはず。&lt;/remarks&gt;
+        public void CopyTo(KeyValuePair&lt;string, TValue&gt;[] array, int arrayIndex)
+        {
+            if (array == null)
+            { throw new ArgumentNullException(); }
+            if (arrayIndex &lt; 0)
+            { throw new ArgumentOutOfRangeException(); }
+            if (arrayIndex + array.Length &gt; regexValuePairs.Count)
+            { throw new ArgumentException(); }
+
+            Array.Copy(regexValuePairs.Select(rv =&gt; new KeyValuePair&lt;string, TValue&gt;(rv.RegexPattern.ToString(), rv.Value)).ToArray(), 0,
+                array, arrayIndex, regexValuePairs.Count);
+        }
+
+        /// &lt;summary&gt;指定したパターンと対応する値を削除する。&lt;/summary&gt;
+        /// &lt;param name="item"&gt;削除するパターン文字列と値のペア&lt;/param&gt;
+        /// &lt;returns&gt;指定したペアが存在していればtrue&lt;/returns&gt;
+        /// &lt;remarks&gt;ICollentionの実装を満たすために必要なだけで、使うことはまずないはず。&lt;/remarks&gt;
+        public bool Remove(KeyValuePair&lt;string, TValue&gt; item)
+        {
+            int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.ToString() == item.Key &amp;&amp; object.Equals(rv.Value, item.Value));
+            if (idx &lt; 0)
+            { return false; }
+            regexValuePairs.RemoveAt(idx);
+            return true;
+        }
+        #endregion
+
+        #region IEnumerable implements
+        /// &lt;summary&gt;列挙子を返す。&lt;/summary&gt;
+        /// &lt;remarks&gt;IEnumerable&lt;T&gt;実装&lt;/remarks&gt;
+        public IEnumerator&lt;KeyValuePair&lt;string, TValue&gt;&gt; GetEnumerator()
+            =&gt; new RegexMatchingDictionaryEnumerator(this);
+
+        /// &lt;summary&gt;列挙子を返す。&lt;/summary&gt;
+        /// &lt;remarks&gt;IEnumerable実装&lt;/remarks&gt;
+        IEnumerator IEnumerable.GetEnumerator()
+            =&gt; this.GetEnumerator();
+
+        /// &lt;summary&gt;列挙子クラス&lt;/summary&gt;
+        private class RegexMatchingDictionaryEnumerator : IEnumerator&lt;KeyValuePair&lt;string, TValue&gt;&gt;
+        {
+            /// &lt;summary&gt;内部リストの列挙子&lt;/summary&gt;
+            private IEnumerator&lt;(Regex RegexPattern, TValue Value)&gt; enumerator;
+
+            /// &lt;summary&gt;コンストラクタ&lt;/summary&gt;
+            internal RegexMatchingDictionaryEnumerator(RegexMatchingDictionary&lt;TValue&gt; source)
+            {
+                enumerator = source.regexValuePairs.GetEnumerator();
+            }
+
+            /// &lt;summary&gt;現在の要素&lt;/summary&gt;
+            public KeyValuePair&lt;string, TValue&gt; Current =&gt; new KeyValuePair&lt;string, TValue&gt;(enumerator.Current.RegexPattern.ToString(), enumerator.Current.Value);
+            /// &lt;summary&gt;現在の要素&lt;/summary&gt;
+            object IEnumerator.Current =&gt; new KeyValuePair&lt;string, TValue&gt;(enumerator.Current.RegexPattern.ToString(), enumerator.Current.Value);
+
+            public void Dispose()
+            {
+                enumerator?.Dispose();
+                enumerator = null;
+            }
+
+            public bool MoveNext()
+                =&gt; enumerator.MoveNext();
+            public void Reset()
+                =&gt; enumerator.Reset();
+        }
+        #endregion
+
+        //IListではないが、検索順序操作のためにIList風プロパティとメソッドも実装する
+        #region IList like implements
+        /// &lt;summary&gt;指定したインデックスの値を取得する。(readonly)&lt;/summary&gt;
+        /// &lt;param name="index"&gt;登録リストのインデックス&lt;/param&gt;
+        /// &lt;returns&gt;登録されている値&lt;/returns&gt;
+        public TValue this[int index]
+            =&gt; regexValuePairs[index].Value;
+
+        /// &lt;summary&gt;指定した正規表現パターン文字列のインデックス番号を返す。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;returns&gt;該当なしなら-1&lt;/returns&gt;
+        public int IndexOf(string pattern)
+            =&gt; regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.ToString() == pattern);
+
+        /// &lt;summary&gt;リスト内の指定した位置に正規表現パターンと対応する値を挿入する。&lt;/summary&gt;
+        /// &lt;param name="index"&gt;挿入位置のインデックス番号&lt;/param&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;param name="value"&gt;対応する値&lt;/param&gt;
+        public void Insert(int index, string pattern, TValue value)
+            =&gt; regexValuePairs.Insert(index, (new Regex(pattern, this.regexOptions), value));
+
+        /// &lt;summary&gt;リスト内の指定した位置の正規表現パターンと対応する値を削除する。&lt;/summary&gt;
+        /// &lt;param name="index"&gt;削除する要素のインデックス番号&lt;/param&gt;
+        public void RemoveAt(int index)
+            =&gt; regexValuePairs.RemoveAt(index);
+        #endregion
+
+        #region Original impliments
+        /// &lt;summary&gt;登録されている正規表現オブジェクトの列挙する。&lt;/summary&gt;
+        public IEnumerable&lt;Regex&gt; Regexs =&gt; regexValuePairs.Select(rv =&gt; rv.RegexPattern);
+
+        /// &lt;summary&gt;正規表現パターン文字列に対応する値を取得する。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;param name="value"&gt;対応する値&lt;/param&gt;
+        public TValue GetValueByPattern(string pattern)
+        {
+            int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.ToString() == pattern);
+            if (idx &lt; 0)
+            { return default; }
+            return regexValuePairs[idx].Value;
+        }
+
+        /// &lt;summary&gt;正規表現パターン文字列に対応する値を取得する。&lt;/summary&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン文字列&lt;/param&gt;
+        /// &lt;param name="value"&gt;対応する値&lt;/param&gt;
+        /// &lt;returns&gt;該当するパターン文字列があればtrue&lt;/returns&gt;
+        public bool TryGetValueByPattern(string pattern, out TValue value)
+        {
+            int idx = regexValuePairs.FindIndex(rv =&gt; rv.RegexPattern.ToString() == pattern);
+            if (idx &lt; 0)
+            {
+                value = default;
+                return false;
+            }
+            value = regexValuePairs[idx].Value;
+            return true;
+        }
+        #endregion
+    }
+
+
+    /// &lt;summary&gt;
+    /// 正規表現アクションディクショナリ
+    /// 
+    /// 文字列を渡すと正規表現パターンに一致したら登録されているアクションを実行する。
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TResult"&gt;アクションの返り値型&lt;/typeparam&gt;
+    /// &lt;remarks&gt;
+    /// IDictionaryなのでアクションは値を返す必要がある。返り値が不要なら最後に必ず 'return true;' でもつければOK。
+    /// 最初に一致したパターンのアクションだけを実行するので注意。
+    /// &lt;/remarks&gt;
+    public class RegexMatchingActionDictionary&lt;TResult&gt; : RegexMatchingDictionary&lt;Func&lt;Match, string, TResult&gt;&gt;
+    {
+        /// &lt;summary&gt;渡した文字列にマッチする正規表現パターンがあれば、登録されているアクションを実行する。&lt;/summary&gt;
+        /// &lt;param name="key"&gt;検索対象文字列&lt;/param&gt;
+        /// &lt;returns&gt;一致パターンがあればアクションが返した値、なければ default(TResult)&lt;/returns&gt;
+        /// &lt;remarks&gt;IDictionaryなら一致しないときは例外を投げるべきだが、実用性重視で例外にはしない&lt;/remarks&gt;
+        public new TResult this[string key]
+        {
+            get
+            {
+                if (key == null)
+                { throw new ArgumentNullException(); }
+                (Match match, Func&lt;Match, string, TResult&gt; Value) findItem = regexValuePairs
+                    .Select(rv =&gt; (match: rv.RegexPattern.Match(key), rv.Value))
+                    .FirstOrDefault(mv =&gt; mv.match.Success);
+                if (findItem.match != null)
+                { return default; }
+                return findItem.Value(findItem.match, key);
+            }
+        }
+
+        /// &lt;summary&gt;渡した文字列にマッチする正規表現パターンがあれば、登録されているアクションを実行する。&lt;/summary&gt;
+        /// &lt;param name="key"&gt;検索対象文字列&lt;/param&gt;
+        /// &lt;param name="result"&gt;一致パターンがあればアクションが返した値&lt;/param&gt;
+        /// &lt;returns&gt;一致パターンがあってアクションが実行されればtrue、一致なしならfalse&lt;/returns&gt;
+        public bool TryGetValue(string key, out TResult result)
+        {
+            (Match match, Func&lt;Match, string, TResult&gt; Value) findItem = regexValuePairs
+                .Select(rv =&gt; (match: rv.RegexPattern.Match(key), rv.Value))
+                .FirstOrDefault(mv =&gt; mv.match.Success);
+            if (findItem.match == null)
+            {
+                result = default;
+                return false;
+            }
+            result = findItem.Value(findItem.match, key);
+            return true;
+        }
+
+        /// &lt;summary&gt;渡した文字列に一致したパターンのアクションをすべて実行する。(遅延実行)&lt;/summary&gt;
+        /// &lt;param name="key"&gt;検索対象文字列&lt;/param&gt;
+        /// &lt;returns&gt;実行したアクションの返り値の列挙&lt;/returns&gt;
+        /// &lt;remarks&gt;
+        /// 返り値を受け取る必要がない場合は `dic.ExecMatchingMultiAction("...").All(_ =&gt; true);` とでも書けばいい。
+        /// &lt;/remarks&gt;
+        public IEnumerable&lt;TResult&gt; ExecMatchingMultiAction(string key)
+        {
+            foreach (var rv in regexValuePairs)
+            {
+                var m = rv.RegexPattern.Match(key);
+                if (m.Success)
+                { yield return rv.Value(m, key); }
+            }
+        }
+    }
+}
+

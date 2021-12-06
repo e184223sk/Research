@@ -1,0 +1,67 @@
+
+private void Click_InferSync(object sender, RoutedEventArgs e)
+{
+    string deviceStr = GetCheckedRadioButtonString();
+    NetworkInfo networkInfo = new NetworkInfo();
+    networkInfo.modelName = @"Model\mnist.xml";
+    networkInfo.inputLayout = Layout.NCHW;
+    networkInfo.inputPrecision = Precision.U8;
+    networkInfo.outputLayout = Layout.NC;
+    networkInfo.outputPrecision = Precision.FP32;
+    networkInfo.isMultiDevices = false;
+    networkInfo.devices.Add(ConvertString2Device(deviceStr));
+
+    string[] images = System.IO.Directory.GetFiles(inputImageDir.Text);
+    List&lt;string&gt; inputImageFiles = new List&lt;string&gt;();
+    inputImageFiles.AddRange(images);
+
+    // instance.GetAvailableDevices();
+    instance.Initialize(networkInfo);
+
+    foreach (string inputImage in inputImageFiles)
+    {             
+        instance.InferSync(inputImage); 
+
+        floatVector outputVec = instance.InferSync(inputImage);
+        textBox.Text += $"inputImageFile : {System.IO.Path.GetFileName(inputImage)}" + System.Environment.NewLine;
+        int i = 0;
+        foreach(float output in outputVec)
+        {
+        //textBox.Text += string.Format("{0} : {1:f4}", i, outputVec[i]) + System.Environment.NewLine;
+        textBox.Text +=  $"[{i}] :  {Math.Round(output, 4, MidpointRounding.AwayFromZero)}" + System.Environment.NewLine;
+        i++;
+        }
+    }
+}
+
+private void Click_InferASync(object sender, RoutedEventArgs e)
+{
+    InferCallBackHandler obj = new InferCallBackHandler(textBox);
+    string deviceStr = GetCheckedRadioButtonString();
+    NetworkInfo networkInfo = new NetworkInfo();
+    networkInfo.modelName = @"Model\mnist.xml";
+    networkInfo.inputLayout = Layout.NCHW;
+    networkInfo.inputPrecision = Precision.U8;
+    networkInfo.outputLayout = Layout.NC;
+    networkInfo.outputPrecision = Precision.FP32;
+    networkInfo.threadNum = 0;
+    networkInfo.isMultiDevices = false;
+    networkInfo.devices.Add(ConvertString2Device(deviceStr));
+
+    string[] images = System.IO.Directory.GetFiles(inputImageDir.Text);
+    List&lt;string&gt; inputImageFiles = new List&lt;string&gt;();
+    inputImageFiles.AddRange(images);
+
+    // instance.GetAvailableDevices();
+    Task.Run(() =&gt;
+    {
+        instance.Initialize(networkInfo);
+        instance.SetInferCallBack(obj);
+
+        foreach (string inputImage in inputImageFiles)
+        {
+            instance.InferASync(inputImage);
+        }
+    });           
+}
+

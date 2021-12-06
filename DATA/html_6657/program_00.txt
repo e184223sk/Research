@@ -1,0 +1,75 @@
+public class MainWindowViewModel : ViewModel
+{
+    private Model model;
+
+    public ReactiveProperty&lt;int&gt; CurrentIndexPage { get; } =
+        new ReactiveProperty&lt;int&gt;(0);
+
+    public ReactiveProperty&lt;string&gt; CountContent { get; }
+        = new ReactiveProperty&lt;string&gt;("/10");
+
+    public ReactiveProperty&lt;string&gt; WindowTitle { get; }
+
+    public ReactiveProperty&lt;string&gt; PageTitle { get; }
+    = new ReactiveProperty&lt;string&gt;("");
+
+    public ReactiveProperty&lt;string[]&gt; ContentText { get; }
+        = new ReactiveProperty&lt;string[]&gt;();
+
+    public ReactiveCommand NextPageCommand { get; }
+        = new ReactiveCommand();
+    public ReactiveCommand BackPageCommand { get; }
+        = new ReactiveCommand();
+    public ReactiveCommand ReLoadCommand { get; }
+        = new ReactiveCommand();
+
+    public MainWindowViewModel()
+    {
+        this.model = new Model();
+
+        WindowTitle = model.Head;
+
+        model.Contents.ObserveAddChanged()
+            .Subscribe(_ =&gt;
+                CountContent.Value = $"/{model.Contents.Count()}");
+
+        NextPageCommand.Subscribe(_ =&gt;
+            CurrentIndexPage.Value++);
+        BackPageCommand.Subscribe(_ =&gt;
+            CurrentIndexPage.Value--);
+        ReLoadCommand.Subscribe(_AppDomain =&gt;
+            {
+                model.LoadContent();
+                TransPage(CurrentIndexPage.Value);
+            });
+
+        CurrentIndexPage.Subscribe(nextIndex =&gt;
+            TransPage(nextIndex));
+    }
+
+    public void Initialize()
+    {
+        model.LoadContent();
+        TransPage(0);
+    }
+
+    private void TransPage(int nextIndex)
+    {
+        CurrentIndexPage.Value = (nextIndex &gt;= 0 ? nextIndex : 0);
+
+        if (nextIndex &gt;= model.Contents.Count())
+        {
+            CurrentIndexPage.Value--;
+
+            var dialogVM = new MaterialDialogViewModel(
+                    "終了です",
+                    "お疲れ様でした");
+            DialogHost.Show(dialogVM);
+        }
+
+        PageTitle.Value = model.Contents[CurrentIndexPage.Value].First();
+        ContentText.Value = model.Contents[CurrentIndexPage.Value]
+            .Skip(1).ToArray();
+    }
+}
+

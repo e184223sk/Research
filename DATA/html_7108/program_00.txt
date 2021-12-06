@@ -1,0 +1,98 @@
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Sheets.v4;
+using Google.Apis.Sheets.v4.Data;
+using Google.Apis.Services;
+using Google.Apis.Util.Store;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace SheetsQuickstart
+{
+    class Program
+    {
+        //****************************************************************
+        //Scopeで読み取りのみ、読み書きなど指定する。
+        //scopeを変更したら、credentialsしなおすため、
+        // ~/.credentials/sheets.googleapis.com-dotnet-quickstart.json
+        //をいったん削除して再度認証プロセスを通すこと
+        //****************************************************************
+        static string[] Scopes = { SheetsService.Scope.Spreadsheets };
+        static string ApplicationName = "Google Sheets API .NET Quickstart";
+        static string spreadsheetId = "(spreadsheetIdをいれる)";
+        static string sheetName = "(Worksheet名をいれる)";
+
+        //****************************************************************
+        //Main - 10秒毎に追加する。終了するときはCtl-Cで。
+        //****************************************************************
+        static void Main(string[] args){
+            var service = OpenSheet();
+            while (true) {
+                ReadWrite(service);
+                System.Threading.Thread.Sleep(10000);
+            }
+        }
+
+        //****************************************************************
+        //OpenSheet() - 認証プロセスとAPI serviceの作成
+        //****************************************************************
+        static SheetsService OpenSheet(){
+            UserCredential credential;
+            //認証プロセス。credPathが作成されていないとBrowserが起動して認証ページが開くので認証を行って先に進む
+            using(var stream = new FileStream("client_secret.json", FileMode.Open, FileAccess.Read)){
+                string credPath = Path.Combine
+                    (System.Environment.GetFolderPath(System.Environment.SpecialFolder.Personal),
+                     ".credentials/sheets.googleapis.com-dotnet-quickstart.json");
+                //CredentialファイルがcredPathに保存される
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync
+                    (GoogleClientSecrets.Load(stream).Secrets, Scopes, "user", CancellationToken.None,
+                     new FileDataStore(credPath, true)).Result;
+            }
+            //API serviceを作成、Requestパラメータを設定
+            var service = new SheetsService(new BaseClientService.Initializer(){
+                    HttpClientInitializer = credential,
+                    ApplicationName = ApplicationName,
+                });
+            return service;
+        }
+
+        //****************************************************************
+        //OpenSheet() - 本当はAppendしたいんだが動かない(というかエントリがない)ので、
+        // 1. 今あるデータを全部読み出す
+        // 2. 行数を調べてその次の行にデータを書く
+        //****************************************************************
+        static void ReadWrite(SheetsService service){
+            ValueRange rVR;
+            String wRange;
+            //データを読み出す
+            int rowNumber = 1;
+            wRange = String.Format("{0}!A{1}:B", sheetName, rowNumber); //行を全部読む
+            SpreadsheetsResource.ValuesResource.GetRequest getRequest
+                =   service.Spreadsheets.Values.Get(spreadsheetId, wRange);
+            rVR = getRequest.Execute();
+            IList&lt;IList&lt;Object&gt;&gt; values = rVR.Values;
+            if(values != null &amp;&amp; values.Count &gt; 0) rowNumber = values.Count + 1;
+            //空行に新たにデータを書き込む
+            wRange = String.Format("{0}!A{1}:B{1}", sheetName, rowNumber);  //行を追加
+            ValueRange valueRange = new ValueRange();
+            valueRange.Range = wRange;
+            valueRange.MajorDimension = "ROWS";
+            DateTime dt = new DateTime();
+            dt = DateTime.Now;
+            string dts = dt.ToString("HH:mm:ss");
+            var oblist = new List&lt;object&gt;(){ String.Format("{0}", rowNumber), dts };
+            valueRange.Values = new List&lt;IList&lt;object&gt;&gt;{ oblist };
+            SpreadsheetsResource.ValuesResource.UpdateRequest updateRequest
+                = service.Spreadsheets.Values.Update(valueRange, spreadsheetId, wRange);
+            updateRequest.ValueInputOption
+                = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+            UpdateValuesResponse uUVR = updateRequest.Execute();
+        }
+
+    }
+}
+

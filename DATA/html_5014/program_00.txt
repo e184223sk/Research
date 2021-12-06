@@ -1,0 +1,144 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+
+namespace GeoLibrary.IO
+{
+    public class FileHelper
+    {
+        public static StreamReader OpenReader(FileInfo target)
+        {
+            return new StreamReaderOpener(target).Open();
+        }
+
+        public static IEnumerable&lt;string&gt; OpenAndReadAllLines(FileInfo target)
+        {
+            using (var sr = OpenReader(target))
+            {
+                return sr.ReadToEnd().Split('\n').Select(_ =&gt; _.TrimEnd('\r'));
+            }
+        }
+
+        private class StreamReaderOpener
+        {
+            private readonly FileInfo _target;
+
+            internal StreamReaderOpener(FileInfo target)
+            {
+                if (target == null)
+                {
+                    throw new ArgumentNullException(nameof(target));
+                }
+                _target = target;
+            }
+
+            internal StreamReader Open()
+            {
+                if (!File.Exists(_target.FullName))
+                {
+                    var message = $"File does not exists =&gt; {_target.FullName}";
+                    throw new ArgumentException(message);
+                }
+                var stream = _target.OpenRead();
+                var encodingDetector = new FileEncodingDetector(() =&gt; stream);
+                return new StreamReader(stream, encodingDetector.Detect());
+            }
+        }
+
+        private class FileEncodingDetector
+        {
+            private readonly IDictionary&lt;ByteOrderMarker.BomType, Encoding&gt; EncodingDictionary
+                = new Dictionary&lt;ByteOrderMarker.BomType, Encoding&gt;()
+            {
+                { ByteOrderMarker.BomType.Utf8, Encoding.UTF8 },
+                { ByteOrderMarker.BomType.Unicode, Encoding.Unicode },
+                { ByteOrderMarker.BomType.BigEndianUnicode, Encoding.BigEndianUnicode },
+                { ByteOrderMarker.BomType.Utf32, Encoding.UTF32 },
+            };
+            private readonly Func&lt;FileStream&gt; _streamGetter;
+
+            internal FileEncodingDetector(Func&lt;FileStream&gt; streamGetter)
+            {
+                if (streamGetter == null)
+                {
+                    throw new ArgumentNullException(nameof(streamGetter));
+                }
+                _streamGetter = streamGetter;
+            }
+
+            internal Encoding Detect()
+            {
+                var stream = _streamGetter();
+                Debug.Assert(stream != null);
+                var position = stream.Position;
+                var bomType = new ByteOrderMarker(TryReadByteFromTop(4)).ToType();
+                stream.Seek(position, SeekOrigin.Begin);
+                return EncodingDictionary.ContainsKey(bomType) ?
+                    EncodingDictionary[bomType] : Encoding.Default;
+            }
+
+            private void MoveToTopPosition()
+            {
+                var stream = _streamGetter();
+                Debug.Assert(stream != null);
+                stream.Seek(0, SeekOrigin.Begin);
+            }
+
+            private IEnumerable&lt;byte&gt; TryReadByteFromTop(int count)
+            {
+                var stream = _streamGetter();
+                Debug.Assert(stream != null);
+                MoveToTopPosition();
+                var bytes = new List&lt;byte&gt;();
+                for (var i = 0; i &lt; count; ++i)
+                {
+                    if (stream.Length &lt;= i)
+                    {
+                        break;
+                    }
+                    bytes.Add((byte)stream.ReadByte());
+                }
+                return bytes;
+            }
+        }
+
+        private class ByteOrderMarker
+        {
+            internal enum BomType
+            {
+                Utf8,
+                Unicode,
+                BigEndianUnicode,
+                Utf32,
+                Unknown,
+            }
+
+            private readonly IEnumerable&lt;byte&gt; _bom;
+
+            internal ByteOrderMarker(IEnumerable&lt;byte&gt; bom)
+            {
+                _bom = bom;
+            }
+
+            internal BomType ToType()
+            {
+                var dic = new[] {
+                    new { Bom = new byte[] { 0xEF, 0xBB, 0xBF }, Type = BomType.Utf8 },
+                    new { Bom = new byte[] { 0xFF, 0xFE }, Type = BomType.Unicode },
+                    new { Bom = new byte[] { 0xFE, 0xFF }, Type = BomType.BigEndianUnicode },
+                    new { Bom = new byte[] { 0xFF, 0xFE, 0x00, 0x00 }, Type = BomType.Utf32 },
+                };
+
+                var candidate = dic.Where(_ =&gt; Enumerable.SequenceEqual(_.Bom, _bom));
+                Debug.Assert(candidate.Count() &lt;= 1);
+                return candidate.Count() != 0 ?
+                    candidate.First().Type : BomType.Unknown;
+            }
+        }
+    }
+}
+
+

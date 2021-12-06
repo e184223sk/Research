@@ -1,0 +1,59 @@
+
+    public class AmazonRekognitionGateway
+    {
+        AmazonRekognitionClient rekoClient;
+
+        public AmazonRekognitionGateway(CognitoAWSCredentials credentials)
+        {
+            rekoClient = new AmazonRekognitionClient(credentials);
+        }
+
+        public AmazonRekognitionGateway(string keyId , string secretKey)
+        {
+            rekoClient = new AmazonRekognitionClient(keyId, secretKey, AwsSettings.Region);
+        }
+
+        public AmazonRekognitionGateway(AWSAuthData awsAuthData)
+        {
+            rekoClient = new AmazonRekognitionClient(awsAuthData.keyId, awsAuthData.secretKey);
+        }
+
+        public async UniTask&lt;List&lt;string&gt;&gt; AuthenticateFaceAsync(MemoryStream stream, string collectionId, CancellationToken token = default)
+        {
+            var image = new Image()
+            {
+                Bytes = stream
+            };
+            return await AuthenticateFaceAsync(image, collectionId, token);
+        }
+
+        private async UniTask&lt;List&lt;string&gt;&gt; AuthenticateFaceAsync(Image image, string collectionId, CancellationToken token = default)
+        {
+            var searchFacesByImageRequest = new SearchFacesByImageRequest()
+            {
+                CollectionId = collectionId,
+                Image = image,
+                FaceMatchThreshold = 90f,
+                MaxFaces = 1
+            };
+
+            try
+            {
+                var searchFacesByImageResponse = await rekoClient.SearchFacesByImageAsync(searchFacesByImageRequest, token);
+
+                var faceIds = searchFacesByImageResponse.FaceMatches
+                    .Select(x =&gt; x.Face.FaceId)
+                    .ToList();
+
+                DebugExtensions.DebugShowList(faceIds);
+
+                return faceIds;
+            }
+            catch (Exception e)
+            {
+                Debug.Log(e);
+                return default;
+            }
+        }
+    }
+

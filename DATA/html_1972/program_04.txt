@@ -1,0 +1,158 @@
+
+using UnityEditor;
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+
+[CustomPropertyDrawer(typeof(AudioClip))]
+public class AudioClipPropertyDrawer : PropertyDrawer
+{
+    readonly float headerHeight = EditorGUIUtility.singleLineHeight + 2;
+    const float waveHeight = 100;
+    const float amplitudeScale = 1;
+
+    //ProjectWindowの型キャッシュ。Ping時にProjectWindowを開くために使用。
+    readonly static Type tProjectWindow = typeof(Editor).Assembly.GetType("UnityEditor.ProjectBrowser");
+
+    //ObjectPicker使用時の、対応するプロパティごとのControlID
+    static Dictionary&lt;string, int&gt; objectPickerControls = new Dictionary&lt;string, int&gt;();
+
+    //プロパティごとのユニークID生成器
+    static string MakeUniquePropKey(SerializedProperty prop)
+        =&gt; prop.serializedObject.targetObject.GetInstanceID().ToString() + "::" + prop.propertyPath;
+
+    public override float GetPropertyHeight(SerializedProperty prop, GUIContent label)
+    {
+        return headerHeight + waveHeight;
+    }
+
+    public override void OnGUI(Rect position, SerializedProperty prop, GUIContent label)
+    {
+        EditorGUI.BeginProperty(position, label, prop);
+
+        var evt = Event.current;
+        var clip = prop.objectReferenceValue as AudioClip;
+
+        /* v------- Colors -------v */
+        Color frameColor = new Color(0.2f, 0.2f, 0.2f);
+        Color bgColor = new Color(0.25f, 0.25f, 0.25f);
+        Color objectFieldBGColor = new Color(0.3f, 0.3f, 0.3f);
+        Color objectFieldButtonHoveredColor = new Color(0.4f, 0.4f, 0.4f);
+        Color lineColor = new Color(1, 1, 1, 0.5f);
+        Color labelColor = Color.white;
+        /* -------- Colors -------- */
+
+        /* v------- Styles -------v */
+        var labelStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft };
+        labelStyle.normal.textColor = labelColor;
+        var centerLabelStyle = new GUIStyle(labelStyle) { alignment = TextAnchor.MiddleCenter };
+        /* -------- Styles -------- */
+
+        /* v------- Structures -------v */
+        var defaultIndentLevel = EditorGUI.indentLevel;
+        var indentWidth = defaultIndentLevel * 16;
+        position.x += indentWidth;
+        position.width -= indentWidth;
+
+        var mainRect = new Rect(position) { height = headerHeight + waveHeight };
+        var y = mainRect.y;
+
+        var headerRect = new Rect(mainRect) { height = headerHeight };
+        var labelRect = new Rect(headerRect) { x = headerRect.x + 10, width = Mathf.Clamp(labelStyle.CalcSize(label).x, Mathf.Min(80, headerRect.width * 0.4f), headerRect.width * 0.4f) };
+        var objectFieldRect = new Rect(headerRect) { x = labelRect.xMax, width = headerRect.xMax - labelRect.xMax };
+        var objectFieldButtonRect = new Rect(objectFieldRect) { x = objectFieldRect.xMax - objectFieldRect.height, width = objectFieldRect.height };
+        var lineRect = new Rect(headerRect.x + 5, headerRect.yMax - 1, headerRect.width - 10, 1);
+        y += headerHeight;
+
+        var waveRect = new Rect(mainRect) { y = y, height = waveHeight };
+        /* -------- Structures -------- */
+
+        /* v------- Draw -------v */
+        //ヘッダ
+        EditorGUI.DrawRect(headerRect, frameColor);
+        GUI.Label(labelRect, label, labelStyle);
+        EditorGUI.DrawRect(objectFieldRect, objectFieldBGColor);
+        GUI.Label(objectFieldRect, new GUIContent(prop.objectReferenceValue ? prop.objectReferenceValue.name : "None (Audio Clip)", AssetPreview.GetMiniTypeThumbnail(typeof(AudioClip))), labelStyle);
+        EditorGUI.DrawRect(objectFieldButtonRect, objectFieldButtonRect.Contains(evt.mousePosition) ? objectFieldButtonHoveredColor : Color.clear);
+        GUI.Label(objectFieldButtonRect, "〇", centerLabelStyle);
+        EditorGUI.DrawRect(lineRect, lineColor);
+
+        //背景
+        EditorGUI.DrawRect(waveRect, bgColor);
+        //波形表示
+        InternalAudioUtil.RenderAmplitudeAwarePreview(waveRect, clip, Color.yellow, Color.red, amplitudeScale);
+        /* -------- Draw -------- */
+
+        /* v------- D&amp;D Control, ObjectPicker -------v */
+        switch (evt.type)
+        {
+            case EventType.DragUpdated:
+                if (mainRect.Contains(evt.mousePosition))
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                    DragAndDrop.activeControlID = GUIUtility.GetControlID(FocusType.Passive);
+                    evt.Use();
+                }
+                break;
+            case EventType.DragPerform:
+                if (mainRect.Contains(evt.mousePosition))
+                {
+                    DragAndDrop.AcceptDrag();
+                    if (DragAndDrop.objectReferences.Length &gt; 0 &amp;&amp; DragAndDrop.objectReferences[0] is AudioClip ac)
+                    {
+                        prop.objectReferenceValue = ac;
+                    }
+                    DragAndDrop.activeControlID = 0;
+                    Event.current.Use();
+                }
+                break;
+            case EventType.MouseDown:
+                if (objectFieldButtonRect.Contains(evt.mousePosition) || !clip &amp;&amp; mainRect.Contains(evt.mousePosition))
+                {
+                    var propKey = MakeUniquePropKey(prop);
+                    objectPickerControls[propKey] = GUIUtility.GetControlID(FocusType.Passive);
+                    EditorGUIUtility.ShowObjectPicker&lt;AudioClip&gt;(prop.objectReferenceValue, false, "", objectPickerControls[propKey]);
+                    Event.current.Use();
+                }
+                else if (mainRect.Contains(evt.mousePosition))
+                {
+                    var focused = EditorWindow.focusedWindow;
+                    EditorWindow.FocusWindowIfItsOpen(tProjectWindow);
+                    EditorGUIUtility.PingObject(clip);
+                    focused.Focus();
+                }
+                break;
+            case EventType.ExecuteCommand:
+                if (evt.commandName == "ObjectSelectorUpdated")
+                {
+                    var propKey = MakeUniquePropKey(prop);
+                    if (objectPickerControls.TryGetValue(propKey, out int tmp) &amp;&amp; EditorGUIUtility.GetObjectPickerControlID() == tmp)
+                    {
+                        prop.objectReferenceValue = EditorGUIUtility.GetObjectPickerObject();
+                        foreach (var editor in ActiveEditorTracker.sharedTracker.activeEditors)
+                        {
+                            if (editor.serializedObject == prop.serializedObject)
+                            {
+                                editor.Repaint();
+                                return;
+                            }
+                        }
+                    }
+                }
+                else if (evt.commandName == "ObjectSelectorClosed")
+                {
+                    var propKey = MakeUniquePropKey(prop);
+                    if (objectPickerControls.TryGetValue(propKey, out int tmp) &amp;&amp; EditorGUIUtility.GetObjectPickerControlID() == tmp)
+                    {
+                        prop.objectReferenceValue = EditorGUIUtility.GetObjectPickerObject();
+                        objectPickerControls[propKey] = -1;
+                    }
+                }
+                break;
+        }
+        /* -------- D&amp;D Control, ObjectPicker -------- */
+
+        EditorGUI.EndProperty();
+    }
+}
+

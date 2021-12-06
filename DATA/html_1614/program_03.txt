@@ -1,0 +1,106 @@
+
+namespace Breakout
+{
+    public partial class Form1 : Form
+    {
+        Vector ballPos; //位置(Vector：2D空間における変位を表す)
+        Vector ballSpeed;
+        int ballRadius; //半径
+        Rectangle paddlePos; //パドル位置(Rectangle:四角形を作成)
+        List&lt;Rectangle&gt; blockPos; //ブロックの位置(リスト化)
+        Timer timer = new Timer();
+
+        public static int blockNum { get; set; } // ブロック数
+        public static int blockNumMax { get; set; } // ブロック数最大値
+
+
+
+        public Form1()
+        {
+            InitializeComponent(); //設定したハンドラ等の初期設定
+
+            this.ballSpeed = new Vector(Form2.x, Form2.y); //Form2で設定した値を代入
+
+            this.ballPos = new Vector(200, 200);
+            this.ballRadius = 10;
+            this.paddlePos = new Rectangle(100, this.Height - 50, 100, 5); //(位置横縦,サイズ横縦)
+            this.blockPos = new List&lt;Rectangle&gt;();
+            for (int x = 0; x &lt;= this.Height; x += 100)
+            {
+                for (int y = 0; y &lt;= 150; y += 40)
+                {
+                    this.blockPos.Add(new Rectangle(25 + x, y, 80, 25));
+
+                    blockNum++;
+                }
+            }
+            blockNumMax = blockNum;
+
+
+            //タイマー
+            timer.Interval = 33;
+            timer.Tick += new EventHandler(Update); //timer.Trik：Timer有効時に呼ばれる
+            timer.Start();
+        }
+
+        private void Update(object sender, EventArgs e)
+        {
+            //ボールの移動
+            ballPos += ballSpeed;
+
+            //左右の壁でのバウンド
+            if (ballPos.X + ballRadius * 2 &gt; this.Bounds.Width || ballPos.X - ballRadius &lt; 0)
+            {
+                ballSpeed.X *= -1;
+            }
+
+            //上の壁でバウンド
+            if (ballPos.Y - ballRadius &lt; 0)
+            {
+                ballSpeed.Y *= -1;
+            }
+
+            //パドルの当たり判定
+            if (LineVsCircle(new Vector(this.paddlePos.Left, this.paddlePos.Top),
+                             new Vector(this.paddlePos.Right, this.paddlePos.Top),
+                             ballPos, ballRadius)
+                )
+            {
+                ballSpeed.Y *= -1;
+            }
+
+            // ブロックとのあたり判定
+            for (int i = 0; i &lt; this.blockPos.Count; i++)
+            {
+                int collision = BlockVsCircle(blockPos[i], ballPos);
+                if (collision == 1 || collision == 2)
+                {
+                    ballSpeed.Y *= -1;
+                    this.blockPos.Remove(blockPos[i]);
+                    blockNum--;
+                }
+                else if (collision == 3 || collision == 4)
+                {
+                    ballSpeed.X *= -1;
+                    this.blockPos.Remove(blockPos[i]);
+                    blockNum--;
+                }
+            }
+
+            //失敗時
+            if (ballPos.Y &gt; paddlePos.Y)
+            {
+                //画面閉じてリザルト表示
+                timer.Stop();
+                this.Close();
+                this.Hide();
+                Form3 form3 = new Form3();
+                form3.ShowDialog();
+            }
+
+            //画面再描画
+            Invalidate();
+        }
+    }
+}
+

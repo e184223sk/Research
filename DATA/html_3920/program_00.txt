@@ -1,0 +1,147 @@
+using OpenQA.Selenium;
+using OpenQA.Selenium.Appium;
+using OpenQA.Selenium.Appium.Android;
+using OpenQA.Selenium.Appium.Enums;
+using OpenQA.Selenium.Appium.iOS;
+using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Edge;
+using OpenQA.Selenium.Firefox;
+using OpenQA.Selenium.IE;
+using OpenQA.Selenium.Remote;
+using OpenQA.Selenium.Safari;
+
+    static class WebDriverFactory
+    {
+        /// &lt;summary&gt;
+        /// 対象のWebDriverのインスタンスを作成します。
+        /// &lt;/summary&gt;
+        public static IWebDriver CreateInstance(AppSettings.BrowserName browserName)
+        {
+            try
+            {
+                switch (browserName)
+                {
+                    case AppSettings.BrowserName.None:
+                        throw new ArgumentException(string.Format("Not Definition. BrowserName:{0}", browserName));
+
+                    case AppSettings.BrowserName.Chrome:
+                        ChromeOptions ChromeOption = new ChromeOptions();
+                        ChromeDriverService ChromeDService = ChromeDriverService.CreateDefaultService();
+                        return new ChromeDriver(ChromeDService, ChromeOption);
+
+                    case AppSettings.BrowserName.Firefox:
+                        FirefoxOptions FirefoxOption = new FirefoxOptions();
+                        FirefoxDriverService FFDService = FirefoxDriverService.CreateDefaultService();
+                        //Selenium3.12以前
+                        //return new FirefoxDriver(FFDService, FirefoxOption,new TimeSpan(0,0,60));
+                        //Selenium3.13以降
+                        return new FirefoxDriver(FFDService, FirefoxOption);
+
+                    case AppSettings.BrowserName.InternetExplorer:
+                        InternetExplorerOptions IEOption = new InternetExplorerOptions();
+                        //ズームは100%でないとスクリーンショットが切れる（これでも切れることがある）
+                        IEOption.IgnoreZoomLevel = false;
+                        //保護モードが混在していると要素が取得できない
+                        IEOption.IntroduceInstabilityByIgnoringProtectedModeSettings = false ;
+                        InternetExplorerDriverService IEService = InternetExplorerDriverService.CreateDefaultService("./", "IEDriverServer.exe");
+                        return new InternetExplorerDriver(IEService, IEOption);
+
+                    case AppSettings.BrowserName.Edge:
+                        EdgeOptions EdgeOption = new EdgeOptions();
+                        EdgeDriverService EdgeDService = EdgeDriverService.CreateDefaultService();
+                        return new EdgeDriver(EdgeDService, EdgeOption);
+
+                    default:
+                        throw new ArgumentException(string.Format("Not Definition. BrowserName:{0}", browserName));
+                }
+            }
+            catch (Exception)
+            {
+                //エラーが発生したらWebDriverを強制終了する
+                ProcessHandler.KillWebDriverProcess();
+
+                //エラーはそのまま上位に返す
+                throw;
+            }
+        }
+
+
+        /// &lt;summary&gt;
+        /// 対象のリモートWebDriverインスタンスを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static IWebDriver CreateRemoteInstance(AppSettings.RemoteBrowserName browserName, string ipAddress, string OsVersion, string DeviceName)
+        {
+            try
+            {
+                //Appium3以前
+                //DesiredCapabilities capabilities = new DesiredCapabilities();
+
+                //Appium4以降
+                AppiumOptions capabilities = new AppiumOptions();
+
+
+                switch (browserName)
+                {
+                    case AppSettings.RemoteBrowserName.None:
+                        throw new ArgumentException(string.Format("Not Definition. BrowserName:{0}", browserName));
+
+                    case AppSettings.RemoteBrowserName.Chrome:
+                        ChromeOptions ChromeOption = new ChromeOptions();
+                        return new RemoteWebDriver(new Uri("http://" + ipAddress + ":4444/wd/hub"), ChromeOption);
+
+                    case AppSettings.RemoteBrowserName.Safari:
+                        SafariOptions SafariOption = new SafariOptions();
+                        return new RemoteWebDriver(new Uri("http://" + ipAddress + ":4444/wd/hub"), SafariOption);
+                    case AppSettings.RemoteBrowserName.iOS:
+                        //Appium3以前
+                        //capabilities.SetCapability(MobileCapabilityType.PlatformName, "iOS");
+                        //capabilities.SetCapability(MobileCapabilityType.PlatformVersion, OsVersion);
+                        //capabilities.SetCapability(MobileCapabilityType.DeviceName, DeviceName);
+                        //capabilities.SetCapability(MobileCapabilityType.BrowserName, "Safari");
+                        //capabilities.SetCapability(MobileCapabilityType.Udid, "auto");
+                        //capabilities.SetCapability(MobileCapabilityType.AutomationName, "XCUITest");
+
+                        //Appium4以降
+                        capabilities.PlatformName = "iOS";
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.PlatformVersion, OsVersion);
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.DeviceName, DeviceName);
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.BrowserName, "Safari");
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.Udid, "auto");
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.AutomationName, "XCUITest");
+
+
+                        return new IOSDriver&lt;IOSElement&gt;(new Uri("http://" + ipAddress + ":4723/wd/hub"), capabilities);
+
+                    case AppSettings.RemoteBrowserName.Android:
+                        //Appium3以前
+                        //capabilities.SetCapability(MobileCapabilityType.PlatformName ,"Android");
+                        //capabilities.SetCapability(MobileCapabilityType.PlatformVersion, OsVersion);
+                        //capabilities.SetCapability(MobileCapabilityType.DeviceName, DeviceName);
+                        //capabilities.SetCapability(MobileCapabilityType.BrowserName, "Chrome");
+
+                        //Appium4以降
+                        capabilities.PlatformName = "Android";
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.PlatformVersion, OsVersion);
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.DeviceName, DeviceName);
+                        capabilities.AddAdditionalCapability(MobileCapabilityType.BrowserName, "Chrome");
+
+
+                        return new AndroidDriver&lt;AppiumWebElement&gt;(new Uri("http://" + ipAddress + ":4723/wd/hub"), capabilities);
+                    default:
+                        throw new ArgumentException(string.Format("Not Definition. BrowserName:{0}", browserName));
+                }
+            }
+            catch (Exception)
+            {
+                //エラーが発生したらWebDriverを強制終了する
+                ProcessHandler.KillWebDriverProcess();
+
+                //エラーはそのまま上位に返す
+                throw;
+            }
+        }
+    }
+}
+
+

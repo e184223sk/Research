@@ -1,0 +1,114 @@
+
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.AI;
+
+    public abstract class AiBase : MonoBehaviour
+    {
+
+        private Transform mTrans;
+        protected NavMeshAgent mAgent;
+
+        void Awake()
+        {
+            mTrans = GetComponent&lt;Transform&gt;();
+            mAgent = GetComponent&lt;NavMeshAgent&gt;();
+            Init();
+        }
+
+        /// &lt;summary&gt;
+        /// 初期化処理
+        /// &lt;/summary&gt;
+        protected abstract void Init();
+
+        //----------------
+        // NavMeshAgent //
+        //---------------------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// NavMeshAgentが有効か判定
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;有効な場合はtrueを返す&lt;/returns&gt;
+        protected bool IsNavMeshAgentEnable()
+        {
+            if (mAgent.pathStatus == NavMeshPathStatus.PathInvalid) return false;
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// NavMeshAgentの目標地点を決定する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public abstract void SetDestination();
+
+        /// &lt;summary&gt;
+        /// NavMeshAgentの速度を設定する
+        /// &lt;/summary&gt;
+        /// &lt;param name="speed"&gt;&lt;/param&gt;
+        public void ApplySpeed(float speed)
+        {
+            mAgent.speed = speed;
+        }
+
+        //--------
+        // 索敵 //
+        //---------------------------------------------------------------------------------
+
+        private readonly string TAG_PLAYER = "Player";
+
+        [SerializeField]
+        private LayerMask layerMaskPlayer;
+        [SerializeField]
+        private LayerMask layerMaskBush;
+        [SerializeField]
+        protected float mSearchRange;
+        protected bool mIsExcited; // 活性状態（興奮状態）
+
+        /// &lt;summary&gt;
+        /// 周囲を索敵する
+        /// &lt;/summary&gt;
+        /// &lt;param name="rangeScale"&gt;索敵範囲についての係数&lt;/param&gt;
+        /// &lt;returns&gt;プレイヤーを発見した場合はtrueを返す&lt;/returns&gt;
+        protected bool SearchAround(float rangeScale)
+        {
+            if (Physics.CheckSphere(mTrans.position, mSearchRange * rangeScale, layerMaskPlayer)) return true;
+            return false;
+        }
+
+        /// &lt;summary&gt;
+        /// Playerを視認する
+        /// BlockとPlayerに衝突するRayをPlayerに向かって飛ばし、Blockに衝突しなければ視認したと判定
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;視認できた場合はtrueを返す&lt;/returns&gt;
+        protected bool CatchPlayer()
+        {
+            Vector3 direction = (GameController.Instance.StageManager.GetPlayer().transform.position - mTrans.position).normalized;
+            Ray ray = new Ray(mTrans.position, direction);
+            RaycastHit hit;
+            int mask = layerMaskPlayer + layerMaskBush;
+            if (Physics.Raycast(ray, out hit, mSearchRange, mask))
+            {
+                if (hit.collider.tag == TAG_PLAYER) return true;
+            }
+            return false;
+        }
+
+        /*
+        private void OnDrawGizmos()
+        {
+            Vector3 direction = (GameController.Instance.StageManager.GetPlayer().transform.position - mTrans.position).normalized;
+            Ray ray = new Ray(mTrans.position, direction);
+            RaycastHit hit;
+            int mask = layerMaskPlayer + layerMaskBush;
+            if (Physics.Raycast(ray, out hit, mSearchRange, mask))
+            {
+                Debug.DrawRay(ray.origin, ray.direction * hit.distance, Color.black, 1.0f, false);
+            }
+        }
+        */
+
+    }
+
+

@@ -1,0 +1,497 @@
+
+//c:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe pdf_2_tif_png.cs
+
+using System;
+using System.IO;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
+
+//==================================================
+class pdf_2_tif_png { //*1
+
+// メイン ////============================
+    static void Main(string[] args) { //*2
+
+    //対象となるPDF
+    string file_path =  @"" + args[0];
+
+    //対象となるPDFの存在チェック
+    System.IO.FileInfo fi = new System.IO.FileInfo(file_path);
+    if(!fi.Exists){
+        Console.WriteLine("File is not exists!   {0}", file_path);
+        return;
+    }
+
+    //対象となるPDFの読み込み
+    byte[] data = File.ReadAllBytes(@"" + fi.FullName);
+    Console.WriteLine("===================");
+    Console.WriteLine("PDF file : " + fi.FullName);
+
+
+    ////------------
+
+    /*
+    Console.WriteLine("FileInfo Name={0}", fi.Name);
+    Console.WriteLine("FileInfo FullName={0}", fi.FullName);
+    Console.WriteLine("FileInfo DirectoryName={0}", fi.DirectoryName);
+    Console.WriteLine("FileInfo Directory.FullName={0}", fi.Directory.FullName);
+    Console.WriteLine("FileInfo Directory.Name={0}", fi.Directory.Name);
+    Console.WriteLine("FileInfo Extension={0}", fi.Extension);
+    Console.WriteLine("FileInfo Name only={0}", fi.Name.Replace(fi.Extension, ""));
+    */
+
+    //TIFフォルダのチェックと作成
+    string tif_path = fi.Directory.FullName + @"\tif\";
+    if(!Directory.Exists(tif_path))
+    {
+        Directory.CreateDirectory(tif_path);
+    }
+    string tif_filename0 = tif_path + fi.Name.Replace(fi.Extension, "") + @"_";// + ImgCnt + @".tif";
+
+    //PNGフォルダのチェックと作成
+    string png_path = fi.Directory.FullName + @"\png\";
+    if(!Directory.Exists(png_path))
+    {
+        Directory.CreateDirectory(png_path);
+    }
+    string png_filename0 = png_path + fi.Name.Replace(fi.Extension, "") + @"_";// + ImgCnt + @".png"
+
+
+    //======================================================
+
+    //------------------------読み込み１週目↓　//**//**
+    // 各ページの MediaBox と Rotate の読み取り
+    int MdBxCnt = 0;
+    int ARCN2 = 3; //array_count
+    string[] st2 = new string[ARCN2];
+    st2[0] = "endobj";
+    st2[1] = "/MediaBox [";
+    st2[2] = "/Rotate ";
+
+    //256ページ以上のFAXは、無いと踏んでいる
+    double[,] dMdBx = new double[4,256];
+    int[] dRotate = new int[256];
+
+    byte[][] d = new byte[ARCN2][];
+    for(int i=0; i&lt;ARCN2; ++i)
+        d[i] = System.Text.Encoding.ASCII.GetBytes(st2[i]);
+
+    byte[][] dm = new byte[ARCN2][];
+    for(int i=0; i&lt;ARCN2; ++i)
+        dm[i] = new byte[d[i].Length];
+
+    //値初期化
+    int intRotate = 0;
+    bool outFlg = false;
+
+    //バイト内回遊(1)↓
+    for(int i=0;i&lt;data.Length-st2[1].Length;i++){  //***1b
+
+        for(int j=0; j&lt;ARCN2; ++j)
+            Array.Copy(data,i,dm[j],0,d[j].Length);
+
+        //--- 各文字、真偽判定のループ↓
+        bool[] aEq = new bool[ARCN2];
+        for(int j=0; j&lt;ARCN2; ++j){
+
+            ////---文字列と一致する場合↓
+            aEq[j] = System.Linq.Enumerable.SequenceEqual(d[j], dm[j]); 
+            if(aEq[j]){
+                //string tx = System.Text.Encoding.ASCII.GetString(dm[j]);
+                //Console.WriteLine(tx);
+
+                //"endobj"
+                if(j==0){//***0
+                    if(outFlg){
+                    //Console.WriteLine("_out " +MdBxCnt+ "");
+                        MdBxCnt++;
+                    }
+                    //値初期化
+                    intRotate = 0;
+                    outFlg = false;
+                } //***0
+
+                //MediaBox
+                if(j==1){// --- MediaBox *====================
+                    outFlg = true;
+                    //Console.WriteLine("MediaBox_1");
+                    //int r = BitConverter.ToInt32(data[i+1], 0);
+                    int c=0;
+                    for(int c1=0;c1&lt;40;c1++){
+                        int c2 =(int)data[c1+i+d[j].Length];
+                        //数字なら文字コードが48～57 *改行考慮せず
+                        if(c2==0x5D){
+                            c=c1;break;
+                        }else{
+                        }
+                    }
+
+                    byte[] b = new byte[c];
+                    Array.Copy(data,i+d[j].Length,b,0,c);
+                    string tx1 = System.Text.Encoding.ASCII.GetString(b);
+                    //Console.WriteLine("MediaBox: " + tx1);
+
+                    string[] tx1d = tx1.Split(' ');
+                    int cn = 0;
+                    foreach (string s in tx1d)
+                    {
+                        if(s.Length&gt;0){
+                            double d1 = double.Parse(s);
+                            //Console.WriteLine("_ " + d1);
+                            if(cn&gt;=0&amp;&amp;cn&lt;=3&amp;&amp;MdBxCnt&lt;=255){
+                                dMdBx[cn,MdBxCnt] = d1;
+                                cn++;
+                            }
+                        }
+                    }
+                }// --- MediaBox *====================
+
+                //Rotate なら、数値を拾いにいく
+                if(j&gt;=2){// --- Rotate *====================
+                    //int r = BitConverter.ToInt32(data[i+1], 0);
+                    int c=0;
+                    for(int c1=0;c1&lt;20;c1++){
+                        int c2 =(int)data[c1+i+d[j].Length];
+                        //数字なら文字コードが48～57 *改行考慮せず
+                        if(c2&gt;=48&amp;&amp;c2&lt;=57){
+                        }else{c=c1;break;}
+                    }
+                    byte[] b = new byte[c];
+                    Array.Copy(data,i+d[j].Length,b,0,c);
+                    string tx1 = System.Text.Encoding.ASCII.GetString(b);
+                    //Console.WriteLine("rotate: " + tx1);
+                    switch (j) // **switch
+                    {
+                    case 2:
+                        intRotate = Int32.Parse(tx1);
+                        dRotate[MdBxCnt] = intRotate;
+                        break;
+                    default:
+                        break;
+                    } // **switch
+                }// --- Rotate *====================
+            }
+            ////---文字列と一致する場合↑
+
+        }
+        //--- 各文字、真偽判定のループ↑
+
+    } //***1b
+    //バイト内回遊(1)↑
+
+    for(int s=0;s&lt;MdBxCnt;s++){
+        Console.WriteLine("---");
+        for(int s1=0;s1&lt;4;s1++){
+            Console.WriteLine("dMdBx: " + s1 + "_" + s + "_" + dMdBx[s1,s]);
+        }
+        if(dMdBx[3,s]!=0){
+            Console.WriteLine("rate1: " + (double)(dMdBx[2,s]/dMdBx[3,s]));
+        }else{
+            Console.WriteLine("rate1: div/zero");
+        }
+        Console.WriteLine("dRotate: " + dRotate[s]);
+    }
+    //------------------------読み込み１週目↑　//**//**
+
+
+    //------------------------読み込み２週目↓　//**//**
+    // メイン処理
+    int ImgCnt = 1;
+    int ARCN = 9; //array_count
+    string[] st = new string[ARCN];
+    st[0] = "/CCITTFaxDecode";
+    st[1] = " obj";
+    st[2] = "endobj";
+    st[3] = "&gt;stream";
+    st[4] = "endstream";
+    st[5] = "/Columns ";
+    st[6] = "/Rows ";
+    st[7] = "/Width ";
+    st[8] = "/Height ";
+
+    //byte[][] 
+    d = new byte[ARCN][];
+    for(int i=0; i&lt;ARCN; ++i)
+        d[i] = System.Text.Encoding.ASCII.GetBytes(st[i]);
+
+    //streamの前の文字を、改行0Aに変換
+    d[3][0] = (byte)0x0A;
+
+    //byte[][] 
+    dm = new byte[ARCN][];
+    for(int i=0; i&lt;ARCN; ++i)
+        dm[i] = new byte[d[i].Length];
+
+    int stream_stt = 0;
+    int stream_size = 0;
+
+    int intColumns = 0;
+    int intRows = 0;
+    int intWidth = 0;
+    int intHeight = 0;
+
+    //bool 
+    outFlg = false;
+    byte[] TiffHeader = {0x49,0x49,0x2A,0x00};
+
+    //バイト内回遊(2)↓
+    for(int i=0;i&lt;data.Length-st[0].Length;i++){
+
+        for(int j=0; j&lt;ARCN; ++j)
+            Array.Copy(data,i,dm[j],0,d[j].Length);
+
+        //--- 各文字、真偽判定のループ↓
+        bool[] aEq = new bool[ARCN];
+        for(int j=0; j&lt;ARCN; ++j){
+
+            ////---文字列と一致する場合↓
+            aEq[j] = System.Linq.Enumerable.SequenceEqual(d[j], dm[j]); 
+            if(aEq[j]){
+                //string tx = System.Text.Encoding.ASCII.GetString(dm[j]);
+                //Console.Write(tx);
+
+                //" obj"
+                if(j==1){
+                    outFlg = false; //リセット
+                }
+                //"/CCITTFaxDecode"
+                if(j==0){
+                    outFlg = true;
+                }
+                //"&gt;stream"
+                if(j==3){
+                    stream_stt = (int)(i+(int)d[j].Length+2);
+                }
+
+                //"endstream"
+                if(j==4){ //***_endstream　↓
+                    stream_size = (int)((int)i-3) - stream_stt +1;
+
+    /////***** 出力処理↓
+    if(outFlg){ // --out flag
+
+    Console.WriteLine("-=-=-=");
+    Console.WriteLine("ImgCnt= " + ImgCnt);
+    Console.WriteLine("-----------------");
+    Console.WriteLine("intColumns= " + intColumns);
+    Console.WriteLine("intRows= " + intRows);
+    Console.WriteLine("intWidth= " + intWidth);
+    Console.WriteLine("intHeight= " + intHeight);
+
+    //// PDFのWidth、Height、MediaBoxのW,Hから、縦横比と、解像度を算出↓
+    double pngRate = 1;
+
+    if(intHeight!=0){
+        Console.WriteLine("rate2: " + (double)((double)intWidth/(double)intHeight));
+    }else{
+        Console.WriteLine("rate2: div/zero");
+    }
+
+    if(intHeight!=0 &amp;&amp; dMdBx[3,(ImgCnt-1)]!=0){
+        double r3 = (double)(dMdBx[2,(ImgCnt-1)]/dMdBx[3,(ImgCnt-1)]);
+        if(r3!=0){
+            Console.WriteLine("rate3: " + ((double)((double)intWidth/(double)intHeight))/r3);
+            pngRate = ((double)((double)intWidth/(double)intHeight))/r3;
+        }else{
+            Console.WriteLine("rate3-2: div/zero");
+        }
+    }else{
+        Console.WriteLine("rate3-1: div/zero");
+    }
+    //// PDFのWidth、Height、MediaBoxのW,Hから、縦横比と、解像度を算出↑
+
+
+    //書き出し用の、バイト列
+    byte[] data_out = new byte[stream_size];
+    Array.Copy(data,stream_stt,data_out,0,stream_size);
+
+    //----- TIFファイル書き出し↓
+    var tif_filename = tif_filename0 + ImgCnt + @".tif";
+    using (var writer = new BinaryWriter(new FileStream(tif_filename, FileMode.Create)))
+    {
+    writer.Write(TiffHeader);
+    writer.Write(rtIIBytes(stream_size+8));
+
+    //65536byteを超える場合、2byteで収まらないので、4byteへ
+    int us = 0;
+    us = (int)Math.Floor(((double)((double)stream_size+8)/65536));
+    writer.Write(rtIIBytes(us));
+    //writer.Write((byte)0x00);
+    //writer.Write((byte)0x00);
+    writer.Write(data_out);
+
+    writer.Write(rtIIBytes(15));//タグ数
+    writer.Write(rtTag(256,3,1,0,intWidth,0));//ImageWidth[256]
+    writer.Write(rtTag(257,3,1,0,intHeight,0));//ImageLength[257]
+    writer.Write(rtTag(258,3,1,0,1,0));//BitsPerSample[258]
+    writer.Write(rtTag(259,3,1,0,4,0));//Compression[259]
+    writer.Write(rtTag(262,3,1,0,0,0));//PhotometricInterpretation[262]
+    writer.Write(rtTag(266,3,1,0,1,0));//FillOrder[266]
+    writer.Write(rtTag(273,4,1,0,8,0));//StripOffsets[273]
+    writer.Write(rtTag(274,3,1,0,1,0));//Orientation[274]
+    writer.Write(rtTag(277,3,1,0,1,0));//SamplesPerPixel[277]
+    writer.Write(rtTag(278,3,1,0,intHeight,0));//RowsPerStrip[278]
+
+    //65536byteを超える場合、2byteで収まらないので、4byteへ
+    int us1 = 0;
+    us1 = (int)Math.Floor(((double)((double)stream_size)/65536));
+
+    writer.Write(rtTag(279,4,1,0,stream_size,us1));//StripByteCounts[279]
+
+    writer.Write(rtTag(282,5,1,0,stream_size+8+2+180+4,us1));//XResolution[282]
+    writer.Write(rtTag(282,5,1,0,stream_size+8+2+180+4+8,us1));//YResolution[283]
+
+    writer.Write(rtTag(284,3,1,0,1,0));//PlanarConfiguration[284]
+    writer.Write(rtTag(296,3,1,0,2,0));//ResolutionUnit[296]
+
+    writer.Write(rtIIBytes(0));
+    writer.Write(rtIIBytes(0));
+
+    //XResolution
+    writer.Write(rtIIBytes(192));//204
+    writer.Write(rtIIBytes(0));
+    writer.Write(rtIIBytes(1));
+    writer.Write(rtIIBytes(0));
+
+    //YResolution
+    writer.Write(rtIIBytes(192));//98
+    writer.Write(rtIIBytes(0));
+    writer.Write(rtIIBytes(1));
+    writer.Write(rtIIBytes(0));
+
+    }
+    //----- TIFファイル書き出し↑
+
+
+    Bitmap image1;
+    image1 = new Bitmap(tif_filename, true);
+    //Console.WriteLine("Original width " + image1.Width);
+    //Console.WriteLine("Original height " + image1.Height);
+
+    //拡大縮小処理
+    int w = image1.Width;
+    int h = (int)((double)image1.Height * (double)pngRate);
+    Bitmap bitmap = new Bitmap(w, h);
+    Graphics g = Graphics.FromImage(bitmap);
+    System.Drawing.Imaging.ImageAttributes wrapMode = new System.Drawing.Imaging.ImageAttributes();
+    wrapMode.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
+
+    g.DrawImage(image1, new Rectangle(0, 0, w, h), 0, 0, image1.Width, image1.Height, GraphicsUnit.Pixel, wrapMode);
+
+    //回転処理
+    switch (dRotate[(ImgCnt-1)]) // **switch
+    {
+    case 0:
+        bitmap.RotateFlip(RotateFlipType.RotateNoneFlipNone);
+        Console.WriteLine("rotate[0]");
+        break;
+    case 90:
+        bitmap.RotateFlip(RotateFlipType.Rotate90FlipNone);
+        Console.WriteLine("rotate[90]");
+        break;
+    case 180:
+        bitmap.RotateFlip(RotateFlipType.Rotate180FlipNone);
+        Console.WriteLine("rotate[180]");
+        break;
+    case 270:
+        bitmap.RotateFlip(RotateFlipType.Rotate270FlipNone);
+        Console.WriteLine("rotate[270]");
+        break;
+    default:
+        break;
+    } // **switch
+
+    //----- PNGファイル書き出し↓
+    var png_filename = png_filename0 + ImgCnt + @".png";
+    bitmap.Save(png_filename, System.Drawing.Imaging.ImageFormat.Png);
+    //----- PNGファイル書き出し↑
+
+
+    ImgCnt++;
+    }// --out flag
+    /////***** 出力処理↑
+
+                } //***_endstream　↑
+
+
+                //Columns Rows Width Height なら、数値を拾いにいく
+                if(j&gt;=5){// --- CRWH
+                    //int r = BitConverter.ToInt32(data[i+1], 0);
+                    int c=0;
+                    for(int c1=0;c1&lt;20;c1++){
+                        int c2 =(int)data[c1+i+d[j].Length];
+                        //数字なら文字コードが48～57 *改行考慮せず
+                        if(c2&gt;=48&amp;&amp;c2&lt;=57){
+                        }else{c=c1;break;}
+                    }
+
+                    byte[] b = new byte[c];
+                    Array.Copy(data,i+d[j].Length,b,0,c);
+                    string tx1 = System.Text.Encoding.ASCII.GetString(b);
+                    //Console.Write(tx1);
+
+                    switch (j) // **switch
+                    {
+                    case 5:
+                        intColumns = Int32.Parse(tx1);
+                        break;
+                    case 6:
+                        intRows = Int32.Parse(tx1);
+                        break;
+                    case 7:
+                        intWidth = Int32.Parse(tx1);
+                        break;
+                    case 8:
+                        intHeight = Int32.Parse(tx1);
+                        break;
+                    default:
+                    break;
+                    } // **switch
+
+                }// --- CRWH
+
+            //Console.WriteLine("_");
+            }
+            ////---文字列と一致する場合↑
+        }
+        //--- 各文字、真偽判定のループ↑
+    }
+    //バイト内回遊(2)↑
+    //------------------------読み込み２週目↑　//**//**
+
+    return;
+    } //*2
+// メイン ////============================
+
+
+
+///// Tiffタグ用、１////////////
+    static byte[] rtIIBytes(int i){ //*3
+    byte[] rtBt = new byte[2];
+    string t0 = "0000" + Convert.ToString(i, 16);
+    string t1 = t0.Substring(t0.Length - 4, 4);
+    string t2_r = t1.Substring(t1.Length - 2, 2);
+    string t2_l = t1.Substring(0, 2);
+    rtBt[0] = Convert.ToByte(t2_r,16);
+    rtBt[1] = Convert.ToByte(t2_l,16);
+    return rtBt;
+    } //*3
+
+///// Tiffタグ用、２////////////
+    static byte[] rtTag(int i1,int i2,int i3,int i4,int i5,int i6){ //*4
+    byte[] rtBt = new byte[12];
+    Array.Copy(rtIIBytes(i1),0,rtBt,0,2);
+    Array.Copy(rtIIBytes(i2),0,rtBt,2,2);
+    Array.Copy(rtIIBytes(i3),0,rtBt,4,2);
+    Array.Copy(rtIIBytes(i4),0,rtBt,6,2);
+    Array.Copy(rtIIBytes(i5),0,rtBt,8,2);
+    Array.Copy(rtIIBytes(i6),0,rtBt,10,2);
+    return rtBt;
+    } //*4
+
+
+} //*1
+//==================================================
+
+

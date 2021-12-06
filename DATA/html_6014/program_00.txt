@@ -1,0 +1,262 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class RemakePlane : MonoBehaviour
+{
+    // Cubeの頂点座標
+    Vector3[] cubeLocalSharedVert = new Vector3[24]; //ローカル座標系での頂点座標(ダブりあり)
+    List&lt;Vector3&gt; cubeLocalVert = new List&lt;Vector3&gt;(); //ローカル座標系での頂点座標(ダブりなし) 
+    Vector3[] cubeWorldVert = new Vector3[8]; //ワールド座標系での頂点座標
+
+    // Quadオブジェクトを2つ生成して子オブジェクトとして登録する関数
+    public GameObject Cube2Quad(GameObject _parent)
+    {
+        MeshFilter meshFilter = gameObject.GetComponent&lt;MeshFilter&gt;();
+        cubeLocalSharedVert = meshFilter.mesh.vertices;
+
+　　　　 // ダブってる頂点を削除する
+        cubeLocalVert.Add(cubeLocalSharedVert[0]);
+        for(int i = 0; i &lt; cubeLocalSharedVert.Length; ++i)
+        {
+            for (int j = 0; j &lt; cubeLocalVert.Count; ++j)
+            {
+                if (cubeLocalSharedVert[i] == cubeLocalVert[j])
+                {
+                    break;
+                }
+                if (j == cubeLocalVert.Count - 1)
+                {
+                    cubeLocalVert.Add(cubeLocalSharedVert[i]);
+                }
+            }
+        }
+
+        // 面のインデックスを取得
+        int[,] surfaces = new int[6, 4];
+        int[] index = new int[6];
+
+        for (int i = 0; i &lt; index.Length; ++i)
+        {
+            index[i] = 0;
+        }
+
+        // 面の取得
+        for (int i = 0; i &lt; cubeLocalVert.Count; ++i)
+        {
+            if (cubeLocalVert[i].x &gt; 0)
+            {
+                surfaces[0, index[0]] = i;
+                index[0]++;
+            }
+            else if (cubeLocalVert[i].x &lt; 0)
+            {
+                surfaces[1, index[1]] = i;
+                index[1]++;
+            }
+
+            if (cubeLocalVert[i].y &gt; 0)
+            {
+                surfaces[2, index[2]] = i;
+                index[2]++;
+            }
+            else if (cubeLocalVert[i].y &lt; 0)
+            {
+                surfaces[3, index[3]] = i;
+                index[3]++;
+            }
+
+            if (cubeLocalVert[i].z &gt; 0)
+            {
+                surfaces[4, index[4]] = i;
+                index[4]++;
+            }
+            else if (cubeLocalVert[i].z &lt; 0)
+            {
+                surfaces[5, index[5]] = i;
+                index[5]++;
+            }
+        }
+
+        // 変換行列Get
+        Matrix4x4 matrix = meshFilter.transform.localToWorldMatrix;
+
+        for (int i = 0; i &lt; cubeLocalVert.Count; ++i)
+        {
+            cubeWorldVert[i] = matrix.MultiplyPoint(cubeLocalVert[i]);
+        }
+
+        // 最も面積の大きい面を探す
+        List&lt;float&gt; areas = new List&lt;float&gt;();
+        List&lt;float&gt; areas_dash = new List&lt;float&gt;();
+
+        for (int i = 0; i &lt; 6; ++i)
+        {
+            Vector3[] verticesInSurface = new Vector3[4];
+            for (int j = 0; j &lt; verticesInSurface.Length; ++j)
+            {
+                verticesInSurface[j] = cubeWorldVert[surfaces[i, j]];
+            }
+
+            List&lt;float&gt; lengths = new List&lt;float&gt;();
+            for (int j = 0; j &lt; 3; ++j)
+            {
+                lengths.Add(Vector3.Distance(verticesInSurface[0], verticesInSurface[j + 1]));
+            }
+            lengths.Sort();
+            areas.Add(lengths[0] * lengths[1]);
+            areas_dash.Add(lengths[0] * lengths[1]);
+        }
+
+        areas_dash.Sort();
+        areas_dash.Reverse();
+
+        // 最も面積の大きい二つの面を探す
+        int[] indicesOfMaxAreaSurfaces = new int[2];
+
+        if (Mathf.Approximately(areas_dash[0], areas_dash[1]))
+        {
+            int k = 0;
+            for (int i = 0; i &lt; areas.Count; ++i)
+            {
+                if (Mathf.Approximately(areas_dash[0], areas[i]))
+                {
+                    if(k == 2)
+                    {
+                        Debug.Log("Error");
+                        break;
+                    }
+                    indicesOfMaxAreaSurfaces[k] = i;
+                    k++;
+                }
+            }
+        }
+        else
+        {
+            for (int i = 0; i &lt; areas.Count; ++i)
+            {
+                if (Mathf.Approximately(areas_dash[0], areas[i]))
+                {
+                    indicesOfMaxAreaSurfaces[0] = i;
+                }
+                if (Mathf.Approximately(areas_dash[1], areas[i]))
+                {
+                    indicesOfMaxAreaSurfaces[1] = i;
+                }
+            }
+        }
+
+        // ローカル座標系でQuadを新しく作成し、ワールド座標変換を行う
+        for (int i = 0; i &lt; indicesOfMaxAreaSurfaces.Length; ++i)
+        {
+           Vector3[] newQuadPos = new Vector3[4];
+
+            Vector3[] cubePos = new Vector3[4];
+            for(int j = 0; j &lt; 4; ++j)
+            {
+                cubePos[j] = cubeLocalVert[surfaces[indicesOfMaxAreaSurfaces[i], j]];
+            }
+
+
+            // どの軸で貼られた面なのかを調べる
+            float verticalX = 0f, verticalY = 0f, verticalZ = 0f;
+            for(int j = 0; j &lt; 4; ++j)
+            {
+                verticalX += cubePos[j].x;
+                verticalY += cubePos[j].y;
+                verticalZ += cubePos[j].z;
+            }
+
+            if (!Mathf.Approximately(verticalX, 0f))
+            {
+                float sign = Mathf.Sign(cubePos[0].x);
+
+                // x = 0.5 の面の場合
+                if (Mathf.Approximately(sign, 1f))
+                {
+                    newQuadPos[0] = new Vector3(0.5f, -0.5f, -0.5f);
+                    newQuadPos[1] = new Vector3(0.5f, 0.5f, 0.5f);
+                    newQuadPos[2] = new Vector3(0.5f, -0.5f, 0.5f);
+                    newQuadPos[3] = new Vector3(0.5f, 0.5f, -0.5f);
+                }
+                // x = -0.5 の面の場合
+                else
+                {
+                    newQuadPos[0] = new Vector3(-0.5f, -0.5f, 0.5f);
+                    newQuadPos[1] = new Vector3(-0.5f, 0.5f, -0.5f);
+                    newQuadPos[2] = new Vector3(-0.5f, -0.5f, -0.5f);
+                    newQuadPos[3] = new Vector3(-0.5f, 0.5f, 0.5f);
+                }
+            }
+            else if(!Mathf.Approximately(verticalY, 0f))
+            {
+                float sign = Mathf.Sign(cubePos[0].y);
+
+                // y = 0.5 の面の場合
+                if (Mathf.Approximately(sign, 1f))
+                {
+                    newQuadPos[0] = new Vector3(-0.5f, 0.5f, -0.5f);
+                    newQuadPos[1] = new Vector3(0.5f, 0.5f, 0.5f);
+                    newQuadPos[2] = new Vector3(0.5f, 0.5f, -0.5f);
+                    newQuadPos[3] = new Vector3(-0.5f, 0.5f, 0.5f);
+                }
+                // y = -0.5 の面の場合
+                else
+                {
+                    newQuadPos[0] = new Vector3(-0.5f, -0.5f, 0.5f);
+                    newQuadPos[1] = new Vector3(0.5f, -0.5f, -0.5f);
+                    newQuadPos[2] = new Vector3(0.5f, -0.5f, 0.5f);
+                    newQuadPos[3] = new Vector3(-0.5f, -0.5f, -0.5f);
+                }
+            }
+            else if(!Mathf.Approximately(verticalZ, 0f))
+            {
+                float sign = Mathf.Sign(cubePos[0].z);
+
+                // z = 0.5 の面の場合
+                if (Mathf.Approximately(sign, 1f))
+                {
+                    newQuadPos[0] = new Vector3(0.5f, -0.5f, 0.5f);
+                    newQuadPos[1] = new Vector3(-0.5f, 0.5f, 0.5f);
+                    newQuadPos[2] = new Vector3(-0.5f, -0.5f, 0.5f);
+                    newQuadPos[3] = new Vector3(0.5f, 0.5f, 0.5f);
+                }
+                // z = -0.5 の面の場合
+                else
+                {
+                    newQuadPos[0] = new Vector3(-0.5f, -0.5f, -0.5f);
+                    newQuadPos[1] = new Vector3(0.5f, 0.5f, -0.5f);
+                    newQuadPos[2] = new Vector3(0.5f, -0.5f, -0.5f);
+                    newQuadPos[3] = new Vector3(-0.5f, 0.5f, -0.5f);
+                }
+            }
+            else
+            {
+                print("Error");
+            }
+
+            // ゲームオブジェクトを新規作成
+            GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.transform.parent = _parent.transform;
+
+            // Cubeの面をQuadとして定義しなおす
+            Mesh mesh = quad.GetComponent&lt;MeshFilter&gt;().mesh;
+            mesh.vertices = newQuadPos;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            // 座標変換
+            Transform quadTrans = quad.GetComponent&lt;Transform&gt;();
+            quadTrans.position = matrix.MultiplyPoint(quadTrans.position);
+            quadTrans.rotation = transform.rotation;
+            quadTrans.localScale = transform.localScale;
+
+            // マテリアルの引継ぎ
+            quad.GetComponent&lt;Renderer&gt;().material = gameObject.GetComponent&lt;Renderer&gt;().material;
+
+        }
+        return _parent;
+    }
+}
+

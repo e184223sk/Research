@@ -1,0 +1,68 @@
+
+public void ConfigureServices(IServiceCollection services)
+{
+    services.AddSwaggerGen(options =&gt;
+    {
+        // APIの署名を記載
+        options.SwaggerDoc("v1", new Info { Title = "Sample API", Version = "v1" });
+    });
+
+    #region services.AddAuthentication
+    services.AddAuthentication(
+        //既定の認証スキーマ。
+        JwtBearerDefaults.AuthenticationScheme
+    )
+        .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme,
+        options =&gt;
+        {
+            options.RequireHttpsMetadata = false;
+            options.SaveToken = true;
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true, // 署名キー検証
+                IssuerSigningKey = GetApiJwtSigningKey(),
+                ValidateIssuer = true,
+                ValidIssuer = "SampleIssur", // iss（issuer）クレーム
+                ValidateAudience = true, // aud（audience）クレーム
+                ValidAudience = "SampleAudience",
+                ValidateLifetime = true, // トークンの有効期限の検証
+                ClockSkew = TimeSpan.Zero // クライアントとサーバーの間の時刻の設定で許容される最大の時刻のずれ
+            };
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = context =&gt;
+                {
+                    //トークンを正しく取れたときの処理。ログとか出したいときはここに何か書く。
+                    // var token = context.SecurityToken as System.IdentityModel.Tokens.Jwt.JwtSecurityToken;
+                    return Task.FromResult(0);
+                },
+                OnChallenge = context =&gt;
+                {
+                    string errorMessage = context.AuthenticateFailure != null ?
+                        "The Access code is expired or invalid." : // アクセスコードが不正な文字列で復元できない場合
+                        "The access code is required."; // アクセスコードがヘッダに設定されていない場合
+
+                    // 失敗した際のメッセージをレスポンスに格納する
+                    context.Response.OnStarting(async state =&gt;
+                    {
+                        // アクセスコードがヘッダに設定されていない場合はこちらに入る
+
+                        await new CustomJsonResult(HttpStatusCode.Unauthorized,
+                            new
+                            {
+                                Type = this.GetType().FullName,
+                                Title = errorMessage,
+                                Instance = context.Request?.Path.Value
+                            }
+                            ).SerializeJsonAsync(((JwtBearerChallengeContext)state).Response);
+                        return;
+                    }, context);
+                    return Task.FromResult(0);
+                },
+            };
+        });
+    #endregion
+
+    services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+}
+

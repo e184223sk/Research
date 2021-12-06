@@ -1,0 +1,173 @@
+string stlFilePath = null;
+Vector3[][] polygons = null;
+
+public Form1()
+{
+    InitializeComponent();
+
+    printPreviewControl1.AutoZoom = true;
+    printDialog1.Document = printDocument1;
+}
+
+private void openButton_Click(object sender, EventArgs e)
+{
+    if (openFileDialog1.ShowDialog() != DialogResult.OK)
+    {
+        return;
+    }
+
+    Vector3[][] polygons;
+
+    try
+    {
+        polygons = LoadStlFile(openFileDialog1.FileName);
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show(ex.Message, "STL file open ERROR", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        return;
+    }
+
+    stlFilePath = openFileDialog1.FileName;
+    this.polygons = polygons;
+
+    printPreviewControl1.InvalidatePreview();
+}
+
+static Vector3[][] LoadStlFile(string path)
+{
+    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
+    {
+        var buff = new byte[84];
+
+        stream.Read(buff, 0, 84);
+        //var anyText = Encoding.ASCII.GetString(buff, 0, 80);
+        var polygons = new Vector3[BitConverter.ToInt32(buff, 80)][];
+
+        for (int i = 0; i &lt; polygons.Length; i++)
+        {
+            if (stream.Read(buff, 0, 50) != 50) { throw new Exception("ファイルが異常です"); }
+
+            polygons[i] = new Vector3[3]
+            {
+                new Vector3(
+                    BitConverter.ToSingle(buff, 4 * 3),
+                    BitConverter.ToSingle(buff, 4 * 4),
+                    BitConverter.ToSingle(buff, 4 * 5)),
+                new Vector3(
+                    BitConverter.ToSingle(buff, 4 * 6),
+                    BitConverter.ToSingle(buff, 4 * 7),
+                    BitConverter.ToSingle(buff, 4 * 8)),
+                new Vector3(
+                    BitConverter.ToSingle(buff, 4 * 9),
+                    BitConverter.ToSingle(buff, 4 * 10),
+                    BitConverter.ToSingle(buff, 4 * 11)),
+            };
+        }
+
+        return polygons;
+    }
+}
+
+private void printDocument1_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
+{
+    Text =
+        "STL: " +
+        Path.GetFileNameWithoutExtension(stlFilePath) + " - " +
+        e.PageSettings.PrinterSettings.PrinterName + " / " +
+        e.PageSettings.PaperSize.PaperName;
+
+    e.HasMorePages = false;
+
+    var polygons = this.polygons;
+    var g = e.Graphics;
+
+    if (polygons == null)
+    {
+        g.Clear(Color.White);
+        g.TranslateTransform(e.PageBounds.X + e.PageBounds.Width * 0.5f, e.PageBounds.Y + e.PageBounds.Height * 0.5f);
+
+        using (var font = new Font("", 24, GraphicsUnit.Pixel))
+        using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+        {
+            g.DrawString("*** NO STL DATA ***", font, Brushes.Black, 0, 0, sf);
+        }
+    }
+    else
+    {
+        Func&lt;Vector3, Vector2&gt; projection = vertex =&gt; new Vector2(vertex.X, vertex.Y);
+
+        foreach (var v in groupBox1.Controls)
+        {
+            if (v is RadioButton rb &amp;&amp; rb.Checked)
+            {
+                switch (rb.Tag)
+                {
+                case "XY": projection = vertex =&gt; new Vector2(vertex.X, vertex.Y); break;
+                case "XZ": projection = vertex =&gt; new Vector2(vertex.X, vertex.Z); break;
+                case "YZ": projection = vertex =&gt; new Vector2(vertex.Y, vertex.Z); break;
+                }
+            }
+        }
+
+        var list = new List&lt;Vector2[]&gt;(polygons.Length);
+
+        foreach (var v in polygons)
+        {
+            list.Add(v.Select(a =&gt; projection(a)).ToArray());
+        }
+
+        var min = new Vector2(float.MaxValue);
+        var max = new Vector2(float.MinValue);
+
+        foreach (var v in list)
+        {
+            foreach (var w in v)
+            {
+                min = Vector2.Min(min, w);
+                max = Vector2.Max(max, w);
+            }
+        }
+
+        {
+            g.PageUnit = GraphicsUnit.Millimeter;
+
+            g.TranslateTransform(
+                (e.PageBounds.X + e.PageBounds.Width * 0.5f) * 0.01f * 25.4f,
+                (e.PageBounds.Y + e.PageBounds.Height * 0.5f) * 0.01f * 25.4f);
+
+            var b = (max - min) / 2 + min;
+            g.TranslateTransform(-b.X, -b.Y);
+        }
+
+        using (var pen = new Pen(Color.Black, 0.1f))
+        {
+            foreach (var v in polygons.Select(a =&gt; a.Select(b =&gt; projection(b)).ToArray()))
+            {
+                g.DrawLines(pen, v.Select(a =&gt; new PointF(a.X, a.Y)).ToArray());
+            }
+        }
+    }
+}
+
+private void printerConfigButton_Click(object sender, EventArgs e)
+{
+    if (printDialog1.ShowDialog() == DialogResult.OK)
+    {
+        printPreviewControl1.InvalidatePreview();
+    }
+}
+
+private void printButton_Click(object sender, EventArgs e)
+{
+    printDocument1.Print();
+}
+
+private void radioButton3_CheckedChanged(object sender, EventArgs e)
+{
+    if (sender is RadioButton rb &amp;&amp; rb.Checked)
+    {
+        printPreviewControl1.InvalidatePreview();
+    }
+}
+

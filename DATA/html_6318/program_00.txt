@@ -1,0 +1,259 @@
+
+using System;
+using System.Drawing;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+
+internal class MyRichTextBox:RichTextBox
+{
+    private const Int32 WM_PAINT = 0x000F;
+
+    private static readonly int adjX = -2;
+    private static readonly int adjY =  2;
+
+    private int lineHeight;
+    private RichTextBox dummyRichTextBox; // lineHeight算出用
+
+    //----------------------------------------------------------------
+    // Win32
+    //
+    private const int EM_SETTABSTOPS = 0x00CB;
+    private const long IMF_DUALFONT = 0x80;
+    private const int WM_SETREDRAW = 0x0008;
+    private const int WM_USER = 0x0400;
+    private const int EM_SETLANGOPTIONS = WM_USER + 120;
+    private const int EM_GETLANGOPTIONS = WM_USER + 121;
+    private const int EM_GETTEXTEX = (WM_USER + 94);
+    private const int EM_GETTEXTLENGTHEX = (WM_USER + 95);
+
+    // Flags for the GETEXTEX data structure  
+    private const int GT_DEFAULT = 0;
+    private const int GTL_CLOSE = 4; // Fast computation of a "close" answer 
+    private const int GTL_DEFAULT = 0; // Do default (return # of chars) 
+
+    class NativeMethods
+    {
+        [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
+        public extern static IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int msg, ref GETTEXTEX wParam, StringBuilder lParam);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessage", CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int msg, ref GETTEXTLENGTHEX wParam, IntPtr lParam);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct GETTEXTEX
+    {
+        public int cb;
+        public int flags;
+        public int codepage;
+        public IntPtr lpDefaultChar;
+        public IntPtr lpUsedDefChar;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct GETTEXTLENGTHEX
+    {
+        public int flags;
+        public int codepage;
+    }
+    //
+    //----------------------------------------------------------------
+
+    private void EnsureDummyRichTextBox(bool forceSetFont)
+    {
+        if ( dummyRichTextBox == null ) {
+            dummyRichTextBox = new RichTextBox();
+            dummyRichTextBox.Text = "\n";
+            dummyRichTextBox.Font = this.Font;
+        }
+        else if ( forceSetFont ) {
+            dummyRichTextBox.Font = this.Font;
+        }
+    }
+
+    void RecalcLineHeight(bool fontUpdated)
+    {
+        EnsureDummyRichTextBox(fontUpdated);
+        int y1 = dummyRichTextBox.GetPositionFromCharIndex(dummyRichTextBox.GetFirstCharIndexFromLine(0)).Y;
+        int y2 = dummyRichTextBox.GetPositionFromCharIndex(dummyRichTextBox.GetFirstCharIndexFromLine(1)).Y;
+        lineHeight = y2 - y1;
+    }
+
+    protected override void OnFontChanged(EventArgs e)
+    {
+        RecalcLineHeight(true);
+        SetFixFont();
+        SetTabStop(4);
+    }
+
+    protected override void WndProc(ref System.Windows.Forms.Message m)
+    {
+        base.WndProc(ref m);
+        if ( m.Msg == WM_PAINT ) {
+            RecalcLineHeight(false);
+            using ( Graphics graphic = base.CreateGraphics() ) {
+                OnPaint(new PaintEventArgs(graphic, base.ClientRectangle));
+            }
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs pe)
+    {
+        Brush brush = Brushes.LightGray;
+        string s = this.Text;
+        int    sLen = s.Length;//this.TextLength;
+        Graphics g = pe.Graphics;
+
+        int lineStartI = GetLineFromCharIndex(GetCharIndexFromPosition(new Point(0, 0)));
+        int lineEndI   = GetLineFromCharIndex(GetCharIndexFromPosition(new Point(pe.ClipRectangle.Width, pe.ClipRectangle.Height)));
+
+        Regex regex = new Regex(@"[\t　\r\n]"); // tab or 全角空白 or 改行
+
+        // 行ごとに処理
+        int nextCharI = -1;
+        for ( int lineI = lineStartI; lineI &lt;= lineEndI; lineI++ ) {
+            int startCharI;
+            if ( lineI == lineStartI ) {
+                startCharI = GetFirstCharIndexFromLine(lineI);
+            }
+            else {
+                startCharI = nextCharI;
+            }
+            nextCharI = GetFirstCharIndexFromLine(lineI+1);
+            if (nextCharI &lt; startCharI) {
+                nextCharI = sLen;
+                if ( startCharI == nextCharI ) {
+                    break;
+                }
+            }
+            int lenOfLine = nextCharI - startCharI;
+
+            Match match = regex.Match(s, startCharI, lenOfLine);
+
+            while ( match.Success ) {
+                Point point = this.GetPositionFromCharIndex(match.Index);
+                //Point point2 = this.GetPositionFromCharIndex(match.Index+match.Length);
+                //g.FillRectangle(brush, point.X, point.Y, point2.X - point.X, lineHeight);
+                if ( s[match.Index] == '\t' ) {
+                    g.DrawString("&gt;", this.Font, brush, adjX+point.X, adjY+point.Y, new StringFormat());
+                }
+                else if ( s[match.Index] == '　' ) {//全角空白
+                    g.DrawString("□", this.Font, brush, adjX+point.X, adjY+point.Y, new StringFormat());
+                }
+                else if ( s[match.Index] == '\r' ) {
+                    g.DrawString(@"\r", this.Font, brush, adjX+point.X, adjY+point.Y, new StringFormat());
+                }
+                match = match.NextMatch();
+            }
+
+            /*
+            // ちらつきと残骸が残る。実用レベルではない
+            //
+            // drawstringでtabの描画で調整がやっかいなので、1文字ずつGetPositionFromCharIndexで場所を取得して描画する
+            Point pointNext = new Point(0,0);
+            for ( int i=startCharI; i&lt;startCharI+lenOfLine; i++ ) {
+                Point point;
+                if ( i == startCharI ) {
+                    point = this.GetPositionFromCharIndex(i);
+                }
+                else {
+                    point = pointNext;
+                }
+                pointNext = this.GetPositionFromCharIndex(i+1);
+                if ( pointNext.X &lt; 0 ) {
+                    continue;
+                }
+                if ( point.X &gt;= this.Width ) {
+                    break;
+                }
+                g.DrawString(new string(s[i],1), this.Font, Brushes.Blue, adjX+point.X, adjY+point.Y, new StringFormat());
+            }
+            */
+
+        }
+    }
+
+
+    public override string Text
+    {
+        get {
+            var getLength = new GETTEXTLENGTHEX();
+            getLength.flags = GTL_CLOSE; //get buffer size
+            getLength.codepage = 1200; //Unicode
+            int textLength = (int)(NativeMethods.SendMessage(this.Handle, EM_GETTEXTLENGTHEX, ref getLength, IntPtr.Zero).ToInt64());
+            var getText = new GETTEXTEX();
+            getText.cb = textLength + 2; //add space for null terminator
+            if ( getText.cb &lt; 2 ) { return ""; } // overflow
+            getText.flags = GT_DEFAULT;
+            getText.codepage = 1200; //Unicode
+            var sb = new StringBuilder(getText.cb);
+            NativeMethods.SendMessage(this.Handle, EM_GETTEXTEX, ref getText, sb);
+            return sb.ToString();
+        }
+        set { base.Text = value; }
+    }
+
+    public override int TextLength
+    {
+        get {
+            var getLength = new GETTEXTLENGTHEX();
+            getLength.flags = GTL_DEFAULT; //Returns the number of characters
+            getLength.codepage = 1200; //Unicode
+            int textLength = (int)(NativeMethods.SendMessage(this.Handle, EM_GETTEXTLENGTHEX, ref getLength, IntPtr.Zero).ToInt64());
+            if ( textLength &lt; 0 ) { return 0; } // overflow
+            return textLength;
+        }
+    }
+
+    private void SetFixFont()
+    {
+        IntPtr lParam = NativeMethods.SendMessage(this.Handle, EM_GETLANGOPTIONS, new IntPtr(0), new IntPtr(0));
+        lParam = new IntPtr( ((long)lParam) &amp; (~IMF_DUALFONT));
+        NativeMethods.SendMessage(this.Handle, EM_SETLANGOPTIONS, new IntPtr(0), lParam);
+    }
+
+    private void SetTabStop(int tabSize)
+    {
+        int[] tabarray = new int[] { tabSize*4 };
+        int wparam = tabarray.Length;
+
+        IntPtr parray = Marshal.AllocCoTaskMem(Marshal.SizeOf(typeof(int)) * tabarray.Length);
+        Marshal.Copy(tabarray, 0, parray, tabarray.Length);
+        NativeMethods.SendMessage(this.Handle, EM_SETTABSTOPS, new IntPtr(wparam), parray);
+    }
+}
+
+
+class RichTextBoxSample : Form
+{
+    MyRichTextBox txt;
+
+    RichTextBoxSample()
+    {
+        ClientSize = new Size(600, 250);
+
+        Controls.Add(txt = new MyRichTextBox(){
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            WordWrap = false,
+            AcceptsTab = true,
+            ScrollBars = RichTextBoxScrollBars.Both,
+        });
+
+        Font baseFont = new Font("ＭＳ ゴシック", 10);
+        txt.Font = baseFont;
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new RichTextBoxSample());
+    }
+}
+

@@ -1,0 +1,107 @@
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.InteropServices;
+using System.IO;
+
+namespace ExecDllFuncTest
+{
+    /// &lt;summary&gt;
+    /// PInvoke関数情報
+    /// &lt;/summary&gt;
+    public class PInvokeProcInfo
+    {
+        /// &lt;summary&gt;
+        /// 関数名
+        /// &lt;/summary&gt;
+        public string ProcName { get; set; }
+        /// &lt;summary&gt;
+        /// DLLファイル
+        /// &lt;/summary&gt;
+        public string ModuleFile { get; set; }
+        /// &lt;summary&gt;
+        /// エントリポイント
+        /// &lt;/summary&gt;
+        public string EntryPoint { get; set; }
+        /// &lt;summary&gt;
+        /// 戻り値の型（戻り値無しはSystem.Void）
+        /// &lt;/summary&gt;
+        public Type ReturnType { get; set; } = typeof(void);
+        /// &lt;summary&gt;
+        /// 関数のパラメータの型
+        /// &lt;/summary&gt;
+        public Type[] ParameterTypes { get; set; } = { };
+        /// &lt;summary&gt;
+        /// 呼び出し規約
+        /// &lt;/summary&gt;
+        public CallingConvention CallingConvention { get; set; } = CallingConvention.StdCall;
+        /// &lt;summary&gt;
+        /// メソッドのキャラクターセット
+        /// &lt;/summary&gt;
+        public CharSet CharSet { get; set; } = CharSet.Auto;
+    }
+
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// PInvoke関数情報から、メソッドのメタデータを作成する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="invInfo"&gt;PInvoke関数情報&lt;/param&gt;
+        /// &lt;returns&gt;PInvoke関数メタデータ&lt;/returns&gt;
+        public static MethodInfo CreateMethodInfo(PInvokeProcInfo invInfo)
+        {
+            string moduleName = Path.GetFileNameWithoutExtension(invInfo.ModuleFile).ToUpper();
+            AssemblyBuilder asmBld = AssemblyBuilder.DefineDynamicAssembly(
+                new AssemblyName("Asm" + moduleName), AssemblyBuilderAccess.Run);
+
+            ModuleBuilder modBld = asmBld.DefineDynamicModule(
+                "Mod" + moduleName);
+
+            TypeBuilder typBld = modBld.DefineType(
+                "Class" + moduleName,
+                TypeAttributes.Public | TypeAttributes.Class);
+
+            MethodBuilder methodBuilder = typBld.DefinePInvokeMethod(
+                invInfo.ProcName,
+                invInfo.ModuleFile,
+                invInfo.EntryPoint,
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl | MethodAttributes.HideBySig,
+                CallingConventions.Standard,
+                invInfo.ReturnType,
+                invInfo.ParameterTypes.ToArray(),
+                invInfo.CallingConvention,
+                invInfo.CharSet);
+            methodBuilder.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+
+            return typBld.CreateType().GetMethod(invInfo.ProcName);
+        }
+
+        private delegate int DlgMessageBox(IntPtr hWnd, string text, string caption, int buttonType);
+
+        static int Main(string[] args)
+        {
+            PInvokeProcInfo invInfo = new PInvokeProcInfo()
+            {
+                ProcName = "MessageBox",
+                EntryPoint = "MessageBoxW",
+                ModuleFile = "User32.dll",
+                ReturnType = typeof(Int32),
+                ParameterTypes = new Type[] { typeof(IntPtr), typeof(string), typeof(string), typeof(Int32) },
+                CallingConvention = CallingConvention.StdCall,
+                CharSet = CharSet.Unicode
+            };
+
+            //Invokeで実行
+            MethodInfo method = CreateMethodInfo(invInfo);
+            method.Invoke(null, new object[] { IntPtr.Zero, "Run Invoke", "test1", 0});
+
+            //Delegateで実行
+            DlgMessageBox messageBox = (DlgMessageBox)method.CreateDelegate(typeof(DlgMessageBox));
+            messageBox(IntPtr.Zero, "Run Delegate", "test2", 0);
+
+            return 0;
+        }
+    }
+}
+

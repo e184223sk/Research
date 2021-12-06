@@ -1,0 +1,199 @@
+
+using System.Utility;
+using UnityEngine;
+using System.Collections.Generic;
+using System.Collections;
+
+namespace System.Operation
+{
+    /// &lt;summary&gt;
+    /// 操作周りの管理クラス
+    /// &lt;/summary&gt;
+    public class OperationSystemManager : SingletonMonoBehaviour&lt;OperationSystemManager&gt;
+    {
+        const float TAP_DISTANCE = 2f;
+        const float FLICK_TIME = 0.15f;
+
+        #region アクション
+
+        public Action TapAction;
+        public Action FlickAction;
+        public Action&lt;Vector3&gt; DragAction;
+
+        public Action CancelAction;
+
+        #endregion
+
+        public bool isPause;
+
+        private List&lt;int&gt; touchIDList = new List&lt;int&gt;();
+        private List&lt;int&gt; isFlickAdaptationIDList = new List&lt;int&gt;();
+        private Dictionary&lt;int,Vector3&gt; startPosList = new Dictionary&lt;int,Vector3&gt;();
+        private Dictionary&lt;int,Vector3&gt; endPosList = new Dictionary&lt;int,Vector3&gt;();
+
+        void Update()
+        {
+            TouchInfo[] infoArray = AppUtil.GetTouches();
+
+            if (isPause)
+            {
+                for (var loopValue = 0; loopValue &lt; infoArray.Length; loopValue++)
+                {
+                    infoArray[loopValue] = TouchInfo.Canceled;
+                }
+                infoArray = new TouchInfo[]{ };
+                touchIDList.Clear();
+                return;
+            }
+
+            for (var loopValue = 0; loopValue &lt; infoArray.Length; loopValue++)
+            {
+                switch (infoArray[loopValue])
+                {
+                    case TouchInfo.Began:
+                        startPosList[loopValue] = AppUtil.GetTouchPosition(loopValue);
+                        if (touchIDList.Contains(loopValue))
+                        {
+                            touchIDList.Remove(loopValue);
+                        }
+
+                        if (isFlickAdaptationIDList.Contains(loopValue))
+                        {
+                            isFlickAdaptationIDList.Remove(loopValue);
+                        }
+                        Touch(infoArray[loopValue], loopValue);
+                        break;
+
+                    case TouchInfo.Moved:
+                    case TouchInfo.Stationary:
+                        endPosList[loopValue] = AppUtil.GetTouchPosition(loopValue);
+                        Touch(infoArray[loopValue], loopValue);
+                        break;
+
+                    case TouchInfo.Ended:
+                    case TouchInfo.Canceled:
+                        endPosList[loopValue] = AppUtil.GetTouchPosition(loopValue);
+                        Touch(infoArray[loopValue], loopValue);
+                        if (touchIDList.Contains(loopValue))
+                        {
+                            touchIDList.Remove(loopValue);
+                        }
+
+                        if (isFlickAdaptationIDList.Contains(loopValue))
+                        {
+                            isFlickAdaptationIDList.Remove(loopValue);
+                        }
+                        break;
+                }
+            }
+        }
+
+        void Touch(TouchInfo info, int id)
+        {
+            if (info == TouchInfo.Began)
+            {
+                StartCoroutine(FlickTimer(id, isFlickAdaptationIDList, FLICK_TIME));
+            }
+            else if (info == TouchInfo.Moved || info == TouchInfo.Stationary)
+            {
+                if (touchIDList.Contains(id))
+                {
+                    info = TouchInfo.Canceled;
+
+                    var isRemove = false;
+                    if (startPosList.ContainsKey(id))
+                    {
+                        startPosList.Remove(id);
+                        isRemove = true;
+                    }
+                    if (endPosList.ContainsKey(id)){
+                        endPosList.Remove(id);
+                        isRemove = true;
+                    }
+                    if (isRemove &amp;&amp; CancelAction != null)
+                    {
+                        CancelAction();
+                    }
+                    return;
+                }
+
+                if (!isTap(id))
+                {
+                    if (!isFlickAdaptationIDList.Contains(id))
+                    {
+                        // ドラッグ処理
+                        if (DragAction != null)
+                        {
+                            if (startPosList.ContainsKey(id) &amp;&amp; endPosList.ContainsKey(id))
+                            {
+                                DragAction((endPosList[id]-startPosList[id]).normalized);
+                            }
+                        }
+                    }
+                }
+            }
+            else if (info == TouchInfo.Ended || info == TouchInfo.Canceled)
+            {
+                if (touchIDList.Contains(id))
+                    return;
+
+                if (isTap(id))
+                {
+                    // タップ処理
+                    if (TapAction != null)
+                    {
+                        TapAction();
+                    }
+                }
+                else
+                {
+                    if (isFlickAdaptationIDList.Contains(id))
+                    {
+                        // フリック処理
+                        if (startPosList[id].y - endPosList[id].y &lt; 0)
+                        {
+                            if (FlickAction != null)
+                            {
+                                FlickAction();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // ドラッグ処理
+                        if (DragAction != null)
+                        {
+                            DragAction(Vector3.zero);
+                        }
+                    }
+                }
+            }
+        }
+
+        bool isTap(int id)
+        {
+            if (!startPosList.ContainsKey(id) || !endPosList.ContainsKey(id))
+                return false;
+
+            if (Vector3.Distance(startPosList[id], endPosList[id]) &lt; TAP_DISTANCE)
+                return true;
+
+            return false;
+        }
+
+        IEnumerator FlickTimer(int id,List&lt;int&gt; isFlickAdaptationIDList,float time)
+        {
+            if(!isFlickAdaptationIDList.Contains(id))
+            {
+                isFlickAdaptationIDList.Add(id);
+            }
+            yield return new WaitForSeconds(time);
+            if(isFlickAdaptationIDList.Contains(id))
+            {
+                isFlickAdaptationIDList.Remove(id);
+            }
+        }
+
+    }
+}
+

@@ -1,0 +1,29 @@
+
+// FromBody のリクエストパラメーターが null または ModelState.IsValid == false の場合にステータスコード 400 を返すフィルタークラス
+// Note: もっと効率のよい実装や、わかりやすい実装があったら教えてください。
+public class ModelStateInvalidFilter : ActionFilterAttribute
+{
+    public override void OnActionExecuting(HttpActionContext actionContext)
+    {
+        var fromBodyParameterNames = actionContext.ActionDescriptor.GetParameters()
+            .Where(p =&gt; p.ParameterBinderAttribute != null &amp;&amp; p.ParameterBinderAttribute.Match(new FromBodyAttribute()))
+            .Select(descriptor =&gt; descriptor.ParameterName);
+
+        foreach (var fromBodyParameterName in fromBodyParameterNames)
+        {
+            foreach (var requiredArgument in actionContext.ActionArguments.Where(pair =&gt; pair.Key == fromBodyParameterName))
+            {
+                if (requiredArgument.Value == null)
+                {
+                    actionContext.Response = actionContext.Request.CreateErrorResponse(HttpStatusCode.BadRequest, "A non-empty request body is required.");
+                }
+            }
+        }
+
+        if (!actionContext.ModelState.IsValid)
+        {
+            actionContext.Response = actionContext.Request.CreateErrorResponse(HttpStatusCode.BadRequest, actionContext.ModelState);
+        }
+    }
+}
+

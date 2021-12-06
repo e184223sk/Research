@@ -1,0 +1,145 @@
+
+using System.Collections.Generic;
+using UnityEngine;
+
+public class TextureData&lt;T&gt; : System.IDisposable where T:struct {
+    public delegate T BilinearFunc(T v00, T v01, T v10, T v11, float s, float t);
+    public event System.Action&lt;TextureData&lt;T&gt;&gt; OnLoad;
+
+    protected Vector2Int size;
+    protected IList&lt;T&gt; pixels;
+    protected Vector2 uvToIndex;
+    protected System.Func&lt;float, float, T&gt; interpolation;
+
+    public TextureData(IList&lt;T&gt; pixels, Vector2Int size,
+        System.Func&lt;float, float, T&gt; interpolation = null) {
+        this.Size = size;
+        this.Interpolation = interpolation;
+        Load(pixels);
+    }
+
+    #region interface
+    public System.Func&lt;float, float, T&gt; Interpolation {
+        get { return interpolation; }
+        set {
+            interpolation = (value ?? PointInterpolation);
+        }
+    }
+    public virtual void Load(IList&lt;T&gt; pixels) {
+        lock (this) {
+            this.pixels = pixels;
+        }
+        NotifyOnLoad();
+    }
+    public T PointInterpolation(float nx, float ny) {
+        var x = Mathf.RoundToInt(nx * uvToIndex.x);
+        var y = Mathf.RoundToInt(ny * uvToIndex.y);
+        ClampPixelPos(ref x, ref y);
+        return GetPixelDirect(x, y);
+    }
+    public System.Func&lt;float, float, T&gt; GenerateInterpolation(BilinearFunc bilinear) {
+        return (float nx, float ny) =&gt; {
+            int x0, y0, x1, y1;
+            float t, s;
+            Bridge(nx, ny, out x0, out y0, out x1, out y1, out t, out s);
+            ClampPixelPos(ref x0, ref y0);
+            ClampPixelPos(ref x1, ref y1);
+            return bilinear(
+                GetPixelDirect(x0, y0),
+                GetPixelDirect(x0, y1),
+                GetPixelDirect(x1, y0),
+                GetPixelDirect(x1, y1),
+                s, t);
+        };
+    }
+
+    public virtual T this[int x, int y] {
+        get {
+            lock (this) {
+                ClampPixelPos(ref x, ref y);
+                return GetPixelDirect(x, y);
+            }
+        }
+        set {
+            lock (this) {
+                ClampPixelPos(ref x, ref y);
+                SetPixelDirect(x, y, value);
+            }
+        }
+    }
+
+    public virtual T this[float nx, float ny] {
+        get {
+            lock (this) {
+                return interpolation(nx, ny);
+            }
+        }
+    }
+
+    public virtual T this[Vector2 uv] {
+        get { return this[uv.x, uv.y]; }
+    }
+
+    public virtual Vector2Int Size {
+        get { return size; }
+        set {
+            size = value;
+            uvToIndex = new Vector2(value.x - 1, value.y - 1);
+        }
+    }
+    #endregion
+
+    #region static
+    public static Color Bilinear(Color v00, Color v01, Color v10, Color v11, float s, float t) {
+        return t * (s * v00 + (1f - s) * v01)
+            + (1f - t) * (s * v10 + (1f - s) * v11);
+    }
+    public static float Bilinear(float v00, float v01, float v10, float v11, float s, float t) {
+        return t * (s * v00 + (1f - s) * v01)
+            + (1f - t) * (s * v10 + (1f - s) * v11);
+    }
+    #endregion
+
+    #region member
+    protected virtual void NotifyOnLoad() {
+        OnLoad?.Invoke(this);
+    }
+
+    protected virtual void Bridge(float nx, float ny, out int x0, out int y0, out int x1, out int y1, out float t, out float s) {
+        var x = uvToIndex.x * nx;
+        var y = uvToIndex.y * ny;
+        x0 = Mathf.FloorToInt(x);
+        y0 = Mathf.FloorToInt(y);
+        x1 = x0 + 1;
+        y1 = y0 + 1;
+        t = x1 - x;
+        s = y1 - y;
+    }
+    protected virtual void ClampPixelPos(ref int x, ref int y) {
+        x = (x &lt; 0 ? 0 : (x &lt; size.x ? x : size.x - 1));
+        y = (y &lt; 0 ? 0 : (y &lt; size.y ? y : size.y - 1));
+    }
+
+    protected virtual int GetLinearIndex(int x, int y) {
+        return x + y * size.x;
+    }
+    protected virtual int GetLinearIndex(Vector2Int index) {
+        return GetLinearIndex(index.x, index.y);
+    }
+    protected virtual T GetPixelDirect(int x, int y) {
+        return pixels[GetLinearIndex(x, y)];
+    }
+    protected virtual void SetPixelDirect(int x, int y, T c) {
+        pixels[GetLinearIndex(x, y)] = c;
+    }
+    #endregion
+
+    #region IDisposable
+    public void Dispose() {
+        if (pixels != null) {
+            pixels = null;
+        }
+    }
+    #endregion
+}
+

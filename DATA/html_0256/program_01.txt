@@ -1,0 +1,57 @@
+
+    /// &lt;summary&gt;
+    /// メアド/パスワードでユーザー作成
+    /// &lt;/summary&gt;
+    public void Create(string email, string password, CreateUser callback)
+    {
+        // すでにユーザーが作られているのか確認
+        if (_auth.CurrentUser.UserId == null)
+        {
+            // 新規でユーザー作成
+            _auth.CreateUserWithEmailAndPasswordAsync(email, password).ContinueWith(task =&gt;
+            {
+                if (task.IsCanceled)
+                {
+                    Debug.LogError("CreateUserWithEmailAndPasswordAsync was canceled.");
+                    callback(false);
+                    return;
+                }
+                if (task.IsFaulted)
+                {
+                    Debug.LogError("CreateUserWithEmailAndPasswordAsync encountered an error: " + task.Exception);
+                    callback(false);
+                    return;
+                }
+
+                _user = task.Result;
+                Debug.Log($"Firebase user created successfully: {_user.DisplayName} ({_user.UserId})");
+
+                callback(true);
+            });
+        }
+        else
+        {
+            // 認証方法追加
+            Credential credential = EmailAuthProvider.GetCredential(email, password);
+            _auth.CurrentUser.LinkWithCredentialAsync(credential).ContinueWith(task =&gt; {
+                if (task.IsCanceled)
+                {
+                    Debug.LogError("LinkWithCredentialAsync was canceled.");
+                    callback(false);
+                    return;
+                }
+                if (task.IsFaulted)
+                {
+                    Debug.LogError("LinkWithCredentialAsync encountered an error: " + task.Exception);
+                    callback(false);
+                    return;
+                }
+
+                _user = task.Result;
+                Debug.Log($"Credentials successfully linked to Firebase user: {_user.DisplayName} ({_user.UserId})");
+
+                callback(true);
+            });
+        }
+    }
+

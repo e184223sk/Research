@@ -1,0 +1,81 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Windows.UI.Notifications.Management;
+using Windows.Foundation.Metadata;
+using System.Collections.Generic;
+using Windows.UI.Notifications;
+
+
+namespace ConsoleApplication2
+{
+    class Program
+    {
+
+        static int Main(string[] args)
+        {
+            //コンソールアプリケーションからAsyncを呼び出す大本はTaskを使用する;
+            return MainAsync().Result;
+        }
+
+        //AsyncなMain
+        private static async Task&lt;int&gt; MainAsync()
+        {
+            if (!ApiInformation.IsTypePresent("Windows.UI.Notifications.Management.UserNotificationListener"))
+            {
+                Console.WriteLine("IsTypePresent: NG");
+                return -1;
+            }
+            Console.WriteLine("IsTypePresent: OK");
+
+            UserNotificationListener listener = UserNotificationListener.Current;
+            Console.Write("listener: ");
+            Console.WriteLine(listener);
+
+            UserNotificationListenerAccessStatus accessStatus = await listener.RequestAccessAsync();
+
+            Console.Write("accessStatus: ");
+            Console.WriteLine(accessStatus);
+
+            if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
+            {
+                Console.WriteLine("アクセス拒否");
+                return -1;
+            }
+            Console.WriteLine("アクセス許可");
+
+
+            while(true)
+            {
+                IReadOnlyList&lt;UserNotification&gt; notifs = await listener.GetNotificationsAsync(NotificationKinds.Toast);
+
+                foreach (var n in notifs) {
+                    NotificationBinding toastBinding = n.Notification.Visual.GetBinding(KnownNotificationBindings.ToastGeneric);
+
+                    if (toastBinding != null)
+                    {
+                        IReadOnlyList&lt;AdaptiveNotificationText&gt; textElements = toastBinding.GetTextElements();
+
+                        string titleText = textElements.FirstOrDefault()?.Text;
+
+                        string bodyText = string.Join("\n", textElements.Skip(1).Select(t =&gt; t.Text));
+
+                        Console.Write("Title:");
+                        Console.WriteLine(titleText);
+                        Console.Write("Body:");
+                        Console.WriteLine(bodyText);   
+                    }
+
+                    Thread.Sleep(1000);
+                }
+
+            }
+
+            return 0;
+        }
+    }
+}
+
+

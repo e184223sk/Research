@@ -1,0 +1,62 @@
+
+namespace SemSymbols {
+    // (snip)
+
+    public static class SemSymbolHelper {
+        public static bool TryCResolveReturnTypeContext(Microsoft.CodeAnalysis.TypeInfo inReturnTypeInfo, out EntitiyContext outCtx) {
+            outCtx = default;
+
+            var typeSymbol = inReturnTypeInfo.Type as INamedTypeSymbol;
+            if (typeSymbol == null) return false;
+
+            var fmtFqcn = new SymbolDisplayFormat(
+                typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.ExpandNullable
+            );
+
+            (outCtx.ContainerType, outCtx.NamedType) = ResolveAsContainerType(typeSymbol);
+
+            if (outCtx.NamedType == null) return false;
+
+            var memberSymbols = outCtx.NamedType.GetMembers();
+
+            outCtx.Constructors = 
+                memberSymbols
+                .OfType&lt;IMethodSymbol&gt;()
+                .Where(s =&gt; s.MethodKind == MethodKind.Constructor)
+                .Where(s =&gt; s.Parameters.Length &gt; 0)
+                .Select(s =&gt; TypeVar.OfConstructor(s.Parameters))
+                .ToArray()
+            ;
+
+            outCtx.PropertyTypeVars = TypeVar.OfProperties(
+                memberSymbols.OfType&lt;IPropertySymbol&gt;().Where(s =&gt; ! s.IsReadOnly).ToImmutableArray()
+            );
+
+            outCtx.FieldTypeVars = TypeVar.OfFields(
+                memberSymbols.OfType&lt;IFieldSymbol&gt;().Where(s =&gt; ! s.IsImplicitlyDeclared).ToImmutableArray()
+            );
+
+            return true;
+        }
+
+        private static System.ValueTuple&lt;SpecialType, INamedTypeSymbol&gt; ResolveAsContainerType(INamedTypeSymbol inSymbol) {
+            var fmtFqcn = new SymbolDisplayFormat(
+                typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.ExpandNullable
+            );
+
+            return 
+                inSymbol.ToDisplayString(fmtFqcn) switch {
+                    "System.Nullable" =&gt; 
+                        (SpecialType.System_Nullable_T, inSymbol.TypeArguments[0] as INamedTypeSymbol), 
+                    "System.Collections.Generic.IEnumerable" =&gt;
+                        (SpecialType.System_Collections_Generic_IEnumerable_T, inSymbol.TypeArguments[0] as INamedTypeSymbol),
+                    _ =&gt; 
+                        (SpecialType.None, inSymbol),
+                }
+            ;
+        }
+    }
+}
+

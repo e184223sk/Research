@@ -1,0 +1,105 @@
+using Microsoft.Azure.Kinect.BodyTracking;
+using Microsoft.Azure.Kinect.Sensor;
+using System.Threading.Tasks;
+using UnityEngine;
+
+public class KinectHandler : MonoBehaviour
+{
+    private Device kinect;
+    private Transformation transformation;
+    private Capture cameraCapture;
+
+    private Texture2D texture;
+
+    private Tracker tracker;
+
+    [SerializeField]
+    GameObject fireBall1; // 右手に出す火の玉
+
+    [SerializeField]
+    GameObject fireBall2; // 左手に出す火の玉
+
+    void Start()
+    {
+        // Azure Kinectの初期設定および起動
+        this.kinect = Device.Open(0);
+        this.kinect.StartCameras(new DeviceConfiguration {
+            ColorFormat = ImageFormat.ColorBGRA32,
+            ColorResolution = ColorResolution.R720p,
+            DepthMode = DepthMode.NFOV_2x2Binned,
+            SynchronizedImagesOnly = true,
+            CameraFPS = FPS.FPS30
+        });
+
+        this.transformation = kinect.GetCalibration().CreateTransformation();
+        this.cameraCapture = kinect.GetCapture();
+
+        // カメラ映像を描画するTexture2Dの初期設定
+        // カメラからの情報を元にサイズを決定する
+        var width = kinect.GetCalibration().ColorCameraCalibration.ResolutionWidth;
+        var height = kinect.GetCalibration().ColorCameraCalibration.ResolutionHeight;
+        this.transform.localScale = new Vector3(width / 100, height / 100, 0.1f);
+
+        this.texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        this.texture.Apply();
+        this.GetComponent&lt;Renderer&gt;().material.mainTexture = texture;
+
+        // BodyTrackingするためのトラッカーを初期化
+        this.tracker = Tracker.Create(kinect.GetCalibration(), TrackerConfiguration.Default);
+
+        // Kinectからの情報取得はタスクで回して繰り返し取得します
+        Task t = KinectLoop();
+    }
+
+    private void OnDestroy()
+    {
+        // アプリ終了時にカメラを終了させる
+        this.kinect.StopCameras();
+    }
+
+    private async Task KinectLoop()
+    {
+        while(true)
+        {
+            using (Capture capture = await Task.Run(() =&gt; this.kinect.GetCapture()).ConfigureAwait(true))
+            {
+                // 画像処理
+                // 取得したピクセル毎の色情報をTexture2Dに書き込む
+                var colorImage = capture.Color;
+                var colorArray = colorImage.GetPixels&lt;BGRA&gt;().ToArray();
+                var colors = new Color32[colorArray.Length];
+
+                for (var i = 0; i &lt; colorArray.Length; i++)
+                {
+                    colors[i].b = colorArray[i].B;
+                    colors[i].g = colorArray[i].G;
+                    colors[i].r = colorArray[i].R;
+                    colors[i].a = 255;
+                }
+
+                this.texture.SetPixels32(colors);
+                this.texture.Apply();
+
+                // BodyTraking情報を取得して火の玉オブジェクトのPositionに指定します
+                this.tracker.EnqueueCapture(capture);
+                var frame = tracker.PopResult();
+                if (frame.NumberOfBodies &gt; 0) // この判定がないと撮影範囲から人がいなくなった場合に後の処理で止まる
+                {
+                    this.SetMarkPos(this.fireBall1, JointId.HandRight, frame); // 右手
+                    this.SetMarkPos(this.fireBall2, JointId.HandLeft, frame); // 左手
+                    // ↑指定するJointIdを変えれば腰や頭に火の玉を出すことも可能
+                }
+            }
+        }
+    }
+
+    private void SetMarkPos(GameObject fireball, JointId jointId, Frame frame)
+    {
+        // 指定の関節情報から位置を取得してGameObjectの位置指定に
+        var joint = frame.GetBodySkeleton(0).GetJoint(jointId);
+        var offset = 50; // 取得した通りの値だと動きすぎるので少し調整してやります
+        var pos = new Vector3(joint.Position.X / -offset, joint.Position.Y / -offset, joint.Position.Z / offset);
+        fireball.transform.localPosition = pos;
+    }
+}
+

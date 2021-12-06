@@ -1,0 +1,91 @@
+
+        /// &lt;summary&gt;
+        /// JSONリクエストAPI
+        /// &lt;/summary&gt;
+        /// &lt;param name="url"&gt;あて先URL&lt;/param&gt;
+        /// &lt;param name="spDic"&gt;パラメータディクショナリ&lt;/param&gt;
+        /// &lt;param name="reqParam"&gt;リクエストパラメータ&lt;/param&gt;
+        /// &lt;param name="resParam"&gt;レスポンスパラメータ&lt;/param&gt;
+        /// &lt;returns&gt;結果DynamicJson&lt;/returns&gt;
+        public static dynamic JsonWebApi(string url, IDictionary&lt;string, string&gt; spDic, ref string reqParam, ref string resParam) {
+
+            // WebRequest 生成
+            var req = WebRequest.Create(url);
+            //Console.WriteLine("Uri:" + req.RequestUri.AbsoluteUri);
+
+            var spJson = "";
+            byte[] spData = { };
+            reqParam = "";
+            resParam = "";
+
+            // リクエスト用 json 文字列生成
+            spJson = DictionaryToJson(spDic);
+            Console.WriteLine("JsonWebApi JSON:" + spJson);
+            reqParam = spJson;
+
+            spData = Encoding.UTF8.GetBytes(spJson);
+            req.Method = "POST";
+            req.ContentType = "application/json";
+            req.ContentLength = spData.Length;
+
+            dynamic jsonResp = new DynamicJson();
+            jsonResp.Result = "";
+            jsonResp.Status = "";
+            jsonResp.Code = "";
+            jsonResp.Desc = "";
+
+            try {
+                using (Stream reqStream = req.GetRequestStream())
+                    reqStream.Write(spData, 0, spData.Length);
+
+                using (var res = req.GetResponse())
+                using (var s = res.GetResponseStream()) {
+
+                    // 結果読み取り
+                    string respString = "";
+                    using (var reader = new StreamReader(s, Encoding.UTF8))
+                        respString = reader.ReadToEnd();
+                    Console.WriteLine("JsonWebApi response:" + respString);
+                    resParam = respString;
+
+                    // json パース
+                    var j = DynamicJson.Parse(respString);
+                    if (j.IsDefined("Result")) {
+                        jsonResp = j;
+                    }
+                    if (j.IsDefined("Status")) {
+                        jsonResp.Status = j.Status;
+                    }
+                    jsonResp.Code = "200";
+                    jsonResp.Desc = respString;
+                }
+            }
+            // エラーハンドリング
+            catch (WebException webex) {
+                switch (webex.Status) {
+                    case WebExceptionStatus.Timeout:
+                    case WebExceptionStatus.NameResolutionFailure:
+                    default:
+                        Console.WriteLine("WebException has been occurred:" + webex.Message + ":" + reqParam + ":" + resParam);
+                        break;
+                }
+                var exres = (HttpWebResponse)webex.Response;
+                int statusCode = 0;
+                if (exres != null) {
+                    var status = exres.StatusCode;
+                    statusCode = (int)status;
+                    Console.WriteLine("StatusCode Error:" + statusCode.ToString() + ":" + reqParam + ":" + resParam);
+                }
+                jsonResp.Result = "WEB_EXCEPTION";
+                jsonResp.Status = "WEB_EXCEPTION";
+                jsonResp.Code = statusCode.ToString();
+                jsonResp.Desc = webex.Message;
+                if (req != null) req.Abort();
+                if (exres != null) exres.Close();
+            }
+            finally {
+                if (req != null) req.Abort();
+            }
+            return jsonResp;
+        }
+

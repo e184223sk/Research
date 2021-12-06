@@ -1,0 +1,68 @@
+namespace channelstest
+{
+    using System;
+    using System.Threading.Channels;
+    using System.Threading;
+    using System.Threading.Tasks;
+    sealed class ConsumerAsync : IDisposable
+    {
+        Task _ConsumerThread;
+        public ConsumerAsync()
+        {
+            _Channel = Channel.CreateUnbounded&lt;TaskCompletionSource&lt;int&gt;&gt;();
+            _ConsumerThread = Worker();
+        }
+
+        public async Task&lt;int&gt; EnqueueAndGetValue()
+        {
+            // net461 or before, RunContinuationsAsynchronously may be ignored because of 
+            // https://github.com/dotnet/coreclr/issues/2021 and https://blog.stephencleary.com/2012/12/dont-block-in-asynchronous-code.html
+            var tcs = new TaskCompletionSource&lt;int&gt;(TaskCreationOptions.RunContinuationsAsynchronously);
+            await _Channel.Writer.WriteAsync(tcs).ConfigureAwait(false);
+            return await tcs.Task.ConfigureAwait(false);
+        }
+
+        async Task Worker()
+        {
+            await Task.Yield();
+            int currentValue = 0;
+            try
+            {
+                while(await _Channel.Reader.WaitToReadAsync().ConfigureAwait(false))
+                {
+                    while (_Channel.Reader.TryRead(out var item))
+                    {
+                        // net461 or before
+                        // var t1 = Task.Run(() =&gt; item.TrySetResult(Interlocked.Increment(ref currentValue)));
+                        // item.Task.Wait();
+                        item.TrySetResult(Interlocked.Increment(ref currentValue));
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"unexpected exception:{e}");
+                _Channel.Writer.TryComplete(e);
+            }
+        }
+
+        Channel&lt;TaskCompletionSource&lt;int&gt;&gt; _Channel;
+
+        bool _Disposed = false;
+
+        public void Dispose()
+        {
+            if (!_Disposed)
+            {
+                var completeSuccess = _Channel.Writer.TryComplete();
+                if (_ConsumerThread != null)
+                {
+                    _ConsumerThread.Wait();
+                    _ConsumerThread = null;
+                }
+                _Disposed = true;
+            }
+        }
+    }
+}
+

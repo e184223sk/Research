@@ -1,0 +1,88 @@
+
+using System;
+using System.Collections.Generic;
+using UniRx;
+using UniRx.Toolkit;
+using UnityEngine;
+
+public class OrcSecurer : SingletonMonoBehaviour&lt;OrcSecurer&gt;
+{
+    [SerializeField] private Animator _masterAnimator;
+    [SerializeField] private AnimatorSynchronizer _orcPrefab;
+
+    private const int AppearCount = 20;
+    public readonly Subject&lt;(Vector3, int, float)&gt; MasterInfo = new Subject&lt;(Vector3, int, float)&gt;();
+
+    private Vector3 _masterStartPosition;
+
+    void Start()
+    {
+        _masterStartPosition = _masterAnimator.rootPosition;
+
+        Observable.EveryFixedUpdate().TakeUntilDestroy(_masterAnimator.gameObject).Subscribe(l =&gt;
+        {
+            var currentDiff = _masterAnimator.rootPosition - _masterStartPosition;
+            var currentState = _masterAnimator.GetCurrentAnimatorStateInfo(0);
+
+            MasterInfo.OnNext((currentDiff, currentState.fullPathHash, currentState.normalizedTime));
+        });
+
+        var currentAppearList = new List&lt;AnimatorSynchronizer&gt;(AppearCount);
+        var orcPool = new OrcPool(_orcPrefab, this.transform);
+
+        for (var count = 0; count &lt; AppearCount; count++)
+        {
+            var orc = orcPool.Rent();
+            orc.Ready();
+            currentAppearList.Add(orc);
+        }
+
+        Observable.Interval(TimeSpan.FromMilliseconds(400)).TakeUntilDestroy(this).Subscribe(
+            l =&gt;
+            {
+                if (UnityEngine.Random.Range(0, 2) == 0 &amp;&amp; currentAppearList.Count &lt; AppearCount * 2)
+                {
+                    var orc = orcPool.Rent();
+                    orc.Ready();
+                    currentAppearList.Add(orc);
+                    return;
+                }
+
+                var index = UnityEngine.Random.Range(0, currentAppearList.Count);
+                var removeOrc = currentAppearList[index];
+                currentAppearList.RemoveAt(index);
+                orcPool.Return(removeOrc);
+            },
+            () =&gt; { orcPool.Dispose(); });
+    }
+
+    private class OrcPool : ObjectPool&lt;AnimatorSynchronizer&gt;
+    {
+        private readonly AnimatorSynchronizer _prefab;
+        private readonly Transform _parent;
+
+        public OrcPool(AnimatorSynchronizer prefab, Transform parent)
+        {
+            _prefab = prefab;
+            _parent = parent;
+        }
+
+        protected override AnimatorSynchronizer CreateInstance()
+        {
+            return GameObject.Instantiate(_prefab, _parent);
+        }
+
+        protected override void OnBeforeRent(AnimatorSynchronizer instance)
+        {
+            instance.gameObject.transform.position = new Vector3(0, -10, 0);
+            base.OnBeforeRent(instance);
+        }
+
+        protected override void OnBeforeReturn(AnimatorSynchronizer instance)
+        {
+            base.OnBeforeReturn(instance);
+            instance.gameObject.transform.position = new Vector3(0, -10, 0);
+        }
+    }
+}
+

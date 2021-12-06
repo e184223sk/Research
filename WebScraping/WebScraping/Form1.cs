@@ -21,7 +21,7 @@ namespace WebScraping
         public PerfomanceMode _mode = PerfomanceMode.Test;
 
         ExclusionProgress form2;
-
+        DataSetEditor _datasetEditor;
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool AllocConsole();
@@ -34,12 +34,14 @@ namespace WebScraping
             this.Text = "Pagescraper  < TestMode >";
 
             form2 = new ExclusionProgress();
+           // _datasetEditor = new DataSetEditor();
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
 
             form2.Dispose();
+            
         }
 
 
@@ -282,7 +284,7 @@ namespace WebScraping
             {
                 form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + htmls.Length.ToString();
                 form2.label1.Update();
-                sentence += scraper.GetSentence( File.ReadAllText(html));
+                sentence += scraper.GetSentence(File.ReadAllText(html));
             }
 
             using (StreamWriter sw = new StreamWriter(save_path))
@@ -296,7 +298,7 @@ namespace WebScraping
 
         }
 
-        
+
         WebClient wc = new WebClient();
         private void downloadHTMLSToolStripMenuItem_Click(object sender, EventArgs e)
         {
@@ -399,6 +401,69 @@ namespace WebScraping
         }*/
         #endregion
 
+        private void seperateProgramsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string[] htmls = System.IO.Directory.GetFiles(@"C:\Users\konolab\Desktop\Research\url_Scraping\qiita\html", "*", SearchOption.AllDirectories);
+            int count = 0;
+            PageScraper scraper = new PageScraper();
+            form2.progressBar1.Minimum = 0;
+            form2.progressBar1.Maximum = htmls.Length;
+            form2.Text = "Creating...";
+            form2.Show();
+            foreach (var h in htmls)
+            {
+
+                var html = File.ReadAllText(h);
+                var programs = scraper.GetCode(html);
+                var title = scraper.GetTitle(html);
+                var sentence = scraper.GetSentence(html);
+
+                if (programs == "") continue;
+                var code = programs.Split(new string[] { ",,," }, StringSplitOptions.RemoveEmptyEntries);
+                 
+                //title = title.Replace("\\", "").Replace("/", "").Replace(":", "").Replace("*", "").Replace("?", "").Replace("\"", "").Replace("<", "").Replace(">", "").Replace("|", "").Replace(".","").Trim();
+                string tmp_path = @"C:\Users\konolab\Desktop\Research\DATA\" + String.Format("html_{0:0000}", count++);
+                 
+                Directory.CreateDirectory(tmp_path);
+                using (StreamWriter sw = new StreamWriter(tmp_path + "\\HTML.html"))
+                {
+                    sw.WriteLine(html);
+                }
+
+                try
+                {
+                    for (int i = 0; i < code.Length - 1; i++)
+                    {
+                        //プログラムごとに書き出し
+                        using (StreamWriter sw = new StreamWriter(tmp_path + "\\program" + String.Format("_{0:00}", i) + ".txt"))
+                        {
+                            sw.WriteLine(code[i]);
+                        }
+                    }
+                    using (StreamWriter sw = new StreamWriter(tmp_path + "\\sentence.txt"))
+                    {
+                        sw.WriteLine(sentence);
+                    }
+                }
+                catch { }
+                form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + htmls.Length.ToString();
+                form2.label1.Update();
+            }
+
+            form2.progressBar1.Value = 0;
+
+            form2.Close();
+        }
+
+        private void dataSetEditorToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            OpenDataSetEditor();
+        }
+        private void OpenDataSetEditor()
+        {
+            _datasetEditor = new DataSetEditor();
+            _datasetEditor.Show();
+        }
     }
 
     public enum PerfomanceMode

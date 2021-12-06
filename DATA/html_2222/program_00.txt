@@ -1,0 +1,158 @@
+
+using System;
+using System.Drawing;
+//using System.Collections.Generic;
+//using System.Reflection;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+using Excel = Microsoft.Office.Interop.Excel;
+//using Microsoft.Office.Core;
+
+class ExcelAutoshapeTest : Form
+{
+    System.Windows.Forms.Timer timer;
+    TextBox txtName;
+    TextBox txtContent;
+    Button btnStartTryGet;
+    dynamic _oShape;
+    bool _updatedByProgram;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void DumpTextOfActiveSheet()
+    {
+        var oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+
+        var oSheet = (Excel.Worksheet)oExcelApp.ActiveWorkbook.ActiveSheet;
+
+        var oShapes = (Excel.Shapes)oSheet.Shapes;
+        foreach ( Excel.Shape oShape in oShapes ) {
+            Console.WriteLine(oShape.Type);
+            if (oShape.Type == Microsoft.Office.Core.MsoShapeType.msoAutoShape) {
+                Console.WriteLine(oShape.AutoShapeType);
+                try {
+                    dynamic oTextFrame = oShape.TextFrame;
+                    Console.WriteLine(oTextFrame.Characters.Text);
+                }
+                catch(Microsoft.CSharp.RuntimeBinder.RuntimeBinderException) {
+                    //Console.WriteLine(e);
+                }
+                catch(COMException) {
+                    //Console.WriteLine(e);
+                }
+            }
+            //oTextFrame.Characters.Text = "bbb";
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void TryGetActiveAutoShape()
+    {
+        var oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+
+        dynamic t = oExcelApp.Selection;
+
+        try {
+            _updatedByProgram = true;
+            _oShape = null;
+            txtContent.Text = Regex.Replace(t.Characters.Text, @"\n", "\r\n", RegexOptions.Multiline);
+            txtName.Text = t.Name;
+            _oShape = t;
+        }
+        catch(Exception e) {
+            if (e is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException ||
+                e is COMException ) {  // Note: C#6以降なら when を使ってもう少しきれいに書ける
+
+                _oShape = null;
+                txtName.Text = "";
+                txtContent.Text = "";
+                // もみ消す
+                return;
+            }
+            throw e;
+        }
+        finally {
+            _updatedByProgram = false;
+        }
+    }
+
+    void UpdateExcelAutoShape()
+    {
+        if ( _oShape != null ) {
+            string s = Regex.Replace(txtContent.Text, @"\r\n", "\n", RegexOptions.Multiline);
+            _oShape.Characters.Text = s;
+        }
+    }
+
+
+    ExcelAutoshapeTest()
+    {
+        _oShape = null;
+
+        Controls.Add(txtName = new TextBox(){
+            Location = new Point(0,0),
+            Width = 150,
+            ReadOnly = true
+        });
+
+
+        Controls.Add(btnStartTryGet = new Button(){
+            Text = "Get AutoShape",
+            Location = new Point(180, 0),
+            Width = 100
+        });
+        btnStartTryGet.Click += (s,e)=&gt;{
+            if (timer.Enabled) {
+                ((Button)s).Text="Get AutoShape";
+                txtContent.ReadOnly = false;
+                timer.Stop();
+            }
+            else {
+                ((Button)s).Text="Stop/Fix";
+                txtContent.ReadOnly = true;
+                timer.Start();
+            }
+        };
+
+
+        Controls.Add(txtContent = new TextBox(){
+            Location = new Point(0,30),
+            ScrollBars = ScrollBars.Both,
+            Multiline = true,
+            WordWrap = false
+        });
+        txtContent.TextChanged += (s,e)=&gt;{if(!_updatedByProgram){UpdateExcelAutoShape();}};
+
+
+        Load      += (s,e)=&gt;{MyResize();};
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 1000;
+        timer.Tick += (s,e)=&gt;{
+            TryGetActiveAutoShape();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        };
+    }
+
+    void MyResize()
+    {
+        int w = ClientSize.Width;
+        int h = ClientSize.Height - txtContent.Top;
+        if(w&lt;50){w=50;}
+        if(h&lt;50){h=50;}
+        txtContent.Size = new Size(w,h);
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        //DumpTextOfActiveSheet();
+        Application.Run(new ExcelAutoshapeTest());
+    }
+}
+

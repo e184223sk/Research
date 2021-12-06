@@ -1,0 +1,38 @@
+
+
+    public class DeepInterceptor : Interceptor
+    {
+
+        public bool DeepIntercepterEnabled { get; protected set; }
+
+        public override AsyncClientStreamingCall&lt;TRequest, TResponse&gt; AsyncClientStreamingCall&lt;TRequest, TResponse&gt;(
+            ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , AsyncClientStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            var call = base.AsyncClientStreamingCall(context, continuation);
+
+            if (!DeepIntercepterEnabled) { return call; }
+
+            // ストリームライターをラップ
+            IClientStreamWriter&lt;TRequest&gt; streamWriter = CreateClientStreamWriter(call.RequestStream, context);
+
+            // Callオブジェクトのメソッドをラップ
+            Task&lt;TResponse&gt; getResponse = InterceptGetResponse(call.ResponseAsync, context);
+            Task&lt;Metadata&gt; getHeader = InterceptGetResponseHeaders(call.ResponseHeadersAsync, context);
+            Func&lt;Status&gt; getStatus = () =&gt; { return InterceptGetStatus(call.GetStatus, context); };
+            Func&lt;Metadata&gt; getTrailer = () =&gt; { return InterceptGetTrailers(call.GetTrailers, context); };
+
+            // ラッパーを内包したCallオブジェクトを返す
+            return new AsyncClientStreamingCall&lt;TRequest, TResponse&gt;(
+                streamWriter
+                , getResponse
+                , getHeader
+                , getStatus
+                , getTrailer
+                , call.Dispose
+            );
+        }
+
+    }
+
+

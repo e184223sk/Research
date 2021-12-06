@@ -1,0 +1,127 @@
+
+using System;
+using System.Collections.Generic;
+using System.Windows;
+
+namespace WpfApplication1
+{
+    /// &lt;summary&gt;
+    /// チェーン可能なメッセージ ボックスを表示します。
+    /// &lt;/summary&gt;
+    public sealed class ChainableMessageBox
+    {
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンに応じて実行する処理を管理します。
+        /// &lt;/summary&gt;
+        private Dictionary&lt;MessageBoxResult, Action&gt; _acts = new Dictionary&lt;MessageBoxResult, Action&gt;();
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスを表示する関数を取得します。
+        /// &lt;/summary&gt;
+        private Func&lt;MessageBoxResult&gt; ShowMessageBox { get; }
+
+        private ChainableMessageBox(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon)
+        {
+            // メッセージ ボックスを表示する関数を設定
+            ShowMessageBox = () =&gt; MessageBox.Show(messageBoxText, caption, button, icon);
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンに応じて実行する処理を設定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="result"&gt;メッセージ ボックスで押下されたボタン&lt;/param&gt;
+        /// &lt;param name="act"&gt;実行する処理&lt;/param&gt;
+        private void SetAct(MessageBoxResult result, Action act)
+        {
+            if (_acts.ContainsKey(result))
+                _acts[result] += act;
+            else
+                _acts.Add(result, act);
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンが OK のときに実行する処理を設定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="act"&gt;実行する処理&lt;/param&gt;
+        /// &lt;returns&gt;ChainableMessageBox&lt;/returns&gt;
+        public ChainableMessageBox OK(Action act)
+        {
+            SetAct(MessageBoxResult.OK, act);
+            return this;
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンが Yes のときに実行する処理を設定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="act"&gt;実行する処理&lt;/param&gt;
+        /// &lt;returns&gt;ChainableMessageBox&lt;/returns&gt;
+        public ChainableMessageBox Yes(Action act)
+        {
+            SetAct(MessageBoxResult.Yes, act);
+            return this;
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンが No のときに実行する処理を設定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="act"&gt;実行する処理&lt;/param&gt;
+        /// &lt;returns&gt;ChainableMessageBox&lt;/returns&gt;
+        public ChainableMessageBox No(Action act)
+        {
+            SetAct(MessageBoxResult.No, act);
+            return this;
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスで押下されたボタンが Cancel のときに実行する処理を設定します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="act"&gt;実行する処理&lt;/param&gt;
+        /// &lt;returns&gt;ChainableMessageBox&lt;/returns&gt;
+        public ChainableMessageBox Cancel(Action act)
+        {
+            SetAct(MessageBoxResult.Cancel, act);
+            return this;
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスを表示します。
+        /// &lt;/summary&gt;
+        public void Show()
+        {
+            // メッセージボックスを表示して結果を受取る
+            var result = ShowMessageBox();
+
+            // 存在しないかあっても null の場合は何もしない
+            if (!_acts.ContainsKey(result) || _acts[result] == null)
+                return;
+
+            // 実行
+            _acts[result]();
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="messageBoxText"&gt;表示するテキスト&lt;/param&gt;
+        /// &lt;param name="caption"&gt;表示するタイトル バー キャプション&lt;/param&gt;
+        /// &lt;param name="button"&gt;表示するボタン&lt;/param&gt;
+        /// &lt;param name="icon"&gt;表示するアイコン&lt;/param&gt;
+        /// &lt;returns&gt;ChainableMessageBox&lt;/returns&gt;
+        public static ChainableMessageBox Create(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon)
+        {
+            return new ChainableMessageBox(messageBoxText, caption, button, icon);
+        }
+
+        /// &lt;summary&gt;
+        /// メッセージ ボックスを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="button"&gt;表示するボタン&lt;/param&gt;
+        /// &lt;param name="icon"&gt;表示するアイコン&lt;/param&gt;
+        /// &lt;returns&gt;表示するテキストとタイトル バー キャプションを引数として ChainableMessageBox を返す System.Func&lt;/returns&gt;
+        public static Func&lt;string, string, ChainableMessageBox&gt; Create(MessageBoxButton button, MessageBoxImage icon)
+        {
+            return (msg, cap) =&gt; new ChainableMessageBox(msg, cap, button, icon);
+        }
+    }
+}
+

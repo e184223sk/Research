@@ -1,0 +1,490 @@
+
+#define CALC_LOG_OUTPUT
+
+using System;
+using System.Text.RegularExpressions;
+
+#if CALC_LOG_OUTPUT
+using UnityEngine;
+#endif
+
+namespace MyEngine
+{
+    /// &lt;summary&gt;
+    /// 文字列内の数式を計算する静的メソッドを提供します
+    /// &lt;/summary&gt;
+    public static class StringCalculation
+    {
+
+#if CALC_LOG_OUTPUT
+        // Debug用変数
+
+        private static string _logText = "";
+        private static string _indent = "";
+        private static string _procFuncName = "";
+#endif
+
+        /// &lt;summary&gt;
+        /// 有効桁数
+        /// &lt;/summary&gt;
+        public const int SIGNIFICANT_DIGIT = 16;
+
+        /// &lt;summary&gt;
+        /// 小数点も取得する数値を表すPattern
+        /// &lt;/summary&gt;
+        private const string DECIMAL = "[\\+\\-]?\\d+(?:\\.\\d+)?";
+
+        /// &lt;summary&gt;
+        /// 文字列を計算して結果を返す
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static string Calculation(string calcStr)
+        {
+            string result = "";
+
+#if CALC_LOG_OUTPUT
+            // Log
+            CalculationLog("入力 : " + calcStr + "\n");
+#endif
+
+            // 対象文字列の半角スペースを削除
+            result = Regex.Replace(calcStr, @"\s", "");
+
+#if CALC_LOG_OUTPUT
+            // Log
+            CalculationLog("数式 : " + result + "\n");
+#endif
+
+            // +-の符号重複を整理
+            result = OperatorOrganize(result);
+
+            // 余分な括弧を整理する
+            result = BracketsOrganize(result);
+
+            // 関数の計算
+            result = ProcFunction(result);
+
+            // ()内を計算
+            result = CalculationBrackets(result);
+
+            // カッコが全て計算された後の通常計算
+            result = NormalCalculation(result);
+
+            // 先頭の + は削除する
+            result = Regex.Replace(result, @"^\+", "");
+
+#if CALC_LOG_OUTPUT
+            // Log
+            CalculationLog("結果 : " + result + "\n");
+            Debug.Log(_logText);
+            _logText = string.Empty;
+#endif
+
+            return result;
+        }
+
+        /// &lt;summary&gt;
+        /// + または - 演算子の重複を解消する
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string OperatorOrganize(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                // + または - が２個連続している箇所を検出
+                string pattern = @"[\+\-]{2}";
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    string result;
+
+                    // ２つ続いている演算子を取得
+                    Match match = Regex.Match(baseMatch.Value, @"([\+\-])([\+\-])");
+
+                    result = (match.Result("$1") == match.Result("$2")) ? "+" : "-";
+
+                    return result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// 余計な括弧をまとめる
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string BracketsOrganize(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                string d = @"[\+\-\*\/]|" + DECIMAL;
+                string pattern = @"\({2}((?:" + d + @"|\((?:" + d + @")+\))+)\){2}";
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    string result = baseMatch.Result("($1)");
+                    return result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// 関数の計算
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string ProcFunction(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                // Sin() や Cos() など関数の形に一致
+                string d = @"[\+\-\*\/]|" + DECIMAL;
+                string d1 = d + @"\,?";
+                string d2 = @"\((?:" + d + @")+\)\,?";
+                string f = @"[a-zA-Z_]\w+";
+                string pattern = "(" + f + @")\(((?:" + d1 + "|" + d2 + @")*)\)";
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    // 後ろで正規表現を使用するので、$1が消える前に関数名を取得しておく
+                    string func = baseMatch.Result("$1");
+
+                    // 引数をカンマ区切りで取得し、それぞれを計算する
+                    string[] args = baseMatch.Result("$2").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+#if CALC_LOG_OUTPUT
+                    string dArg = "";
+#endif
+                    for (int i = 0; i &lt; args.Length; i++)
+                    {
+#if CALC_LOG_OUTPUT
+                        CalculationLog("\n");
+                        CalculationLog("  # " + args[i] + "\n");
+#endif
+                        args[i] = CalculationBrackets(args[i]);
+                        args[i] = NormalCalculation(args[i]);
+
+#if CALC_LOG_OUTPUT
+                        dArg += args[i] + ",";
+#endif
+                    }
+
+                    string result = StringCalculationFunctions.InvokeMethod(func, args);
+
+#if CALC_LOG_OUTPUT
+                    dArg = dArg.Substring(0, dArg.Length - 1);
+                    CalculationLog("\n");
+                    CalculationLog("--：" + func + "(" + dArg + ") =&gt; " + result + "\n");
+                    CalculationLog("\n");
+#endif
+
+                    // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+                    result = result.ToDouble().ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+                    return result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// カッコ付きの箇所の計算
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string CalculationBrackets(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                // 一番内側の括弧に一致
+                string d = DECIMAL;
+                string pattern = @"\(((?:[\-\+\*\/]|" + d + @")+)\)";
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    string result = baseMatch.Result("$1");
+                    result = OperatorOrganize(result);
+                    result = NormalCalculation(result);
+
+                    return result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// カッコなしの通常の計算を行う
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string NormalCalculation(string calcStr)
+        {
+            // 掛け算と割り算
+            string result = MultiDiv(calcStr);
+
+            // 足し算と引き算
+            result = AddSub(result);
+
+            return result;
+        }
+
+        /// &lt;summary&gt;
+        ///  * または / の計算を行う
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string MultiDiv(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                // 掛け算、または割り算に一致
+                string d = DECIMAL;
+                string pattern = d + @"\*" + d + "|" + d + @"\/" + d;
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    double nResult = 0;
+
+                    // 演算子で分割し、計算
+                    Match match = Regex.Match(baseMatch.Value, @"\*|\/");
+
+                    string l = match.Result("$`");
+                    string r = match.Result("$'");
+
+                    if (match.Value == "*")
+                    {
+                        nResult = (l.ToDouble() * r.ToDouble());
+                    }
+                    else if (match.Value == "/")
+                    {
+                        nResult = (l.ToDouble() / r.ToDouble());
+                    }
+                    else
+                    {
+                        nResult = match.Value.ToDouble();
+                    }
+
+                    // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+                    string result = nResult.ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+                    // 計算結果が + の場合、前方の文字と結合する際に符号なしでくっついてしまう※ので、符号を追加
+                    // ※この関数の結果が10、前方の文字が123だとした場合、123 10 =&gt; 12310 になってしまう。
+                    // 　+ を記述しておけば、 123 +10 =&gt; 123+10 と正しい数式の形に戻せる。
+                    string prefix = nResult &gt;= 0 ? "+" : "";
+
+                    return prefix + result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// + または - の計算を行う
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;文字列の計算式&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string AddSub(string calcStr)
+        {
+#if CALC_LOG_OUTPUT
+            return IndividualProcBase(GetHostFuncName(), () =&gt;
+#endif
+            {
+                // 足し算、または引き算に一致
+                string d = DECIMAL;
+                string pattern = d + @"\+" + d + "|" + d + @"\-" + d;
+
+                return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+                {
+                    double nResult = 0;
+
+                    // 演算子で分割し、計算
+                    Match match = Regex.Match(baseMatch.Value, @"(" + d + @")([\+\-])(" + d + @")");
+                    string l = match.Result("$1");
+                    string r = match.Result("$3");
+                    string op = match.Result("$2");
+
+                    if (op == "+")
+                    {
+                        nResult = (l.ToDouble() + r.ToDouble());
+                    }
+                    else if (op == "-")
+                    {
+                        nResult = (l.ToDouble() - r.ToDouble());
+                    }
+                    else
+                    {
+                        nResult = match.Value.ToDouble();
+                    }
+
+                    // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+                    string result = nResult.ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+                    return result;
+                });
+            }
+#if CALC_LOG_OUTPUT
+            );
+#endif
+        }
+
+        /// &lt;summary&gt;
+        /// 各種計算用メソッドのベース
+        /// &lt;/summary&gt;
+        /// &lt;param name="calcStr"&gt;文字列の数式&lt;/param&gt;
+        /// &lt;param name="pattern"&gt;正規表現パターン&lt;/param&gt;
+        /// &lt;param name="callback"&gt;正規表現にマッチした際に実際に処理を行うコールバック&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string CalculationBase(string calcStr, string pattern, Func&lt;Match, string&gt; callback, Match argMatch = null)
+        {
+#if CALC_LOG_OUTPUT
+            DbgInitProc();
+#endif
+
+            // 指定したパターンに一致する
+            Match match = argMatch ?? Regex.Match(calcStr, pattern);
+            int matchNum = match.Groups.Count - 1;
+            if (match.Success)
+            {
+                // あとで結合するので、計算する文字列の前後を取得しておく
+                string pre = match.Result("$`");
+                string suf = match.Result("$'");
+
+#if CALC_LOG_OUTPUT
+                string mat = match.Result("$&amp;");
+                // マッチ結果を表示
+                CalculationLog("  match : " + pre + "  [" + mat + "]  " + suf + "\n");
+                for (int i = 1; i &lt;= matchNum; i++)
+                {
+                    CalculationLog("  ~ $" + (i) + " = " + match.Groups[i] + "\n");
+                }
+#endif
+
+                // 計算はコールバックに任せる
+                string result = callback(match);
+
+                // 計算結果を元の場所に結合
+                result = string.Format("{0}{1}{2}", pre, result, suf);
+
+                // まだ計算するべき数式があるかチェック
+                Match nMatch = Regex.Match(result, pattern);
+                if (nMatch.Success)
+                {
+#if CALC_LOG_OUTPUT
+                    CalculationLog("  ● &gt;&gt;&gt; more " + _procFuncName + " : " + result + "\n");
+#endif
+                    result = CalculationBase(result, pattern, callback, nMatch);
+
+#if CALC_LOG_OUTPUT
+                    DbgEndProc();
+#endif
+                }
+                else
+                {
+#if CALC_LOG_OUTPUT
+                    DbgEndProc();
+                    CalculationLog("  &gt; end : " + result + "\n");
+#endif
+                }
+
+                return result;
+            }
+
+#if CALC_LOG_OUTPUT
+            DbgEndProc();
+#endif
+
+            return calcStr;
+        }
+
+#if CALC_LOG_OUTPUT
+        //====================================================================================================
+        // debug デバッグ出力用
+        //====================================================================================================
+
+        /// &lt;summary&gt;
+        /// 計算のログを出力する
+        /// &lt;/summary&gt;
+        /// &lt;param name="log"&gt;&lt;/param&gt;
+        private static void CalculationLog(string log)
+        {
+            _logText += _indent + log;
+        }
+
+        /// &lt;summary&gt;
+        /// 呼び出し元のメソッド名を取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="callerFrameIndex"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string GetHostFuncName(int callerFrameIndex = 1)
+        {
+            System.Diagnostics.StackFrame callerFrame = new System.Diagnostics.StackFrame(callerFrameIndex);
+            System.Reflection.MethodBase callerMethod = callerFrame.GetMethod();
+            return callerMethod == null ? "" : callerMethod.Name;
+        }
+
+        /// &lt;summary&gt;
+        /// 計算開始
+        /// &lt;/summary&gt;
+        static void DbgInitProc()
+        {
+            string host_func_name = GetHostFuncName(3);
+            if (host_func_name != "CalculationBase")
+            {
+                CalculationLog("  ■ ---=== " + _procFuncName + " ===---\n");
+            }
+            _indent += "  |";
+        }
+
+        /// &lt;summary&gt;
+        /// 計算終了
+        /// &lt;/summary&gt;
+        static void DbgEndProc()
+        {
+            _indent = _indent.Substring(0, _indent.Length - 3);
+        }
+
+        /// &lt;summary&gt;
+        /// debug デバッグ出力用
+        /// &lt;/summary&gt;
+        /// &lt;param name="funcName"&gt;&lt;/param&gt;
+        /// &lt;param name="callback"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string IndividualProcBase(string funcName, Func&lt;string&gt; callback)
+        {
+            string prevProcFuncName = _procFuncName;
+            _procFuncName = funcName;
+
+            string result = callback();
+
+            _procFuncName = prevProcFuncName;
+
+            return result;
+        }
+#endif
+    }
+}
+

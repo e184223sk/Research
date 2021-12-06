@@ -1,0 +1,46 @@
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+
+namespace nodeIpc
+{
+    public class Entry
+    {
+        static void Main(string[] args)
+        {
+            // サーバーの作成
+            using (var server = new NamedPipeServerStream("tmp-app.world", PipeDirection.InOut))
+            {
+                Console.WriteLine("waiting for client connection...");
+                // クライアント接続待ち
+                server.WaitForConnection();
+
+                Console.WriteLine("connected!");
+
+                // 受信
+                char c;
+                string message = string.Empty;
+
+                while ((c = (char)server.ReadByte()) != '\f')
+                {
+                    message += c;
+                }
+
+                // typeとdataが設定されたJSON文字列が送信されてくる
+                Console.WriteLine(message);
+
+                var writer = new StreamWriter(server);
+
+                // 返信
+                var data = "pong";
+                // node-ipcが解釈できる形のJSON文字列 + \fを返す。
+                writer.Write("{ \"type\": \"app.message\", \"data\": \"" + data + "\" }" + "\f");
+                writer.Flush();
+                // クライアント側が送信メッセージを読み終わるまで待つ
+                server.WaitForPipeDrain();
+            }
+        }
+    }
+}
+

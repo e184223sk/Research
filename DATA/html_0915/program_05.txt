@@ -1,0 +1,52 @@
+
+
+  try
+            {
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    httpClient.DefaultRequestHeaders.Add("X-Shopify-Access-Token", store.AccessToken);
+
+                    var requestUrl = "https://" + storeUrl + endPoint + "?limit=250&amp;fields=email,first_name,last_name";
+
+                    if(!string.IsNullOrEmpty(pageInfo))
+                    {
+                        requestUrl += "&amp;page_info=" + pageInfo;
+                    }
+
+                    using (var response = await httpClient.GetAsync(requestUrl))
+                    {
+                        string apiResponse = await response.Content.ReadAsStringAsync();
+
+                        // Try and get link property of the header
+                        var apiHeaderCollectionLinkKeyValuePairs = from l in response.Headers where l.Key == "Link" select l;
+                        var apiHeaderCollectionLinkKeyValuePairString = "";
+
+                        if (apiHeaderCollectionLinkKeyValuePairs.Any())
+                        {
+                            // Insert page_info (if any)
+                            apiHeaderCollectionLinkKeyValuePairString = apiHeaderCollectionLinkKeyValuePairs.FirstOrDefault().Value.First();
+                        }
+
+                        var rawLog = new Dictionary&lt;string, string&gt;();
+                        rawLog.Add("ApiResponse", apiResponse);
+
+                        _telemetry.TrackEvent("customer_saved_searches.json", rawLog);
+
+                        ShopifyCustomerSavedSearcheCustomers = JsonConvert.DeserializeObject&lt;ShopifyCustomerSavedSearcheCustomers&gt;(apiResponse);
+
+                        // Append page_info
+                        ShopifyCustomerSavedSearcheCustomers.link = apiHeaderCollectionLinkKeyValuePairString;
+                    }
+                }
+
+                return ShopifyCustomerSavedSearcheCustomers;
+            }
+            catch (Exception e)
+            {
+                var log = new Dictionary&lt;string, string&gt;();
+                log.Add("Message", e.Message);
+
+                _telemetry.TrackEvent("GetShopifyCustomerSavedSearchesAsync", log);
+            }
+

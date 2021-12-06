@@ -1,0 +1,99 @@
+
+// SimilarWordClient.cs
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+
+[Serializable]
+public class SecretJson
+{
+    public string url;
+    public string secret;
+}
+
+[Serializable]
+public class PostData
+{
+    public string word;
+    public int topn;
+}
+
+[Serializable]
+public class SimilarWord
+{
+    public string similar_word;
+    public float similarity;
+}
+
+[Serializable]
+public class SimilarWords
+{
+    public string word;
+    public SimilarWord[] predictions;
+}
+
+
+public class SimilarWordClient : MonoBehaviour
+{
+    public TextAsset secretFile;
+    private string secretString;
+    private SecretJson secretJson;
+    private string similarWordUrl;
+
+    public void Start()
+    {
+        this.secretString = Resources.Load&lt;TextAsset&gt;(this.secretFile.name).ToString();
+        this.secretJson = SecretJson.Deserialize(this.secretString);
+        this.similarWordUrl = $"{this.secretJson.url}/similar-word/";
+    }
+
+    public IEnumerator SimilarWordAPI(string word, int topn, Action&lt;SimilarWords&gt; callback)
+    {
+        using (var request = new UnityWebRequest(this.similarWordUrl, "POST"))
+        {
+            Debug.Log($"Request {word} for {topn}");
+            PostData postData = new PostData();
+            postData.word = word;
+            postData.topn = topn;
+            string postJson = PostData.Serialize(postData);
+            byte[] byteData = System.Text.Encoding.UTF8.GetBytes(postJson);
+
+            request.uploadHandler = (UploadHandler)new UploadHandlerRaw(byteData);
+            request.downloadHandler = (DownloadHandler)new DownloadHandlerBuffer();
+            request.SetRequestHeader("accept", "application/json");
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("X-API-KEY", this.secretJson.secret);
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.ConnectionError || request.result == UnityWebRequest.Result.ProtocolError)
+            {
+                Debug.Log("Error POST request");
+                Debug.Log(request.error);
+            }
+            else
+            {
+                Debug.Log($"status code [{request.responseCode}]");
+                if (request.responseCode==200)
+                {
+                    Debug.Log("POST request succeeded");
+                    string json = request.downloadHandler.text;
+                    SimilarWords similarWords = SimilarWords.Deserialize(json);
+                    callback(similarWords);
+                }
+                else
+                {
+                    Debug.Log("POST request failed");
+                }
+            }
+        }
+    }
+
+    public void Update()
+    {
+
+    }
+}
+

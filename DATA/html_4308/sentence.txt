@@ -1,0 +1,38 @@
+
+※ペンタブで塗っています。以前Remove.bgというサービスを使って手軽にお絵かきアプリを実現しましたが、無料プランだと回数制限があったり、性能の無駄遣い感があったため、自前でC#を使ってAzureFunctions上にAPIを作ってみました。
+同じものを作るのも面白くないため、何か考えた結果ぬり絵アプリになりました。
+PowerAppsにない機能は外部のAPI/自前のAPIを使って実現できるのが素晴らしいですね。工夫が必要な部分だけ説明してみます。
+APIの呼び出しは手軽にPower Automateを経由してHTTPでAzure Functionsを呼び出しました。
+HTTPを利用するためコミュニティプランか有償プランが必要です。
+for M365プラン内でやりたい場合、Dataverse for Teams環境からAPI Managementを経由して呼び出します。
+覚え書き程度の糞記事ですが→https://qiita.com/Rambosan/items/bea833527d97c8ec6c4eペン入力の画像を下絵とズレないようにするためには、下絵画像とペン入力を同じ縦横比になるよう調整します。
+ペン入力から出力される画像サイズはコントロールのサイズとなりますので、これを利用します。SharePointリストから下絵を読み込みギャラリーで表示します
+ギャラリーのOnClickでぬり絵に移動、画面引数で画像、縦、横を渡します。画像コントロールとペン入力コントロールを組み合わせて、塗り絵をしているように見せかけます。
+画像の大きさは下絵によってバラバラなので、選んだ画像のサイズによって2つコントロールの大きさを変更してあげます。
+ペン入力から出力される画像サイズはコントロールのサイズとなります。これを画像コントロールに合わせて調整してあげることで同じ縦横比で画像を作ることができます。①画面のOnVisible。ぬり絵画面の最大サイズを設定してあげて、縦横比を維持したまま画像サイズを決定します。
+Width、Heightは塗り絵選択画面から受け取った画面変数で、下絵画像のサイズが入っています。②画像コントロール
+Imageプロパティに画面引数で受け取ったImageをセットします。
+Width、HeightはOnVisibleで計算した_ImageWidth、_ImageHeightを設定します。③ペン入力
+ペン入力ツールバーの✕ボタンは、塗り絵中に押してしまうと発狂するため、四角アイコンで隠しておきます。
+※消しゴムアイコンでResetする
+Widthは_ImageWidth、Heightは_ImageHeight+60を設定。
+この60pxはツールバーの領域です。　ペン入力から出力される画像はツールバー部分も含まれますが、後のAPIで下60pxはクロップします。④保存ボタン
+ここで、この後のPowerAutomateを呼び出して画像を合成します。
+その後保存画面に移動させます。APIから受け取った合成後の画像を表示し、名前を入力して保存できる画面です。後になりますが、MergedNurieImage.response.dataには画像のDataUriが入るので、
+画像コントロールのImageに設定します。後は作品名の入力欄を用意し、保存ボタンクリックで画像をドキュメントライブラリに保存するフローを実行します。
+ギャラリーコントロールでドキュメントライブラリを表示するだけです。①画像を合成するフロー
+比較的単純です全体
+HTTP部分(URLにはAzureFunctionのURIを入れます。(Functionキー付きの
+②画像の保存フロー
+こちらのテンプレートを使って改造します。
+PowerAppsからファイル名とファイルコンテンツを受け取ってドキュメントライブラリに保存するだけです。
+https://japan.flow.microsoft.com/ja-jp/galleries/public/templates/fe971b57c1994482b565ccfce936900d/upload-a-photo-to-sharepoint-from-power-apps/C#で作った動くだけのKUSOコードです。バリデーションやらでコード全体は長くなりましたが、メイン関数はこれだけです。
+ペン入力の画像は既に背景が透過なので、画像の合成はGraphicsを使った単純な合成処理で済みます。HttpRequestのバリデーション
+https://tsuyoshiushio.medium.com/how-to-validate-request-for-azure-functions-e6488c028a41
+塗り絵素材はぬりえパークさんからいただきました。
+https://nurie-park.com/
+Azure Functions
+https://docs.microsoft.com/ja-jp/azure/azure-functions/functions-create-your-first-function-visual-studioPower Appsで不足する機能をAzure Functionsを使って強化しました。
+撮影した画像に描画するといった要件は現場系だとあると思うので、ペン入力の背景画像を設定できるようになってほしいですね。
+
+

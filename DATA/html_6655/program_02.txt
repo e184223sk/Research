@@ -1,0 +1,177 @@
+
+using System;
+using System.Dynamic;
+using System.Linq;
+using System.Linq.Expressions;
+
+namespace ConsoleSample
+{
+    class MyDynamic : DynamicObject
+    {
+        int _x;
+
+        public MyDynamic(int x)
+        {
+            _x = x;
+        }
+
+        // キャスト
+        public override bool TryConvert(ConvertBinder binder, out object result)
+        {
+            Console.WriteLine($"{nameof(TryConvert)} : {binder.Type}");
+
+            if (binder.Type != typeof(int))
+            {
+                return base.TryConvert(binder, out result);
+            }
+
+            result = _x;
+            return true;
+        }
+
+        // 単項演算
+        public override bool TryUnaryOperation(UnaryOperationBinder binder, out object result)
+        {
+            Console.WriteLine($"{nameof(TryUnaryOperation)} : {binder.Operation}");
+
+            switch (binder.Operation)
+            {
+                case ExpressionType.UnaryPlus:
+
+                    result = _x;
+                    return true;
+
+                default:
+
+                    return base.TryUnaryOperation(binder, out result);
+            }
+        }
+
+        // 二項演算
+        public override bool TryBinaryOperation(BinaryOperationBinder binder, object arg, out object result)
+        {
+            Console.WriteLine($"{nameof(TryBinaryOperation)} : {binder.Operation}");
+
+            switch (binder.Operation)
+            {
+                case ExpressionType.Add:
+
+                    result = _x + (arg as MyDynamic)?._x ?? 0;
+                    return true;
+
+                default:
+
+                    return base.TryBinaryOperation(binder, arg, out result);
+            }
+        }
+
+        // プロパティの get
+        public override bool TryGetMember(GetMemberBinder binder, out object result)
+        {
+            Console.WriteLine($"{nameof(TryGetMember)} : {binder.Name}");
+
+            switch (binder.Name)
+            {
+                case "X":
+
+                    result = _x;
+                    return true;
+
+                default:
+
+                    return base.TryGetMember(binder, out result);
+            }
+        }
+
+        // プロパティの set
+        public override bool TrySetMember(SetMemberBinder binder, object value)
+        {
+            Console.WriteLine($"{nameof(TrySetMember)} : {binder.Name} = {value}");
+
+            switch (binder.Name)
+            {
+                case "X":
+
+                    _x = value is int ? (int)value : 0;
+                    return true;
+
+                default:
+
+                    return base.TrySetMember(binder, value);
+            }
+        }
+
+        // インデクサの get
+        public override bool TryGetIndex(GetIndexBinder binder, object[] indexes, out object result)
+        {
+            Console.WriteLine($"{nameof(TryGetIndex)} : [{indexes.Select(x =&gt; x.ToString()).Aggregate((x, y) =&gt; $"{x}, {y}")}]");
+
+            if (!indexes.All(x =&gt; x is int))
+            {
+                return base.TryGetIndex(binder, indexes, out result);
+            }
+
+            result = indexes.Cast&lt;int&gt;().Aggregate((x, y) =&gt; x + y);
+            return true;
+        }
+
+        // インデクサの set
+        public override bool TrySetIndex(SetIndexBinder binder, object[] indexes, object value)
+        {
+            Console.WriteLine($"{nameof(TrySetIndex)} : [{indexes.Select(x =&gt; x.ToString()).Aggregate((x, y) =&gt; $"{x}, {y}")}] = {value}");
+
+            if (!indexes.All(x =&gt; x is int) &amp;&amp; value is int)
+            {
+                return base.TrySetIndex(binder, indexes, value);
+            }
+
+            _x = indexes.Cast&lt;int&gt;().Aggregate((x, y) =&gt; x + y) + (int)value;
+            return true;
+        }
+
+        // メンバ呼び出し
+        public override bool TryInvokeMember(InvokeMemberBinder binder, object[] args, out object result)
+        {
+            Console.WriteLine($"{nameof(TryInvokeMember)} : {binder.Name}({(args.Length == 0 ? "" : args.Select(x =&gt; x.ToString()).Aggregate((x, y) =&gt; $"{x}, {y}"))})");
+
+            if (!args.All(x =&gt; x is string))
+            {
+                return base.TryInvokeMember(binder, args, out result);
+            }
+
+            result = args.Cast&lt;string&gt;().Aggregate((x, y) =&gt; x + y);
+            return true;
+        }
+
+        // 自身に () をつけて呼び出し
+        public override bool TryInvoke(InvokeBinder binder, object[] args, out object result)
+        {
+            Console.WriteLine($"{nameof(TryInvoke)} : ({(args.Length == 0 ? "" : args.Select(x =&gt; x.ToString()).Aggregate((x, y) =&gt; $"{x}, {y}"))})");
+
+            result = null;
+            return true;
+        }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            dynamic my = new MyDynamic(100);
+
+            Console.WriteLine((int)my);
+            Console.WriteLine(+my);
+            Console.WriteLine(my + my);
+            my.X = 300;
+            Console.WriteLine(my.X);
+            Console.WriteLine(my[1, 2, 3]);
+            my[10, 20] = 30;
+            Console.WriteLine(my.X);
+            Console.WriteLine(my.Func("A", "B", "C"));
+            my();
+
+            Console.ReadLine();
+        }
+    }
+}
+

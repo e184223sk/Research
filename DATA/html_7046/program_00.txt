@@ -1,0 +1,72 @@
+using System;
+using System.Text;
+using SuperSocket.SocketBase;
+using SuperSocket.SocketBase.Config;
+using SuperSocket.SocketEngine;
+
+namespace ServerSample
+{
+    class MyServer
+    {
+        int port;
+        AppServer appServer = null;
+        SessionHandler&lt;AppSession, CloseReason&gt; sessionClosedDelegate;
+        SessionHandler&lt;AppSession&gt; newSessionConnectedDelegate;
+        RequestHandler&lt;AppSession, StringRequestInfo&gt; newRequestReceivedDelegate;
+
+        public MyServer(int port)
+        {
+            this.port = port;
+            this.sessionClosedDelegate = new SessionHandler&lt;AppSession, CloseReason&gt;(sessionClosed);
+            this.newSessionConnectedDelegate = new SessionHandler&lt;AppSession&gt;(newSessionConnected);
+            this.newRequestReceivedDelegate = new RequestHandler&lt;AppSession, StringRequestInfo&gt;(newRequestReceived);
+        }
+
+        public bool open()
+        {
+            close();
+            appServer = new AppServer();
+            appServer.SessionClosed += this.sessionClosedDelegate;
+            appServer.NewSessionConnected += this.newSessionConnectedDelegate;
+            appServer.NewRequestReceived += this.newRequestReceivedDelegate;
+            if (!appServer.Setup(this.port))
+            {
+                return false;
+            }
+            if (!appServer.Start())
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public void close()
+        {
+            if (appServer != null)
+            {
+                appServer.Stop();
+                appServer.SessionClosed -= this.sessionClosedDelegate;
+                appServer.NewSessionConnected -= this.newSessionConnectedDelegate;
+                appServer.NewRequestReceived -= this.newRequestReceivedDelegate;
+                appServer = null;
+            }
+        }
+
+        private void sessionClosed(AppSession session, CloseReason closeReason)
+        {
+            Console.WriteLine("session close:" + session.LocalEndPoint.ToString() + " " + closeReason.ToString());
+        }
+
+        private void newSessionConnected(AppSession session)
+        {
+            Console.WriteLine("session connect:" + session.LocalEndPoint.ToString());
+            session.Send("Welcom");
+        }
+
+        private void newRequestReceived(AppSession session, StringRequestInfo requestInfo)
+        {
+            session.Send("echo:" + requestInfo.Key + " " + requestInfo.Body);
+        }
+    }
+}
+

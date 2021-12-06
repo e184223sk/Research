@@ -1,0 +1,43 @@
+
+using EventStore.Client;
+
+private static readonly IEventDataSerializer Serializer = SampleSerializer.Default;
+
+/// &lt;summary&gt;
+/// 指定されたストリームからコマンドを読み込みます。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TCommand"&gt;コマンドの型&lt;/typeparam&gt;
+/// &lt;param name="streamName"&gt;ストリーム名&lt;/param&gt;
+/// &lt;returns&gt;非同期ストリーム&lt;/returns&gt;
+private IAsyncEnumerable&lt;TCommand&gt; ReadCommandsAsync&lt;TCommand&gt;(string streamName)
+    where TCommand : IEventCommand
+{
+    // 次の読み込み位置を指定する
+    return ReadCommandsAsync&lt;TCommand&gt;(streamName, GetNextStreamPosition(streamName));
+}
+
+/// &lt;summary&gt;
+/// 指定されたストリームからコマンドを読み込みます。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TCommand"&gt;コマンドの型&lt;/typeparam&gt;
+/// &lt;param name="streamName"&gt;ストリーム名&lt;/param&gt;
+/// &lt;param name="startPosition"&gt;読み込み開始位置&lt;/param&gt;
+/// &lt;returns&gt;非同期ストリーム&lt;/returns&gt;
+private async IAsyncEnumerable&lt;TCommand&gt; ReadCommandsAsync&lt;TCommand&gt;(string streamName, StreamPosition startPosition)
+    where TCommand : IEventCommand
+{
+    // 頻繁に書き込みを行うアプリケーションの場合、クライアントの生成と破棄を繰り返さないほうがよいと思われる
+    await using var client = CreateEventStoreClient();
+    await using var stream = client.ReadStreamAsync(Direction.Forwards, streamName, startPosition);
+
+    if (await stream.ReadState == ReadState.Ok)
+    {
+        while (await stream.MoveNextAsync().ConfigureAwait(false))
+        {
+            yield return Serializer.Deserialize&lt;TCommand&gt;(stream.Current.Event.Data);
+            // 最後に読み込んだ位置を格納する
+            LastStreamPosition[streamName] = stream.Current.Event.EventNumber;
+        }
+    }
+}
+

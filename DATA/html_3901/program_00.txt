@@ -1,0 +1,88 @@
+public class DateUtils
+{
+    /// &lt;summary&gt;
+    /// 対象年の指定された曜日に該当する日付を全て取得する。
+    /// &lt;/summary&gt;
+    /// &lt;param name="targetYear"&gt;対象年&lt;/param&gt;
+    /// &lt;param name="wantDayOfWeek"&gt;指定曜日。この曜日に合致する日付を取得する。&lt;/param&gt;
+    /// &lt;returns&gt;指定曜日に合致する日付のリスト。&lt;/returns&gt;
+    public static List&lt;DateTime&gt; FindWantDayOfWeek(int targetYear, DayOfWeek wantDayOfWeek)
+    {
+
+        List&lt;DateTime&gt; days = new List&lt;DateTime&gt;();
+
+        // 対象年の1月1日(元旦)の曜日を取得する。
+        DateTime gantan = new DateTime(targetYear, 1, 1);
+
+        // 対象年の1月において、引数で指定した曜日に該当する最初の日付を取得する
+        DateTime date;
+
+        if (gantan.DayOfWeek == wantDayOfWeek)
+        {
+            date = gantan;
+        }
+        else
+        {
+            int additionalDay = ((int)(DayOfWeek.Saturday - gantan.DayOfWeek + wantDayOfWeek) % 7) + 1;
+            date = gantan.AddDays(additionalDay);
+        }
+
+        // 7日ずつ日付をずらして、対象年における指定した曜日の日付を全て取得する。
+        while (date.Year == targetYear)
+        {
+            days.Add(date);
+            date = date.AddDays(7);
+        }
+
+        return days;
+    }
+
+    /// &lt;summary&gt;
+    /// 対象年の「第N〇曜日」に該当する日付を全て取得する。
+    /// &lt;/summary&gt;
+    /// &lt;param name="targetYear"&gt;対象年&lt;/param&gt;
+    /// &lt;param name="wantDayOfWeek"&gt;指定曜日。この曜日に合致する日付を取得する。&lt;/param&gt;
+    /// &lt;param name="nth"&gt;「各月のN番目の日」を表す数字。&lt;/param&gt;
+    /// &lt;returns&gt;「第N〇曜日」のリスト。「第N〇曜日」が存在しない時は空のリストが返される。&lt;/returns&gt;
+    public static List&lt;DateTime&gt; FindWantDayOfWeek(int targetYear, DayOfWeek wantDayOfWeek, int nth)
+    {
+        // 対象年の指定された曜日に該当する日付を全て取得する。
+        var days = FindWantDayOfWeek(targetYear, wantDayOfWeek);
+
+        // 日付を月単位でGroupByした後、Whereで「第N〇曜日が存在する月」に絞り込む。
+        // さらに、ElementAtで各月のN番目の〇曜日の日付を抽出する。
+        var newDays = days.Select(day =&gt; new { Day = day, Month = day.Month }).GroupBy(day =&gt; day.Month)
+            .Where(group =&gt; group.Count()&gt;=nth).Select(group =&gt; group.ElementAt(nth - 1).Day).ToList();
+
+        return newDays;
+    }
+
+    /// &lt;summary&gt;
+    /// 期間内の「第N〇曜日」に該当する日付を全て取得する。
+    /// &lt;/summary&gt;
+    /// &lt;param name="targetYear"&gt;対象年&lt;/param&gt;
+    /// &lt;param name="wantDayOfWeek"&gt;指定曜日。この曜日に合致する日付を取得する。&lt;/param&gt;
+    /// &lt;param name="nth"&gt;「各月のN番目の日」を表す数字。&lt;/param&gt;
+    /// &lt;param name="start"&gt;期間開始日&lt;/param&gt;
+    /// &lt;param name="end"&gt;期間終了日&lt;/param&gt;
+    /// &lt;returns&gt;期間内の「第N〇曜日」に該当する日付のリスト。「第N〇曜日」が存在しない時は空のリストが返される。&lt;/returns&gt;
+    public static List&lt;DateTime&gt; FindWantDayOfWeek(int targetYear, DayOfWeek wantDayOfWeek, int nth, DateTime start, DateTime end)
+    {
+        var days = new List&lt;DateTime&gt;();
+
+        // 開始年～終了年の指定された曜日に該当する日付を全て取得する。
+        int elapsedYear = end.Year - start.Year + 1;
+        var years = Enumerable.Range(start.Year, elapsedYear);
+
+        foreach (int year in years)
+        {
+            days.AddRange(FindWantDayOfWeek(year, wantDayOfWeek, nth));
+        }
+
+        // 得られた日付リストを、開始日～終了日の間に絞り込む。
+        var newDays = days.Where(day =&gt; day &gt;= start &amp;&amp; day &lt;= end).ToList();
+
+        return newDays;
+    }
+}
+

@@ -1,0 +1,214 @@
+More than 1 year has passed since last update.クラスが分からないプログラマの場合、本来クラスにすれば良い部分を配列で全て表現することが多い。例えば、Listを使用せず、拡張可能な配列を使用したり、クラスのメンバーに当たる部分を全て配列にするなどである。
+最終的に配列を使用して製造を完了させている点を考えると、配列は万能といえるかもしれない。
+一方、保守性が低く、少しの仕様変更でもコードの修正箇所は多くなるため、悪い習慣といえる。サンプルコードで具体的に考えてみる。2次元配列にID,Name,Remarksが入っている配列をTSVに変換する例を考える。
+java
+
+
+    /* 渡されたデータの行に対して、行番号を付与して返す。
+     * ただし、Nameを除いたTsv形式とする。
+     * valuesには行、列の形式でID,Name,Remarksが格納されている。
+     */
+    public List&lt;String&gt; getTsvWithRowNumber(String[][] values) {
+        String[] ids = new String[values.length];
+        String[] remarks = new String[values.length];
+        int[] rowNumbers = new int[values.length];
+
+        // 行単位の配列に格納する。
+        for (int i = 0; i &lt; values.length; i++) {
+            ids[i] = values[i][0];
+            remarks[i] = values[i][2];
+            rowNumbers[i] = i + 1;
+        }
+
+        ArrayList&lt;String&gt; returnValues = new ArrayList&lt;String&gt;();
+
+        // 行番号を先頭に付与して戻り値を作成する。
+        for (int i = 0; i &lt; ids.length; i++) {
+            String line =
+                    rowNumbers[i] + "\t" +
+                    ids[i] + "\t" +
+                    remarks[i];
+            returnValues.add(line);
+        }
+
+        return returnValues;
+    }
+
+
+
+このコードは、各項目を配列にしており、全ての配列は行数と一致しなければならない。配列の宣言を間違った時点で、インデックス境界範囲外のエラーが発生する。
+項目数が少ないなら何とかなるが、業務アプリケーションでは10項目以上が存在することも普通にあるので、全て配列にするだけでも大変である。Dtoに変換してから処理すると、可読性が高くなるし、インデックス問題も解決する。また、マジックナンバーを少なくするため、values[i][j++]と修正した。
+可読性は下がるが、項目追加時の修正範囲は少なくなる。
+java
+
+
+    /* 渡されたデータの行に対して、行番号を付与して返す。
+     * ただし、Nameを除いたTsv形式とする。
+     * valuesには行、列の形式でID,Name,Remarksが格納されている。
+     */
+    public List&lt;String&gt; getTsvWithRowNumber(String[][] values) {
+        List&lt;Dto&gt; dtoes = new ArrayList&lt;Dto&gt;(values.length);
+
+        // Dtoに変換する。
+        for (int i = 0; i &lt; values.length; i++) {
+            int j = 0;
+            Dto dto = new Dto();
+            dto.setId(values[i][j++]);
+            dto.setName(values[i][j++]);
+            dto.setRemarks(values[i][j++]);
+            dto.setRowNumber(i + 1);
+
+            dtoes.add(dto);
+        }
+
+        List&lt;String&gt; returnValues = new ArrayList&lt;String&gt;();
+
+        // 行番号を先頭に付与して戻り値を作成する。
+        for (Dto dto : dtoes) {
+            String line =
+                    dto.getRowNumber() + "\t" +
+                    dto.getId() + "\t" +
+                    dto.getRemarks();
+            returnValues.add(line);
+        }
+
+        return returnValues;
+    }
+
+    /** 処理のための中間クラス **/
+    private class Dto {
+        private int rowNumber;
+        private String Id;
+        private String name;
+        private String remarks;
+
+        public int getRowNumber() {
+            return rowNumber;
+        }
+
+        public void setRowNumber(int rowNumber) {
+            this.rowNumber = rowNumber;
+        }
+
+        public String getId() {
+            return Id;
+        }
+
+        public void setId(String id) {
+            Id = id;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getRemarks() {
+            return remarks;
+        }
+
+        public void setRemarks(String remarks) {
+            this.remarks = remarks;
+        }
+
+
+
+データ構造である場合、まず、クラスにすることを考えるべきである。
+クラスが理解できないのであれば、とりあえず、オブジェクト指向の勉強から始めてはどうだろうか。また、配列を使用する書き方はVB6でよく見られたが、その後、.Netに移った段階でオブジェクト指向にシフトできなかったプログラマに多い気がする。2017/4/9 追記
+コメント欄にて、Dtoに変換する処理はメソッドにするべきではないかという指摘があったため、処理をメソッドにしたコードを挙げておく。values =&gt; Dtoだけでなく、Dto=&gt;Tsvもメソッドにした。
+java
+
+
+   /* 渡されたデータの行に対して、行番号を付与して返す。
+     * ただし、Nameを除いたTsv形式とする。
+     * valuesには行、列の形式でID,Name,Remarksが格納されている。
+     */
+    public List&lt;String&gt; getTsvWithRowNumber(String[][] values) {
+
+        List&lt;Dto&gt; dtoes = createDtoes(values);
+
+        List&lt;String&gt; returnValues = convertToTsv(dtoes);
+
+        return returnValues;
+    }
+
+    private List&lt;Dto&gt; createDtoes(String[][] values) {
+        List&lt;Dto&gt; dtoes = new ArrayList&lt;Dto&gt;(values.length);
+
+        // Dtoに変換する。
+        for (int i = 0; i &lt; values.length; i++) {
+            int j = 0;
+            Dto dto = new Dto();
+            dto.setId(values[i][j++]);
+            dto.setName(values[i][j++]);
+            dto.setRemarks(values[i][j++]);
+            dto.setRowNumber(i + 1);
+
+            dtoes.add(dto);
+        }
+        return dtoes;
+    }
+
+    private List&lt;String&gt; convertToTsv(List&lt;Dto&gt; dtoes) {
+        List&lt;String&gt; lines = new ArrayList&lt;String&gt;();
+
+        // 行番号を先頭に付与して戻り値を作成する。
+        for (Dto dto : dtoes) {
+            String line =
+                    dto.getRowNumber() + "\t" +
+                    dto.getId() + "\t" +
+                    dto.getRemarks();
+            lines.add(line);
+        }
+        return lines;
+    }
+
+    /** 処理のための中間クラス **/
+    private class Dto {
+        private int rowNumber;
+        private String Id;
+        private String name;
+        private String remarks;
+
+        public int getRowNumber() {
+            return rowNumber;
+        }
+
+        public void setRowNumber(int rowNumber) {
+            this.rowNumber = rowNumber;
+        }
+
+        public String getId() {
+            return Id;
+        }
+
+        public void setId(String id) {
+            Id = id;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getRemarks() {
+            return remarks;
+        }
+
+        public void setRemarks(String remarks) {
+            this.remarks = remarks;
+        }
+
+
+
+
+
+前の記事(Getter、Setter逆問題)次の記事(条件分岐後の処理が冗長な場合)目次
+
+

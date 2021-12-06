@@ -1,0 +1,60 @@
+
+using System;
+using papicra.Scripts.Presentation.Presenter;
+using UniRx;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace papicra.Scripts.Presentation.View
+{
+    public class SpinInputView : MonoBehaviour, PieceRollControls.IPieceRollActionActions, ISpinInputPort
+    {
+        private PieceRollControls.PieceRollActionActions _input = default;
+
+        private readonly Subject&lt;Unit&gt; _spinClockwise = new Subject&lt;Unit&gt;();
+        private readonly Subject&lt;Unit&gt; _spinUnClockwise = new Subject&lt;Unit&gt;();
+
+        public IObservable&lt;Unit&gt; OnSpinClockwise() =&gt;
+            _spinClockwise.Publish().RefCount().ThrottleFrame(1);
+
+        public IObservable&lt;Unit&gt; OnUnSpinClockwise() =&gt;
+            _spinUnClockwise.Publish().RefCount().ThrottleFrame(1);
+
+        private void Awake()
+        {
+            _input = new PieceRollControls.PieceRollActionActions(new PieceRollControls());
+            _input.SetCallbacks(this);
+        }
+
+        public void OnClockwise(InputAction.CallbackContext context)
+        {
+            if (context.ReadValue&lt;float&gt;() &gt; 0)
+            {
+                _spinClockwise.OnNext(Unit.Default);
+            }
+        }
+
+        public void OnUnClockwise(InputAction.CallbackContext context)
+        {
+            if (context.ReadValue&lt;float&gt;() &gt; 0)
+            {
+                _spinUnClockwise.OnNext(Unit.Default);
+            }
+        }
+
+        private void OnEnable()
+        {
+            _input.Enable();
+        }
+
+        private void OnDestroy()
+        {
+            _spinClockwise?.OnCompleted();
+            _spinClockwise?.Dispose();
+            _spinUnClockwise?.OnCompleted();
+            _spinUnClockwise?.Dispose();
+            _input.Disable();
+        }
+    }
+}
+

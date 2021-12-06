@@ -1,0 +1,74 @@
+
+
+    /// &lt;summary&gt;
+    /// DuplexStreaming に対する配信オブジェクト。
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TRequest"&gt;リクエストの型&lt;/typeparam&gt;
+    /// &lt;typeparam name="TResponse"&gt;レスポンスの型&lt;/typeparam&gt;
+    public sealed class GrpcDuplexStreamingObservable&lt;TRequest, TResponse&gt;
+        : GrpcStreamingObservableBase&lt;TResponse&gt;
+    {
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="call"&gt;呼び出しオブジェクト&lt;/param&gt;
+        /// &lt;param name="disposableCall"&gt;配信オブジェクトの dispose 時に呼び出しオブジェクトを dispose するかどうか&lt;/param&gt;
+        private GrpcDuplexStreamingObservable(AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; call, bool disposableCall)
+            : base(call.ResponseStream)
+        {
+            m_Call = call;
+            m_DisposableCall = disposableCall;
+        }
+
+        /// &lt;summary&gt;
+        /// DuplexStreaming に対する配信オブジェクトを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="call"&gt;呼び出しオブジェクト&lt;/param&gt;
+        /// &lt;param name="disposableCall"&gt;配信オブジェクトの dispose 時に呼び出しオブジェクトを dispose するかどうか&lt;/param&gt;
+        public static GrpcDuplexStreamingObservable&lt;TRequest, TResponse&gt; Observe(AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; call, bool disposableCall)
+        {
+            return new GrpcDuplexStreamingObservable&lt;TRequest, TResponse&gt;(call, disposableCall);
+        }
+
+        private AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; m_Call;
+        private bool m_DisposableCall;
+
+        /// &lt;summary&gt;
+        /// 使用しているリソースを解放します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="disposing"&gt;dispose メソッドから呼び出されたかどうか&lt;/param&gt;
+        protected override void Dispose(bool disposing)
+        {
+            try
+            {
+                if (m_DisposableCall) { m_Call.Dispose(); }
+            }
+            finally
+            {
+                base.Dispose(disposing);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 指定されたリクエストを書き込みます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="request"&gt;リクエスト&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task WriteRequestAsync(TRequest request)
+        {
+            await m_Call.RequestStream.WriteAsync(request).ConfigureAwait(false);
+        }
+
+        /// &lt;summary&gt;
+        /// リクエストの完了を通知します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task CompleteRequestAsync()
+        {
+            await m_Call.RequestStream.CompleteAsync().ConfigureAwait(false);
+        }
+
+    }
+
+

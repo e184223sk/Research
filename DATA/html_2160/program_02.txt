@@ -1,0 +1,79 @@
+
+using System.Collections.Generic;
+using System.Linq;
+
+namespace ConsoleApp2
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 入力
+            var inputs = getData();
+
+            // 出力
+            var outputs = new Calculator().Calculation(inputs);
+        }
+
+        // DBからデータを取得。今回は手打ち。
+        static IEnumerable&lt;InputClass&gt; getData()
+        {
+            var input = new List&lt;InputClass&gt;();
+
+            input.Add(new InputClass { CustomerID = 1, ProductID = 10000000001, DiscountRate = 0.88 });
+            input.Add(new InputClass { CustomerID = 1, ProductID = 10000000002, DiscountRate = 0.19 });
+            input.Add(new InputClass { CustomerID = 1, ProductID = 10000000003, DiscountRate = 0.52 });
+            input.Add(new InputClass { CustomerID = 2, ProductID = 20000000004, DiscountRate = 0.33 });
+            input.Add(new InputClass { CustomerID = 2, ProductID = 20000000005, DiscountRate = 0.56 });
+            input.Add(new InputClass { CustomerID = 3, ProductID = 20000000006, DiscountRate = 0.75 });
+
+            return input;
+        }
+    }
+
+    // 計算クラス
+    internal class Calculator
+    {
+        // 計算を実施する。
+        internal IEnumerable&lt;OutputClass&gt; Calculation(IEnumerable&lt;InputClass&gt; inputs)
+        {
+            // 商品マスタの取得
+            var products = new Products();
+
+            // 中間エンティティを用いて1レコードごとの価格を計算する。
+            var middles = JoinAndCalcProductPrice(inputs, products);
+
+            // 顧客ごとの集計と同時に結果オブジェクトに変換する。
+            var results = SumPriceAndConvertToOutputs(middles);
+
+            return results;
+        }
+
+        // 商品マスタから価格を取得する。計算はオブジェクト側で行う。
+        privete IEnumerable&lt;MiddleClass&gt; JoinAndCalcProductPrice(IEnumerable&lt;InputClass&gt; inputs, IEnumerable&lt;Product&gt; products) =&gt; inputs
+        .Join(
+            products,
+            i =&gt; i.ProductID,
+            p =&gt; p.ProductID,
+            (input, product) =&gt; new MiddleClass
+            {
+                CustomerID = input.CustomerID,
+                DiscountRate = input.DiscountRate,
+                Price = product.Price
+            }
+        );
+
+        // 顧客ごとの金額合計を取得して出力クラスにマッピングする。
+        private IEnumerable&lt;OutputClass&gt; SumPriceAndConvertToOutputs(IEnumerable&lt;MiddleClass&gt; middles) =&gt; middles
+        .GroupBy(
+            c =&gt; c.CustomerID
+        )
+        .Select(c =&gt; new OutputClass
+        {
+            CustomerID = c.Key,
+            TotalPrice = c.Sum(s =&gt; s.Price)
+        });
+    }
+
+}
+

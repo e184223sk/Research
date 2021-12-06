@@ -1,0 +1,48 @@
+using System;
+using System.Text;
+using System.Text.RegularExpressions;
+
+public class IndentedStringBuilder : IDisposable
+{
+    private const string INDENT = "  ";
+    private const string REPLACEMENT = "$1" + INDENT;
+    private StringBuilder _parent;
+    private StringBuilder _internal;
+
+    public IndentedStringBuilder(StringBuilder parent)
+    {
+        _parent = parent;
+        _internal = new StringBuilder();
+    }
+
+    public StringBuilder Builder { get { return _internal; } }
+
+    /// &lt;summary&gt;
+    /// 親のStringBuilderが改行で終わってなかったら改行を追加する
+    /// &lt;/summary&gt;
+    private void AdjustParentEndLine()
+    {
+        if (_parent.Length == 0 ) return;
+
+        var lastChar = _parent[_parent.Length - 1];
+        if(lastChar == '\r' || lastChar == '\n') return;
+
+        _parent.AppendLine();
+    }
+
+    public void Dispose()
+    {
+        AdjustParentEndLine();
+
+        var lines = Regex.Split(_internal.ToString(), "\r\n|\r|\n");
+        var count = lines.Length;
+        // 元の文字列の末尾が改行だと、空の行が一個増えるのを防ぐ
+        if (count &gt; 0 &amp;&amp; lines[count - 1].Length == 0) count--;
+        lines.Take(count).Foreach(x =&gt;
+        {
+            _parent.Append(INDENT);
+            _parent.AppendLine(x);
+        });
+    }
+}
+

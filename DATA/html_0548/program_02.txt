@@ -1,0 +1,91 @@
+
+using HarmonyLib;
+using Oc;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+using VRM;
+
+namespace Player2VRM
+{
+    [HarmonyPatch(typeof(OcPl))]
+    [HarmonyPatch("charaChangeSteup")]
+    static class Patch_OcPl_charaChangeSteup // Steupは運営のtypoのまま
+    {
+        private static readonly string VrmPath = Environment.CurrentDirectory + @"\Player2VRM\player.vrm";
+        private static GameObject vrmModel;
+        private static List&lt;OcPl&gt; alreadyVrmSetList = new List&lt;OcPl&gt;();
+
+        // 元のcharaChangeSteupが呼ばれた後に呼ばれるメソッド
+        static void Postfix(OcPl __instance)
+        {
+            UnityEngine.Debug.Log("charaChangeSetup Postfix");
+
+            // VRMモデルが読み込まれていなかったら
+            if (vrmModel == null)
+            {
+                // VRMモデル読み込み
+                vrmModel = ImportVRM(VrmPath);
+            }
+
+            // VRMモデルをまだセットしていないPlayerインスタンスの場合
+            if (!alreadyVrmSetList.Contains(__instance))
+            {
+                // VRMモデルを複製
+                var model = GameObject.Instantiate(vrmModel);
+
+                // 親を既存モデルにセット
+                model.transform.SetParent(__instance.transform, false);
+
+                alreadyVrmSetList.Add(__instance);
+            }
+
+            // 既存モデルのVRMモデル以外のSkinnedMeshRendererを非表示
+            foreach (var smr in __instance.GetComponentsInChildren&lt;SkinnedMeshRenderer&gt;())
+            {
+                smr.enabled = false;
+                Transform trans = smr.transform;
+                while (vrmModel != null &amp;&amp; trans != null)
+                {
+                    if (trans.name.Contains(vrmModel.name))
+                    {
+                        smr.enabled = true;
+                        break;
+                    }
+                    trans = trans.parent;
+                }
+            }
+        }
+
+        private static GameObject ImportVRM(string path)
+        {
+            var bytes = File.ReadAllBytes(path);
+            var context = new VRMImporterContext();
+            context.ParseGlb(bytes);
+
+            try
+            {
+                context.Load();
+            }
+            catch { }
+
+            return context.Root;
+        }
+    }
+
+    [HarmonyPatch(typeof(OcPlHeadPrefabSetting))]
+    [HarmonyPatch("Start")]
+    static class Patch_OcPlHeadPrefabSetting_Start
+    {
+        static void Postfix(OcPlHeadPrefabSetting __instance)
+        {
+            // 既存モデルの頭部を非表示にする
+            foreach (var mr in __instance.GetComponentsInChildren&lt;MeshRenderer&gt;())
+            {
+                mr.enabled = false;
+            }
+        }
+    }
+}
+

@@ -1,0 +1,61 @@
+    public class KmlReader
+    {
+        private static readonly ILogger _log = LogManager.GetCurrentClassLogger();
+
+        public List&lt;Coordinate&gt; Read( string filename )
+        {
+            try
+            {
+                using( var stream = File.Open( filename, FileMode.Open ) )
+                {
+                    var file = KmlFile.Load( stream );
+                    var kml = file.Root as KML;
+                    if( kml == null )
+                        return null;
+
+                    var placemarks = new List&lt;Placemark&gt;();
+                    ExtractPlacemarks( kml.Feature, placemarks );
+                    return placemarks.Select( ToCoordinate ).ToList();
+                }
+            }
+            catch( Exception ex )
+            {
+                _log.Debug( ex, "KMLファイル読み込みでエラー" );
+                return null;
+            }
+        }
+
+        private void ExtractPlacemarks( Feature feature, List&lt;Placemark&gt; placemarks )
+        {
+            var placemark = feature as Placemark;
+            if( placemark != null )
+            {
+                placemarks.Add( placemark );
+            }
+            else
+            {
+                var container = feature as Container;
+                if( container != null )
+                {
+                    foreach( var f in container.Features )
+                        ExtractPlacemarks( f, placemarks );
+                }
+            }
+        }
+
+        private Coordinate ToCoordinate( Placemark placemark )
+        {
+            var point = placemark.Geometry as Point;
+            if( point == null )
+                return null;
+
+            return new Coordinate
+            {
+                Name = placemark.Name,
+                Latitude = point.Coordinate.Latitude,
+                Longitude = point.Coordinate.Longitude,
+                Altitude = point.Coordinate.Altitude ?? 0
+            };
+        }
+    }
+

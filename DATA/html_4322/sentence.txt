@@ -1,0 +1,76 @@
+More than 1 year has passed since last update.家の電力メーターがスマートメーターに変わりました。
+Bルートなるサービスで、瞬間電力量が取得できるらしいです。Wi-SUNとECHONET Liteとかいう聞いたことなかったプロトコルを扱う必要がありますが、
+C、Java、NodeあたりのSDKしか見つかりませんでした。今回 .NET Coreで各プロトコルスタックをライブラリ化し、実装/公開しました。IEEE 802.15.4g/eとして規格化されている。以下が詳しいクラスAPPENDIX ECHONET機器オブジェクト詳細規定550ページ以上あるPDFファイルさて、前提知識はこのあたりにして、本題です今回やりたいことはスマートメーターから瞬間電力量を取りたいそのためには、Wi-SUNドングルを使って、SK STACK IPコマンドをたたき、
+スマートメーターの認証を通して、ECHONETLiteフレームのやり取りを行う必要があります。SK STACK IPはコマンド/レスポンス+イベント形式のプロトコルです。
+USBドングルはOSからは、シリアル通信用のポートとして認識されます。
+ですので、すべての通信はシリアルポート経由となります。.NET Core 2.1を使用するため、.NET Core 2.1では、Windowsしかシリアル通信ができません。
+最終的にラズパイ上でも動作させたいため、今回はLinuxにも対応しているSerialPortStreamを使用します。SKSTACK-IPのAPIラッパーライブラリを作成しました。RL7023 Stick-D/IPSに付属のコマンドリファレンスマニュアルをもとに全コマンドを実装しています。
+GitHubにて公開しています。
+→SkstackIpDotNet詳細は以下
+→SkstackIpDotNet.Example
+→EchoDotNetLiteSkstackIpBridgeUDP受信＝ERXUDPイベントのペイロードは16進数文字列なのに、
+UDP送信＝SKSENDTOコマンドのペイロードはバイナリっていう。
+コマンドリファレンス上は両方ともCHAR[]なのに…Bルートで必要となるSKコマンドはそこまで多くありません。通信シーケンス
+
+#自ノードIPv6アドレスの取得
+&gt; SKINFO
+SKINFO
+EINFO [自ノードIPv6アドレス] 100723FFFEA07461 3B 1094 FFFE
+OK
+#パスワードの設定
+&gt; SKSETPWD C XXXXXXXXXXXX
+SKSETPWD C XXXXXXXXXXXX
+OK
+#IDの設定
+&gt; SKSETRBID XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+SKSETRBID XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+OK
+#スキャン開始
+#スキャン時間:4
+&gt; SKSCAN 2 FFFFFFFF 4
+SKSCAN 2 FFFFFFFF 4
+OK
+EVENT 20 [自ノードIPv6アドレス]
+EPANDESC
+  Channel:3B
+  Channel Page:09
+  Pan ID:1094
+  Addr:[メーターMACアドレス]
+  LQI:1D
+  PairID:005B23E3
+EVENT 22 [自ノードIPv6アドレス]
+#PAN発見: 論理チャンネル番号:3B,チャンネルページ:09,PAN ID:1094,アドレス:[メーターMACアドレス],RSSI:1D,PairingID:005B23E3
+#S02(自端末が使用する周波数の論理チャンネル番号)設定
+&gt; SKSREG S2 3B
+SKSREG S2 3B
+OK
+#S03(自端末の PAN ID）設定
+&gt; SKSREG S3 1094
+SKSREG S3 1094
+OK
+#メーターのIPv6アドレスを取得
+&gt; SKLL64 [メーターMACアドレス]
+SKLL64 [メーターMACアドレス]
+[メーターIPv6アドレス]
+#PANA接続シーケンス開始
+&gt; SKJOIN [メーターIPv6アドレス]
+SKJOIN [メーターIPv6アドレス]
+OK
+EVENT 21 [メーターIPv6アドレス] 02
+EVENT 02 [メーターIPv6アドレス]
+# 鍵交換など(SKJOINのコマンドで勝手に行われる)
+ERXUDP [メーターIPv6アドレス] [自ノードIPv6アドレス] 02CC 02CC [メーターMACアドレス] 0 0028 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+EVENT 21 [メーターIPv6アドレス] 00
+ERXUDP [メーターIPv6アドレス] [自ノードIPv6アドレス] 02CC 02CC [メーターMACアドレス] 0 0068 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+EVENT 21 [メーターIPv6アドレス] 00
+ERXUDP [メーターIPv6アドレス] [自ノードIPv6アドレス] 02CC 02CC [メーターMACアドレス] 0 0054 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+EVENT 21 [メーターIPv6アドレス] 00
+ERXUDP [メーターIPv6アドレス] [自ノードIPv6アドレス] 02CC 02CC [メーターMACアドレス] 0 0058 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+EVENT 21 [メーターIPv6アドレス] 00
+#EVENT ID＝0x25:PANA による接続が完了
+EVENT 25 [メーターIPv6アドレス]
+
+
+長くなったので次回に続きます
+
+

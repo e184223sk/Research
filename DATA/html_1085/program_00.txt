@@ -1,0 +1,190 @@
+using System;
+using System.Linq;
+using OpenCvSharp;
+
+public static class VectorScope
+{
+    const double RY_R = +0.701;
+    const double RY_G = -0.587;
+    const double RY_B = -0.114;
+
+    const double BY_R = -0.299;
+    const double BY_G = -0.587;
+    const double BY_B = +0.886;
+
+    public static Point Rotation(int cx, int cy, double theta, double radius)
+    {
+        var x = cx + radius * Math.Cos(theta);
+        var y = cy - radius * Math.Sin(theta);
+        return new Point(Math.Round(x, MidpointRounding.AwayFromZero), Math.Round(y, MidpointRounding.AwayFromZero));
+    }
+
+    public static (double ry, double by, double ec, double maxval) Calc(Scalar bgr)
+    {
+        var ry = RY_R * bgr[2] + RY_G * bgr[1] + RY_B * bgr[0];
+        var by = BY_R * bgr[2] + BY_G * bgr[1] + BY_B * bgr[0];
+        var ec = Math.Sqrt(Math.Pow(ry / 1.14, 2) + Math.Pow(by / 2.03, 2));
+        var maxval = Math.Sqrt(Math.Pow(RY_R / 1.14, 2) + Math.Pow(BY_B / 2.03, 2));
+        return (ry, by, ec, maxval);
+    }
+
+    public static Point Rgb2Point(int cx, int cy, double radius, Scalar bgr)
+    {
+        var (ry, by, ec, maxval) = Calc(bgr);
+        var theta = Math.Atan2(ry / 1.14, by / 2.03);
+        return Rotation(cx, cy, theta, ec / maxval * radius);
+    }
+
+    public static void DrawTarget(Mat img, int cx, int cy, int radius, Scalar bgr, double angle, string element)
+    {
+        var (_, _, ec, maxval) = Calc(bgr);
+        var percent = ec / maxval;
+
+        {
+            var coeff1 = 0.40;
+            var radius1 = radius * percent * (1 - coeff1 / 2);
+            var radius2 = radius * percent * (1 + coeff1 / 2);
+
+            var angle1 = Math.Round(angle - 10.0, MidpointRounding.AwayFromZero);
+            var angle2 = angle1 + (10.0 * 2);
+
+            var coeff2 = 0.28;
+            var radius3 = radius * percent * (1 - coeff2 / 2);
+            var radius4 = radius * percent * (1 + coeff2 / 2);
+
+            var p1 = Rotation(cx, cy, angle1 * Math.PI / 180, radius1);
+            var p2 = Rotation(cx, cy, angle1 * Math.PI / 180, radius2);
+
+            var p3 = Rotation(cx, cy, angle1 * Math.PI / 180, radius3);
+            var p4 = Rotation(cx, cy, angle1 * Math.PI / 180, radius4);
+            Cv2.Line(img, p1, p3, Scalar.LightGray, 1, LineTypes.AntiAlias);
+            Cv2.Line(img, p4, p2, Scalar.LightGray, 1, LineTypes.AntiAlias);
+
+            var p5 = Rotation(cx, cy, angle2 * Math.PI / 180, radius1);
+            var p6 = Rotation(cx, cy, angle2 * Math.PI / 180, radius2);
+
+            var p7 = Rotation(cx, cy, angle2 * Math.PI / 180, radius3);
+            var p8 = Rotation(cx, cy, angle2 * Math.PI / 180, radius4);
+            Cv2.Line(img, p5, p7, Scalar.LightGray, 1, LineTypes.AntiAlias);
+            Cv2.Line(img, p8, p6, Scalar.LightGray, 1, LineTypes.AntiAlias);
+
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius1, radius1), -angle2, 0, 5.0, Scalar.LightGray, 1, LineTypes.AntiAlias);
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius2, radius2), -angle2, 0, 5.0, Scalar.LightGray, 1, LineTypes.AntiAlias);
+
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius1, radius1), -angle2, 15, 20, Scalar.LightGray, 1, LineTypes.AntiAlias);
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius2, radius2), -angle2, 15, 20, Scalar.LightGray, 1, LineTypes.AntiAlias);
+        }
+
+        {
+            var coeff1 = (0.714 * 5 / 100) / maxval; // 5IRE
+            var radius1 = radius * percent * (1 - coeff1 / 2);
+            var radius2 = radius * percent * (1 + coeff1 / 2);
+
+            var angle1 = Math.Round(angle - 2.5, MidpointRounding.AwayFromZero);
+            var angle2 = angle1 + (2.5 * 2);
+
+            var p1 = Rotation(cx, cy, angle1 * Math.PI / 180, radius1);
+            var p2 = Rotation(cx, cy, angle1 * Math.PI / 180, radius2);
+            Cv2.Line(img, p1, p2, Scalar.LightGray, 1, LineTypes.AntiAlias);
+
+            var p3 = Rotation(cx, cy, angle2 * Math.PI / 180, radius1);
+            var p4 = Rotation(cx, cy, angle2 * Math.PI / 180, radius2);
+            Cv2.Line(img, p3, p4, Scalar.LightGray, 1, LineTypes.AntiAlias);
+
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius1, radius1), -angle2, 0, 5, Scalar.LightGray, 1, LineTypes.AntiAlias);
+            Cv2.Ellipse(img, new Point(cx, cy), new Size(radius2, radius2), -angle2, 0, 5, Scalar.LightGray, 1, LineTypes.AntiAlias);
+        }
+
+        {
+            var radius1 = radius * percent;
+            var p1 = Rotation(cx, cy, angle * Math.PI / 180, radius1);
+
+            Cv2.PutText(img, element, new Point(p1.X, p1.Y - 18), HersheyFonts.HersheySimplex, 0.8, Scalar.LightGray, 1, LineTypes.AntiAlias);
+        }
+    }
+
+    public static void DrawBackgroud(Mat img, int cx, int cy, int radius)
+    {
+        foreach (var i in Enumerable.Range(1, 5).Select(n =&gt; (1 / 5.0 * n)))
+        {
+            Cv2.Circle(img, cx, cy, (int)(radius * i), Scalar.DimGray, (i == 1) ? 2 : 1, LineTypes.AntiAlias);
+        }
+
+        foreach (var i in Enumerable.Range(0, 4).Select(n =&gt; n * 360 / 4))
+        {
+            Point p2;
+            p2 = Rotation(cx, cy, i * Math.PI / 180, radius);
+            Cv2.Line(img, cx, cy, p2.X, p2.Y, Scalar.DimGray, 1, LineTypes.AntiAlias);
+
+            // +Q(33)/-I(303)
+            p2 = Rotation(cx, cy, (i + 33.0) * Math.PI / 180, radius * 0.88);
+            Cv2.Line(img, cx, cy, p2.X, p2.Y, Scalar.DimGray, 1, LineTypes.AntiAlias);
+        }
+
+        foreach (var i in Enumerable.Range(0, 180).Select(n =&gt; n * 2))
+        {
+            var p1 = Rotation(cx, cy, i * Math.PI / 180, radius * ((i % 10) == 0 ? 0.940 : 0.960));
+            var p2 = Rotation(cx, cy, i * Math.PI / 180, radius);
+            Cv2.Line(img, p1, p2, Scalar.DimGray, (i % 10 == 0) ? 2 : 1, LineTypes.AntiAlias);
+        }
+
+        // M(60.8)/R(103.4)/Y(167.1)/G(240.8)/C(283.4)/B(347.1)
+        Scalar[] BGR = {
+            new Scalar(1.0, 0.0, 1.0),
+            new Scalar(0.0, 0.0, 1.0),
+            new Scalar(0.0, 1.0, 1.0),
+            new Scalar(0.0, 1.0, 0.0),
+            new Scalar(1.0, 1.0, 0.0),
+            new Scalar(1.0, 0.0, 0.0)
+        };
+
+        double[] ANGLE = { 60.8, 103.4, 167.1, 240.8, 283.4, 347.1 };
+
+        string[] ELEMENT = { "MG", "R", "YL", "G", "CY", "B" };
+
+        foreach (var ((bgr, angle), element) in BGR.Zip(ANGLE, Tuple.Create).Zip(ELEMENT, Tuple.Create))
+        {
+            DrawTarget(img, cx, cy, radius, bgr, angle, element);
+        }
+    }
+
+    public static void DrawPixels(Mat img, int cx, int cy, int radius, Scalar bgr)
+    {
+        var point = Rgb2Point(cx, cy, radius, bgr);
+        var bgr_ = new Scalar(bgr[0] * 255, bgr[1] * 255, bgr[2] * 255);
+        Cv2.Circle(img, point, 1, bgr_, -1, LineTypes.AntiAlias);
+    }
+
+    public static void Run()
+    {
+        const int COLS = 640;
+        const int ROWS = 640;
+        const int MARGIN = 10;
+
+        var image = Cv2.ImRead("Mandrill.bmp");
+
+        var cx = COLS / 2;
+        var cy = ROWS / 2;
+        var radius = cy - MARGIN;
+        var image_bg = new Mat&lt;Vec3b&gt;(ROWS, COLS, Scalar.Black);
+
+        var data = new Vec3d[image.Height, image.Width];
+        image.ConvertTo(InputArray.Create(data).GetMat(), MatType.CV_64FC3, 1 / 255.0, 0);
+
+        DrawBackgroud(image_bg, cx, cy, radius);
+
+        var image_dst = image_bg.Clone();
+
+        foreach (var bgr in data.Cast&lt;Vec3d&gt;())
+        {
+            DrawPixels(image_dst, cx, cy, radius, (Scalar)bgr);
+        }
+
+        Cv2.AddWeighted(image_dst, 1.0, image_bg, 0.4, 0.0, image_dst);
+
+        Cv2.ImShow("input", image);
+        Cv2.ImShow("output", image_dst);
+        Cv2.WaitKey(0);
+    }
+}
+

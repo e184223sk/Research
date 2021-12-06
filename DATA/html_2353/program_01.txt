@@ -1,0 +1,62 @@
+
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using Spire.Pdf;
+using Spire.Pdf.Graphics;
+
+namespace SplitTiff
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (PdfDocument pdfDoc = new PdfDocument())
+            {
+                //tiffをロードします。
+                Image tiffImage = Image.FromFile("test.tiff");
+                Image[] imgs = SplitImages(tiffImage);
+
+                for (int i = 0; i &lt; imgs.Length; i++)
+                {
+                    PdfImage pdfImg = PdfImage.FromImage(imgs[i]);
+                    PdfUnitConvertor uinit = new PdfUnitConvertor();
+                    SizeF pageSize = uinit.ConvertFromPixels(imgs[i].Size, PdfGraphicsUnit.Point);
+                    PdfPageBase page = pdfDoc.Pages.Add(pageSize, new PdfMargins(0f));
+                    float x = (page.Canvas.ClientSize.Width - pageSize.Width) / 2;
+
+                    //PDFで画像を描きます。
+                    page.Canvas.DrawImage(pdfImg, x, 0, pageSize.Width,pageSize.Height);
+                }
+
+                //Pdfで保存します。
+                pdfDoc.SaveToFile("result.pdf");
+                System.Diagnostics.Process.Start("result.pdf");
+
+            }
+        }
+        public static Image[] SplitImages(Image tiffImage)
+        {
+            int frameCount = tiffImage.GetFrameCount(FrameDimension.Page);
+            Image[] frames = new Image[frameCount];
+            Guid guid = tiffImage.FrameDimensionsList[0];
+            for (int i = 0; i &lt; frameCount; i++)
+            {
+                FrameDimension dimension = new FrameDimension(guid);
+
+                tiffImage.SelectActiveFrame(dimension, i);
+                using (MemoryStream buffer = new MemoryStream())
+                {
+                    tiffImage.Save(buffer, ImageFormat.Tiff);
+                    buffer.Position = 0;
+                    frames[i] = Image.FromStream(buffer);
+                }
+            }
+
+            return frames;
+        }
+
+    }
+}
+

@@ -1,0 +1,61 @@
+
+using System;
+using System.Diagnostics;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Reflection.Emit;
+
+namespace GoAmazon
+{
+    public abstract class ExpressionHelper
+    {
+        protected static readonly MethodInfo BreakInfo = typeof(Debugger).GetMethod("Break");
+        public static ExpressionHelper&lt;TDelegate&gt; CreateDebugHelper&lt;TDelegate&gt;(Expression&lt;TDelegate&gt; expression) where TDelegate:class=&gt;
+            new ExpressionHelper&lt;TDelegate&gt;(expression);
+
+    }
+
+    public class ExpressionHelper&lt;TDelegate&gt; : ExpressionHelper where TDelegate : class
+    {
+        internal ExpressionHelper(Expression&lt;TDelegate&gt; expression)
+        {
+            (Type[] parameterTypes, Type returnType) getInfo()
+            {
+                var tmp = typeof(TDelegate).GetMethod("Invoke");
+                return (tmp.GetParameters().Select(p =&gt; p.ParameterType).ToArray(), tmp.ReturnType);
+            }
+
+            Expression&lt;TDelegate&gt; addBreakPoint()
+            {
+                var breakExpr = Expression.Call(BreakInfo);
+                var blockExpr = Expression.Block(breakExpr, Expression.Invoke(expression, expression.Parameters));
+                return Expression.Lambda&lt;TDelegate&gt;(blockExpr, expression.Parameters);
+            }
+
+
+            var asmBld =
+                AppDomain.CurrentDomain.DefineDynamicAssembly(new AssemblyName(Guid.NewGuid().ToString()),
+                    AssemblyBuilderAccess.RunAndCollect);
+
+            var modBld = asmBld.DefineDynamicModule("DynamicallyModule");
+
+            var typeBld = modBld.DefineType("Dependence");
+
+            var delegateInfo = getInfo();
+
+            var methodBld = typeBld.DefineMethod("Target", MethodAttributes.Static | MethodAttributes.Public,
+                delegateInfo.returnType, delegateInfo.parameterTypes);
+
+            addBreakPoint().CompileToMethod(methodBld);
+
+            var type = typeBld.CreateType();
+            Run = type.GetMethod("Target").CreateDelegate(typeof(TDelegate)) as TDelegate;
+        }
+
+        public TDelegate Run { get; }
+
+    }
+}
+
+

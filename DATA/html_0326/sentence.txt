@@ -1,0 +1,65 @@
+もくじ
+https://qiita.com/tera1707/items/4fda73d86eded283ec4fデスクトップアプリ(WPF)にトースト(toast)でユーザーに通知を行う機能を実装したい。
+ざっくり動きとしては、こういうのが「ピローン」と画面右下に出てきて、
+
+そいつを押すと、アプリが起動する。
+押さずにほおっておくとWindowsの「アクションセンター」に入る。
+
+アクションセンター内にあるトーストを押すと、押したトーストは消えて、アプリが起動する。
+というようなイメージ。トーストを実装すること自体初めてなのでよくしらなかったのだが、っぽい。で、その特殊なことをMicrosoftの公式ドキュメントやネットで調べながら実装したところ、トーストの仕組みを知らないせいでものすごく苦労してしまったので、その時に調べたことやノウハウをメモして残そうと思った次第。まず下記に、作ったコード一式を置いている。トースト実験プログラム本体
+https://github.com/tera1707/WPF-/tree/master/040_ToastJikkenAUMID,CLSIDの入ったshortcutを作成するツール
+https://github.com/tera1707/WPF-/tree/master/040_MakeShortcutトーストのためのCLSIDをレジストリに登録するツール
+https://github.com/tera1707/WPF-/tree/master/040_RegisterCLSIDtoRegistry使った環境は下記の通り。下記のページに、デスクトップアプリでトーストを実装するためのMicrosoft公式のやり方が書いてあるので、基本的にはこちらをもとに進める。
+https://docs.microsoft.com/ja-jp/windows/uwp/design/shell/tiles-and-notifications/send-local-toast-desktop?tabs=msix-sparse基本はMS公式ドキュメントをベースに進めるのだが、
+この表で「①コードを書く」に該当する公式のStep 3.1: WiX Installerが、何をするための手順なのかが全然わからなかった。（というより、こちらの都合で、Wixインストーラーではなく別のインストーラー作成ソフトを使わないといけなかったので、そのソフトを使った場合ではこの項目に対して何をしたらよいのか？が全然読み取れなかった。）そのわからなかった部分については、後ほどの項目で対応策に触れる。ここから、実際にトーストの機能を作っていく。
+基本はMS公式の通りに進めるが、一部進める順番が違うので注意。→公式：Step 1: Install the Notifications libraryUWPのSDKをええように参照して、デスクトップアプリからもトーストを使えるようにしてくれるMicrosoft.Toolkit.Uwp.Notifications のNuGetパッケージをインストールする。→公式：Step 2: Implement the activatorMyNotificationActivator.csというファイルを追加して、そこにNotificationActivatorクラスを継承したクラスを作成し、そいつにCLSIDを振る。（中身は後でつくる）下記のGuid("・・・・・")の部分がCLSID。CLSIDは、いわゆる「GUID」なので、VisualStudioのGUIDの作成ツールを使ってGUIDを取得し、そいつを振ればOK。
+下記で「コピー」を押すとクリップボードにコピーされるので、[Guid("replaced-with-your-guid-C173E6ADF0C3"), ComVisible(true)]のところに張り付ける。
+(そのまま張り付けるとカッコとかついてるので、必要なGUIDの数字以外の余計なものは消す)
+→公式：Step 3.2: Register AUMID and COM serverアプリ起動後一回、下記を実行してAUMIDを登録する。
+今回は、メインのウインドウのコンストラクタで実施。→Step 4: Register COM activatorアプリ起動後一回、下記を実行してCOMサーバーを登録する。
+RegisterAumidAndComServerと同様に、メインのウインドウのコンストラクタで実施。トーストを表示させる部分をつくる。
+(下記のコード。MSのサンプルそのまま)→Step 5: Send a notificationここまでで、とりあえずトーストは出てくる。が、出てきたトーストを押してもなにも起きない。
+DesktopNotificationManagerCompat.CreateToastNotifier().Show(toast);を実行しても、まだトーストはでない。(後に行うショートカット作成とCLSID登録が必要。)次は、トーストが押されたときに実行される部分を作る。→Step 6: Handling activation下記のようなコードを書いて、トーストを押されたら、メイン画面上のリストboxに押された旨を表示させてみる。
+※MainWindow.mw.AddLog("ABC")が、その旨表示させるコードビハインドが持っているメソッド。これで、トーストが押されたときに、上の処理をしてくれるようになる。【注意】
+OnActivated()は、UIスレッドとは異なるスレッドで実行されている。
+そのため上記サンプルでも画面を操作するようなコードはApplication.Current.Dispatcher.Invoke(()を使ってUIスレッドで実行するようにしている。→公式：Step 3.1: WiX Installerこの部分が、公式では「WiX」というMSおすすめ？のインストーラー作成ツールを使った手順説明になっているのだが、ここが、WiXを使った結果、何がoutputされるのか？何をしようとしている手順なのか？がわからなかった。というより、私の場合、作るアプリをインストールするときに使うインストーラーが、WiXではなくほかのインストーラー作成ソフトを使うことに決まっていたため、WiXを使えない、どうしたらいい？となってしまった。(調べ始めた時点で「WiX」というツールの存在を知らなかったので輪をかけて？？？になった)調べるうえで、先人が作成してくれているデスクトップアプリでのトーストを扱うOSSを利用する中で、やっていることを理解していこうという調査方法を取ったのだが、その時、調べを進めるうえでものすごく下記のページ/OSSにお世話になった。〇デスクトップアプリからインタラクティブなトースト通知
+https://8thway.blogspot.com/2016/05/desktop-interactive-toast.html〇emoacht/DesktopToast
+https://github.com/emoacht/DesktopToastこちらのOSSを利用すると、簡単にデスクトップアプリでトーストを実装することができる。
+そのコードを拝見する中で、そのよくわからないstep3で実際にやらないといけないのが、だということが分かった。
+(大変勉強になりました、ありがとうございます。)で、上記を行う場合、使っていたインストーラー作成ソフトでそういうことができるので、インストーラーにやってもらうことになった。（インストーラでインストールをする時に、ショートカットとCOMのCLSIDを登録してくれるようにした。）ただ、仕事ではそういう風に対応したが、自分で勉強＆趣味で作ってみるうえではそのようなインストーラー作成ソフト(有料)は使えないので、自前でその2つができるようなツールを作って対応した。(そのツールについても下に置き場所を書いておく)→公式：Step 3.1: WiX Installer以下の情報を持つショートカットを作成し、ユーザーのスタートメニューに配置する。
+スタートメニューのパスは、Win+Rで出てくる「ファイル名を指定して実行」に「shell:start menu」と入力して出てくるC:\Users\ユーザー名\AppData\Roaming\Microsoft\Windows\Start Menuにする。※「shell:common start menu」と入力して出てくるC:\ProgramData\Microsoft\Windows\Start Menu\Programsでも試した限りトーストはうまく動く。
+複数ユーザーに共通のショートカットを作りたい時などはこちらにすればよいっぽい。それぞれ、今回は実験用として、下記のような値にした。※配置場所：C:\Users\ユーザー名\AppData\Roaming\Microsoft\Windows\Start Menu※上記CLSIDは今回実験するときに作ったサンプル値なので、上にあげた手順で各自自分のGUIDを作って入れること。ショートカット作成用のツールはこちら
+https://github.com/tera1707/WPF-/tree/master/040_MakeShortcut
+
+AUMIDの形式は公式ページに記載がある。
+※ただ試した限りでは、別にこの形式でなくてもトーストは動くっぽい。
+→公式：Step 3.1: WiX InstallerNotificationActivatorを継承したクラスに振ったCLSIDをレジストリに登録する。
+アクションセンターに入ったトーストから、アプリを起動させるのに必要な手順。登録先は、※xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxxは、今回使うCLSID。regeditで手打ちで登録してもOK。
+ただ面倒なので、レジストリ登録のためにツールを作った。
+https://github.com/tera1707/WPF-/tree/master/040_RegisterCLSIDtoRegistry
+
+実際に登録してregeditでみると、下記のような感じ。
+ここまで行えば、以下ができるようになる。基本はここまででできたが、ただテキストを表示して、押したらアプリ起動する、というだけでは味気ないので、画像を出したりユーザーにテキストを入力させたりもできる様子。その辺は、下記をみればできそう。(今回はやらない)
+https://docs.microsoft.com/ja-jp/windows/uwp/design/shell/tiles-and-notifications/adaptive-interactive-toasts?tabs=builder-syntax
+はじめ、トーストがどういう仕組みで動いているのかを全然わかっていなかったので、MSの公式手順のそれぞれ(特にstep3)が、何をしたいがための作業なのかがよくわかってなかった。で、ハマったポイントというか、あ、たぶんそういうことなんだな、となったポイントは下記だった。右下にトーストが「ピローン」といって表示されている間はアプリ本体(もしくはトーストを表示するためのexe)が起動している状態
+そのトーストは、一定時間経過するとアクションセンターに入る。
+アクションセンターに入った後のトーストを押したときは、アプリ本体が終了している状態であってもアプリを起動しないといけない。トーストを押したときにどのアプリを起動しに行くか、の紐づけをしているのが、上で作成したショートカットとレジストリに登録したCLSIDだった。(たぶん)下の図は、公式にこういう流れで処理している、というドキュメントを見つけて書いたわけではなく、動かしてみてそういう動きをしてるんじゃないか、という私の理解を書いたもの。(なので、参考程度に...)多分、UWPで作ったアプリのトースト機能では、こういうことを自前でショートカットとか作らずに、UWPの元々の仕組みでできるのだと思う。
+(それを、元々の仕組みを使わずに、無理やり実現させようというのがデスクトップアプリのトースト、という理解。)NotificationActivatorを継承したクラスのCLSIDをレジストリに登録したのだが、実装中にCLSID(GUID)をいろいろ変えて動きを見てみたりしていたせいで、変な動きに悩まされた。具体的には、
+
+ここのLocalServer32の中の、トーストを押したときに起動したいexeのパスを変えてしまったり、VisualStudioのプロジェクトを別の場所に置いてしまったりすると、トーストを押したときに何も起動してくれなかったり、今は使ってない昔使っていたVSのプロジェクトの中のexeが起動してしまったりする。私の場合は、デバッグ時はこの絵にあるようなVSのプロジェクトのフォルダ内のexeで動かしているが、本来のexeの場所はC:\Program Files\・・・の中だったので、本番環境にもっていくと、「デバッグしてるときはうまく動くのに、本番環境に入れるとトーストを押してもアプリ起動してくれない」といったことに陥ってしまった。今振り返ると、別のパスを見に行ってしまっているのだからそうなるのは当たり前に思えるが、実験し始めた当初はトーストの仕組みもよくわかってない状態だったのでそれはそれはハマった。トーストを押したタイミングによって、作業ディレクトリが変わる。
+
+試したところ、アプリが起動していないときにトーストを押してアプリが起動した場合は、C:\windows\system32になる様子。アプリ内で、相対パスでなにかを行っているような場合は要注意。一応Microsoftの公式のやり方があるのだから「デスクトップアプリでもトーストは実装できる」と考えてよいものだと思うが、やっぱりUWPの機能はUWPで使った方がよいかもしれない、と今回感じた。
+(appxなどにパッケージする形で出すのも良いかもしれない)上で何度も書いていた「MSの資料のstep3がわからない」のように「デスクトップアプリで使えるようにするための部分」はあまり公式ドキュメントで優しく解説してくれないっぽいので、そのあたりでなにか問題があって説明を求められたときに、調査が難航しそうな気がする。とはいえ、トーストの機能は今は一般的になってるので、仕様を決める側は「当然そういうことができる」ものだと思っている様子。私の周りでは「トーストはデスクトップアプリではナシ」という選択肢は無さそうなので、開発しながら実験して触りまくって、開発終了までに枯らすしかないな、と思う。本記事は、2020/12月の時点で、.NET Framework4.7.2を使ってトーストを試したものです。21/04/18時点で、.NET5を使ったWPFでは、さらにやり方が簡単になっているようです。
+※MS公式ページの、この記事で書いている「step3 Wix Installerを使う部分」も無くなって、わかりやすくてWixInstallerを使わなくても済む内容になっていました。(つまり、自前でショートカットにAUMIDとか埋め込んで配置、とかしなくてよくなった！素晴らしい...).NET5を使う方は、上記記事を参照された方がよいと思います。現時点で、.NETFrameworkで同じことできるか試してみましたが、今のところはできないっぽかった(.NET Frameworkで上の記事に挙げて頂いているTargetFrameworkにWin10.0.17763.0を指定する方法がわからなかった)ので、この記事の手順も一応残しておきます。さらに追記...
+下の方に書いたレジストリにCOMのCLSIDを登録したり、AUMIDをショートカットに組み込んだりするやり方はこちらに(新たに)書かれたっぽい。このやり方で動くのか試してないが、この記事に書いたショートカットを置いたりする手順は、実際はここに書かれていることをするための手順だったのだ、と推測。
+もうないとは思うが、今度また.netFrameworkでトーストをやることになったら、ここを見てみればよいかもしれない...ショートカットリンクを作成する
+https://www.wabiapp.com/WabiSampleSource/windows/create_short_cut.htmlPCに登録されているAUMID(AppUserModelID)を確認する方法
+https://docs.microsoft.com/ja-jp/windows/configuration/find-the-application-user-model-id-of-an-installed-appAppUserModelIDをC#から操作する 
+https://8thway.blogspot.com/2012/11/csharp-appusermodelid.htmlHandle shortcut with AppUserModelID in C#
+https://emoacht.wordpress.com/2012/11/14/csharp-appusermodelid/emoachtさんAUMID入りショートカット作成C#コード
+https://emoacht.wordpress.com/2012/11/14/csharp-appusermodelid/ショートカットファイル(.lnkファイル)を作成する
+https://smdn.jp/programming/tips/createlnk/Microsoft.Toolkit.Uwp.Notificationsパッケージを使ってデスクトップアプリからトーストを実装
+https://docs.microsoft.com/ja-jp/windows/uwp/design/shell/tiles-and-notifications/send-local-toast-desktop?tabs=classic登録されているAUMIDを見る
+https://docs.microsoft.com/ja-jp/windows/configuration/find-the-application-user-model-id-of-an-installed-app
+
+

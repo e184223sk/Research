@@ -1,0 +1,39 @@
+
+int contentLength = 0;
+//次のByteの最上位Bitが立っていれば、その下位7bitでコンテンツの長さの長さ(タイポじゃないよ)を表す。
+if ((privKeyBuf[index] &amp; 0x80) != 0 )
+{ 
+  // コンテンツの長さを取得する。
+  byte[] emptyBytes = {0, 0, 0, 0};
+  byte[] lengthBytes = new byte[privKeyBuf[index] &amp; 0x7F];
+  Array.Copy(privKeyBuf, ++index, lengthBytes, 0, privKeyBuf[index] &amp; 0x7F);
+  index += privKeyBuf[index] &amp; 0x7F;
+  if (lengtsBytes &gt;= 4)
+  {
+    // Intにしてるので4byte以上の場合はパースできない。
+    throw new ArgumentException("PEM file is too large.");
+  }
+  lengthBytes = emptyBytes.Concat(lengthBytes).ToArray();
+  // エンディアンによって処理が違う
+  if (BitConverter.IsLittleEndian)
+  {
+    contentLength = (int)BitConverter.ToUInt32(emptyBytes, emptyBytes.Length - 4);
+  }
+  else
+  {
+    contentLength = (int)BitConverter.ToUInt32(emptyBytes.Reverse().ToArray(), 0);
+  }
+  if (contentLength == 0) {
+    // Intにキャスト失敗した場合はパースできない。
+    throw new ArgumentException("PEM file is too large.");
+  }
+}
+else
+{
+  // 最上位Bitが立っていなければ、そのbyte自体がコンテンツの長さを表す。
+  contentLength = privKeyBuf[index++];
+}
+byte[] privKeyContents = new byte[contentLength];
+Array.Copy(privKeyBuf, index, privKeyContents, 0, contentLength);
+// byte[45] { 2, 1, 0, 2, 5, 0, 191, 71, 158, 181, 2, 3, 1, 0, 1, 2, 5, 0, 135, 250, 102, 213, 2, 3, 0, 248, 111, 2, 3, 0, 197, 27, 2, 2, 41, 131, 2, 2, 106, 253, 2, 3, 0, 220, 14 }
+

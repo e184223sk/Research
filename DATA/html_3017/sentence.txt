@@ -1,0 +1,179 @@
+More than 1 year has passed since last update.　まだ見ていない方は、一度上記記事を見たうえで改めてこの記事を読み進めてください。どのようにして移動を行っているか簡単に説明すると、 範囲外のオブジェクトを選択した際に、スクロールバーを一定値移動させるという処理を行っています。それでは前回のプロジェクトを開き、早速実践してみましょう。Buttonは追加されると一番下に生成されるので、このままではテキストが隠れてしまうため、Imageの下にドラッグして表示階層順を変更します。
+このままでは些か見栄えが悪いので、Buttonの見た目を変更します。まずは変更する画像をUnityに取り込みます、今回はこちらの画像を使用してください。
+ 黒丸の横のPNG形式の透明な画像とハイライトっぽい光のバーの二枚をDLしてください。＜＞←透明な画像画像をDLしたら、DLした画像を選択し、UnityのResourcesフォルダにドラッグ＆ドロップします。（画像の名前は適当に変更しても大丈夫です）UnityではUIオブジェクトにテクスチャを割り当てるには、画像のTextture TypeがSprite(2D and UI)である必要があります。 この画像を、Buttonに適応するにはまずButton(Script)のTransitionをSprite Swapに変更します。すると、下部に以下のインスペクターが表示されます。一度画像の位置を調整する為に、Image(Script)のSource Imageにハイライトの画像を割り当て、適当な位置に調整しましょう。
+
+調整が完了したら、Source Imageには透明な画像を割り当て、Highilighted Spriteにハイライトの画像を割り当てます。これで通常時は何も表示されず、選択された際にハイライトの画像が表示されるようになりました。
+さらにButton(Script)のNavigationをVerticalにしておきます。
+CheckPos.cs　（click here) 
+
+
+CheckPos.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+
+public class CheckPos : MonoBehaviour
+{
+    public Button buttonComponent = null;
+    GameObject P;
+    GameObject P2;
+    GameObject P3;
+    GameObject Scroll;
+
+    ScrollRect ScrollRect;
+
+    public static int co;
+    static int u;
+    static int d;
+
+    void Start()
+    {
+        P = transform.parent.gameObject;
+        P2 = P.transform.parent.gameObject;
+        P3 = P2.transform.parent.gameObject;
+        Scroll = GameObject.FindWithTag("Player");
+        ScrollRect = Scroll.GetComponent&lt;ScrollRect&gt;();        
+    }
+
+    public void Update()
+    {
+      if(Input.GetKeyDown(KeyCode.Z))
+        {
+            Debug.Log(EventSystem.current.currentSelectedGameObject.GetComponent&lt;RectTransform&gt;().position);
+        }
+
+        if(Input.GetKeyDown(KeyCode.F))
+        {
+            if(this.gameObject.name == "0")
+            {
+                buttonComponent.Select();
+            }
+        }
+
+        if(P3.activeSelf == true &amp;&amp; co == 0)
+        {
+            if(this.gameObject.name == "0")
+            {
+                buttonComponent.Select();
+            }
+            co++;   //coは一度だけ選択を合わせるために使用している、これがないとUpdateなので、常に選択され続ける。
+        }
+    }
+}
+
+
+
+スクリプトの説明（click here) 
+
+
+Scroll = GameObject.FindWithTag("Player");
+
+
+準備が完了したら、シーンを再生します。見える範囲の一番上と一番下のオブジェクトの座標が知りたいので、一番上と下でZキーを押します。すると左下に座標が表記されるので、この値は（x,y,z）の順に並んでいるため、真ん中の値を記録しておきます。
+今回の場合は上が640.9で下が230.9ですね。 
+では先ほど記録した値を使用するスクリプトを作成します。
+このスクリプトはCheckPos.csと入れ替えでアタッチします、なので、このスクリプトを親オブジェクトにアタッチしたらCheckPos.csはRemoveComponentしてください。
+SelectIf.cs　（click here) 
+
+
+SelectIf.cs
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+
+public class SelectIf : MonoBehaviour
+{
+    [SerializeField] public Button buttonComponent = null;
+    GameObject P;
+    GameObject P2;
+    GameObject P3;
+    GameObject Scroll;
+
+    ScrollRect ScrollRect;
+
+    public static int co;
+    float pos;
+    static int u;
+    static int d;
+
+    void Start()
+    {
+        P = transform.parent.gameObject;
+        P2 = P.transform.parent.gameObject;
+        P3 = P2.transform.parent.gameObject;
+        Scroll = GameObject.FindWithTag("Player");
+        ScrollRect = Scroll.GetComponent&lt;ScrollRect&gt;();
+
+        pos = 1f/( (float)MyItem.rowLength - 5f);
+
+    }
+
+    public void Update()
+    {
+
+        if(P3.activeSelf == true &amp;&amp; co == 0)
+        {
+            if(this.gameObject.name == "0")
+            {
+                buttonComponent.Select();
+            }
+
+            co++;   //coは一度だけ選択を合わせるために使用している、これがないとUpdateなので、常に選択され続ける。
+        }
+
+        if(EventSystem.current.currentSelectedGameObject != null)
+        {
+            if(EventSystem.current.currentSelectedGameObject.GetComponent&lt;RectTransform&gt;().position.y &gt;= 645 )
+            {
+                ScrollRect.verticalNormalizedPosition = ScrollRect.verticalNormalizedPosition + pos ;
+
+            }else if( EventSystem.current.currentSelectedGameObject.GetComponent&lt;RectTransform&gt;().position.y &lt;= 210 )
+            {
+                ScrollRect.verticalNormalizedPosition = ScrollRect.verticalNormalizedPosition - pos;
+            }
+        }
+    }
+}
+
+
+
+スクリプトの説明（click here) 
+
+
+pos = 1f/( (float)MyItem.rowLength - 5f);
+
+
+
+このposが範囲外の物を選択した際に、「どれだけスクロールするか」の値になっています。
+式の中身としては【 １ ÷（ 要素の総数 - 表示可能な要素の数）】→【 １÷見えない範囲にある要素の数 】
+「１」はスクロールバーの移動が0～1の間で管理されているため、その総数である１となる。「要素の総数」はスクロールコンテンツとして登録する総数、つまりテキストファイルの中身。今回は「15」となる。この値は自動的に登録されるので手動で変更する必要なし。「表示可能な要素の数」はスクロールビューで定めた範囲内に収めることのできる要素数なので、今回は「5」となる。この値は当然何個要素を見えるようにするかで変わってくるため、適宜自分で調整してください。position.y &gt;= 645とposition.y &lt;= 210この部分が範囲となっています、先ほどCheckPos.csで確認した値をもとに調整を行います、上は数値に+、下は数値に-をしてください。この値はかなりシビアで、シーンを再生して挙動を確認しながら調整してください。もちろん、この値は当然スクロールビューのサイズを変えれば前提の値が変わってくるので、適宜確認して設定してください。
+さて、これでおおよその準備は整いましたが、以下の設定が正しくないとうまく機能しません。
+（筆者はこの設定が異なっていることに気付かず、再現性が得られず相当悩みました）主に確認することは、各オブジェクトのRect TransformのAnchor Presetsです。
+ここの設定が異なっていると、この機能は壊滅します。まずはプレハブ化してあるベースオブジェクトの設定を確認します。
+center&amp;topに設定し、Postionの値は全て0、WidthとHeightの値は子のオブジェクトによって左右されます。今回はおそらく画像と同じ値になっていると思います。ここのHeightの値は後に使用します。　さらにPivotの値がX:0.5 Y:1となっていることを確認します。
+　この値はオブジェクトを操作する際に基準となる値であり、Yを1にすることで頂点を基準にしています。　Rect Transformの設定について詳しく知りたい方は、tsubaki様のこちらの記事を参考にしてください。
+　UnityのuGUIのレイアウト調整機能について解説してみる（RectTransform入門）
+　
+次に、Scroll Rect(Script)が付いているオブジェクトの設定を確認します。
+　このオブジェクトのAnchorは特にどれでも問題ありません。middle&amp;centerが無難です。
+　重要な部分はこのオブジェクトのHeightの部分が、ベースオブジェクトのHeight × 表示可能な要素の数 + 1となっていることです。
+このオブジェクトが表示可能な要素の数を決めているので、今回は５つ見えるようにしているため201としています。+1する理由ですが、200ぴったりで試していただくとわかると思いますが、一番下まで移動して上に戻る際に途中で止まります。原因はいまいちよくわかっていませんが、恐らくスクロールさせるposのfolatとしての小数点数が関係しているんじゃないかなぁと思っています。
+最後にシーンを再生した際にベースオブジェクトをまとめる役割のオブジェクトの設定です。
+AnchorとPivotの設定はベースオブジェクトと同じです。Heightの値は親であるScroll Rect(Script)が付いているオブジェクトと同じ値に設定します。　そして、InfiniteScroll (Script)のinstantateItemCountは表示可能な要素の数+3です。
+　理由としては、Maskをはずして動作を確認すると勘付く方もいると思いますが、スクロールの際に範囲外の　部分で次に選択するオブジェクトが生成され、1つ分移動した際にもう１つ分新たに生成する...という風に　なっています。なので、上下に生成分+2と余白+1で+3という理由です。+2と+3の違い（click here) 
+
++2の場合（下までスクロールできない）　　　　　　　　　　　　　+3の場合（問題なく動作する）
+　　　　　　　　　　　　　
+　
+ここまでの手順を間違いなくこなしていれば、シーンを再生するとこの記事のTopにあるGIFと同じ挙動になるはずです。これでテキストファイルの中身を変えれば好きな文字列を表示でき、さらにButtonコンポーネントを使用しているので、スクリプトでswtich (transform.name)を使えば、ボタンごとに機能を割り当てることも可能です。おそらく、さらに拡張して使うこともできると思います。
+まずこの記事を作成しようと思った理由ですが、ひとえに「便利な物ができたからみんなにも使ってほしい！」という思いからまとめました。思っていた以上に時間が掛かりましたが、とにかく丁寧にわかりやすく、見やすい記事を心がけたつもりです。今後誰かの役に立てば幸いです。
+さて、ここから先は本格的な身の上話になりますが、筆者は2019/05からUnityとC#の勉強を始め、現在三ヶ月目です。それまではスクリプトは一度ノベルゲームを作りたいと思い、Javaを勉強しようとしましたが訳が分からず諦めたぐらいで、一切の知識はありませんでした。
+C#の基礎の部分をpaizaラーニングで学び、そこから先はUnityで実際にやりたいことを実現するにはどうすれば可能かをネットで調べながら試行錯誤を繰り返していきました。その中で、何度も先人の知恵に助けられ、支えられてきました。もしもこの先人の知恵がなく、自分一人で0から積み上げていかなければならなかったら、挫折していたでしょう。この経験を経たからこそ、私も誰かの役に立つような記事を遺したいという思いが生まれました。なにかを学ぶことはとても大変なことです、たった一人では諦めたくなることもあるかもしれません。ですがそんなときに、誰かの知恵を頼ることができれば、道は閉ざされずに済むかもしれません。
+そういうわけで、長々と語りましたが、今後もなにか役立ちそうなことを見つけたら記事にしたいと思います。
+ここまで読んでくださった方は本当にありがとうございました、貴方も誰かの力になれますように。
+
+

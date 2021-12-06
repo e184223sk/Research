@@ -1,0 +1,106 @@
+
+using System;
+using System.Runtime.CompilerServices;
+using static System.Linq.Expressions.Expression;
+
+static class CallHelper
+{
+    public static string ToString&lt;T&gt;(T value) =&gt; Impl&lt;T&gt;.ToStringDelegate(value);
+    public static string ToString&lt;T&gt;(T value, string format) =&gt; Impl&lt;T&gt;.ToStringWithFormatDelegate(value, format);
+
+    private static class Impl&lt;T&gt;
+    {
+        public static Func&lt;T, TResult&gt; MakeCallFunc&lt;TResult&gt;(string name) =&gt; MakeCallFunc&lt;TResult&gt;(name, Type.EmptyTypes);
+
+        public static Func&lt;T, TResult&gt; MakeCallFunc&lt;TResult&gt;(string name, params Type[] argTypes)
+        {
+            var value = Parameter(typeof(T), "value");
+
+            var targetMethod = typeof(T).GetMethod(name, argTypes);
+            if (targetMethod == null)
+                throw new MissingMethodException(typeof(T).FullName, name);
+
+            var lambda = Lambda&lt;Func&lt;T, TResult&gt;&gt;(
+                Call(value, targetMethod),
+                    value);
+            return lambda.Compile(true);
+        }
+
+        public static Func&lt;T, TArg, TResult&gt; MakeCallFunc&lt;TArg, TResult&gt;(string name)
+        {
+            var value = Parameter(typeof(T), "value");
+            var arg1 = Parameter(typeof(TArg), "arg1");
+
+            var argTypes = new[] { typeof(TArg) };
+            var targetMethod = typeof(T).GetMethod(name, argTypes);
+            if (targetMethod == null)
+                throw new MissingMethodException(typeof(T).FullName, $"{name}({string.Join(",", argTypes.AsEnumerable())})");
+
+            var lambda = Lambda&lt;Func&lt;T, TArg, TResult&gt;&gt;(
+                Call(value, targetMethod, arg1),
+                    value, arg1);
+            return lambda.Compile(true);
+        }
+
+        internal readonly static Func&lt;T, string&gt; ToStringDelegate = MakeCallFunc&lt;string&gt;("ToString");
+
+        // T must has ToString(format) method.
+        internal readonly static Func&lt;T, string, string&gt; ToStringWithFormatDelegate = MakeCallFunc&lt;string, string&gt;("ToString");
+    }
+}
+
+static class NullableHelper
+{
+    public static string ToString&lt;T&gt;(T value) =&gt; Impl&lt;T&gt;.ToStringDelegate(value);
+    public static string ToString&lt;T&gt;(T value, string format) =&gt; Impl&lt;T&gt;.ToStringWithFormatDelegate(value, format);
+
+    private static class Impl&lt;T&gt;
+    {
+        static Impl()
+        {
+            System.Diagnostics.Debug.Assert(typeof(T).GetGenericTypeDefinition() == typeof(Nullable&lt;&gt;));
+        }
+
+        public static Func&lt;T, TResult&gt; MakeCallFunc&lt;TResult&gt;(string name) =&gt; MakeCallFunc&lt;TResult&gt;(name, Type.EmptyTypes);
+
+        public static Func&lt;T, TResult&gt; MakeCallFunc&lt;TResult&gt;(string name, params Type[] argTypes)
+        {
+            var nullableValue = Parameter(typeof(T), "nullableValue");
+
+            var underlyingType = Nullable.GetUnderlyingType(typeof(T));
+            var targetMethod = underlyingType.GetMethod(name, argTypes);
+            if (targetMethod == null)
+                throw new MissingMethodException(underlyingType.FullName, name);
+
+            var lambda = Lambda&lt;Func&lt;T, TResult&gt;&gt;(
+                Call(
+                    Property(nullableValue, typeof(T), "Value"), targetMethod),
+                    nullableValue);
+            return lambda.Compile(true);
+        }
+
+        public static Func&lt;T, TArg, TResult&gt; MakeCallFunc&lt;TArg, TResult&gt;(string name)
+        {
+            var nullableValue = Parameter(typeof(T), "nullableValue");
+            var arg1 = Parameter(typeof(TArg), "arg1");
+
+            var underlyingType = Nullable.GetUnderlyingType(typeof(T));
+            var argTypes = new[] { typeof(TArg) };
+            var targetMethod = underlyingType.GetMethod(name, argTypes);
+            if (targetMethod == null)
+                throw new MissingMethodException(underlyingType.FullName, $"{name}({string.Join(",", argTypes.AsEnumerable())})");
+
+            var lambda = Lambda&lt;Func&lt;T, TArg, TResult&gt;&gt;(
+                Call(
+                    Property(nullableValue, typeof(T), "Value"), targetMethod, arg1),
+                nullableValue, arg1);
+            return lambda.Compile(true);
+        }
+
+        internal readonly static Func&lt;T, string&gt; ToStringDelegate = MakeCallFunc&lt;string&gt;("ToString");
+
+        // T must has ToString(format) method.
+        internal readonly static Func&lt;T, string, string&gt; ToStringWithFormatDelegate = MakeCallFunc&lt;string, string&gt;("ToString");
+    }
+}
+

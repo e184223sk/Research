@@ -1,0 +1,114 @@
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+using Google.Apis.Auth.OAuth2;
+using Google.Cloud.TextToSpeech.V1;
+using Grpc.Auth;
+using Grpc.Core;
+using UnityEngine;
+using UnityEngine.UI;
+using WWUtils.Audio;
+using Debug = UnityEngine.Debug;
+
+public class TextToSpeechSample : MonoBehaviour
+{
+    [SerializeField] private InputField inputField;
+    [SerializeField] private Button button;
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private string credential;
+
+    private const string GcpUrl = "https://www.googleapis.com/auth/cloud-platform";
+    private const string ChannelTarget = "texttospeech.googleapis.com:443";
+
+    private TextToSpeechClient _client;
+    private AudioConfig _audioConfig;
+    private VoiceSelectionParams _voiceSelectionParams;
+
+    private ChannelCredentials _credentials;
+
+    private SynchronizationContext _context;
+
+    private Stopwatch _stopwatch = new Stopwatch();
+
+    private void Start()
+    {
+        // ボタンを押したときのイベントを追加
+        button.onClick.AddListener(() =&gt;
+        {
+            var str = inputField.text;
+            if (string.IsNullOrEmpty(str)) return;
+            inputField.text = "";
+
+            CreateRequest(str);
+            Debug.Log($"Send Request: {str}");
+        });
+
+        // 認証情報をResourceから読み込む
+        var credentialStr = Resources.Load&lt;TextAsset&gt;(credential).text;
+        var googleCredential = GoogleCredential.FromJson(credentialStr);
+        _credentials = googleCredential.CreateScoped(GcpUrl).ToChannelCredentials();
+
+        var channel = new Channel(ChannelTarget, _credentials);
+        _client = new TextToSpeechClientImpl(new TextToSpeech.TextToSpeechClient(channel), new TextToSpeechSettings());
+
+        // オプションを記述
+        _audioConfig = new AudioConfig()
+        {
+            AudioEncoding = AudioEncoding.Linear16,
+            SampleRateHertz = 44100
+        };
+
+        // 声のパラメータを指定
+        // https://cloud.google.com/text-to-speech/docs/voices?hl=jaに記載されているものから選択できます
+        _voiceSelectionParams = new VoiceSelectionParams()
+        {
+            SsmlGender = SsmlVoiceGender.Female,
+            LanguageCode = "ja-JP"
+        };
+
+        _context = SynchronizationContext.Current;
+    }
+
+    /// &lt;summary&gt;
+    /// リクエストを送信する
+    /// &lt;/summary&gt;
+    /// &lt;param name="text"&gt;音声合成を行う対象の文&lt;/param&gt;
+    public void CreateRequest(string text)
+    {
+        var request = new SynthesizeSpeechRequest
+        {
+            Input = new SynthesisInput {Text = text},
+            AudioConfig = _audioConfig,
+            Voice = _voiceSelectionParams
+        };
+
+        _stopwatch.Restart();
+
+        // リクエストを非同期で送信し，返ってきた後に再生するメソッドに投げる
+        Task.Run(async () =&gt; { SetAudioClip(await _client.SynthesizeSpeechAsync(request)); });
+    }
+
+    /// &lt;summary&gt;
+    /// Google CloudからのレスポンスをAudioClipに書き出し，再生する
+    /// &lt;/summary&gt;
+    /// &lt;param name="response"&gt;Google Cloudからのレスポンス&lt;/param&gt;
+    private void SetAudioClip(SynthesizeSpeechResponse response)
+    {
+        var bytes = response.AudioContent.ToByteArray();
+
+        // byte[]をAudioClipで利用できる形に変換する
+        var wav = new WAV(bytes);
+        Debug.Log("Get Response: Elapsed time " + _stopwatch.ElapsedMilliseconds + "ms.\nData Length: " +
+                  (wav.SampleCount * (1f / wav.Frequency) * 1000f).ToString("F0") + "ms.");
+        _context.Post(_ =&gt;
+        {
+            // AudioSourceに新しいAudioClipを貼り付ける
+            audioSource.clip = AudioClip.Create("TextToSpeech", wav.SampleCount, 1, wav.Frequency, false);
+            audioSource.clip.SetData(wav.LeftChannel, 0);
+
+            // AudioClipを再生
+            audioSource.Play();
+        }, null);
+    }
+}
+

@@ -1,0 +1,52 @@
+
+//DataGridにバインドするModel
+readonly ObservableCollection&lt;Person&gt; tmpPeople = new ObservableCollection&lt;Person&gt;();
+
+private void datagrid_Sorting(object sender, DataGridColumnEventArgs e)
+{
+    List&lt;Person&gt; sortedPeople = new List&lt;Person&gt;();
+
+    //p =&gt; p."columnName"というラムダ式を生成
+    var keyFunc = GetDynamicPropertyExpression(e.Column.Header.ToString()).Compile();
+
+    if (e.Column.SortDirection == null || e.Column.SortDirection == DataGridSortDirection.Descending)
+    {
+        //ColumnNameの中身でOrderBy
+        sortedPeople = new List&lt;Person&gt;(tmpPeople.OrderBy(keyFunc));
+        e.Column.SortDirection = DataGridSortDirection.Ascending;
+    }
+    else
+    {
+        //ColumnNameの中身でorderByDescending
+        sortedPeople = new List&lt;Person&gt;(tmpPeople.OrderByDescending(keyFunc));
+        e.Column.SortDirection = DataGridSortDirection.Descending;
+    }
+
+    //ソート結果をUIに反映
+    ReloadDataGrid(sortedPeople);
+
+    //他のカラムのソート状態をデフォルトにする
+    foreach (var item in this.hihokenshaDatagrid.Columns)
+    {
+        if (item != e.Column) item.SortDirection = null;
+    }
+}
+
+static Expression&lt;Func&lt;Person, string&gt;&gt; GetDynamicPropertyExpression(string columnName)
+{
+    var type = typeof(Person);
+    var prop = type.GetProperty(columnName);
+    var param = Expression.Parameter(type, "p");
+
+    //p."columnName"というプロパティアクセス
+    var propertyAccess = Expression.MakeMemberAccess(param, prop);
+
+    //p =&gt; p."columnName"というラムダ式を格納した式ツリーを返す
+    return Expression.Lambda&lt;Func&lt;Person, string&gt;&gt;(propertyAccess, param);
+}
+
+
+
+
+
+

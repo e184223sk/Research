@@ -1,0 +1,66 @@
+
+// 接続準備
+var workspace = NorthwindEntities.GetMetadataWorkspace();
+using (var entityConnection1 = new EntityConnection("name=NorthwindEntities"))
+using (var sqlConnection = entityConnection1.StoreConnection)
+using (var entityConnection2 = new EntityConnection(workspace, sqlConnection, false))
+{
+    // あらかじめ接続を開いておく。
+    sqlConnection.Open();
+
+    // トランザクション開始
+    using (var transaction = sqlConnection.BeginTransaction())
+    {
+        // 1つ目のコンテキストを操作する。
+        using (var context = new NorthwindEntities(entityConnection1, false))
+        {
+            context.Database.UseTransaction(transaction);
+
+            var product = await context.Products.SingleAsync(p =&gt; p.ProductID == 1).ConfigureAwait(false);
+            product.ProductName = "New Product Name";
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        // 別の EntityConnection を使って2つ目のコンテキストを操作する。
+        // ※同じ EntityConnection を使用すると InvalidOperationException が発生する。
+        using (var context = new NorthwindEntities(entityConnection2, false))
+        {
+            context.Database.UseTransaction(transaction);
+
+            var employee = await context.Employees.SingleAsync(e =&gt; e.EmployeeID == 1).ConfigureAwait(false);
+            employee.Title = "New Title";
+            await context.SaveChangesAsync().ConfigureAwait(false);
+        }
+
+        // まとめてコミット
+        transaction.Commit();
+    }
+}
+
+// コンテキストの部分クラス
+public partial class NorthwindEntities : DbContext
+{
+    /// &lt;summary&gt;
+    /// コンストラクタ。
+    /// &lt;/summary&gt;
+    /// &lt;param name="existingConnection"&gt;コンテキストで使用する接続。&lt;/param&gt;
+    /// &lt;param name="contextOwnsConnection"&gt;false を指定すると、コンテキストが Dispose されたときに接続を Dispose しない。&lt;/param&gt;
+    public NorthwindEntities(DbConnection existingConnection, bool contextOwnsConnection)
+        : base(existingConnection, contextOwnsConnection)
+    {
+    }
+
+    /// &lt;summary&gt;
+    /// メタデータワークスペースを取得する。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public static MetadataWorkspace GetMetadataWorkspace()
+    {
+        using (var context = new NorthwindEntities())
+        {
+            var objectContext = ((IObjectContextAdapter)context).ObjectContext;
+            return objectContext.MetadataWorkspace;
+        }
+    }
+}
+

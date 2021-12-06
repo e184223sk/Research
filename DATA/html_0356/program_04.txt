@@ -1,0 +1,76 @@
+
+
+&lt;InputFile OnChange="LoadFiles" multiple /&gt;
+&lt;br /&gt;
+
+&lt;span&gt;@errorMessage&lt;/span&gt;
+
+@if (isLoading)
+{
+    &lt;p&gt;Loading...&lt;/p&gt;
+    &lt;br /&gt;
+}
+
+@foreach (var file in loadedFiles)
+{
+    &lt;p id="file-@(file.FileName)"&gt;
+        &lt;strong&gt;Name:&lt;/strong&gt; &lt;span id="file-name"&gt;@(file.FileName)&lt;/span&gt;&lt;br /&gt;
+        &lt;strong&gt;Last modified:&lt;/strong&gt; &lt;span id="file-last-modified"&gt;@(file.LastModified.ToString())&lt;/span&gt;&lt;br /&gt;
+        &lt;strong&gt;Size (bytes):&lt;/strong&gt; &lt;span id="file-size"&gt;@(file.Size)&lt;/span&gt;&lt;br /&gt;
+        &lt;strong&gt;Content type:&lt;/strong&gt; &lt;span id="file-content-type"&gt;@(file.ContentType)&lt;/span&gt;&lt;br /&gt;
+    &lt;/p&gt;
+}
+
+
+@code {
+    List&lt;UploadFile&gt; loadedFiles = new List&lt;UploadFile&gt;();
+    bool isLoading;
+    string errorMessage;
+
+    async Task LoadFiles(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        loadedFiles.Clear();
+        errorMessage = string.Empty;
+
+        try
+        {
+            foreach (var file in e.GetMultipleFiles(3))
+            {
+                StateHasChanged();
+                var buffers = new byte[file.Size];
+                await file.OpenReadStream().ReadAsync(buffers);
+                var uploadFile = new UploadFile()
+                {
+                    FileName = file.Name,
+                    ContentType = file.ContentType,
+                    Size = file.Size,
+                    LastModified = file.LastModified,
+                    Content = buffers
+                };
+
+                loadedFiles.Add(uploadFile);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    public class UploadFile
+    {
+        public string FileName { get; set; }
+        public byte[] Content { get; set; }
+        public DateTimeOffset LastModified { get; set; }
+        public string ContentType { get; set; }
+        public long Size { get; set; }
+    }
+}
+
+
+

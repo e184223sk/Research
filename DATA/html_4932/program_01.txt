@@ -1,0 +1,100 @@
+
+using System;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace InAsync.Security.PasswordHashing {
+
+    public static class PBKDF2 {
+        private const int DerivedKeyLength = 160 / 8;
+
+        public static PBKDF2Hash Hash(string password, int saltSize = 16, int iterations = 10000) {
+            using (var deriveBytes = new Rfc2898DeriveBytes(password, saltSize: saltSize, iterations: iterations)) {
+                var dk = deriveBytes.GetBytes(DerivedKeyLength);
+                return new PBKDF2Hash(deriveBytes.IterationCount, deriveBytes.Salt, dk);
+            }
+        }
+
+        public static bool Verify(string password, string hashStr) {
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            if (hashStr == null) throw new ArgumentNullException(nameof(hashStr));
+            if (PBKDF2Hash.TryParse(hashStr, out var hash) == false) throw new FormatException(nameof(hashStr));
+
+            return Verify(password, hash);
+        }
+
+        public static bool Verify(string password, PBKDF2Hash hash) {
+            if (password == null) throw new ArgumentNullException(nameof(password));
+            if (hash == null) throw new ArgumentNullException(nameof(hash));
+
+            using (var deriveBytes = new Rfc2898DeriveBytes(password, salt: hash.Salt, iterations: hash.IterationCount)) {
+                var dk = deriveBytes.GetBytes(DerivedKeyLength);
+                return hash.DerivedKey.SequenceEqual(dk);
+            }
+        }
+    }
+
+    public class PBKDF2Hash {
+        private const string HashId = "pbkdf2";
+
+        public PBKDF2Hash(int iterationCount, byte[] salt, byte[] derivedKey) {
+            IterationCount = iterationCount;
+            Salt = salt;
+            DerivedKey = derivedKey;
+        }
+
+        public int IterationCount { get; }
+        public byte[] Salt { get; }
+        public byte[] DerivedKey { get; }
+
+        public override string ToString() {
+            return $"${HashId}${IterationCount}${AdaptedBase64Encode(Salt)}${AdaptedBase64Encode(DerivedKey)}";
+        }
+
+        public static bool TryParse(string hashStr, out PBKDF2Hash result) {
+            result = null;
+            if (hashStr == null) return false;
+            if (hashStr.StartsWith("$") == false) return false;
+
+            var elems = hashStr.Split(new[] { '$' }, StringSplitOptions.RemoveEmptyEntries);
+            if (elems.Length != 4) return false;
+
+            if (elems[0] != HashId) return false;
+            if (int.TryParse(elems[1], out var iterationCount) == false) return false;
+            var salt = AdaptedBase64Decode(elems[2]);
+            var dk = AdaptedBase64Decode(elems[3]);
+
+            result = new PBKDF2Hash(iterationCount, salt, dk);
+            return true;
+        }
+
+        #region Helper
+
+        /// &lt;summary&gt;
+        /// adapted base64 encoding
+        /// http://nullege.com/codes/search/passlib.utils.ab64_encode
+        /// &lt;/summary&gt;
+        /// &lt;param name="bin"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static string AdaptedBase64Encode(byte[] bin) {
+            return Convert.ToBase64String(bin).TrimEnd('=').Replace('+', '.');
+        }
+
+        /// &lt;summary&gt;
+        /// http://nullege.com/codes/search/passlib.utils.ab64_decode
+        /// &lt;/summary&gt;
+        /// &lt;param name="value"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static byte[] AdaptedBase64Decode(string value) {
+            var paddingLen = (4 - value.Length % 4) &amp; 0x3;
+            var bldr = new StringBuilder(value);
+            bldr.Replace('.', '+');
+            bldr.Append('=', paddingLen);
+            return Convert.FromBase64String(bldr.ToString());
+        }
+
+        #endregion Helper
+    }
+}
+

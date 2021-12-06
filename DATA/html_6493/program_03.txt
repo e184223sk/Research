@@ -1,0 +1,61 @@
+
+public class CardLoader
+    {
+        /// &lt;summary&gt;
+        /// スクリプトを読み込んでゲーム環境を生成する 
+        /// &lt;/summary&gt;
+        /// &lt;param name="script"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static GameEnvironment RunScript(string script)
+        {
+            //スクリプトのパス設定
+            var ssr = ScriptSourceResolver.Default
+        .WithBaseDirectory(Environment.CurrentDirectory);
+            var smr = ScriptMetadataResolver.Default
+                .WithBaseDirectory(Environment.CurrentDirectory);
+            var so = ScriptOptions.Default
+                .WithSourceResolver(ssr)
+                .WithMetadataResolver(smr);
+
+            //Roslynでスクリプト実行
+            var gameRuleClass = CSharpScript.EvaluateAsync&lt;Type&gt;(script,so).Result;
+
+            var env = new GameEnvironment();
+            var kv = ExtractRules(gameRuleClass);
+            env.Universe = kv.Key;
+            env.Stack.Push(kv.Value);
+
+            SetEnvironmentInScript(env, gameRuleClass);
+
+            return env;
+        }
+
+        /// &lt;summary&gt;
+        /// ルールカードの抽出
+        /// &lt;/summary&gt;
+        /// &lt;param name="gemeRuleClass"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static KeyValuePair&lt;UniverseDic,RuleCard&gt; ExtractRules(Type gemeRuleClass)
+        {
+            RuleCard firstCard = null;
+            var dic = new UniverseDic();
+
+            foreach (MethodInfo info in gemeRuleClass.GetMethods())
+            {
+                var cardMethodAtt = (CardMethod)Attribute.GetCustomAttribute(info, typeof(CardMethod));
+                if (cardMethodAtt != null)
+                {
+                    var effect = (Func&lt;bool&gt;)info.CreateDelegate(typeof(Func&lt;bool&gt;));
+                    var card = new RuleCard() { Effect = effect };
+                    card["Name"] = cardMethodAtt.Name;
+                    dic[cardMethodAtt.Name] = card;
+                    if (cardMethodAtt.IsFirst)
+                    {
+                        firstCard = card;
+                    }
+                }
+            }
+            return new KeyValuePair&lt;UniverseDic, RuleCard&gt;(dic, firstCard);
+        }
+    }
+

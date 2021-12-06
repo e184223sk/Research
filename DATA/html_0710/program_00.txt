@@ -1,0 +1,133 @@
+using System;
+using System.IO;
+using MailKit;
+using MailKit.Net.Imap;
+using MailKit.Net.Pop3;
+using MailKit.Search;
+using MailKit.Security;
+
+namespace imap4
+{
+    class CL_MAIL
+    {
+        public string mail_addr = "user@hoge.ne.jp";
+        public string passwd = "xxxxxxxx";
+
+        //SSL
+        //SecureSocketOptions ssl = SecureSocketOptions.SslOnConnect;
+                            //ssl = SecureSocketOptions.Auto;                     // 自動判別で接続する
+                            //ssl = SecureSocketOptions.SslOnConnect;             // SSLで接続する
+                            //ssl = SecureSocketOptions.StartTls;                 // StartTLSで接続する
+                            //ssl = SecureSocketOptions.StartTlsWhenAvailable;    // 可能ならStartTLSで接続する
+
+        public bool GET_IMAP_MAIL()
+        {
+            string mydocument = System.Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            string save_path = mydocument + "\\mail_folder\\";
+
+            using (var client = new ImapClient())
+            {
+                lock (client.SyncRoot)   //スレッド処理のためロックする
+                {
+                    client.Connect("メールサーバアドレス", 993, SecureSocketOptions.SslOnConnect);
+                    client.Authenticate(mail_addr, passwd);
+
+                    //IMAP INBOXフォルダの受信と保存
+                    save_mail_imap(client.Inbox, "1");
+
+                    //IMAP その他フォルダの受信と保存
+                    var personal = client.GetFolder(client.PersonalNamespaces[0]);
+                    foreach (var folder in personal.GetSubfolders(false))
+                    {
+                        switch (folder.Name)
+                        {
+                            case "Sent":
+                                //IMAPフォルダを開く
+                                folder.Open(FolderAccess.ReadOnly);
+
+                                var uids = folder.Search(SearchQuery.All);
+                                foreach (var uid in uids)
+                                {
+                                    var m = folder.GetMessage(uid);
+                                    if (m.Date != null)
+                                    {
+                                        //例外エラーの発生を防ぐ処理
+                                        if (m.To.Count &lt; 1)
+                                        {
+                                            continue;
+                                        }
+                                        //フォルダ存在確認
+                                        if (Directory.Exists(save_path + folder.Name) == false)
+                                        {
+                                            //'初回はフォルダがないから作る
+                                            Directory.CreateDirectory(save_path + folder.Name);
+                                        }
+                                        // メッセージ本文をダウンロードしてファイルに保存する
+                                        if (File.Exists(save_path + folder.Name + "\\" + uid.ToString() + "：" + m.Subject + ".eml") == false)
+                                        {
+                                            //ファイルへ書き出し
+                                            m.WriteTo(save_path + folder.Name + "\\" + uid.ToString() + "：" + m.Subject + ".eml");
+                                        }
+                                    }
+                                }
+                                break;
+                        }
+                    }
+                    client.Disconnect(true);
+                }
+            }
+            return true ;
+        }
+
+        private void save_mail_imap(IMailFolder folder, string mtype)
+        {
+            string mydocument = System.Environment.GetFolderPath(Environment.SpecialFolder.Personal);
+            string save_path = mydocument + "\\mail_folder\\";
+
+            //IMAPフォルダを開く
+            folder.Open(FolderAccess.ReadOnly);
+
+            var uids = folder.Search(SearchQuery.All);
+            foreach (var uid in uids)
+            {
+                var m = folder.GetMessage(uid);
+                if (m.Date != null)
+                {
+                    //例外エラーの発生を防ぐ処理
+                    if (m.To.Count &lt; 1)
+                    {
+                        continue;
+                    }
+
+                    string _from = "";
+                    if (m.From.Count &gt; 0)
+                    {
+                        _from = ((MimeKit.MailboxAddress)m.From[0]).Address;
+                    }
+                    string _to = "";
+                    if (m.To.Count &gt; 0)
+                    {
+                        _to = ((MimeKit.MailboxAddress)m.To[0]).Address;
+                    }
+
+                    //フォルダ存在確認
+                    if (Directory.Exists(save_path + folder.Name) == false)
+                    {
+                        //初回はフォルダがないから作る
+                        Directory.CreateDirectory(save_path + folder.Name);
+                    }
+
+                     // メッセージ本文をダウンロードしてファイルに保存する
+                    if (File.Exists(save_path + folder.Name + "\\" + uid.ToString() + "：" + m.Subject + ".eml") == false)
+                    {
+                        //ファイルへ書き出し
+                        m.WriteTo(save_path + folder.Name + "\\" + uid.ToString() + "：" + m.Subject + ".eml");
+                    }
+
+                }
+            }
+        }
+
+    }
+}
+

@@ -1,0 +1,105 @@
+using Epoxy;
+using Epoxy.Synchronized;
+using System.Collections.ObjectModel;
+using System.Windows;
+
+namespace EpoxySample1.ViewModels
+{
+    public sealed class MainWindowViewModel : ViewModel
+    {
+        /// &lt;summary&gt;
+        /// 検索対象パス
+        /// &lt;/summary&gt;
+        public string? TargetPath
+        {
+            get =&gt; GetValue();
+            set
+            { 
+                SetValue(value);
+                // 検索コマンドの実行可否 更新
+                SearchCommand?.ChangeCanExecute();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 処理中フラグ
+        /// &lt;/summary&gt;
+        public bool IsBusy
+        {
+            get =&gt; GetValue();
+            private set =&gt; SetValue(value);
+        }
+
+        /// &lt;summary&gt;
+        /// 検索結果パス一覧
+        /// &lt;/summary&gt;
+        public ObservableCollection&lt;string&gt;? PathList
+        {
+            get =&gt; GetValue&lt;ObservableCollection&lt;string&gt;?&gt;();
+            private set =&gt; SetValue(value);
+        }
+
+        /// &lt;summary&gt;
+        /// ウィンドウ起動時の処理
+        /// &lt;/summary&gt;
+        public Command? WindowLoaded
+        {
+            get =&gt; GetValue();
+            private set =&gt; SetValue(value);
+        }
+
+        /// &lt;summary&gt;
+        /// 検索コマンド
+        /// &lt;/summary&gt;
+        public Command? SearchCommand
+        {
+            get =&gt; GetValue();
+            private set =&gt; SetValue(value);
+        }
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public MainWindowViewModel()
+        {
+            CreateCommands();
+        }
+
+        /// &lt;summary&gt;
+        /// コマンド初期化
+        /// &lt;/summary&gt;
+        private void CreateCommands()
+        {
+            // ウィンドウ起動
+            WindowLoaded = Command.Factory.CreateSync&lt;RoutedEventArgs&gt;(e =&gt;
+            {
+                IsBusy = false;
+                TargetPath = @"C:\ProgramData";
+                PathList = new ObservableCollection&lt;string&gt;();
+            });
+
+            // 検索
+            SearchCommand = CommandFactory.Create(
+                executeAsync: async () =&gt;
+                {
+                    IsBusy = true;
+                    PathList?.Clear();
+
+                    var dir = new Models.Directory(TargetPath ?? "");
+                    await foreach (var item in dir.GetItemsAsync())
+                    {
+                        PathList?.Add(item);
+                    }
+
+                    IsBusy = false;
+                },
+                canExecute: () =&gt;
+                {
+                    // パスが空のときは無効
+                    return !string.IsNullOrWhiteSpace(TargetPath);
+                }
+                );
+        }
+    }
+}
+

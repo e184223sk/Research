@@ -1,0 +1,47 @@
+
+internal List&lt;string&gt; Export()
+{
+    var contents = new List&lt;string&gt;();
+    using (var doc = new ComWrapper&lt;Word.Document&gt;(
+        docs.Open(file,
+            ReadOnly: true,
+            AddToRecentFiles: false,
+            Visible: false)
+        ))
+    {
+        var tempFiles = new string[2];
+        bool success = false;
+        try
+        {
+            tempFiles[0] = Path.GetTempFileName();
+            tempFiles[1] = Path.GetTempFileName();
+
+            //Text in word.　★ここでテキストとして保存
+            doc.ComObject.SaveAs2(tempFiles[0], FileFormat: Word.WdSaveFormat.wdFormatText);
+            //Text in shapes.
+            List&lt;string&gt; otherContents = new List&lt;string&gt;();
+            foreach (Word.Shape shape in doc.ComObject.Shapes)
+            {//★図形のテキスト抽出
+                ExtractShapeContents(otherContents, shape);
+            }
+            foreach (Word.Comment comment in doc.ComObject.Comments)
+            {//★コメントの保存
+                otherContents.Add(comment.Author + ":" + comment.Range.Text);
+            }
+            File.WriteAllLines(tempFiles[1], otherContents, Encoding.Default);
+            success = true;
+        }
+        finally
+        {
+            doc.ComObject.Close(false);
+            //merge contents after closing doc.
+            if (success)
+            {
+                contents = FileUtils.MergeTextContents(tempFiles);
+            }
+            FileUtils.DeleteFiles(tempFiles);
+        }
+        return contents;
+    }
+}
+

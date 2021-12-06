@@ -1,0 +1,33 @@
+More than 3 years have passed since last update.これは JP_Stripes (Stripe ユーザーグループ）in 松山 キックオフ のLT登壇のためにまとめた記事です。オンライン決済で話題になっているStripe 、LT登壇ネタとして、ちょうど仕事の開発でも使っている ASP.net MVC 5 で、噂どおり簡単に実装できるか試してみることにしました。
+結果、簡単過ぎて、、、開発する手ごたえがないほど楽でした。（笑）会員がログインした後、商品を発注しカード決済するまでの一連の流れを想定して実装してみます。「会員登録」→「ログイン」→「商品を発注」→「カード決済入力」→「カード決裁結果を表示」使用するPCの環境は以下です。以上の手順で進めます。以下の Stripe のサイトにアクセスし「アカウント登録」を行いましょう。
+https://stripe.com/jp
+簡単なので説明は省略します。アカウント登録が終わったらダッシュボードに進みましょう。
+Unnamed Acount が作成されていますが、私は試験用のアカウントを追加しました。早速売上があるように見えてますが、これはテストデータです。（笑）
+テストデータは消せれるようにして欲しいですね。次に、VisualStudio を起動して、ASP.net MVC 5 のプロジェクトを作成しまししょう。認証は、今回「個別のユーザアカウント」を選択します。以上で、最初から認証機能（ユーザ登録、ログインなど）が実装された、ASP.net MVC のプロジェクトが追加されます。
+ASP.net MVC って、本当にプロジェクトを作ってから手軽に開発をスタートできるのがいいですね！今回はカード決済の実装に Stripe を使いますので、そのクラスライブラリィを導入します。
+コードは以下の Github に公開されているので、何かあった時でもコードを直接参照できるのは安心です。
+https://github.com/stripe/stripe-dotnetNuGet で簡単にインストールできるのもいいですね！
+パッケージマネージャーコンソールで、以下を実行するだけでインストールは終わりです。PM&gt; Install-Package Stripe.netStripe.net.11.9.0 のインストールで、自動で依存関係にある Newtonsoft.Json も 6.0.4 から 9.0.1 アップデートされてますね。Stripe の顧客はメアドが重複しても、そのまま追加されてしまいます。試験といえども、同じメールアドレスの顧客が重複して登録されるのは避けたいところ。
+ローカルの DB で Stripe の顧客IDを管理して、Stripe の顧客が重複するのを避けます。いちいちDBのテーブルを手動で追加するのも面倒ですので、マイグレーションの設定を追加します。Stripe の顧客IDを管理するため、Customer エンティティを追加します。Customer エンティティを保管する DB のコンテキスト AppDbContext を追加します。パッケージマネージャーコンソールで、マイグレーションを有効にします。
+オプションで DB のコンテキスト名と、自動マイグレーションの指定を追加します。PM&gt; Enable-Migrations -ContextTypeName WebApplication1.Models.AppDbContext -EnableAutomaticMigrationsマイグレーションを有効にすると /Migrations/Configuration.cs が自動で追加されます。続いて、データベースの接続設定を追加します。DB の保管場所を明示的に指定することで管理しやすくなります。
+&lt;add name="DefaultConnection" ... /&gt; の1つ目は、認証部分のコンテキスト用です。
+その下に &lt;add name="WebApplication1.Models.AppDbContext" ... /&gt; を追加します。 さらに Global.asax.cs に Database.SetInitializer() を追加して、Web.config で指定した定義で AppDbContext の DB に接続するようにします。以上の設定が終わったら、再度マイグレーションの設定を -Force で上書きします。PM&gt; Enable-Migrations -ContextTypeName WebApplication1.Models.AppDbContext -EnableAutomaticMigrations -Forceこれで AppDbContext にセットされたモデルに変更・追加があっても、自動でマイグレーションしてくれます。Stripe には多くのドキュメントが整備されています。（日本語対応が遅れているのが残念ではありますが。）
+stripe docs の以下を参照しながら、ASP.net MVC 5 への実装を進めます。Using Checkout in an ASP.NET MVC application
+https://stripe.com/docs/checkout/aspnetCreating Charges
+https://stripe.com/docs/chargesDetailed Checkout Guide
+https://stripe.com/docs/checkoutRetrieve a customer
+https://stripe.com/docs/api#retrieve_customer実装の前に、Stripe のダッシュボードで APIキー（公開鍵、シークレット鍵）を確認します。シークレット鍵がいきなり表示されないように工夫されているのは良いですね！
+APIキーは以下のように Web.config などに保管しておくと良いでしょう。
+（本当は暗号化などして、もっと厳重に管理した方が良いですが、今回は省略しました。）シークレットキーの Configuration への設定は Startup.cs などで実施すると良いでしょう。コントローラに以下の2つのメソッドを追加します。実際のカード決裁処理は、アプリケーションサービスクラスに実装します。Stripe の顧客情報はメールアドレスが重複しても追加されてしまいます。
+メールアドレスが重複する顧客情報は登録したくないので、ローカルDB で Stripe の顧客IDを管理して重複しないようにします。
+（本来は課金結果も保管しますが、今回は省略します。）最後に、以下の View の追加・修正を行います。以上で実装は終わりです。実装が終わったら、VisualStudio でデバッグ実行してみます。
+デバッグ実行前に Stripe の顧客と、支払いを確認します。デバック起動した最初の画面です。先ずはアカウント（ test@example.com ）を登録します。
+プロジェクトを作る際に「個別のアカウント」を選択した場合は、アカウントは電子メールアドレスを使うように初期設定されています。アカウント登録が終わると、ログイン状態で最初の画面に遷移します。
+画面右端に「芋けんぴの注文」のリンクが表示されているのが確認できます。では、実際に注文してカード決裁を行います。注文画面「Pay with Card」ボタンをクリックすると、カード情報入力ダイアログが表示されます。
+ですが、Edge、IE で表示されないことがありました。（現状ではまだ原因は不明です。）
+とりあえず、以下のように入力してみます。カード決済が完了すると、以下の画面に遷移します。実際に Stripe に顧客、支払いが追加されたか確認します。Stripe に無事追加されました。
+ローカルDBにも、以下のように顧客（Custmer）が追加されていますね。実際にアカウント登録、ドキュメントを参照、ASP.net MVC 5 を設定、カード決裁を実装するまで、だいたい半日程度でできました。とりあえずカード課金を試してみましたが、本命は月・年額会費の課金対応。
+以下を参考に、後日追加で試してみるつもりです。Stripe Subscription （定期支払い）101 - Part 1（Stripe 日本 @y_toku さん）
+https://qiita.com/y_toku/items/235b5e7ee00792edcbbf 
+
+

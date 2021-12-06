@@ -1,0 +1,84 @@
+
+using EventStore.Client;
+
+private static readonly IEventDataSerializer Serializer = SampleSerializer.Default;
+
+/// &lt;summary&gt;
+/// トランザクションログからコマンドを読み込みます。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;非同期ストリーム&lt;/returns&gt;
+private IAsyncEnumerable&lt;IEventCommand&gt; ReadAllCommandsAsync()
+{
+    // 最後の読み込み位置を指定する
+    return ReadAllCommandsAsync(GetLastTransactionPosition());
+}
+
+/// &lt;summary&gt;
+/// トランザクションログからコマンドを読み込みます。
+/// &lt;/summary&gt;
+/// &lt;param name="lastPosition"&gt;最後の読み込み位置&lt;/param&gt;
+/// &lt;returns&gt;非同期ストリーム&lt;/returns&gt;
+private async IAsyncEnumerable&lt;IEventCommand&gt; ReadAllCommandsAsync(Position lastPosition)
+{
+    // 頻繁に書き込みを行うアプリケーションの場合、クライアントの生成と破棄を繰り返さないほうがよいと思われる
+    await using EventStoreClient client = CreateEventStoreClient();
+
+    await foreach (var result in client.ReadAllAsync(
+        Direction.Forwards
+        , lastPosition
+        , userCredentials: new UserCredentials("admin", "changeit")))
+    {
+        // TODO: 最後に読み込んだときの位置と同じ場合はスキップする。位置が不変であるのか調査が必要。
+        if (lastPosition.CommitPosition &gt;= result.Event.Position.CommitPosition)
+        {
+            continue;
+        }
+
+        // イベントからコマンドを取得して列挙する
+        if (TryGetCommand(@event, out IEventCommand cmd))
+        {
+            yield return cmd;
+        }
+
+        // 最後に読み込んだ位置を格納する
+        LastTransactionPosition = result.Event.Position;
+    }
+}
+
+/// &lt;summary&gt;
+/// 指定されたイベントからコマンドを取得します。
+/// &lt;/summary&gt;
+/// &lt;param name="event"&gt;イベント&lt;/param&gt;
+/// &lt;param name="command"&gt;コマンド&lt;/param&gt;
+/// &lt;returns&gt;取得できた場合、true を返します。&lt;/returns&gt;
+private bool TryGetCommand(ResolvedEvent @event, out IEventCommand command)
+{
+    // TODO: イベントタイプからコマンドの型を特定できるようにすることが望ましい
+    if (@event.Event.EventType == "sampleEvent")
+    {
+        command = Serializer.Deserialize&lt;SampleEventCommand&gt;(@event.Event.Data);
+        return true;
+    }
+    command = null;
+    return false;
+}
+
+/// &lt;summary&gt;
+/// 指定されたイベントからコマンドを取得します。
+/// &lt;/summary&gt;
+/// &lt;param name="event"&gt;イベント&lt;/param&gt;
+/// &lt;param name="command"&gt;コマンド&lt;/param&gt;
+/// &lt;returns&gt;取得できた場合、true を返します。&lt;/returns&gt;
+private bool TryGetCommand&lt;TCommand&gt;(ResolvedEvent @event, out TCommand command)
+    where TCommand : IEventCommand
+{
+    // TODO: イベントタイプからコマンドの型を特定できるようにすることが望ましい
+    if (@event.Event.EventType == "sampleEvent")
+    {
+        command = (TCommand)(IEventCommand)Serializer.Deserialize&lt;SampleEventCommand&gt;(@event.Event.Data);
+        return true;
+    }
+    command = default;
+    return false;
+}
+

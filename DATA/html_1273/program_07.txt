@@ -1,0 +1,79 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Reflection;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using Microsoft.Extensions.DependencyInjection;
+using Newtonsoft.Json;
+using Polly;
+using Polly.Extensions.Http;
+
+namespace ExtremeSpike
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            var urls = new List&lt;string&gt;()
+            {
+                "https://some.blob.core.windows.net/healthcheck/hello.json"
+            };
+            var service = new ServiceCollection();
+            service.AddHttpClient&lt;IBlobService, BlobService&gt;()
+                .SetHandlerLifetime(TimeSpan.FromMinutes(5))
+                .AddPolicyHandler(GetRetryPolicy());
+            var provider = service.BuildServiceProvider();
+            IBlobService blobService = provider.GetRequiredService&lt;IBlobService&gt;();
+            await blobService.Execute(urls);
+        }
+
+        private static IAsyncPolicy&lt;HttpResponseMessage&gt; GetRetryPolicy()
+        {
+            var jitterier = new Random();
+            return HttpPolicyExtensions
+                .HandleTransientHttpError()
+                .OrResult(msg =&gt; msg.StatusCode == System.Net.HttpStatusCode.NotFound)
+                .WaitAndRetryAsync(3, retryAttempt =&gt; TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
+                                                      + TimeSpan.FromMilliseconds(jitterier.Next(0, 100)),
+                    onRetry: (response, delay, retryCount, context) =&gt;
+                    {
+                        Console.WriteLine($"Retrying: StatusCode: {response.Result.StatusCode} Message: {response.Result.ReasonPhrase} RequestUri: {response.Result.RequestMessage.RequestUri}");
+                    });
+        }
+    }
+
+    public interface IBlobService
+    {
+        Task Execute(IEnumerable&lt;string&gt; urls);
+    }
+
+    public class BlobService : IBlobService
+    {
+        private readonly HttpClient _client;
+        public BlobService(HttpClient client)
+        {
+            this._client = client;
+        }
+
+        public async Task Execute(IEnumerable&lt;string&gt; urls)
+        {
+            foreach (var url in urls)
+            {
+                // TODO Retry
+                var response = await _client.GetAsync(url);
+                Console.WriteLine($"StatusCode: {response.StatusCode}");
+                if (response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine(body);
+                }
+            }
+        }
+    }
+}
+
+

@@ -1,0 +1,57 @@
+
+using System;
+using System.Threading;
+
+namespace Pawotter.NetworkActivityManager
+{
+    public interface IActivityManager
+    {
+        void Attach();
+        void Detach();
+    }
+
+    /// &lt;summary&gt;
+    /// このクラスは、アクティビティが存在する（正の値をとる）ときに Indicator を Activate します。
+    /// また、アクティビティが存在しない（0をとる）ときに Indicator を Inactivate します。
+    /// &lt;/summary&gt;
+    sealed class AnyActivityIndicatorManager : IActivityManager
+    {
+        /// &lt;summary&gt;
+        /// 同時に実行されているアクティビティの数
+        /// &lt;/summary&gt;
+        int count;
+
+        readonly IIndicator indicator;
+        readonly Object thisObject = new Object();
+
+        internal AnyActivityIndicatorManager(IIndicator indicator)
+        {
+            this.indicator = indicator;
+        }
+
+        /// &lt;summary&gt;
+        /// アクティビティカウントが0から1へと変化するときに indicator を Activate します
+        /// &lt;/summary&gt;
+        void IActivityManager.Attach()
+        {
+            lock (thisObject)
+            {
+                if (count == 0) indicator.Activate();
+                Interlocked.Increment(ref count);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// アクティビティカウントが1から0へと変化するときに indicator を Inactivate します
+        /// &lt;/summary&gt;
+        void IActivityManager.Detach()
+        {
+            lock (thisObject)
+            {
+                if (count == 1) indicator.Inactivate();
+                if (count &gt; 0) Interlocked.Decrement(ref count);
+            }
+        }
+    }
+}
+

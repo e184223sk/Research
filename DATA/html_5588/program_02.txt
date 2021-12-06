@@ -1,0 +1,89 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interactivity;
+using System.Windows.Interop;
+using System.Windows.Media;
+
+namespace hogehoge.Behaviors {
+
+    public class OverlayWindowSettingBehavior : Behavior&lt;Window&gt; {
+
+        public const int GWL_STYLE = ( -16 ); // ウィンドウスタイル
+        public const int GWL_EXSTYLE = ( -20 ); // 拡張ウィンドウスタイル
+
+        public const int WS_SYSMENU = 0x00080000; // システムメニュを表示する
+        public const int WS_EX_TRANSPARENT = 0x00000020; // 透過ウィンドウスタイル
+
+        public const int WM_SYSKEYDOWN = 0x0104; // Alt + 任意のキー の入力
+
+        public const int VK_F4 = 0x73; 
+
+        [DllImport( "user32" )]
+        protected static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport( "user32" )]
+        protected static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwLong);
+
+        protected override void OnAttached() {
+
+            base.OnAttached();
+
+            // 透過背景
+            this.AssociatedObject.WindowStyle = WindowStyle.None;
+            this.AssociatedObject.AllowsTransparency = true;
+            this.AssociatedObject.Background = new SolidColorBrush( Colors.Transparent );
+
+            // 全画面表示
+            this.AssociatedObject.WindowState = WindowState.Maximized;
+
+            // 最前面表示
+            this.AssociatedObject.Topmost = true;
+
+            //タスクバーに表示しない
+            this.AssociatedObject.ShowInTaskbar = false; 
+
+            this.AssociatedObject.SourceInitialized += (sender, eventArgs) =&gt; {
+
+                //WindowHandle(Win32) を取得
+                var handle = new WindowInteropHelper( this.AssociatedObject ).Handle;
+
+                //システムメニュを非表示
+                int windowStyle = GetWindowLong( handle, GWL_STYLE );
+                windowStyle &amp;= ~WS_SYSMENU; //フラグを消す
+                SetWindowLong( handle, GWL_STYLE, windowStyle );
+
+                //クリックをスルー
+                int extendStyle = GetWindowLong( handle, GWL_EXSTYLE );
+                extendStyle |= WS_EX_TRANSPARENT; //フラグの追加
+                SetWindowLong( handle, GWL_EXSTYLE, extendStyle );
+
+                //Alt + F4 を無効化
+                var hwndSource = HwndSource.FromHwnd( handle );
+                hwndSource.AddHook( WndProc );
+
+            };
+
+        }
+
+        protected IntPtr WndProc( IntPtr hwnd, int msg, IntPtr wParam, IntPtr IParam, ref bool handled ) {
+
+            //Alt + F4 が入力されたら
+            if ( msg == WM_SYSKEYDOWN &amp;&amp; wParam.ToInt32() == VK_F4 ) {
+
+                //処理済みにセットする
+                //(Windowは閉じられなくなる)
+                handled = true;
+
+            }
+
+            return IntPtr.Zero;
+
+        }
+
+    }
+
+}
+
+

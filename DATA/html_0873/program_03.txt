@@ -1,0 +1,236 @@
+
+
+using System;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+class MainForm : Form
+{
+    readonly int sweepStep = 1; //  SendInputに送信するx座標ベース
+
+    bool abortFlag;
+
+     // SendInputに送信する終端x,y座標。コマンドライン引数経由で設定。
+     // (memo: コマンドライン引数はintで受けておき、sweep中のfor文でのoverflow防止のためlongでもっている。)
+    long _lastAbsX;
+    long _lastAbsY;
+
+    string _directionOption; // "d": ななめ(Diagonal)(x,yを同時にsweep)   それ以外: 水平と垂直
+
+    MainForm(int lastAbsX, int lastAbsY, string directionOption)
+    {
+        abortFlag = false;
+        _directionOption = directionOption;
+        _lastAbsX = lastAbsX;
+        _lastAbsY = lastAbsY;
+
+        ClientSize = new System.Drawing.Size(300,100);
+        Load += (s,e)=&gt;{SendMouseMove();};
+        FormClosing += (s,e)=&gt;{abortFlag=true;};
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static void SendInput(int nInputs, Input[] pInputs, int cbsize);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static IntPtr GetMessageExtraInfo();
+
+        [DllImport( "user32.dll" )]
+        public static extern bool SetProcessDPIAware();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public int Data;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct KeyboardInput
+    {
+        public short VirtualKey;
+        public short ScanCode;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct HardwareInput
+    {
+        public int uMsg;
+        public short wParamL;
+        public short wParamH;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Input
+    {
+        public int Type;
+        public InputUnion ui;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mouse;
+        [FieldOffset(0)]
+        public KeyboardInput Keyboard;
+        [FieldOffset(0)]
+        public HardwareInput Hardware;
+    }
+
+    private const int MOUSEEVENTF_MOVE        = 0x0001;
+    private const int MOUSEEVENTF_ABSOLUTE    = 0x8000;
+
+    void SendMouseMove()
+    {
+        BeginInvoke(
+            (MethodInvoker)delegate(){
+                checked{
+                    var scrs = Screen.AllScreens;
+                    for(int i=0;i&lt;scrs.Length;i++) {
+                        if(abortFlag){return;}
+
+                        Console.Write("Size of screen[");
+                        Console.Write(i);
+                        Console.Write("]\t");
+                        Console.Write(scrs[i].Bounds.Width);
+                        Console.Write("\t");
+                        Console.WriteLine(scrs[i].Bounds.Height);
+
+                        Console.Write("Location of screen[");
+                        Console.Write(i);
+                        Console.Write("]\t");
+                        Console.Write(scrs[i].Bounds.Left);
+                        Console.Write("\t");
+                        Console.WriteLine(scrs[i].Bounds.Top);
+                    }
+
+                    if ( _directionOption == "d" ) {
+                        // 左上(0,0)から右下(_lastAbsX,_lastAbsY)まで斜めに移動させてx,yを同時に動かして座標を出力させる。
+                        for ( long i = 0 ; i &lt; _lastAbsX + sweepStep ; i += sweepStep ) {
+                            if(abortFlag){return;}
+                            long x = i;
+                            if ( x &gt; _lastAbsX ){x = _lastAbsX;}
+                            long y = (x * _lastAbsY) / _lastAbsX;
+
+                            SendInputMouseMoveAndDumpPoint((int)x, (int)y);
+                        }
+                    }
+                    else {
+                        // 左上(0,0)から(_lastAbsX,0)まで直線状に移動させてx,yを出力させる。
+                        for ( long i = 0 ; i &lt; _lastAbsX + sweepStep ; i += sweepStep ) {
+                            if(abortFlag){return;}
+                            long x = i;
+                            if (x &gt; _lastAbsX) {x = _lastAbsX;}
+
+                            SendInputMouseMoveAndDumpPoint((int)x, 0);
+                        }
+
+                        // 左上(0,0)から(0,_lastAbsY)まで直線状に移動させてx,yを出力させる。
+                        for ( long i = 0 ; i &lt; _lastAbsY + sweepStep ; i += sweepStep ) {
+                            if(abortFlag){return;}
+                            long y = i;
+                            if (y &gt; _lastAbsY) {y = _lastAbsY;}
+
+                            SendInputMouseMoveAndDumpPoint(0, (int)y);
+                        }
+                    }
+                }
+                MessageBox.Show("Completed.");
+            }
+        );
+    }
+
+    static void SendInputMouseMoveAndDumpPoint(int absX, int absY)
+    {
+        SendInputMouseMove(absX, absY);
+        DumpPoint(absX, absY);
+    }
+
+    static void DumpPoint(int orgAbsX, int orgAbsY)
+    {
+        Point p = Cursor.Position;
+        Console.Write(orgAbsX);
+        Console.Write("\t");
+        Console.Write(orgAbsY);
+        Console.Write("\t");
+        Console.Write(p.X);
+        Console.Write("\t");
+        Console.WriteLine(p.Y);
+    }
+
+    private static void SendInputMouseMove(int absX, int absY)
+    {
+        var mv = new Input();
+        mv.Type = 0; // MOUSE = 0
+        mv.ui.Mouse.X = absX;
+        mv.ui.Mouse.Y = absY;
+        mv.ui.Mouse.Data = 0;
+        mv.ui.Mouse.Flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
+        mv.ui.Mouse.Time = 0;
+        mv.ui.Mouse.ExtraInfo = IntPtr.Zero;
+
+        Input[] inputs = new Input[]{mv};
+        NativeMethods.SendInput(inputs.Length, inputs, Marshal.SizeOf(inputs[0]));
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        NativeMethods.SetProcessDPIAware(); // 高解像度のスケーリング座標に対応するため
+
+        int lastAbsX;
+        int lastAbsY;
+        string directionOption;
+
+        if ( args.Length==0 ) {
+            lastAbsX = 65535;
+            lastAbsY = 65535;
+            directionOption = "d";
+        }
+        else if ( args.Length==3 ) {
+            try{
+                lastAbsX = Convert.ToInt32(args[0]);
+                lastAbsY = Convert.ToInt32(args[1]);
+            }
+            catch(FormatException){
+                return;
+            }
+            catch(OverflowException){
+                return;
+            }
+            if(lastAbsX&lt;0){return;}
+            if(lastAbsY&lt;0){return;}
+
+            directionOption = args[2];
+        }
+        else {
+            return;
+        }
+
+        Application.Run(new MainForm(lastAbsX,lastAbsY,directionOption));
+    }
+}
+

@@ -1,0 +1,33 @@
+
+using System;
+using System.IO.Pipes;
+using System.Threading;
+using System.Threading.Tasks;
+
+class PipeServer {
+  private static void ConnectCallback(IAsyncResult result) {
+    ((NamedPipeServerStream)result.AsyncState).EndWaitForConnection(result);
+  }
+
+  static void Main(string[] args) {
+    string name = args[0];
+    Console.WriteLine("Waiting for client connection at \\\\.\\pipe\\" + name + " ...");
+    using (NamedPipeServerStream stream1 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+           stream2 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous)) {
+      IAsyncResult ar = stream1.BeginWaitForConnection(ConnectCallback, stream1);
+      while (!ar.IsCompleted)
+        Thread.Sleep(100);
+      ar = stream2.BeginWaitForConnection(ConnectCallback, stream2);
+      while (!ar.IsCompleted)
+        Thread.Sleep(100);
+      Console.WriteLine("Connected.");
+      while (stream1.IsConnected &amp;&amp; stream2.IsConnected) {
+        Task.WaitAll(new [] {
+          stream1.CopyToAsync(stream2),
+          stream2.CopyToAsync(stream1),
+        });
+      }
+    }
+  }
+}
+

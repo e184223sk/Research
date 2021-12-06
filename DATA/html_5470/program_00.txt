@@ -1,0 +1,76 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.IO;
+using System.Web.Security;
+using ServiceStack.Text;
+
+public class CreateData
+{
+    public static void MakeData()
+    {
+        var randomEpoch = Enumerable.Range(0, 10000000)
+            .Select(x =&gt; (long)1e9 + x * 31)
+            .OrderBy(x =&gt; Guid.NewGuid()).ToArray();
+
+        using (var fs = new FileStream("random", FileMode.Create, FileAccess.Write))
+        using (var sw = new StreamWriter(fs))
+        {
+            //メモリあふれるので行単位で
+            foreach (var r in randomEpoch)
+            {
+                var item = new RandomData(r);
+                var json = JsonSerializer.SerializeToString&lt;RandomData&gt;(item);
+                sw.WriteLine(json);
+            }
+        }
+    }
+
+    public static IEnumerable&lt;RandomData&gt; ReadData()
+    {
+        using (var fs = new FileStream("random", FileMode.Open, FileAccess.Read))
+        using (var sr = new StreamReader(fs))
+        {
+            while (sr.Peek() &gt; -1)
+            {
+                var str = sr.ReadLine();
+                yield return JsonSerializer.DeserializeFromString&lt;RandomData&gt;(str);
+            }
+        }
+    }
+}
+
+public class RandomData
+{
+    public long UnixEpoch { get; set; }
+    public DateTime DateTime { get; set; }
+    public DateTimeOffset DateTimeOffset { get; set; }
+    public string TimeStamp { get; set; }
+    public string[] RandomString { get; set; } 
+
+    public RandomData()
+    {
+
+    }
+
+    public RandomData(long unixEpoch)
+    {
+        UnixEpoch = unixEpoch;
+        DateTimeOffset = DateTimeOffset.FromUnixTimeSeconds(unixEpoch).ToLocalTime();
+        DateTime = DateTimeOffset.LocalDateTime;
+        TimeStamp = DateTimeOffset.ToString("o");
+        RandomString = Enumerable.Range(0, 5).Select(x =&gt; Membership.GeneratePassword(128, 0)).ToArray();
+    }
+
+    public string ToTimestampOnlyJson()
+    {
+        return ServiceStack.DynamicJson.Serialize(new { timestamp = TimeStamp });
+    }
+
+    public string ToRandomStringContainsJson(int takeLength)
+    {
+        if (takeLength &lt;= 0 || takeLength &gt; RandomString.Length) throw new ArgumentOutOfRangeException();
+        return ServiceStack.DynamicJson.Serialize(new { timestamp = TimeStamp, random_str = RandomString.Take(takeLength).ToArray() });
+    }
+}
+

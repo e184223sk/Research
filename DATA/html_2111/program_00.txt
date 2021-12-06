@@ -1,0 +1,105 @@
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace RakutenAPI
+{
+    class Program
+    {
+        private static HttpClient client;
+        static void Main(string[] args)
+        {
+            //楽天市場商品検索API　version:2017-07-06
+            string RequestURL = "https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706?";
+
+            //検索ワード
+            string seachword = "ドラゴンボール";
+
+
+
+            //以下は入力パラメータ　version:2017-07-06****************************************************
+            //参照URL　 https://webservice.rakuten.co.jp/api/ichibaitemsearch/ 
+            //検索には必須条件と任意条件があるため必要なパラメータは指定しない場合Default値が参照される。
+            //入力値（右側）はすべてダブルクォーテーション"で囲む。
+            //入力値（左側）は参照URLから「パラメーター」の項目をそのまま入力。
+
+
+            var dic = new Dictionary&lt;string, string&gt;();
+            dic.Add("applicationId", "0000000000000000000");
+            dic.Add("keyword", ToUTF8(seachword));
+            dic.Add("format", "xml");　//取得方法　json または xml
+            //dic.Add("formatVersion", "2"); //jsonのみ２を使える　Default 1
+            //dic.Add("hits", "5");  //1ページあたりの取得件数　Default 30
+            //dic.Add("page", "1"); //取得ページ数　Default 1
+
+
+            //入力パラメータここまで************************************************************************
+            var mylist = new List&lt;string&gt;();
+            foreach(var m in dic)
+                mylist.Add(m.Key + "=" + m.Value);
+
+            RequestURL += string.Join("&amp;", mylist);
+
+            //クライアント接続開始
+            try{   client = new HttpClient();  }
+            catch (Exception ex){  Console.WriteLine("【接続エラー】：" + ex.Message);   }
+
+            string HTMLtext = "";
+            try
+            { 
+                //URLでHTMLを取得する。
+                    Task&lt;string&gt; task_get = GetRequest(RequestURL);
+                    HTMLtext = task_get.Result;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("【応答エラー】：" + ex.Message);
+            }
+
+            Console.WriteLine(RequestURL);
+            Console.WriteLine(HTMLtext);
+            Console.ReadKey();
+
+        }
+
+        //keywordだけUTF８のバイト変換が必要
+        public static string ToUTF8(string Keyword)
+        {
+            //String型を16進数バイト型文字列に変換　”楽天”→”%E6%A5%BD%E5%A4%A9”
+            byte[] bytedata = Encoding.UTF8.GetBytes(Keyword);
+            Keyword = "%" + BitConverter.ToString(bytedata).Replace("-", "%");
+            return Keyword;
+        }
+
+
+        //URLからHTMLをゲット
+        async static Task&lt;string&gt; GetRequest(string url)
+        {
+            HttpResponseMessage response = await client.GetAsync(url);
+            string contentstr = response.StatusCode.ToString();
+            Console.WriteLine("【GetRequest Response】" + contentstr);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.OK)
+            {
+                contentstr = await response.Content.ReadAsStringAsync();
+            }
+            else if (response.StatusCode == HttpStatusCode.Redirect)
+            {
+                //StatusCode リダイレクトのときの処理
+                var r = client.GetAsync(url).Result;
+                Uri uri = new Uri(new Uri(url), r.Headers.Location);
+                contentstr = client.GetAsync(uri).Result.Content.ReadAsStringAsync().Result;
+            }
+
+            return contentstr;
+        }
+
+
+    }
+}
+
+
+

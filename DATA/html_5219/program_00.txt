@@ -1,0 +1,88 @@
+/* using は省略 */
+
+namespace csharp
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            BenchmarkRunner.Run&lt;Test&gt;(new BenchmarkConfig());
+        }
+    }
+
+    public class BenchmarkConfig : ManualConfig
+    {
+        public BenchmarkConfig()
+        {
+            Add(SetRun(Job.Default.UnfreezeCopy()));
+
+            Add(DefaultColumnProviders.Instance);
+            Add(MarkdownExporter.GitHub);
+            Add(new ConsoleLogger());
+            Add(new HtmlExporter());
+            Add(MemoryDiagnoser.Default);
+        }
+
+        private static Job SetRun(Job job)
+        {
+            job.Run.UnrollFactor = 5;
+            job.Run.InvocationCount = 5;
+            job.Run.WarmupCount = 1;
+            job.Run.TargetCount = 1;
+            job.Run.LaunchCount = 30;
+            return job;
+        }
+    }
+
+    public class Test
+    {
+        private readonly string Str = "hoge,fuga,moge";
+
+        [Benchmark]
+        public (string, string) UsingSplit()
+        {
+            var split = Str.Split(",");
+            return (split[0], split[2]);
+        }
+
+        [Benchmark]
+        public (string, string) UsingSpanSplit()
+        {
+            IEnumerable&lt;Span&gt; LineSplitter(string s, char separator)
+            {
+                int offset = 0;
+                int length = 0;
+                for (int i = 0; i &lt; s.Length; i++)
+                {
+                    length++;
+                    if (s[i] == separator)
+                    {
+                        yield return new Span { Offset = offset, Length = length - 1, Value = s };
+                        offset = i + 1;
+                        length = 0;
+                    }
+                }
+            }
+
+            using(var enumerator = LineSplitter(Str, ',').GetEnumerator())
+            {
+                enumerator.MoveNext();
+                var a = enumerator.Current.Substring();
+                enumerator.MoveNext();
+                enumerator.MoveNext();
+                var b = enumerator.Current.Substring();
+                return (a, b);
+            }
+        }
+    }
+
+    public struct Span
+    {
+        public string Value { get; set; }
+        public int Offset { get; set; }
+        public int Length { get; set; }
+
+        public string Substring() =&gt; Value.Substring(Offset, Length);
+    }
+}
+

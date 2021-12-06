@@ -1,0 +1,121 @@
+
+using System;
+using System.Runtime.InteropServices;
+using System.ServiceProcess;
+
+namespace Prj_RemoteDesktopWindows
+{
+    public partial class Prj_RemoteDesktopWindows : ServiceBase
+    {
+        private string m_ts;
+        private string m_tempClientName;
+
+        public Prj_RemoteDesktopWindows()
+        {
+            InitializeComponent();
+            // OnSessionChange関数をの実行を有効にするため、CanHandleSessionChangeEventをtrueに
+            CanHandleSessionChangeEvent = true;
+        }
+
+        protected override void OnStart(string[] args)
+        {
+            // Update the service state to Start Pending.
+            ServiceStatus serviceStatus = new ServiceStatus();
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_START_PENDING;
+            serviceStatus.dwWaitHint = 100000;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            // Update the service state to Running.
+            serviceStatus.dwCurrentState = ServiceState.SERVICE_RUNNING;
+            SetServiceStatus(this.ServiceHandle, ref serviceStatus);
+
+            // スラックに投稿
+            Rootobject rootobject = SlackSendMessage.SendMessage("リモート接続監視");
+            m_ts = rootobject.message.ts;
+        }
+
+        protected override void OnStop()
+        {
+        }
+
+        public enum ServiceState
+        {
+            SERVICE_STOPPED = 0x00000001,
+            SERVICE_START_PENDING = 0x00000002,
+            SERVICE_STOP_PENDING = 0x00000003,
+            SERVICE_RUNNING = 0x00000004,
+            SERVICE_CONTINUE_PENDING = 0x00000005,
+            SERVICE_PAUSE_PENDING = 0x00000006,
+            SERVICE_PAUSED = 0x00000007,
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ServiceStatus
+        {
+            public int dwServiceType;
+            public ServiceState dwCurrentState;
+            public int dwControlsAccepted;
+            public int dwWin32ExitCode;
+            public int dwServiceSpecificExitCode;
+            public int dwCheckPoint;
+            public int dwWaitHint;
+        };
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool SetServiceStatus(System.IntPtr handle, ref ServiceStatus serviceStatus);
+
+        /// &lt;summary&gt;
+        /// 変更イベントがターミナル サーバー セッションから受信された場合に実行します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="changeDescription"&gt;&lt;/param&gt;
+        protected override void OnSessionChange(SessionChangeDescription changeDescription)
+        {
+
+            try
+            {
+                SessionChangeReason sessionChangeReason = changeDescription.Reason;
+                SessionManager.IsClientName(changeDescription.SessionId, out string clientName);
+                switch (sessionChangeReason)
+                {
+                    case SessionChangeReason.ConsoleConnect:
+                        break;
+                    case SessionChangeReason.ConsoleDisconnect:
+                        break;
+                    case SessionChangeReason.RemoteConnect:
+                        m_tempClientName = clientName;
+                        SlackSendMessage.SendMessage($"リモート接続【{m_tempClientName}】", m_ts);
+                        break;
+                    case SessionChangeReason.RemoteDisconnect:
+                        SlackSendMessage.SendMessage($"リモート切断【{m_tempClientName}】", m_ts);
+                        break;
+                    case SessionChangeReason.SessionLogon:
+                        break;
+                    case SessionChangeReason.SessionLogoff:
+                        break;
+                    case SessionChangeReason.SessionLock:
+                        break;
+                    case SessionChangeReason.SessionUnlock:
+                        break;
+                    case SessionChangeReason.SessionRemoteControl:
+                        break;
+                    default:
+                        break;
+                }
+
+
+            }
+            catch (Exception e)
+            {
+                SlackSendMessage.SendMessage($"エラーが発生しました。\n {e.Message}", m_ts);
+            }
+
+
+        }
+
+
+    }
+
+
+}
+
+

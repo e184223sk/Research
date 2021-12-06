@@ -1,0 +1,109 @@
+
+using UnityEngine;
+using UnityEngine.Events;
+using System.Collections;
+using System.IO.Ports;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class SerialPortHandler : MonoBehaviour
+{
+    [System.Serializable]
+    public class DataCallback : UnityEvent&lt;string&gt;
+    {
+
+    }
+    public static DataCallback OnDataReceived = new DataCallback();
+
+    // ボーレート (bit/sec)
+    public int baudRate = 115200;
+    public bool isDebug = false;
+
+    string currentPortName = null;
+    bool isRunning = false;
+
+    SerialPort serialPort;
+    Task task;
+
+    void Start()
+    {
+        // Debug用
+        if(isDebug &amp;&amp; currentPortName != null)
+        { 
+            Open(currentPortName);
+        }
+    }
+
+    void OnDestroy()
+    {
+        Close();
+    }
+
+    void OnEnable()
+    {
+        if(currentPortName != null &amp;&amp; !isRunning)
+        {
+            Open(currentPortName);
+        }
+    }
+
+    void OnDisable()
+    {
+        Close();
+    }
+
+    // ポート名を指定してSerialPortを開く
+    public void Open(string portName)
+    {
+        if(isRunning) return;
+
+        currentPortName = portName;
+
+        serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
+        serialPort.Open();
+
+        isRunning = true;
+
+        task = ReadAsync();
+    }
+
+    public void Close()
+    {
+        if(!isRunning) return;
+
+        isRunning = false;
+
+        // タスクの終了待ち
+        if (task != null &amp;&amp; task.Status == TaskStatus.Running)
+        {
+            task.Wait();
+        }
+
+        // タスクが終了してからSerialPortを閉じる
+        if (serialPort != null &amp;&amp; serialPort.IsOpen)
+        {
+            serialPort.Close();
+            serialPort.Dispose();
+        }
+    }
+
+    async Task ReadAsync()
+    {
+        await Task.Run(() =&gt; {
+            while (isRunning &amp;&amp; serialPort != null &amp;&amp; serialPort.IsOpen)
+            {
+                try
+                {
+                    string message = serialPort.ReadLine();
+                  // Debug.LogWarning(message);
+                    OnDataReceived.Invoke(message);
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning(e.Message);
+                }
+            }
+        });
+    }
+}
+

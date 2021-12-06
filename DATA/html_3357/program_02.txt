@@ -1,0 +1,52 @@
+
+void Update()
+{
+    // Job Systemの同期を行う
+    m_Driver.ScheduleUpdate().Complete();
+
+    // 古くなった接続を取り除く
+    for (int i=0; i &lt; m_Connections.Length; ++i) {
+        if (!m_Connections[i].IsCreated) {
+            m_Connections.RemoveAtSwapBack(i);
+            i--;
+        }
+    }
+
+    // 新しい接続があるなら追加する
+    NetworkConnection c;
+    while((c = m_Driver.Accept()) != default(NetworkConnection)) {
+        m_Connections.Add(c);
+        Debug.Log("Accepted a connection");
+    }
+
+    // 受信したクライアントからのデータを処理する
+    DataStreamReader stream;
+    for (int i=0; i&lt;m_Connections.Length; ++i) {
+        if (!m_Connections[i].IsCreated) {
+            continue;
+        }
+
+        NetworkEvent.Type cmd;
+        while((cmd = m_Driver.PopEventForConnection(m_Connections[i], out stream)) != NetworkEvent.Type.Empty) {
+            if (cmd == NetworkEvent.Type.Data) {
+                //適当な数値を足してクライアントに返送する
+                var readerCtx = default(DataStreamReader.Context);
+
+                uint number = stream.ReadUInt(ref readerCtx);
+                Debug.Log("Got " + number + " from the Client adding + 2 to it.");
+                number += 2;
+
+                using (var writer = new DataStreamWriter(4, Allocator.Temp)) {
+                    writer.Write(number);
+-                    m_Driver.Send(m_Connections[i], writer);
++                    m_Driver.Send(m_Pipeline, m_Connections[i], writer);
+                }
+            } else if (cmd == NetworkEvent.Type.Disconnect) {
+                //　切断処理
+                Debug.Log("Client disconnected from server");
+                m_Connections[i] = default(NetworkConnection);
+            }
+        }
+    }
+}
+

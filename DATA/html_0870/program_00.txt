@@ -1,0 +1,150 @@
+
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+class MainForm : Form
+{
+    TextBox txt;
+
+    MainForm()
+    {
+        Button btn = new Button(){
+            Size = new Size(100,30),
+            Text = "Test",
+        };
+        btn.Click += (s,e)=&gt;{
+            SendInputKeyPressAndRelease(Keys.Tab);
+            SendInputKeyPressAndRelease(Keys.A);
+        };
+        Controls.Add(btn);
+
+
+        txt = new TextBox(){
+            Location = new Point(0, 30),
+            Size = new Size(100,30),
+            Text = "Test",
+        };
+        Controls.Add(txt);
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        public extern static void SendInput(int nInputs, Input[] pInputs, int cbsize);
+
+        [DllImport("user32.dll", EntryPoint = "MapVirtualKeyA")]
+        public extern static int MapVirtualKey(int wCode, int wMapType);
+
+        //[DllImport("user32.dll", SetLastError = true)]
+        //public extern static IntPtr GetMessageExtraInfo();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public int Data;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct KeyboardInput
+    {
+        public short VirtualKey;
+        public short ScanCode;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct HardwareInput
+    {
+        public int uMsg;
+        public short wParamL;
+        public short wParamH;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Input
+    {
+        public int Type;
+        public InputUnion ui;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mouse;
+        [FieldOffset(0)]
+        public KeyboardInput Keyboard;
+        [FieldOffset(0)]
+        public HardwareInput Hardware;
+    }
+
+    private const int KEYEVENTF_EXTENDEDKEY = 0x0001;
+    private const int KEYEVENTF_KEYUP = 0x0002;
+    private const int KEYEVENTF_SCANCODE = 0x0008;
+    private const int KEYEVENTF_UNICODE = 0x0004;
+
+    private const int MAPVK_VK_TO_VSC = 0;
+    // private const int MAPVK_VSC_TO_VK = 1;
+
+    void SendKeyInput()
+    {
+        BeginInvoke(
+            (MethodInvoker)delegate(){
+                SendInputKeyPressAndRelease(Keys.Tab);
+            }
+        );
+    }
+
+    private static void SendInputKeyPressAndRelease(Keys key)
+    {
+        Input[] inputs = new Input[2];
+
+        int vsc = NativeMethods.MapVirtualKey((int)key, MAPVK_VK_TO_VSC);
+
+        inputs[0] = new Input();
+        inputs[0].Type = 1; // KeyBoard = 1
+        inputs[0].ui.Keyboard.VirtualKey = (short)key;
+        inputs[0].ui.Keyboard.ScanCode = (short)vsc;
+        inputs[0].ui.Keyboard.Flags = 0;
+        inputs[0].ui.Keyboard.Time = 0;
+        inputs[0].ui.Keyboard.ExtraInfo = IntPtr.Zero;
+
+        inputs[1] = new Input();
+        inputs[1].Type = 1; // KeyBoard = 1
+        inputs[1].ui.Keyboard.VirtualKey = (short)key;
+        inputs[1].ui.Keyboard.ScanCode = (short)vsc;
+        inputs[1].ui.Keyboard.Flags = KEYEVENTF_KEYUP;
+        inputs[1].ui.Keyboard.Time = 0;
+        inputs[1].ui.Keyboard.ExtraInfo = IntPtr.Zero;
+
+        NativeMethods.SendInput(inputs.Length, inputs, Marshal.SizeOf(inputs[0]));
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm());
+    }
+}
+
+

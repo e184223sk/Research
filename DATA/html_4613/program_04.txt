@@ -1,0 +1,319 @@
+
+using System;
+using UnityEngine;
+using UnityEngine.Events;
+using Utf8Json;
+using MessagePack;
+using ZeroFormatter;
+
+public class PlayerPrefsPerformanceTest : MonoBehaviour
+{
+
+    void Start () {
+        utf8jsonInit();
+        messagePackInit();
+
+        var status_in = new Status {
+            lv = 1,
+            exp = 0,
+            hp = 10,
+            max_hp = 10,
+            atk = 1,
+            def = 1,
+            spd = 1,
+            equip = new Equip {
+                name = "ぬののふく",
+                atk = 0,
+                def = 1,
+                spd = 0,
+            },
+        };
+
+        var status_out = new Status {
+            equip = new Equip()
+        };
+
+        var loop_num = 10000;
+
+        var status_in_json_utility = new StatusToJsonUtility {
+            lv = 1,
+            exp = 0,
+            hp = 10,
+            max_hp = 10,
+            atk = 1,
+            def = 1,
+            spd = 1,
+            equip = new EquipToJsonUtility {
+                name = "ぬののふく",
+                atk = 0,
+                def = 1,
+                spd = 0,
+            },
+        };
+
+        var status_out_json_utility = new StatusToJsonUtility {
+            equip = new EquipToJsonUtility()
+        };
+
+
+
+        ////////////    non Serialize test    ////////////
+
+        timeCheck("non Serialize save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                PlayerPrefs.SetInt("Status1.lv", status_in.lv);
+                PlayerPrefs.SetInt("Status1.exp", status_in.exp);
+                PlayerPrefs.SetInt("Status1.hp", status_in.hp);
+                PlayerPrefs.SetInt("Status1.max_hp", status_in.max_hp);
+                PlayerPrefs.SetInt("Status1.atk", status_in.atk);
+                PlayerPrefs.SetInt("Status1.def", status_in.def);
+                PlayerPrefs.SetInt("Status1.spd", status_in.spd);
+                PlayerPrefs.SetString("Equip1.name", status_in.equip.name);
+                PlayerPrefs.SetInt("Equip1.atk", status_in.equip.atk);
+                PlayerPrefs.SetInt("Equip1.def", status_in.equip.def);
+                PlayerPrefs.SetInt("Equip1.spd", status_in.equip.spd);
+            }
+        });
+
+        timeCheck("non Serialize load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                status_out.equip.name = PlayerPrefs.GetString("Equip1.name");
+                status_out.equip.atk = PlayerPrefs.GetInt("Equip1.atk");
+                status_out.equip.def = PlayerPrefs.GetInt("Equip1.def");
+                status_out.equip.spd = PlayerPrefs.GetInt("Equip1.spd");
+                status_out.lv = PlayerPrefs.GetInt("Status1.lv");
+                status_out.exp = PlayerPrefs.GetInt("Status1.exp");
+                status_out.hp = PlayerPrefs.GetInt("Status1.hp");
+                status_out.max_hp = PlayerPrefs.GetInt("Status1.max_hp");
+                status_out.atk = PlayerPrefs.GetInt("Status1.atk");
+                status_out.def = PlayerPrefs.GetInt("Status1.def");
+                status_out.spd = PlayerPrefs.GetInt("Status1.spd");
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+
+
+
+        ////////////    JsonUtility / JSON test    ////////////
+
+        timeCheck("JsonUtility / JSON save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = JsonUtility.ToJson(status_in_json_utility);
+                PlayerPrefs.SetString("jsonUtility_JSON", str);
+            }
+        });
+
+        timeCheck("JsonUtility / JSON load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("jsonUtility_JSON");
+                status_out_json_utility = JsonUtility.FromJson&lt;StatusToJsonUtility&gt;(str);
+            }
+        });
+
+        equalCheckToJsonUtility(status_in_json_utility, status_out_json_utility);
+
+
+
+        ////////////    Utf8json / JSON test    ////////////
+
+        timeCheck("Utf8json / JSON save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = JsonSerializer.ToJsonString(status_in);
+                PlayerPrefs.SetString("Utf8json_json", str);
+            }
+        });
+
+        timeCheck("Utf8json / JSON load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("Utf8json_json");
+                status_out = JsonSerializer.Deserialize&lt;Status&gt;(str);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+
+        ////////////    Utf8json / BASE64 test    ////////////
+
+        timeCheck("Utf8json / BASE64 save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var bytes = JsonSerializer.Serialize(status_in);
+                var str = Convert.ToBase64String(bytes);
+                PlayerPrefs.SetString("Utf8json_base64", str);
+            }
+        });
+
+        timeCheck("Utf8json / BASE64 load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("Utf8json_base64");
+                var bytes = Convert.FromBase64String(str);
+                status_out = JsonSerializer.Deserialize&lt;Status&gt;(bytes);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+
+
+        ////////////    ZeroFormatter / BASE64 test    ////////////
+
+        timeCheck("ZeroFormatter / BASE64 save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var bytes = ZeroFormatterSerializer.Serialize(status_in);
+                var str = Convert.ToBase64String(bytes);
+                PlayerPrefs.SetString("ZeroFormatter_BASE64", str);
+            }
+        });
+
+        timeCheck("ZeroFormatter / BASE64 load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("ZeroFormatter_BASE64");
+                var bytes = Convert.FromBase64String(str);
+                status_out = ZeroFormatterSerializer.Deserialize&lt;Status&gt;(bytes);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+
+/*
+        ////////////    ZeroFormatter / JSON test    ////////////
+
+        timeCheck("ZeroFormatter / JSON save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var bytes = ZeroFormatterSerializer.Serialize(status_in);
+                var str = JsonUtility.ToJson(bytes);
+                Debug.Log("str : " + str);
+                PlayerPrefs.SetString("ZeroFormatter_JSON", str);
+            }
+        });
+
+        timeCheck("ZeroFormatter / JSON load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("ZeroFormatter_JSON");
+                var bytes = JsonUtility.FromJson&lt;byte[]&gt;(str);
+                status_out = ZeroFormatterSerializer.Deserialize&lt;Status&gt;(bytes);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+*/
+
+        ////////////    MessagePack-CSharp / BASE64 test    ////////////
+
+        timeCheck("MessagePack-CSharp / BASE64 save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var bytes = MessagePackSerializer.Serialize(status_in);
+                var str = Convert.ToBase64String(bytes);
+                PlayerPrefs.SetString("MessagePackCS_BASE64", str);
+            }
+        });
+
+        timeCheck("MessagePack-CSharp / BASE64 load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("MessagePackCS_BASE64");
+                var bytes = Convert.FromBase64String(str);
+                status_out = MessagePackSerializer.Deserialize&lt;Status&gt;(bytes);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+
+
+        ////////////    MessagePack-CSharp / JSON test    ////////////
+
+        timeCheck("MessagePack-CSharp / JSON save", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = MessagePackSerializer.ToJson(status_in);
+                PlayerPrefs.SetString("MessagePackCS_JSON", str);
+            }
+        });
+
+        timeCheck("MessagePack-CSharp / JSON load", () =&gt; {
+            for (var i = 0; i &lt; loop_num; i += 1) {
+                var str = PlayerPrefs.GetString("MessagePackCS_JSON");
+                var bytes = MessagePackSerializer.FromJson(str);
+                status_out = MessagePackSerializer.Deserialize&lt;Status&gt;(bytes);
+            }
+        });
+
+        equalCheck(status_in, status_out);
+
+    }
+
+
+
+    void utf8jsonInit()
+    {
+        Utf8Json.Resolvers.CompositeResolver.RegisterAndSetAsDefault(
+            Utf8Json.Resolvers.GeneratedResolver.Instance
+            //Utf8Json.Resolvers.StandardResolver.Default
+        );
+    }
+
+    void messagePackInit()
+    {
+        MessagePack.Resolvers.CompositeResolver.RegisterAndSetAsDefault(
+            MessagePack.Resolvers.GeneratedResolver.Instance,
+            MessagePack.Resolvers.BuiltinResolver.Instance,
+            //AttributeFormatterResolver.Instance,
+            MessagePack.Resolvers.PrimitiveObjectResolver.Instance
+        );
+    }
+
+
+
+
+
+    void equalCheck(Status inStatus, Status outStatus)
+    {
+        if (inStatus.lv != outStatus.lv) throw new Exception("Status equal check error : lv");
+        if (inStatus.exp != outStatus.exp) throw new Exception("Status equal check error : exp");
+        if (inStatus.hp != outStatus.hp) throw new Exception("Status equal check error : hp");
+        if (inStatus.max_hp != outStatus.max_hp) throw new Exception("Status equal check error : max_hp");
+        if (inStatus.atk != outStatus.atk) throw new Exception("Status equal check error : atk");
+        if (inStatus.def != outStatus.def) throw new Exception("Status equal check error : def");
+        if (inStatus.spd != outStatus.spd) throw new Exception("Status equal check error : spd");
+        if (inStatus.equip.name != outStatus.equip.name) throw new Exception("Status equal check error : equip.name");
+        if (inStatus.equip.atk != outStatus.equip.atk) throw new Exception("Status equal check error : equip.atk");
+        if (inStatus.equip.def != outStatus.equip.def) throw new Exception("Status equal check error : equip.def");
+        if (inStatus.equip.spd != outStatus.equip.spd) throw new Exception("Status equal check error : equip.spd");
+    }
+
+    void equalCheckToJsonUtility(StatusToJsonUtility inStatus, StatusToJsonUtility outStatus)
+    {
+        if (inStatus.lv != outStatus.lv) throw new Exception("Status equal check error : lv");
+        if (inStatus.exp != outStatus.exp) throw new Exception("Status equal check error : exp");
+        if (inStatus.hp != outStatus.hp) throw new Exception("Status equal check error : hp");
+        if (inStatus.max_hp != outStatus.max_hp) throw new Exception("Status equal check error : max_hp");
+        if (inStatus.atk != outStatus.atk) throw new Exception("Status equal check error : atk");
+        if (inStatus.def != outStatus.def) throw new Exception("Status equal check error : def");
+        if (inStatus.spd != outStatus.spd) throw new Exception("Status equal check error : spd");
+        if (inStatus.equip.name != outStatus.equip.name) throw new Exception("Status equal check error : equip.name");
+        if (inStatus.equip.atk != outStatus.equip.atk) throw new Exception("Status equal check error : equip.atk");
+        if (inStatus.equip.def != outStatus.equip.def) throw new Exception("Status equal check error : equip.def");
+        if (inStatus.equip.spd != outStatus.equip.spd) throw new Exception("Status equal check error : equip.spd");
+    }
+
+
+
+    void timeCheck(string key_name, UnityAction action)
+    {
+        var start_time = time();
+        action();
+        Debug.Log(key_name + " : " + (time() - start_time).ToString());
+    }
+
+    int time()
+    {
+        return DateTime.Now.Hour * 60 * 60 * 1000 +
+            DateTime.Now.Minute * 60 * 1000 +
+            DateTime.Now.Second * 1000 +
+            DateTime.Now.Millisecond;
+    }
+
+}
+

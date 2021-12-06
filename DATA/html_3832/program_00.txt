@@ -1,0 +1,123 @@
+using System;
+using System.Collections.Generic;
+using Photon.Pun;
+using Photon.Realtime;
+using UniRx;
+using UniRx.Triggers;
+
+public class ConnectionCallbacksTriggers : ObservableTriggerBase, IConnectionCallbacks
+
+{
+    #region Photon
+
+    private Subject&lt;Unit&gt; onConnected;
+
+    public void OnConnected()
+    {
+        onConnected?.OnNext(Unit.Default);
+    }
+
+    public IObservable&lt;Unit&gt; OnConnectedAsObservable()
+    {
+        return onConnected ?? (onConnected = new Subject&lt;Unit&gt;());
+    }
+
+    private Subject&lt;Unit&gt; onConnectedToMaster;
+
+    public void OnConnectedToMaster()
+    {
+        onConnectedToMaster?.OnNext(Unit.Default);
+    }
+
+    public IObservable&lt;Unit&gt; OnConnectedToMasterAsObservable()
+    {
+        return onConnectedToMaster ?? (onConnectedToMaster = new Subject&lt;Unit&gt;());
+    }
+
+    private Subject&lt;DisconnectCause&gt; onDisconnected;
+
+    public void OnDisconnected(DisconnectCause cause)
+    {
+        onDisconnected?.OnNext(cause);
+    }
+
+    public IObservable&lt;DisconnectCause&gt; OnDisconnectedAsObservable()
+    {
+        return onDisconnected ?? (onDisconnected = new Subject&lt;DisconnectCause&gt;());
+    }
+
+    private Subject&lt;RegionHandler&gt; onRegionListReceived;
+
+    public void OnRegionListReceived(RegionHandler regionHandler)
+    {
+        onRegionListReceived?.OnNext(regionHandler);
+    }
+
+    public IObservable&lt;RegionHandler&gt; OnRegionListReceivedAsObservable()
+    {
+        return onRegionListReceived ?? (onRegionListReceived = new Subject&lt;RegionHandler&gt;());
+    }
+
+    private Subject&lt;Dictionary&lt;string, object&gt;&gt; onCustomAuthenticationResponse;
+
+    public void OnCustomAuthenticationResponse(Dictionary&lt;string, object&gt; data)
+    {
+        onCustomAuthenticationResponse?.OnNext(data);
+    }
+
+    public IObservable&lt;Dictionary&lt;string, object&gt;&gt; OnCustomAuthenticationResponseAsObservable()
+    {
+        return onCustomAuthenticationResponse ?? (onCustomAuthenticationResponse = new Subject&lt;Dictionary&lt;string, object&gt;&gt;());
+    }
+
+    private Subject&lt;string&gt; onCustomAuthenticationFailed;
+
+    public void OnCustomAuthenticationFailed(string debugMessage)
+    {
+        onCustomAuthenticationFailed?.OnNext(debugMessage);
+    }
+
+    public IObservable&lt;string&gt; OnCustomAuthenticationFailedAsObservable()
+    {
+        return onCustomAuthenticationFailed ?? (onCustomAuthenticationFailed = new Subject&lt;string&gt;());
+    }
+
+    #endregion
+
+    // Subjectまとめとこうとするとなんかエラー出る.
+    // SubjectってもしかしてListとかArrayとかに入れられないやつ？
+    // CompositeDisposableみたいなのを自作する必要がある？
+    // 他のObservableTriggerBase継承クラスはSubjectひとつひとつにOnCompletedやDisposeしている…….
+    private Subject&lt;object&gt;[] _subjectable;
+
+    #region lifecycle
+
+    private void OnEnable()
+    {
+        PhotonNetwork.AddCallbackTarget(this);
+    }
+
+    private void OnDisable()
+    {
+        PhotonNetwork.RemoveCallbackTarget(this);
+        foreach (var subject in _subjectable)
+        {
+            subject.Dispose();
+        }
+    }
+
+    #endregion
+
+    #region UniRx
+
+    protected override void RaiseOnCompletedOnDestroy()
+    {
+        foreach (var subject in _subjectable)
+        {
+            subject.OnCompleted();
+        }
+    }
+
+    #endregion
+}
+

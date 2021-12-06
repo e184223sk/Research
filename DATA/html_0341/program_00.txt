@@ -1,0 +1,174 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml.Linq;
+using System.Drawing;
+using System.Windows.Forms;
+
+
+class XmlTreeView : Form
+{
+    TextBox txtTreePath;
+    TextBox txtSearchKeyword;
+    ListView lsv;
+    TreeView trv;
+
+    XmlTreeView(string path)
+    {
+        ClientSize = new Size(1200,500);
+
+        XElement xml = XElement.Load(path);
+
+        SplitContainer spl1;
+        SplitContainer spl2;
+        Controls.Add(spl1 = new SplitContainer(){
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            FixedPanel = FixedPanel.Panel1,
+            Panel1MinSize = 50,
+            Panel2MinSize = 50,
+        });
+        spl1.Panel2.Controls.Add(spl2 = new SplitContainer(){
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            // FixedPanel = FixedPanel.Panel1,
+            Panel1MinSize = 50,
+            Panel2MinSize = 50,
+        });
+
+        Load += (s,e)=&gt;{
+            spl1.SplitterDistance =  45;
+            spl2.SplitterDistance =  150;
+        };
+
+        spl1.Panel1.Controls.Add( txtTreePath = new TextBox(){
+            Location = new Point(0, 0),
+            Width = 1000,
+            ReadOnly = true,
+        });
+
+        Button btnSearch;
+        spl1.Panel1.Controls.Add( btnSearch = new Button(){
+            Location = new Point(0, 22),
+            Width = 70,
+            Text = "Search",
+        });
+        btnSearch.Click += (s,e)=&gt;{SearchNode();};
+
+        spl1.Panel1.Controls.Add( txtSearchKeyword = new TextBox(){
+            Location = new Point(80, 25),
+            Width = 620,
+        });
+        txtSearchKeyword.KeyDown += (s,e)=&gt;{
+            if ( e.KeyData == Keys.Enter ) { SearchNode(); }
+        };
+
+
+        spl2.Panel1.Controls.Add(lsv = new ListView(){
+            Dock = DockStyle.Fill,
+            View = View.Details,
+            MultiSelect = false,
+            HideSelection = false,
+            FullRowSelect = true,
+            GridLines = true,
+        });
+        lsv.Columns.AddRange(new ColumnHeader[]{
+            new ColumnHeader(){Name="Type"     , Text="Type"         , Width=  70, TextAlign=HorizontalAlignment.Left},
+            new ColumnHeader(){Name="Name"     , Text="Name or Value", Width=  70, TextAlign=HorizontalAlignment.Left},
+            new ColumnHeader(){Name="Location" , Text="Location"     , Width=1000, TextAlign=HorizontalAlignment.Left},
+        });
+        lsv.DoubleClick += (s,e)=&gt;{Lsv_DoubleClick();};
+
+        spl2.Panel2.Controls.Add( trv = new TreeView(){
+            Dock = DockStyle.Fill,
+            HideSelection = false,
+        });
+        trv.AfterSelect += Trv_AfterSelect;
+
+
+        var rootNode = new TreeNode(xml.Name.LocalName);
+        rootNode.Name = rootNode.Text;
+        trv.Nodes.Add(rootNode);
+        XmlAddNodes(rootNode, xml);
+    }
+    // elemの子をnodeに追加する
+    void XmlAddNodes(TreeNode node, XElement elem)
+    {
+        var t = elem.Elements(); // 直下の子ノードたち
+        bool hasChild=false;
+        foreach ( XElement elemChild in t)
+        {
+            hasChild=true;
+            string s = elemChild.Name.LocalName;
+            var nodeChild = new TreeNode(s);
+            nodeChild.Name = s;
+            node.Nodes.Add(nodeChild);
+            XmlAddNodes(nodeChild, elemChild);
+        }
+        if(!hasChild){
+            node.Text += " = " + elem.Value;
+            node.Tag   = elem.Value;
+        }
+    }
+
+
+    void Trv_AfterSelect(object sender, TreeViewEventArgs e)
+    {
+        txtTreePath.Text = GetLocationText(e.Node);
+    }
+
+    string GetLocationText(TreeNode node)
+    {
+        string s = node.Text;
+
+        while(node.Parent!=null){
+            node = node.Parent;
+            s = node.Text + " &gt; " + s;
+        }
+
+        return s;
+    }
+
+
+    void SearchNode()
+    {
+        string key = txtSearchKeyword.Text;
+
+        if(key==""){return;}
+
+        lsv.Items.Clear();
+        lsv.BeginUpdate();
+
+        var nodes = trv.Nodes.Find(key, true);
+        foreach( var node in nodes ) {
+            var item = new ListViewItem(new string[]{"TagName", node.Text, GetLocationText(node)});
+            item.Tag = node;
+            lsv.Items.Add(item);
+
+        }
+
+        lsv.EndUpdate();
+    }
+
+    void Lsv_DoubleClick()
+    {
+        if (lsv.SelectedItems.Count!=1){
+            return;
+        }
+
+        var node = (TreeNode)lsv.SelectedItems[0].Tag;
+        node.EnsureVisible();
+        trv.SelectedNode = node;
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        //Application.Run(new XmlTreeView(@"hogehoge.xml"));
+        if (args.Length==1){
+            Application.Run(new XmlTreeView(args[0]));
+        }
+    }
+}
+

@@ -1,0 +1,120 @@
+
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Threading.Tasks;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Flows;
+using Google.Apis.Auth.OAuth2.Responses;
+using Google.Apis.Services;
+using Google.Apis.Sheets.v4;
+using Google.Apis.Sheets.v4.Data;
+
+namespace TemperSample
+{
+    /// &lt;summary&gt;
+    /// Google Driveのスプレッドシートに結果を書き込む
+    /// &lt;/summary&gt;
+    public class GoogleSpreadSheetUploader
+    {
+        private readonly string spreadSheetKey;
+        private readonly SheetsService sheetsService;
+
+        private readonly ReadOnlyCollection&lt;string&gt; scopes = new ReadOnlyCollection&lt;string&gt;(new []
+        {
+            SheetsService.Scope.Spreadsheets
+        });
+
+        /// &lt;summary&gt;
+        /// 初期化
+        /// &lt;/summary&gt;
+        /// &lt;param name="clientId"&gt;OAuth2.0のCliendID. Developers Consoleで取得する.&lt;/param&gt;
+        /// &lt;param name="clientSecret"&gt;OAuth2.0のClientSecret. Developers Consoleで取得する.&lt;/param&gt;
+        /// &lt;param name="refreshToken"&gt;予めAccessTokenとペアで取得しておくキー. 
+        /// 参考: https://developers.google.com/google-apps/spreadsheets/authorize &lt;/param&gt;
+        /// &lt;param name="applicationName"&gt;SpreadsheetsServiceの名前&lt;/param&gt;
+        /// &lt;param name="spreadSheetKey"&gt;スプレッドシートのキー (URLからわかります)&lt;/param&gt;
+        public GoogleSpreadSheetUploader(
+            string clientId,
+            string clientSecret,
+            string refreshToken,
+            string applicationName, 
+            string spreadSheetKey)
+        {
+            this.spreadSheetKey = spreadSheetKey;
+            var userCredentials = GetUserCredential(
+                clientId,
+                clientSecret, 
+                scopes,
+                refreshToken);
+            sheetsService = GetSheetsService(userCredentials, applicationName);
+        }
+
+        /// &lt;summary&gt;
+        /// 結果をアップロード (汎用)
+        /// &lt;/summary&gt;
+        /// &lt;param name="sheetTitle"&gt;シートの名前&lt;/param&gt;
+        /// &lt;param name="date"&gt;&lt;/param&gt;
+        /// &lt;param name="kpiValues"&gt;書き込む値&lt;/param&gt;
+        public AppendValuesResponse Upload(string sheetTitle, DateTime date, IEnumerable&lt;object&gt; values)
+        {
+            var range = $"{sheetTitle}!A:B";
+
+            var valuesList = new List&lt;object&gt;{ date.ToString() };
+            valuesList.AddRange(values);
+            var valueRange = new ValueRange
+            {
+                Values = new List&lt;IList&lt;object&gt;&gt; { valuesList }
+            };
+
+            var appendRequest = sheetsService.Spreadsheets.Values.Append(valueRange, spreadSheetKey, range);
+            appendRequest.ValueInputOption =
+                SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+            return appendRequest.Execute();
+        }
+
+        /// &lt;summary&gt;
+        /// 認証情報オブジェクトを生成
+        /// &lt;/summary&gt;
+        /// &lt;param name="clientId"&gt;&lt;/param&gt;
+        /// &lt;param name="clientSecret"&gt;&lt;/param&gt;
+        /// &lt;param name="scopes"&gt;&lt;/param&gt;
+        /// &lt;param name="refreshToken"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static UserCredential GetUserCredential(
+            string clientId, 
+            string clientSecret,
+            IReadOnlyCollection&lt;string&gt; scopes,
+            string refreshToken)
+        {
+            var clientSecrets = new ClientSecrets
+            {
+                ClientId = clientId,
+                ClientSecret = clientSecret
+            };
+
+            var token = new TokenResponse { RefreshToken = refreshToken };
+            var credentials = new UserCredential(new GoogleAuthorizationCodeFlow(
+                new GoogleAuthorizationCodeFlow.Initializer
+                {
+                    ClientSecrets = clientSecrets,
+                    Scopes = scopes
+                }), "user", token);
+            return credentials;
+        }
+
+        /// &lt;summary&gt;
+        /// 認証情報を使ってSheetsService取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static SheetsService GetSheetsService(UserCredential userCredential, string applicationName)
+        {
+            return new SheetsService(new BaseClientService.Initializer
+            {
+                HttpClientInitializer = userCredential,
+                ApplicationName = applicationName,
+            });
+        }
+    }
+}
+

@@ -1,0 +1,59 @@
+More than 1 year has passed since last update.MagicOnion は一度環境を構築してしまえば、触り心地が良くてとても使いやすいフレームワークだと思います。しかし初期構築がやや複雑で、特に Unity と サーバー(.NET Core) の両方の経験が無い方が挑戦した場合はどこかでつまづいてしまうことも多いのではないかと思いました。そこで、どちらかの経験が無い方でもつまずかずにポチポチと環境構築できる資料を目指して書いたのがこの記事になります。もし途中でつまづくところがありましたら Twitter で教えていただけると喜びます。ハンズオンの所要時間は Unity と VisualStudio をインストール済みの状態から開始して、30分～1時間程度です。本記事を書くにあたって使用した OS、ツール、ソフトウェアのバージョンです。今回は 3D プロジェクトを作成します。
+プロジェクト名は任意ですが、サーバーサイドのプロジェクトと見分けやすいように Sample.Unity とします。保存先は任意の保存先を入力してください。Unity が起動したら PlayerSettings を開きます。Player を選択して、下記の2箇所を変更します。次に下記のフォルダを作成します。
+※Sample.Unity は自分のプロジェクト名に読み替えてください。フォルダ構成が下記のようになっていることを確認します。GitHub から MagicOnion.Client.Unity.unitypackage をダウンロードします。ダウンロードが終わったらダブルクリックしてインポートします。GitHub から MessagePack.Unity.2.1.152.unitypackage をダウンロードします。ダウンロードが終わったらダブルクリックしてインポートします。
+MagicOnion と重複するファイルがあるため警告が表示されますがこのままインポートします。gRPC の Daily Builds(2019/08/01) から grpc_unity_package.2.23.0-dev.zip をダウンロードします。ダウンロードが終わったら展開し、以下のフォルダを Sample.Unity\Assets\Plugins にコピーします。Assets\Scenes に SampleController スクリプトを作成します。
+SampleController のコードは以下をコピペしてください。
+Start() でサーバーへ接続し、OnDestroy() で切断するようになっています。SampleScene へ空の GameObject を追加します。追加した GameObject に SampleController を AddComponent します。MagicOnion を利用する際は Unity 側で作成したクラスなどをサーバーサイドと共有して使うことが一般的です。
+今回は Assets\Scripts\ServerShared 以下に作成したスクリプトをすべて共有する設定を行います。
+コード共有の設定は後でサーバー側で設定を行いますが、先に動作確認用のクラスを用意しておきます。Assets\ServerShared\MessagePackObjects に Player スクリプトを作成します。Player のコードは以下をコピペしてください。MagicOnion を使用する場合、Client ⇔ サーバー間の通信で使用するクラスはこのような MessagePackObject として定義します。MessagePackObject として定義するために必要なことは下記の2つだけですので覚えておきましょう。Unity 側の構築はここまでです。続いてサーバー側の構築作業を進めます。ソリューションを右クリックして、新しいプロジェクトを追加します。
+コンソールアプリ（.NET Core）を選択し、次へをクリックします。任意のプロジェクト名を入力します。（ここでは Sample.Server としました）
+場所はプロジェクトのルートを指定してください。
+NuGet から MagicOnion をインストールします。
+ツール -&gt; NuGet パッケージマネージャー -&gt; ソリューションの NuGet パッケージの管理 を開きます。
+参照 をクリックし、 MagicOnion を検索します。
+検索結果から MagicOnion.Hosting を選択し、Sample.Server にチェックをいれます。
+バージョンは 3.0.12 を選択し、インストールします。
+変更のプレビューが表示されるので OK を押します。
+ライセンスへの同意を求められるので同意します。
+Program.cs を下記の内容で上書き保存します。
+これでサーバー側のプロジェクトを起動すると MagicOnion が起動するようになります。このクラスライブラリを使って Unity 側とサーバー側のコード共有を行います。ソリューションを右クリックして、新しいプロジェクトを追加します。
+クラスライブラリ(C# .NET Standard)を選択します。
+任意のプロジェクト名を入力します。（ここでは Sample.Shared としました）
+場所はプロジェクトのルートを指定してください。
+自動的に作成される Class1.cs は不要なので削除します。
+先ほどの MagicOnion のインストールと同じ要領で、NuGet から MagicOnion.Abstractions を検索してインストールします。
+対象のプロジェクトは Sample.Shared を選択し、バージョンは 3.0.12 を選択します。
+同じ要領で Sample.Shared へ MessagePack.UnityShims をインストールします。
+Sample.Shared をダブルクリックして Sample.Shared.csproj を開き、赤枠部分の設定を追加します。
+追加する設定はこちらをコピペしてください。
+※Sample.Unity の部分は自分の Unity 側のプロジェクト名に読み替えてください。この状態でソリューションエクスプローラーを見てみると、Unity 側で用意した ServerShared フォルダ以下のファイルがクラスライブラリに読み込めたことがわかります。
+Sample.Server を右クリックし、追加、プロジェクト参照を選択します。
+Sample.Shared を選択して OK を押します。
+これで Unity とコード共有したサーバーの用意ができました。ここからは API の実装と動作確認を行います。
+MagicOnion は普通の API 通信とリアルタイム通信の2種類の通信が利用できますので、それぞれをテストしてみます。まずは普通の API 通信から試してみます。Assets\Scripts\ServerShared\Services 以下に SampleService スクリプトを作ります。
+SampleService の中身は以下をコピペして保存してください。
+今回は足し算をしてくれる API と掛け算をしてくれる API を定義してみます。Sample.Server を右クリックして、新しいフォルダを追加します。
+名前は Services とします。次に Services フォルダ内にクラスを追加します。名前は SampleService.cs とします。
+SampleService.cs の中身は以下をコピペして保存してください。SampleController に SampleService を呼び出すコードを追加します。
+下記のコードをコピペして上書きしてください。まずはサーバーを起動します。Sample.Server を右クリックして、スタートアッププロジェクトに設定 をクリックします。
+これによって、普段は Unity にアタッチ と表示されていたボタンが Sample.Server の表示に変わります。
+このボタンを押すとサーバーを起動することができます。※スタートアッププロジェクトを元に戻す場合は Assembly-CSharp を右クリックしてスタートアッププロジェクトに指定します。
+※Unity にアタッチしつつサーバーを起動したい場合は マルチスタートアッププロジェクト を使用します。（後述）続いてサーバーを起動した状態で Unity の Scene を再生します。Unity の Console にログが表示されました。
+続いてリアルタイム通信を試してみます。普通の API 通信と同じく、まずは API の定義から作ります。
+Assets\Scripts\ServerShared\Hubs 以下に SampleHub スクリプトを作ります。SampleHub の中身は以下をコピペして保存してください。
+今回はゲームにログイン、チャットで発言、位置情報を更新、ゲームから切断、という4つの API を作ります。普通の API の実装の時と同じ要領で、Sample.Server 以下に Hubs フォルダを作り、その中に SampleHub.cs を作ります。
+SampleHub.cs の中身は以下をコピペして保存してください。SampleController に SampleHub の各 API を呼び出すコードを追加します。
+下記のコードをコピペして上書きしてください。普通の API 通信の動作確認と同じ要領でサーバーを起動し、その後で Unity で Scene を再生します。Unity の Console にログが表示されました。
+これで普通の API 通信とリアルタイム通信の両方の動作確認ができました。UnityEditor 上で動かすなら今のままでも問題ないのですが、IL2CPP を使う場合（例えば Platform を iOS にしたとき）はこのようなエラーが発生します。IL2CPP は動的なコード生成に対応していないため、コードジェネレーターを使用して事前に必要なコードを生成する必要があります。NuGet で MagicOnion.MSBuild.Tasks をインストールします。
+プロジェクトは Sample.Shared を選択し、バージョンは 3.0.12 を選択します。
+同じ要領で MessagePack.MSBuild.Tasks もインストールします。
+Sample.Shared をダブルクリックし、Sample.Shared.csproj を開きます。
+赤枠部分のコードを追加して保存します。
+コードは以下をコピペしてください。この状態で Sample.Server をビルドすると Sample.Unity\Assets\Scripts\Generated 以下にコードジェネレーターによってコードが生成されます。次にこのコードを使用する設定を行います。
+Scripts フォルダに C# Script を作り、名前を InitialSettings とします。InitialSettings のコードは下記をコピペして保存します。これで IL2CPP の環境でも動作するようになりました。iOS 用のビルドではさらに以下の追加作業が必要です。Assets\Editor に C# Script を追加し、名前を BuildIos とします。
+BuildIos のコードは以下をコピペします。環境構築は以上で終了です。お疲れさまでした。途中で説明を割愛したマルチスタートアッププロジェクトの利用方法です。
+ソリューションを右クリックして、スタートアッププロジェクトの設定 をクリックします。マルチスタートアッププロジェクト にチェックをいれ、Assembly-CSharp と Sample.Server のアクションを 開始 にして OK を押します。この状態で 開始 を押すとデバッガーを Unity にアタッチしながらサーバーを起動することができます。
+こんなに長い記事を最後まで読んでいただいてありがとうございます。
+少しでも役に立つことがあれば幸いです。環境構築に成功して、より技術的な内容や実践的なコードが必要になった際は下記の記事などがおすすめです。
+
+

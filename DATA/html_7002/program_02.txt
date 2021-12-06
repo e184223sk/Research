@@ -1,0 +1,68 @@
+
+class FileCollection : NameObjectCollectionBase, IDisposable {
+    private FileCollection() : base() { }
+    public void Dispose() { ((IDisposable)ms).Dispose(); }
+    public PostedFile this[int index] { get { return (PostedFile)this.BaseGet(index); } }
+
+    public PostedFile this[string key] {
+        get { return (PostedFile)this.BaseGet(key); }
+        set { this.BaseSet(key, value); }
+    }
+
+    public string[] AllStringValues { get { return (string[])this.BaseGetAllValues(typeof(string)); } }
+    public bool HasKeys { get { return this.BaseHasKeys(); } }
+    public void Add(string key, PostedFile value) { this.BaseAdd(key, value); }
+    public void Remove(string key) { this.BaseRemove(key); }
+    public void Remove(int index) { this.BaseRemoveAt(index); }
+    public void Clear() { this.BaseClear(); }
+
+    MemoryStream ms = null;
+
+    static public FileCollection GetFiles(IOwinContext context) {
+        FileCollection fc = new FileCollection();
+
+        HttpListenerRequest req = ((context.Request.Environment["System.Net.HttpListenerContext"]) as HttpListenerContext).Request;
+        string boundary = "--" + Regex.Match(req.ContentType, @"(?&lt;=boundary=)(.+(?=; )|.+$)").Value;
+
+        fc.ms = new MemoryStream((int)req.ContentLength64);
+        byte[] work = new byte[1024 * 1024];
+        int cnt = 0;
+        using(Stream stream = req.InputStream) {
+            while((cnt = stream.Read(work, 0, work.Length)) &gt; 0)
+                fc.ms.Write(work, 0, cnt);
+        }
+
+        fc.ms.Seek(0, SeekOrigin.Begin);
+
+        if(fc.ms.GetString(req.ContentEncoding, boundary.Length) != boundary) return fc;
+
+        while(fc.ms.GetString(req.ContentEncoding, 2) == "\r\n") {
+            string filename = null;
+            string filetype = null;
+            long spos = 0;
+            long epos = 0;
+
+            string line = null;
+            while((line = fc.ms.GetLine(req.ContentEncoding)) != string.Empty) {
+                if(line.StartsWith("Content-Disposition: ")) {
+                    filename = Regex.Match(line, @"(?&lt;=filename=)(.+(?=; )|.+$)").Value.Trim('"');
+                    continue;
+                }
+                if(line.StartsWith("Content-Type: ")) {
+                    filetype = Regex.Match(line, @"(?&lt;= ).+$").Value;
+                    continue;
+                }
+            }
+
+            spos = fc.ms.Position;
+            do {
+                epos = fc.ms.SkipLine();
+            } while(!fc.ms.IsFileEnd(req.ContentEncoding, boundary));
+
+            fc.Add(Path.GetFileName(filename), new PostedFile(fc.ms, filetype, filename, spos, epos));
+        }
+
+        return fc;
+    }
+}
+

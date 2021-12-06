@@ -1,0 +1,54 @@
+
+    class Program
+    {
+        private string baseDir = null;
+
+        static void Main(string[] args)
+        {
+            Program prg = new Program();
+            prg.Execute(args);
+        }
+
+        private void Execute(string[] args)
+        {
+            string filePath = args[0]; //再現情報
+            baseDir = args[1]; //アセンブリパス
+
+            byte[] bytes = File.ReadAllBytes(filePath);
+
+            IMethodCallMessage message = null;
+
+            AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
+
+            BinaryFormatter bf = new BinaryFormatter();
+            using (MemoryStream stream = new MemoryStream(bytes))
+            {
+                message = (IMethodCallMessage)bf.Deserialize(stream);
+            }
+
+            Type typ = Type.GetType(message.TypeName);
+            object target = Activator.CreateInstance(typ);
+
+            object retObject = message.MethodBase.Invoke(target, message.Args);
+        }
+
+        private Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs eArgs)
+        {
+            string asmPath = Path.Combine(baseDir, eArgs.Name.Split(',')[0] + ".dll");
+            if (File.Exists(asmPath))
+            {
+                Assembly asm = Assembly.LoadFrom(asmPath);
+                return asm;
+            }
+
+            asmPath = Path.Combine(baseDir, eArgs.Name.Split(',')[0] + ".exe");
+            if (File.Exists(asmPath))
+            {
+                Assembly asm = Assembly.LoadFrom(asmPath);
+                return asm;
+            }
+
+            return null;
+        }
+    }
+

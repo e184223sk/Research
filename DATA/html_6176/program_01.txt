@@ -1,0 +1,48 @@
+
+using System.Net;
+using Microsoft.Azure.KeyVault;
+using Microsoft.IdentityModel.Clients.ActiveDirectory;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+
+private const string applicationId = "{ここに、CLIENT_ID}";
+
+public static async Task&lt;HttpResponseMessage&gt; Run(HttpRequestMessage req, TraceWriter log)
+{
+
+
+string certificateThumbprint = System.Environment.GetEnvironmentVariable("WEBSITE_LOAD_CERTIFICATES");
+    log.Info("C# HTTP trigger function processed a request.");
+    var keyClient = new KeyVaultClient(async (authority, resource, scope)=&gt; {
+        var authenticationContext = new AuthenticationContext(authority, null);
+        X509Certificate2 certificate;
+        X509Store store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        try {
+            store.Open(OpenFlags.ReadOnly);
+            X509Certificate2Collection certificateCollection = store.Certificates.Find(X509FindType.FindByThumbprint, certificateThumbprint, false);
+            if (certificateCollection == null || certificateCollection.Count ==0)
+            {
+                throw new Exception("Certificate not installed in the store");
+            }
+
+            certificate = certificateCollection[0];
+        }
+        finally
+        {
+            store.Close();
+        }
+        var clientAssertionCertificate = new ClientAssertionCertificate(applicationId, certificate);
+        var result = await authenticationContext.AcquireTokenAsync(resource, clientAssertionCertificate);
+        return result.AccessToken;
+    });
+
+    var secretIdentifier = "https://spikekey.vault.azure.net/secrets/SomeSecret/";
+            var secret = await keyClient.GetSecretAsync(secretIdentifier);
+
+            log.Info($"Secret is {secret}");
+
+    return secret == null
+        ? req.CreateResponse(HttpStatusCode.BadRequest, "Please store a secret")
+        : req.CreateResponse(HttpStatusCode.OK, "Secret is " + secret);
+}
+

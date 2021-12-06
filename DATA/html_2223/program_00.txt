@@ -1,0 +1,94 @@
+using Microsoft.Win32;
+
+private void checkAddin() {
+    var app = "Excel";
+    var addin = "hogeAddin";
+
+    //
+    // 「アクティブでないアプリケーションアドイン」のチェック
+    //
+    try
+    {
+        var regKey = $@"SOFTWARE\Microsoft\Office\{app}\Addins\{addin}";
+        using (var key = Registry.CurrentUser.OpenSubKey(regKey, true))
+        {
+            if (key == null)
+            {
+                MessageBox.Show("アドインがインストールされていません。");
+                return;
+            }
+
+            if (!int.Equals(key.GetValue("LoadBehavior", -1), 3)) {
+                // アクティブになっていないので「3」を設定する
+                key.SetValue("LoadBehavior", 3, RegistryValueKind.DWord);
+            }
+        }
+    }
+    catch (Exception e)
+    {
+        // エラーは無視
+        Console.Error.WriteLine("レジストリ[LoadBehavior]チェック:Exception\n" + e.ToString());
+    }
+
+    //
+    // 「無効なアプリケーションアドイン」のチェック
+    //
+    try
+    {
+        using (var key = Registry.CurrentUser.OpenSubKey($@"SOFTWARE\Microsoft\Office\{getOfficeVer()}\{app}\Resiliency\DisabledItems", true))
+        {
+            if (key != null)
+            {
+                key.GetValueNames()
+                .ToList()
+                .ForEach(val =&gt;
+                {
+                    var data = (byte[])key.GetValue(val, null);
+                    if (data != null)
+                    {
+                        // キーで読みだした値から「0」を除去して結合。ASCIIから文字列を取得し、アドイン名が含まれている場合は該当のレジストリを消去。
+                        if (System.Text.Encoding.UTF8.GetString(data.ToList().Where(v =&gt; v != 0).ToArray()).Contains($"{addin}"))
+                        {
+                            key.DeleteValue(val);
+                        }
+                    }
+                });
+            }
+        }
+    }
+    catch (Exception e)
+    {
+        // エラーは無視
+        Console.Error.WriteLine("レジストリ[DisabledItems]チェック:Exception\n" + e.ToString());
+    }
+
+    try
+    {
+        using (var key = Registry.CurrentUser.OpenSubKey($@"SOFTWARE\Microsoft\Office\{getOfficeVer()}\{app}\Resiliency\CrashingAddinList", true))
+        {
+            if (key != null)
+            {
+                key.GetValueNames()
+                .ToList()
+                .ForEach(val =&gt;
+                {
+                    var data = (byte[])key.GetValue(val, null);
+                    if (data != null)
+                    {
+                        // キーで読みだした値から「0」を除去して結合。ASCIIから文字列を取得し、アドイン名が含まれている場合は該当のレジストリを消去。
+                        if (System.Text.Encoding.UTF8.GetString(data.ToList().Where(v =&gt; v != 0).ToArray()).Contains($"{addin}"))
+                        {
+                            key.DeleteValue(val);
+                        }
+                    }
+                });
+            }
+        }
+    }
+    catch (Exception e)
+    {
+        // エラーは無視
+        Console.Error.WriteLine("レジストリ[CrashingAddinList]チェック:Exception\n" + e.ToString());
+    }
+}
+

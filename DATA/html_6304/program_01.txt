@@ -1,0 +1,68 @@
+
+
+
+    public static class AccessorCache&lt;TType&gt;
+    {
+        private static readonly Dictionary&lt;string, Delegate&gt; getCache = new Dictionary&lt;string, Delegate&gt;();
+        private static readonly Dictionary&lt;string, Delegate&gt; setCache = new Dictionary&lt;string, Delegate&gt;();
+
+        public static Func&lt;TType, TProperty&gt; LookupGet&lt;TProperty&gt;(Expression&lt;Func&lt;TType, TProperty&gt;&gt; propertySelector)
+        {
+            var propertyName = GetPropertyName(propertySelector);
+            Delegate accessor;
+
+            lock (getCache)
+            {
+                if (!getCache.TryGetValue(propertyName, out accessor))
+                {
+                    accessor = propertySelector.Compile();
+                    getCache.Add(propertyName, accessor);
+                }
+            }
+
+            return (Func&lt;TType, TProperty&gt;)accessor;
+        }
+
+        private static string GetPropertyName&lt;TProperty&gt;(Expression&lt;Func&lt;TType, TProperty&gt;&gt; propertySelector)
+        {
+            var memberExpression = propertySelector.Body as MemberExpression;
+            if (memberExpression == null)
+            {
+                var unaryExpression = propertySelector.Body as UnaryExpression;
+                if (unaryExpression == null) { throw new ArgumentException(nameof(propertySelector)); }
+                memberExpression = unaryExpression.Operand as MemberExpression;
+                if (memberExpression == null) { throw new ArgumentException(nameof(propertySelector)); }
+            }
+
+            return memberExpression.Member.Name;
+        }
+
+        public static Action&lt;TType, TProperty&gt; LookupSet&lt;TProperty&gt;(Expression&lt;Func&lt;TType, TProperty&gt;&gt; propertySelector)
+        {
+            var propertyName = GetPropertyName(propertySelector);
+            Delegate accessor;
+
+            lock (setCache)
+            {
+                if (!setCache.TryGetValue(propertyName, out accessor))
+                {
+                    accessor = CreateSetAccessor(propertySelector);
+                    setCache.Add(propertyName, accessor);
+                }
+            }
+
+            return (Action&lt;TType, TProperty&gt;)accessor;
+        }
+
+        private static Delegate CreateSetAccessor&lt;TProperty&gt;(Expression&lt;Func&lt;TType, TProperty&gt;&gt; propertySelector)
+        {
+            var propertyInfo = (PropertyInfo)((MemberExpression)propertySelector.Body).Member;
+            var selfParameter = Expression.Parameter(typeof(TType), "self");
+            var valueParameter = Expression.Parameter(typeof(TProperty), "value");
+            var body = Expression.Assign(Expression.Property(selfParameter, propertyInfo), valueParameter);
+            var lambda = Expression.Lambda&lt;Action&lt;TType, TProperty&gt;&gt;(body, selfParameter, valueParameter);
+            return lambda.Compile();
+        }
+    }
+
+

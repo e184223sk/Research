@@ -1,0 +1,80 @@
+class MIDISound : IDisposable
+{
+    //-------------------------------------------------
+    // Windows Multimedia API
+    [DllImport("Winmm.dll")]
+    extern static uint midiOutOpen(ref IntPtr lphmo, uint uDeviceID, uint dwCallback, uint dwCallbackInstance, uint dwFlags);
+
+    [DllImport("Winmm.dll")]
+    extern static uint midiOutClose(IntPtr hmo);
+
+    [DllImport("Winmm.dll")]
+    extern static uint midiOutShortMsg(IntPtr hmo, uint dwMsg);
+
+    private const uint MMSYSERR_NOERROR = 0;
+    private const uint MIDI_MAPPER = 0xffffffff;
+    //--------------------------------------------------
+
+    private IntPtr hMidi;
+
+    public MIDISound()
+    {
+        MidiApiOpen();
+    }
+
+    public void Dispose() =&gt; MidiApiClose();
+
+    private bool MidiApiOpen()
+    {
+        bool bRet = false;
+
+        //MidiデバイスのOpen
+        if (midiOutOpen(ref this.hMidi, MIDI_MAPPER, 0, 0, 0) == MMSYSERR_NOERROR)
+        {
+            bRet = true;
+            midiOutShortMsg(this.hMidi, 0x19c0);    // 音色を定義 アコースティックギター（スチール弦）0x19(25)
+        }
+
+        return bRet;
+    }
+
+    private bool MidiApiClose()
+    {
+        bool bRet = false;
+
+        //MidiデバイスのClose
+        if (midiOutClose(this.hMidi) == MMSYSERR_NOERROR)
+        {
+            bRet = true;
+        }
+
+        return bRet;
+    }
+
+    public void NoteOn(List&lt;byte&gt; keys)
+    {
+        byte ch = 0;
+        byte velocity = 0x7f;
+
+        foreach (byte key in keys)
+        {
+            uint msg;
+            msg = (uint)((velocity &lt;&lt; 16) + (key &lt;&lt; 8) + 0x90 + ch);
+            midiOutShortMsg(this.hMidi, msg);
+        }
+    }
+
+    public void NoteOff(List&lt;byte&gt; keys)
+    {
+        byte ch = 0;
+        byte velocity = 0x7f;
+
+        foreach (byte key in keys)
+        {
+            uint msg;
+            msg = (uint)((velocity &lt;&lt; 16) + (key &lt;&lt; 8) + 0x80 + ch);
+            midiOutShortMsg(this.hMidi, msg);
+        }
+    }
+}
+

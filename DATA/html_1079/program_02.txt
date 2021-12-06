@@ -1,0 +1,64 @@
+
+        // 段落の削除
+        private void ProgressDialog_Del_DoWork(object sender, DoWorkEventArgs e)
+        {
+            BackgroundWorker bw = (BackgroundWorker)sender;
+
+            //パラメータを取得する
+            int stopTime = (int)e.Argument;
+
+            Document doc = danrakuG01.Globals.ThisAddIn.Application.ActiveDocument;
+            var myPatDoc = new patDoc();
+            Range rng = myPatDoc.書類名の範囲("明細書", doc);
+            if (rng == null)
+            {
+                System.Windows.Forms.MessageBox.Show("明細書が記載されていません。", "警告");
+                e.Result = 0;
+                return;
+            }
+            long endpos = rng.End;
+            int counter = 0;
+            int i = 0;
+            rng.Find.MatchWildcards = true;
+
+            int lastTick = Environment.TickCount;
+            int currTick;
+            bw.ReportProgress(i, i.ToString() + "% 終了しました");
+
+            while (rng.Find.Execute("【[０-９]@】"))
+            {
+                counter++;
+
+                rng.Text = "";
+                rng.SetRange(rng.End, rng.End);
+                if (myPatDoc.パラグラフが空白か判定(rng.Paragraphs[1]))
+                {
+                    rng.Paragraphs[1].Range.Delete();
+                }
+                //キャンセルされたか調べる
+                if (bw.CancellationPending)
+                {
+                    //キャンセルされたとき
+                    e.Cancel = true;
+                    return;
+                }
+                currTick = Environment.TickCount;
+                if( currTick - lastTick &gt; 1000 )
+                {
+                    //指定された時間待機する
+                    //System.Threading.Thread.Sleep(stopTime);
+
+                    //ProgressChangedイベントハンドラを呼び出し、
+                    //コントロールの表示を変更する
+                    i = (int)(rng.End * 100 / endpos);
+                    bw.ReportProgress(i, i.ToString() + "% 終了しました");
+                    lastTick = currTick;
+                }
+            }
+            i = 100;
+            bw.ReportProgress(i, i.ToString() + "% 終了しました");
+            System.Threading.Thread.Sleep(500);
+            //結果を設定する
+            e.Result = counter;
+        }
+

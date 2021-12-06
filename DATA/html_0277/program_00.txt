@@ -1,0 +1,69 @@
+
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class Player : MonoBehaviour, Controls.IPlayerActions{
+    private Controls inputPlayer;        //インプット情報
+    private Vector2 inputLeftStick;    //入力値を保持
+    private Vector3 prevPos;  //前回のPosition
+    public Rigidbody rb;    //自身のRigidBody
+
+    private void Awake(){
+        inputPlayer = new Controls();
+        inputPlayer.Player.SetCallbacks(this);    //InputSystemのPlayer定義をここで使うという宣言
+        inputLeftStick = Vector2.zero;
+        rb = GetComponent&lt;Rigidbody&gt;();
+    }
+
+    private void OnEnable() {
+        inputPlayer.Enable();
+    }
+
+    private void OnDisable() {
+        inputPlayer.Disable();
+    }
+
+    private void FixedUpdate() {
+        float horizontal = 0;
+        float vertical = 0;
+
+        if (Mathf.Abs(inputLeftStick.x) &gt; 0.25f){    //入力排除範囲いらないかも？円状に入力禁止(デッドゾーンの定義)をしたいなら別途斜辺を求める計算でXとY合わせて計算が必要
+            horizontal = inputLeftStick.x * Time.deltaTime * 40;
+        }
+
+        if (Mathf.Abs(inputLeftStick.y) &gt; 0.25f){   //いらないかも？
+            vertical = inputLeftStick.y * Time.deltaTime * 40;
+        }
+
+        //空中でも移動できてしまうので、気になる人は地面に着地してる判定をRayを飛ばして判定すると良いかも。今回は割愛
+        Vector3 moveVec = transform.position;
+        //カメラの回転に合わせて入力方向を変換
+        if (!(Camera.main is null)) {
+            var forward = Camera.main.transform.forward;
+            var x = Quaternion.FromToRotation(new Vector3(1.0f, 0f, 0), new Vector3(forward.x, 0f, forward.z));
+            var z = Quaternion.FromToRotation(new Vector3(0.0f, 0f, 1.0f), new Vector3(forward.x, 0f, forward.z));
+            moveVec += (z * Vector3.forward) * vertical;    
+            moveVec += (x * Vector3.forward) * -horizontal;
+        }
+        rb.MovePosition(moveVec);    //移動(CharacterComponentでの移動でも良いかも？)
+
+
+        //キャラクターの向きの補正-------------------------------------------------
+        var position = transform.position;
+        position.y = 0;    //y方向には補正しない
+        Vector3 diff = position - prevPos;
+        prevPos = position;
+        if (diff.magnitude &gt; 0.01f){
+            transform.rotation = Quaternion.LookRotation(diff); //向きを変更する
+        }
+        //---------------------------------------------------------------------
+    }
+
+    public void OnAxisLeft(InputAction.CallbackContext context) {    //InputSystemから値を取得
+        inputLeftStick.x = context.ReadValue&lt;Vector2&gt;().x;    //Lスティックの値を格納しておく
+        inputLeftStick.y = context.ReadValue&lt;Vector2&gt;().y;    //Lスティックの値を格納しておく
+    }
+
+}
+
+

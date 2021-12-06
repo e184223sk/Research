@@ -1,0 +1,174 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
+
+namespace WpfApp1
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        public MainWindow()
+        {
+            InitializeComponent();
+        }
+
+        private HwndSource _hwndSource;
+        private HwndSourceHook _hwndSourceHook;
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            // RawInput登録
+            IntPtr handle = new WindowInteropHelper(this).Handle;
+            RawInputDevice[] devices = new RawInputDevice[1];
+            devices[0].UsagePage = 0x01;    // Generic Desktop Controls
+            devices[0].Usage = 0x06;        // Keyboard
+            devices[0].Flags = 0x00000100;  // RIDEV_INPUTSINK
+            devices[0].Target = handle;
+            RegisterRawInputDevices(devices, 1, Marshal.SizeOf(typeof(RawInputDevice)));
+            // WndProcフック
+            _hwndSource = PresentationSource.FromVisual(this) as HwndSource;
+            _hwndSourceHook = new HwndSourceHook(WndProc);
+            _hwndSource.AddHook(_hwndSourceHook);
+
+            Text1.Focus();
+            Text1.SelectAll();
+        }
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            List&lt;Key&gt; FuncKeys = new List&lt;Key&gt;() {
+                Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6,
+                Key.F7, Key.F8, Key.F9, Key.F10, Key.F11, Key.F12
+            };
+            if (FuncKeys.Contains(e.Key))
+            {
+                Label1.Text = e.Key.ToString();
+                e.Handled = true;
+            }
+        }
+
+        private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            switch (msg) {
+                case WM_INPUT:
+                    WMInput(hwnd, wParam, lParam);
+                    break;
+            }
+            return IntPtr.Zero;
+        }
+
+        private static void WMInput(IntPtr hwnd, IntPtr wParam, IntPtr lParam)
+        {
+            MainWindow window = Application.Current.Windows.OfType&lt;MainWindow&gt;().SingleOrDefault(s =&gt; s.IsActive);
+            if (window == null)
+                return;
+            IntPtr handle = new WindowInteropHelper(window).Handle;
+            int headerSize = Marshal.SizeOf(typeof(RawInputHeader));
+            int size = Marshal.SizeOf(typeof(RawInput));
+            GetRawInputData(lParam, 0x10000003, out RawInput input, ref size, headerSize);
+            RawKeyboard keyboard = input.Keyborad;
+
+            if (VkKeys.ContainsKey(keyboard.VKey)) {
+                Int32 imeRet = ImmAssociateContext(handle, 0);        // IMEを一時的に無効化
+                RoutedEvent routedEvent = null;
+                if (keyboard.Message == WM_KEYDOWN)
+                    routedEvent = Keyboard.PreviewKeyDownEvent;
+                else if (keyboard.Message == WM_KEYUP)
+                    routedEvent = Keyboard.PreviewKeyUpEvent;
+                if (routedEvent != null) {
+                    // WPFのイベント生成
+                    window.RaiseEvent(
+                        new KeyEventArgs(
+                            Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, VkKeys[keyboard.VKey]) { RoutedEvent = routedEvent });
+                }
+                ImmAssociateContext(handle, imeRet);                  // IMEを復元
+            }
+        }
+
+        const int WM_INPUT = 0xFF;
+        const int WM_KEYDOWN = 0x100;
+        const int WM_KEYUP = 0x101;
+
+        const int VK_F1 = 0x70;
+        const int VK_F2 = 0x71;
+        const int VK_F3 = 0x72;
+        const int VK_F4 = 0x73;
+        const int VK_F5 = 0x74;
+        const int VK_F6 = 0x75;
+        const int VK_F7 = 0x76;
+        const int VK_F8 = 0x77;
+        const int VK_F9 = 0x78;
+        const int VK_F10 = 0x79;
+        const int VK_F11 = 0x7A;
+        const int VK_F12 = 0x7B;
+        static Dictionary&lt;int, Key&gt; VkKeys = new Dictionary&lt;int, Key&gt;
+        {
+            { VK_F1, Key.F1 },
+            { VK_F2, Key.F2 },
+            { VK_F3, Key.F3 },
+            { VK_F4, Key.F4 },
+            { VK_F5, Key.F5 },
+            { VK_F6, Key.F6 },
+            { VK_F7, Key.F7 },
+            { VK_F8, Key.F8 },
+            { VK_F9, Key.F9 },
+            { VK_F10, Key.F10 },
+            { VK_F11, Key.F11 },
+            { VK_F12, Key.F12 },
+        };
+
+        [DllImport("imm32.dll", SetLastError = true)]
+        public static extern Int32 ImmAssociateContext(
+            IntPtr hWnd,
+            Int32 hIMC);
+
+        [DllImport("user32.dll")]
+        private static extern int RegisterRawInputDevices(
+            RawInputDevice[] devices,
+            int number,
+            int size);
+        [DllImport("user32.dll")]
+        private static extern int GetRawInputData(
+            IntPtr rawInput,
+            int command,
+            out RawInput data,
+            ref int size,
+            int headerSize);
+        private struct RawInputDevice
+        {
+            public short UsagePage;
+            public short Usage;
+            public int Flags;
+            public IntPtr Target;
+        }
+        private struct RawInputHeader
+        {
+            public int Type;
+            public int Size;
+            public IntPtr Device;
+            public IntPtr WParam;
+        }
+        private struct RawInput
+        {
+            public RawInputHeader Header;
+            public RawKeyboard Keyborad;
+        }
+        private struct RawKeyboard
+        {
+            public short MakeCode;
+            public short Flags;
+            public short Reserved;
+            public short VKey;
+            public int Message;
+            public long ExtrInformation;
+        }
+    }
+}
+

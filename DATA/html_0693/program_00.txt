@@ -1,0 +1,82 @@
+    public class ReactiveBinder&lt;TSource, TTarget&gt;
+    {
+        private readonly static Dictionary&lt;string, Action&lt;TSource, TTarget&gt;&gt; binderActions = new Dictionary&lt;string, Action&lt;TSource, TTarget&gt;&gt;();
+
+        static ReactiveBinder()
+        {
+            BuildBinders();
+        }
+
+        public void Bind(TSource source, TTarget target)
+        {
+            foreach(var action in binderActions)
+            {
+                action.Value.Invoke(source, target);
+            }
+        }
+
+        private static void BuildBinders()
+        {
+            var targetType = typeof(TTarget);
+            var sourceType = typeof(TSource);
+            MethodInfo fromObject = GetBinderMethod(targetType);
+
+            var sourceParameter = Expression.Parameter(sourceType, "$source");
+            var targetParameter = Expression.Parameter(targetType, "$destination");
+            var modeParameter = Expression.Constant(ReactivePropertyMode.Default);
+            var ignoreValidationErrorValue = Expression.Constant(false);
+
+            foreach (var property in targetType.GetProperties())
+            {
+                var sourceProperty = sourceType.GetProperty(property.Name);
+                var sourcePropertyAccessor = Expression.Property(
+                    Expression.Convert(sourceParameter, sourceType),
+                    property.Name);
+
+                var propertySelector = Expression.Lambda(sourcePropertyAccessor, sourceParameter);
+
+                var genericMethod = fromObject.MakeGenericMethod(new Type[] { sourceType, sourceProperty.PropertyType });
+                var fromObjectCall = Expression.Call(genericMethod, sourceParameter, propertySelector, modeParameter, ignoreValidationErrorValue);
+
+                var bindingProperty = Expression.Property(
+                    targetParameter,
+                    property);
+
+                var assignment = Expression.Assign(bindingProperty, fromObjectCall);
+
+                var lambda = Expression.Lambda&lt;Action&lt;TSource, TTarget&gt;&gt;(
+                    assignment,
+                    sourceParameter,
+                    targetParameter
+                    );
+
+                binderActions.Add(property.Name, lambda.Compile());
+            }
+        }
+        private static MethodInfo GetBinderMethod(Type targetType)
+        {
+            MethodInfo fromObject = null;
+            Type[] paramTypes = new Type[] {
+                targetType,
+                typeof(int),
+                typeof(ReactivePropertyMode),
+                typeof(bool)
+            };
+            var flags = BindingFlags.Static | BindingFlags.Public;
+            foreach (MethodInfo method in typeof(ReactiveProperty).GetMethods(flags))
+            {
+
+                if (method.IsGenericMethod &amp;&amp; method.IsGenericMethodDefinition &amp;&amp; method.ContainsGenericParameters)
+                {
+                    if (method.Name == "FromObject" &amp;&amp; method.GetParameters().Length == paramTypes.Length)
+                    {
+                        fromObject = method;
+                        break;
+                    }
+                }
+            }
+            return fromObject;
+        }
+    }
+
+

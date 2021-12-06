@@ -1,0 +1,33 @@
+
+private static string ProcFunction(string calcStr)
+{
+    // Sin() や Cos() など関数の形に一致
+    string d = @"[\+\-\*\/]|" + DECIMAL;
+    string d1 = d + @"\,?";
+    string d2 = @"\((?:" + d + @")+\)\,?";
+    string f = @"[a-zA-Z_]\w+";
+    string pattern = "(" + f + @")\(((?:" + d1 + "|" + d2 + @")*)\)";
+
+    return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+    {
+        // 後ろで正規表現を使用するので、$1が消える前に関数名を取得しておく
+        string func = baseMatch.Result("$1");
+
+        // 引数をカンマ区切りで取得し、それぞれを計算する
+        string[] args = baseMatch.Result("$2").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i &lt; args.Length; i++)
+        {
+            args[i] = CalculationBrackets(args[i]);
+            args[i] = NormalCalculation(args[i]);
+        }
+
+        // 関数呼び出し
+        string result = StringCalculationFunctions.InvokeMethod(func, args);
+
+        // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+        result = result.ToDouble().ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+        return result;
+    });
+}
+

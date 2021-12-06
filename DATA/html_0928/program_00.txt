@@ -1,0 +1,138 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Amazon;
+using Amazon.CognitoIdentityProvider;
+using Amazon.CognitoIdentityProvider.Model;
+using Amazon.Extensions.CognitoAuthentication;
+using Amazon.Runtime;
+using LoginTest.Models;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Forms;
+
+namespace LoginTest.Pages
+{
+    public partial class Index
+    {
+        #region 定数
+        private const string PoolID = "us-east-1_hogehoge";
+        private const string ClientID = "hogehogehogehoge";
+        private RegionEndpoint Region = RegionEndpoint.USEast1;
+        #endregion
+
+        #region フィールド
+        private string _loginErrorMessage;
+        #endregion
+
+        #region プロパティ
+        /// &lt;summary&gt;
+        /// Inject属性を指定することで、NavigationManagerのサービスの依存関係を挿入します。
+        /// &lt;/summary&gt;
+        [Inject]
+        public NavigationManager Navigation { get; set; }
+        /// &lt;summary&gt;
+        /// ログイン情報を保持
+        /// &lt;/summary&gt;
+        public LoginData LoginData { get; set; }
+        #endregion
+
+        #region コンストラクタ
+        public Index()
+        {
+            //Index.razorから参照するのでインスタンス生成をしておかないとエラーとなる
+            LoginData = new LoginData();
+        }
+        #endregion
+
+        #region メソッド
+        /// &lt;summary&gt;
+        /// Validate処理成功時に処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="context"&gt;&lt;/param&gt;
+        public async Task OnValidSubmit(EditContext context)
+        {
+            Console.WriteLine($"OnValidSubmit()");
+
+            var errorMessage = await SignInUserAsync();
+            if (string.IsNullOrEmpty(errorMessage))
+            {
+                Navigation.NavigateTo("Chat", false);
+            }
+            else
+            {
+                _loginErrorMessage = errorMessage;
+            }
+        }
+        /// &lt;summary&gt;
+        /// Validate処理失敗時に処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="context"&gt;&lt;/param&gt;
+        public void OnInvalidSubmit(EditContext context)
+        {
+            Console.WriteLine($"OnInvalidSubmit()");
+        }
+        /// &lt;summary&gt;
+        /// Cognitoで使用できるユーザーを作成する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;string&gt; SignUpUserAsync()
+        {
+            //Regionが「USEast1」なのは作成したPoolIDのプレフィックスと同じにしている為
+            using var provider = new AmazonCognitoIdentityProviderClient(new AnonymousAWSCredentials(), Region);
+            var signUpRequest = new SignUpRequest
+            {
+                ClientId = ClientID,
+                Username = LoginData.UserID,
+                Password = LoginData.Password,
+
+                UserAttributes = new List&lt;AttributeType&gt;
+                {
+                    new AttributeType{Name = "email", Value="hogehoge@gmail.com"},
+                },
+            };
+
+            try
+            {
+                var result = await provider.SignUpAsync(signUpRequest).ConfigureAwait(false);
+                return string.Empty;
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+        /// &lt;summary&gt;
+        /// Cognitoで登録したユーザかを判別する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task&lt;string&gt; SignInUserAsync()
+        {
+            using var provider = new AmazonCognitoIdentityProviderClient(new AnonymousAWSCredentials(), RegionEndpoint.USEast1);
+
+            var userPool = new CognitoUserPool(PoolID, ClientID, provider);
+            var cognitoUser = new CognitoUser(LoginData.UserID, ClientID, userPool, provider);
+            var authRequest = new InitiateSrpAuthRequest
+            {
+                Password = LoginData.Password,
+            };
+
+            try
+            {
+                var authResponse = await cognitoUser.StartWithSrpAuthAsync(authRequest).ConfigureAwait(false);
+                var userRequest = new GetUserRequest
+                {
+                    AccessToken = authResponse.AuthenticationResult.AccessToken,
+                };
+
+                await provider.GetUserAsync(userRequest).ConfigureAwait(false);
+                return string.Empty;
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+        }
+        #endregion
+    }
+}
+

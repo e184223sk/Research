@@ -1,0 +1,22 @@
+More than 1 year has passed since last update.新年明けましておめでとうございます。
+初投稿です。C#大統一理論にも書いてあるとおり、.NETで唯一信頼できるコレクションはT[]のみです。
+この間System.Collections.Generic.SortedSet&lt;T&gt;のMinとMaxの実装を読んたのですが、ゲッターを呼ぶ度にdelegate新規作成とメモリアロケーションが発生していました。
+2019年にもなってこんな頭おかしい実装をしているとは……System.Collections.Generic.List&lt;T&gt;はかなりまともな実装をしていますので性能的に悲惨なことにはなりません。
+Tが参照型であるならば……Tが巨大な値型の時、我々はList&lt;T&gt;に喰い潰されるのだ！（ダダオーン！）そもそもint[]の読み書きと比較してList&lt;int&gt;のインデクサは3～4倍程度遅いです。
+そしてList&lt;T&gt;のインデクサは参照戻り値を返さないのでTが巨大な値型の時コピーコストが嵩んで性能的にますます不利になります。
+また、for文においてT[]ならば範囲チェックを免れることもありますが、List&lt;T&gt;は常に範囲チェックを行われてしまいます。どうですか？
+System.Collections.Generic.List&lt;T&gt;を使う気が失せてきやしませんか？今までHoge Function&lt;T&gt;(IList&lt;T&gt; list)とか書いていたメソッドシグネチャを是非Hoge Function&lt;T&gt;(ref T[] array, ref int length)に書き改めましょう！上記提案は十割本気ですが、既存資産を大事にしたい方も多いでしょうから、妥協的現実的魔術的代案を今回記事にします。軽く解説すると上記コードはGeneric Type Cacheという技法を使用しています。参考文献
+GetArray静的メソッドは内部的に静的コンストラクタによって用意されたFieldInfoオブジェクトを通じてプライベートフィールドを得ます。
+静的コンストラクタでは全プライベートフィールドを線形に走査して配列型のフィールドを探しています。あ＾＾ー、GetArrayを呼ぶ度にリフレクションが走るんじゃ～。
+AOTなUnityのIL2CPP環境でもない限り上記コードは遅すぎて使う気にもなりませんね。
+T[]がList&lt;T&gt;よりも高速に読み書き可能とはいえ、それを得るためのオーバーヘッドが大きすぎます。以下のコードは.NET 4.x系と.NET Core系でしか動きません。.NET Standard 2.0で動かないです。
+.NET Standard 2.1からは動かせるようになる予定です。実はList&lt;T&gt;におけるprivateなT[]フィールドの名前は_itemsとわかっていて、Type.GetFieldメソッドで直接入手可能ではありますが、なにせprivateフィールドなのでいつ何時リファクタリングされないともわからないのでプログラム実行時に動的にFieldInfoを得るようにしています。前と今の最大の違いはなんと言ってもSystem.Reflection.Emit.DynamicMethodクラスでしょう。
+これは実行時に動的にメソッドを作成するためのクラスです。
+そのコンストラクタのシグネチャは
+public DynamicMethod(string name, MethodAttributes attributes, CallingConventions callingConvention, Type returnType, Type[] parameterTypes, Type owner, bool skipVisibility);
+です。（CallingConventionsは常にStandardでなければなりません。）
+このコンストラクタの引数であるType ownerにList&lt;T&gt;、bool skipVisibilityにtrueを渡すことで、我々が今新たに作成するメソッドがあたかも元からList&lt;T&gt;のメンバーメソッドであるかのように扱われるのです。つまりprivateメンバを好き勝手できます。具体的にどう好き勝手するかはGetILGeneratorで返されるILGeneratorオブジェクトを通じてILを書いて決めます。
+ここでは今回作成するメソッドの第０引数のフィールドを値で返しています。つまりList&lt;T&gt;内部にあるT[]を返しています。そして最後にobject DynamicMethod.CreateDelegate(Type)でデリゲートを作成し、static readonlyなFunc&lt;List&lt;T&gt;, T[]&gt; GetArrayに代入しましょう。
+我々はGetArrayデリゲートを使用する時に内部的にリフレクションを使用せずとも良くなりました。List&lt;T&gt;しか受け取らないAPIを用意した奴は反省して、どうぞ。デリゲートは性能的に割と駄目な子なのでldftn+calliでもっと速くできると思いました（小並感）
+
+

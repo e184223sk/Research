@@ -1,0 +1,80 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
+
+/// &lt;summary&gt;
+/// 画像マーカー複数対応のサンプル
+/// &lt;/summary&gt;
+public class MultiMarker : MonoBehaviour
+{
+    /// &lt;summary&gt;
+    /// マーカー用オブジェクトのプレハブ
+    /// &lt;/summary&gt;
+    [SerializeField] private GameObject[] _arPrefabs;
+
+    /// &lt;summary&gt;
+    /// ARTrackedImageManager
+    /// &lt;/summary&gt;
+    [SerializeField] private ARTrackedImageManager _imageManager;
+
+    /// &lt;summary&gt;
+    /// マーカー用オブジェクトのプレハブと文字列を紐づけた辞書
+    /// &lt;/summary&gt;
+    private readonly Dictionary&lt;string, GameObject&gt; _markerNameAndPrefabDictionary = new Dictionary&lt;string, GameObject&gt;();
+
+    private void Start()
+    {
+        _imageManager.trackedImagesChanged += OnTrackedImagesChanged;
+
+        //辞書を作る 画像の名前とARオブジェクトのPrefabを紐づける
+        for (var i = 0; i &lt; _arPrefabs.Length; i++)
+        {
+            var arPrefab = Instantiate(_arPrefabs[i]);
+            _markerNameAndPrefabDictionary.Add(_imageManager.referenceLibrary[i].name, arPrefab);
+            arPrefab.SetActive(false);
+        }
+    }
+
+    private void OnDisable()
+    {
+        _imageManager.trackedImagesChanged -= OnTrackedImagesChanged;
+    }
+
+    /// &lt;summary&gt;
+    /// 認識した画像マーカーに応じて紐づいたARオブジェクトを表示
+    /// &lt;/summary&gt;
+    /// &lt;param name="trackedImage"&gt;認識した画像マーカー&lt;/param&gt;
+    private void ActivateARObject(ARTrackedImage trackedImage)
+    {
+        //認識した画像マーカーの名前を使って辞書から任意のオブジェクトを引っ張り出す
+        var arObject = _markerNameAndPrefabDictionary[trackedImage.referenceImage.name];
+        var imageMarkerTransform = trackedImage.transform;
+
+        //位置合わせ
+        var markerFrontRotation = imageMarkerTransform.rotation * Quaternion.Euler(90f, 0f, 0f);
+        arObject.transform.SetPositionAndRotation(imageMarkerTransform.transform.position, markerFrontRotation);
+        arObject.transform.SetParent(imageMarkerTransform);
+
+        //トラッキングの状態に応じてARオブジェクトの表示を切り替え
+        arObject.SetActive(trackedImage.trackingState == TrackingState.Tracking);
+    }
+
+    /// &lt;summary&gt;
+    /// TrackedImagesChanged時の処理
+    /// &lt;/summary&gt;
+    /// &lt;param name="eventArgs"&gt;検出イベントに関する引数&lt;/param&gt;
+    private void OnTrackedImagesChanged(ARTrackedImagesChangedEventArgs eventArgs)
+    {
+        foreach (var trackedImage in eventArgs.added)
+        {
+            ActivateARObject(trackedImage);
+        }
+
+        foreach (var trackedImage in eventArgs.updated)
+        {
+            ActivateARObject(trackedImage);
+        }
+    }
+}
+

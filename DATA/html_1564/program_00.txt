@@ -1,0 +1,308 @@
+using System;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+namespace TransportWOL
+{
+    class Program
+    {
+        private static readonly string VVRR = "01-00";
+
+        static void Main(string[] args)
+        {
+            int port;
+
+            if (args.Length == 1 &amp;&amp; int.TryParse(args[0], out port))
+            {
+                if (0 &lt;= port &amp;&amp; port &lt;= 65535)
+                {
+                    WriteTitle();
+
+                    SocketThreadserver = new SocketThread(port);
+
+                    server.Run();
+                }
+                else
+                {
+                    Console.WriteLine($"ポート番号は0～65535の範囲で指定してください。");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"ポート番号を指定してください。");
+            }
+        }
+
+        static private void WriteTitle()
+        {
+            Console.WriteLine($" ################################################################################");
+            Console.WriteLine($" ##                                                                            ##");
+            Console.WriteLine($" ## WOL 踏み台サーバ                                                           ##");
+            Console.WriteLine($" ##                                                                Ver : {VVRR} ##");
+            Console.WriteLine($" ##                                                                            ##");
+            Console.WriteLine($" ################################################################################");
+            Console.WriteLine($"");
+        }
+    }
+
+    class SocketThread
+    {
+        private readonly int HEADLEN = 6;
+        private readonly int MACLEN = 6;
+        private readonly int MACCOUNT = 16;
+        private readonly int SENDPORT = 9;
+        private readonly int CATEGORYLEN = 20;
+
+        private string Address;
+        private string SubnetMask;
+        private string BroadCast;
+        private int Port;
+
+        // サーバーのエンドポイント
+        public IPEndPoint ServerEndPoint;
+        // ブロードキャストのエンドポイント
+        public IPEndPoint BroadCastEndPoint;
+
+        // スレッド待機用
+        private ManualResetEvent AllDone = new ManualResetEvent(false);
+
+        //送受信文字列エンコード
+        private Encoding enc = Encoding.UTF8;
+
+        // コンストラクタ
+        public SvSocketThread(int port)
+        {
+            // IPアドレス取得
+            string hostname = Dns.GetHostName();
+            var address = Dns.GetHostAddresses(hostname);
+            foreach (var item in address)
+            {
+                if (item.AddressFamily == AddressFamily.InterNetwork &amp;&amp; item.ToString().StartsWith("10."))
+                {
+                    this.Address = item.ToString();
+                    Console.WriteLine($" サーバIPアドレス        ：{this.Address}");
+                }
+            }
+
+            // サブネットマスクの取得
+            var info = NetworkInterface.GetAllNetworkInterfaces();
+            foreach (var item in info)
+            {
+                if (item.OperationalStatus == OperationalStatus.Up &amp;&amp;
+                    item.NetworkInterfaceType != NetworkInterfaceType.Loopback &amp;&amp;
+                    item.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+                {
+                    var ipp = item.GetIPProperties();
+                    if (ipp != null)
+                    {
+                        foreach (var ip in ipp.UnicastAddresses)
+                        {
+                            if (this.Address == ip.Address.ToString())
+                            {
+                                this.SubnetMask = ip.IPv4Mask.ToString();
+                                Console.WriteLine($" サーバサブネットマスク  ：{this.SubnetMask}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            this.Port = port;
+            Console.WriteLine($" サーバ待機ポート        ：{this.Port}");
+
+            // ブロードキャストアドレスの取得
+            byte[] ipb = new byte[4];
+            var ips = this.Address.Split('.');
+            var masks = this.SubnetMask.Split('.');
+            for (int i = 0; i &lt; 4; i++)
+            {
+                ipb[i] = (byte)(byte.Parse(ips[i]) | ~byte.Parse(masks[i]));
+            }
+            this.BroadCast = $"{ipb[0].ToString()}.{ipb[1].ToString()}.{ipb[2].ToString()}.{ipb[3].ToString()}";
+            Console.WriteLine($" ブロードキャストアドレス：{this.BroadCast}\n");
+
+            this.ServerEndPoint = new IPEndPoint(IPAddress.Parse(this.Address), Convert.ToInt32(this.Port));
+            this.BroadCastEndPoint = new IPEndPoint(IPAddress.Parse(this.BroadCast), this.SENDPORT);
+        }
+
+        // サーバー起動
+        public void Run()
+        {
+            using
+            (
+              var listenerSocket = new Socket(AddressFamily.InterNetwork,
+                                              SocketType.Stream,
+                                              ProtocolType.Tcp)
+            )
+            {
+                // ソケットをアドレスにバインドする
+                listenerSocket.SetSocketOption(SocketOptionLevel.Socket,
+                                               SocketOptionName.ReuseAddress,
+                                               true);
+                listenerSocket.Bind(this.ServerEndPoint);
+
+                // 接続待機開始
+                listenerSocket.Listen(10);
+                WriteLog($"接続待機開始", $"{listenerSocket.LocalEndPoint.ToString()}");
+
+                // 接続待機のループ
+                while (true)
+                {
+                    AllDone.Reset();
+                    listenerSocket.BeginAccept(new AsyncCallback(AcceptCallback), listenerSocket);
+                    // 接続があるまでスレッドを待機させる
+                    AllDone.WaitOne();
+                }
+            }
+        }
+
+        // 接続受付時のコールバック処理
+        private void AcceptCallback(IAsyncResult asyncResult)
+        {
+            // 待機スレッドが進行するようにシグナルをセット
+            AllDone.Set();
+
+            // ソケットを取得
+            var listenerSocket = asyncResult.AsyncState as Socket;
+            var clientSocket = listenerSocket.EndAccept(asyncResult);
+
+            // 接続中のクライアントを追加
+            WriteLog($"接続確認", $"{clientSocket.RemoteEndPoint}");
+
+            // StateObjectを作成
+            var state = new StateObject();
+            state.ClientSocket = clientSocket;
+
+            // 受信時のコードバック処理を設定
+            clientSocket.BeginReceive(state.Buffer,
+                         0,
+                         StateObject.BufferSize,
+                         0,
+                         new AsyncCallback(ReceiveCallback),
+                         state);
+        }
+
+        // 受信時のコードバック処理
+        private void ReceiveCallback(IAsyncResult asyncResult)
+        {
+            // StateObjectとクライアントソケットを取得
+            var state = asyncResult.AsyncState as StateObject;
+            var clientSocket = state.ClientSocket;
+
+            try
+            {
+                // クライアントソケットから受信データを取得終了
+                int bytes = clientSocket.EndReceive(asyncResult);
+                string category = $"データ受信[{bytes,2}バイト]";
+                string detail;
+
+                if (bytes &gt; 0)
+                {
+                    // 受信した文字列を表示
+                    var content = enc.GetString(state.Buffer, 0, bytes);
+                    detail = $"\"{content}\"";
+
+                    Regex reg = new Regex("^([0-9a-fA-F][0-9a-fA-F])-([0-9a-fA-F][0-9a-fA-F])-([0-9a-fA-F][0-9a-fA-F])-([0-9a-fA-F][0-9a-fA-F])-([0-9a-fA-F][0-9a-fA-F])-([0-9a-fA-F][0-9a-fA-F])$");
+
+                    if (reg.IsMatch(content))
+                    {
+                        detail += $" MACアドレスデータを受信しました。";
+                        WriteLog(category, detail);
+
+                        byte[] sendBytes = new byte[HEADLEN + MACLEN * MACCOUNT];
+
+                        int i;
+
+                        // ヘッダデータを生成
+                        for (i = 0; i &lt; HEADLEN; i++)
+                        {
+                            sendBytes[i] = 0xFF;
+                        }
+
+                        // マジックパケットを生成
+                        foreach (Match m in reg.Matches(content))
+                        {
+                            for (i = 0; i &lt; MACLEN; i++)
+                            {
+                                byte convert = Convert.ToByte(m.Groups[i + 1].Value, 16);
+
+                                for (int j = 0; j &lt; MACCOUNT; j++)
+                                {
+                                    sendBytes[HEADLEN + MACLEN * j + i] = convert;
+                                }
+                            }
+                        }
+
+                        UdpClient udp = new UdpClient();
+
+                        // マジックパケットを送信する
+                        udp.Send(sendBytes, sendBytes.Length, this.BroadCastEndPoint);
+
+                        // ソケットクローズ
+                        udp.Close();
+
+                        WriteLog($"データ送信", $"マジックパケットを送信しました。");
+                    }
+                    else
+                    {
+                        detail += $" 不明なデータを破棄しました。";
+                        WriteLog(category, detail);
+                    }
+
+                    // 受信時のコードバック処理を再設定
+                    clientSocket.BeginReceive(state.Buffer,
+                                 0,
+                                 StateObject.BufferSize,
+                                 0,
+                                 new AsyncCallback(ReceiveCallback),
+                                 state);
+                }
+                else
+                {
+                    // 0バイトデータの受信時は、切断されたとき
+                    clientSocket.Close();
+                    WriteLog(category, $"通信を切断しました。");
+                }
+            }
+            catch (SocketException e)
+            {
+                if (e.NativeErrorCode.Equals(10054))
+                {
+                    // 既存の接続が、リモート ホストによって強制的に切断されました
+                    // 保持しているクライアントの情報をクリアする
+                    clientSocket.Close();
+                    WriteLog($"強制切断", $"クライアントが強制切断しました。");
+                }
+                else
+                {
+                    WriteLog($"強制切断", $"Error Code {e.NativeErrorCode} : {e.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                WriteLog($"例外発生", $"{ex.Message}");
+            }
+        }
+
+        private void WriteLog(string category, string detail)
+        {
+            Encoding sjisEnc = Encoding.GetEncoding("Shift_JIS");
+            string padStr = category + new string(' ', CATEGORYLEN - sjisEnc.GetByteCount(category));
+
+            Console.WriteLine($" &lt;{DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss.ffffff")}&gt; -{padStr} ： {detail}");
+        }
+    }
+
+    // 接続されたクライアントの情報を格納するクラス
+    public class StateObject
+    {
+        public Socket ClientSocket { get; set; }
+        public const int BufferSize = 1024;
+        public byte[] Buffer { get; } = new byte[BufferSize];
+    }
+}
+

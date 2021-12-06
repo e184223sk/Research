@@ -1,0 +1,1721 @@
+最近ジェネリックプログラミングをする機会が増えているのですが、C++のテンプレート特殊化のように型ごとの最適実装を書きたいと思うことがしばしばあります。C#のジェネリックでも型チェックを駆使すれば、特定の型に対する専用処理を実装することはできますが、なまじ色んな方法があってどのように書くのが筋がよいか？というのはイマイチよくわかっていません。わからないなら検証するしかないよね、ということでいろいろ試してみました。ひとまずは加算を特殊化してみることにします。
+次のような、型Tの値を一つ持つクラスを考えます。Tが加算可能な型である場合に、このクラスのインスタンス2つに対しても加算が利用できるようにしたい、というケースを考えます。今回は、この加算メソッドが最速で動作するような方法を探っていきます。
+なお、本来ならばlhs、rhsの非nullガードが必要だが、今回はベンチマークなので書かないことにしておきます。さて、一方のTとしてはプリミティブ型、構造体、sealedかつ非nullのクラスを考えます。
+継承可能だったりnullableだったりするクラスは型判定において扱いがすこぶるめんどくさくなるので今回はサポート対象外。プリミティブ型としてはとりあえずintおよびdoubleを試します。
+構造体、クラスには以下のような型を利用します。いずれもプリミティブ型の単純なラッパです。これら6種3ケースのTについてベンチマークを取っていきます。C#の場合、型引数の異なるクローズ型は明確に別の型扱いとなる1。つまり、ジェネリッククラスの静的メンバは型引数が異なると別の実体が割り当てられます。そのため、Strategyパターンの実装を静的フィールドで保持することで容易に特殊化が実現できます。
+.Netの標準ライブラリでも、Comparer&lt;T&gt;.Defaultなどでおなじみの方法でしょう。まず、下記のようなStrategyを用意します。特殊化すべき型についてはDefaultをちゃんと初期化しておきます。ダミーメンバと静的コンストラクタを使ってただ1度だけ初期化されるといったコスいテクニックを使ってはいるが、概ね意図は伝わるんじゃないでしょうか。Container&lt;T&gt;型はこれを使うだけです。デザパタ的美しさにはなかなか優れた方法じゃないでしょうか。C# 7で型スイッチが入ったことで型による分岐は気楽に書けるようになりました。
+という訳で、以下のような愚直な型分岐実装が考えられますね。フル実装はムダに長いので折りたたみ
+
+public partial class Container&lt;T&gt;
+{
+    public static Container&lt;T&gt; AddByContainerTypeSwitch(Container&lt;T&gt; lhs, Container&lt;T&gt; rhs)
+    {
+        switch(lhs)
+        {
+        case Container&lt;int&gt; intL:
+            {
+                var r = rhs as Container&lt;int&gt;;
+                return new Container&lt;int&gt;(intL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        case Container&lt;double&gt; doubleL:
+            {
+                var r = rhs as Container&lt;double&gt;;
+                return new Container&lt;double&gt;(doubleL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        case Container&lt;IntStruct&gt; intStructL:
+            {
+                var r = rhs as Container&lt;IntStruct&gt;;
+                return new Container&lt;IntStruct&gt;(intStructL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        case Container&lt;DoubleStruct&gt; doubleStructL:
+            {
+                var r = rhs as Container&lt;DoubleStruct&gt;;
+                return new Container&lt;DoubleStruct&gt;(doubleStructL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        case Container&lt;IntClass&gt; intClassL:
+            {
+                var r = rhs as Container&lt;IntClass&gt;;
+                return new Container&lt;IntClass&gt;(intClassL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        case Container&lt;DoubleClass&gt; doubleClassL:
+            {
+                var r = rhs as Container&lt;DoubleClass&gt;;
+                return new Container&lt;DoubleClass&gt;(doubleClassL.Value + r.Value) as Container&lt;T&gt;;
+            }
+        }
+        throw new Exception();
+    }
+}
+
+
+なお、この方法はTに継承可能なクラスを許容する場合素直には書けなくなることに注意してください。コンテナ全体ではなく、中身だけに型スイッチを適用する方法もあるでしょう。フル実装はムダに(ry
+
+public partial class Container&lt;T&gt;
+{    public static Container&lt;T&gt; AddByValueTypeSwitch(Container&lt;T&gt; lhs, Container&lt;T&gt; rhs)
+    {
+        switch(lhs.Value)
+        {
+        case int intL:
+            {
+                if(rhs.Value is int r)
+                    return new Container&lt;int&gt;(intL + r) as Container&lt;T&gt;;
+                break;
+            }
+        case double doubleL:
+            {
+                if(rhs.Value is double r)
+                    return new Container&lt;double&gt;(doubleL + r) as Container&lt;T&gt;;
+                break;
+            }
+        case IntStruct intStructL:
+            {
+                if(rhs.Value is IntStruct r)
+                    return new Container&lt;IntStruct&gt;(intStructL + r) as Container&lt;T&gt;;
+                break;
+            }
+        case DoubleStruct doubleStructL:
+            {
+                if(rhs.Value is DoubleStruct r)
+                    return new Container&lt;DoubleStruct&gt;(doubleStructL + r) as Container&lt;T&gt;;
+                break;
+            }
+        case IntClass intClassL:
+            {
+                if(rhs.Value is IntClass r)
+                    return new Container&lt;IntClass&gt;(intClassL + r) as Container&lt;T&gt;;
+                break;
+            }
+        case DoubleClass doubleClassL:
+            {
+                if(rhs.Value is DoubleClass r)
+                    return new Container&lt;DoubleClass&gt;(doubleClassL + r) as Container&lt;T&gt;;
+                break;
+            }
+        }
+        throw new Exception();
+    }
+}
+
+
+こちらは2.とは異なりTの派生には対応できるが、代わりにnullが入ってきたときに正しく動作しません。C#ではリフレクションによるメタ情報取得が非常に容易です。2
+当然typeofによる型比較も考えられます。フル実装は(ry
+
+public partial class Container&lt;T&gt;
+{    public static Container&lt;T&gt; AddByTypeOf(Container&lt;T&gt; lhs, Container&lt;T&gt; rhs)
+    {
+        if(typeof(T) == typeof(int))
+        {
+            var l = lhs as Container&lt;int&gt;;
+            var r = rhs as Container&lt;int&gt;;
+            return new Container&lt;int&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        if(typeof(T) == typeof(double))
+        {
+            var l = lhs as Container&lt;double&gt;;
+            var r = rhs as Container&lt;double&gt;;
+            return new Container&lt;double&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        if(typeof(T) == typeof(IntStruct))
+        {
+            var l = lhs as Container&lt;IntStruct&gt;;
+            var r = rhs as Container&lt;IntStruct&gt;;
+            return new Container&lt;IntStruct&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        if(typeof(T) == typeof(DoubleStruct))
+        {
+            var l = lhs as Container&lt;DoubleStruct&gt;;
+            var r = rhs as Container&lt;DoubleStruct&gt;;
+            return new Container&lt;DoubleStruct&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        if(typeof(T) == typeof(IntClass))
+        {
+            var l = lhs as Container&lt;IntClass&gt;;
+            var r = rhs as Container&lt;IntClass&gt;;
+            return new Container&lt;IntClass&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        if(typeof(T) == typeof(DoubleClass))
+        {
+            var l = lhs as Container&lt;DoubleClass&gt;;
+            var r = rhs as Container&lt;DoubleClass&gt;;
+            return new Container&lt;DoubleClass&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+        }
+
+        throw new Exception();
+    }
+}
+
+
+こちらもTの派生には対応しづらいです。
+できなくはないがパフォーマンス面では非常にきつい予感がしますね。こちらの記事で実践している方がいるが、関数ポインタを直に叩くことでなんやかんやという話があるのだとか。現時点ではC#で記述不可能なのでMSILでつらつら書いていきます。QiitaさんMSILのシンタックスハイライトも実装してくれよな～頼むよ～
+
+.assembly extern mscorlib
+{}
+
+.assembly extern GenericSpecializationBenchmark.Core
+{}
+
+.assembly GenericSpecializationBenchmark.Unsafe
+{}
+
+.module GenericSpecializationBenchmark.Unsafe.dll
+
+
+.class private auto ansi abstract sealed FastArithmetic
+    extends [mscorlib]System.Object
+{
+    .method private hidebysig specialname rtspecialname static 
+        void .cctor () cil managed 
+    {
+        .maxstack 8
+
+        ldftn int32 FastArithmetic::Add(int32, int32)
+        stsfld void* class FastArithmetic`1&lt;int32&gt;::_fptrAdd
+
+        ldftn float64 FastArithmetic::Add(float64, float64)
+        stsfld void* class FastArithmetic`1&lt;float64&gt;::_fptrAdd
+
+        ldftn valuetype [GenericSpecializationBenchmark.Core]IntStruct FastArithmetic::Add(valuetype [GenericSpecializationBenchmark.Core]IntStruct, valuetype [GenericSpecializationBenchmark.Core]IntStruct)
+        stsfld void* class FastArithmetic`1&lt;valuetype [GenericSpecializationBenchmark.Core]IntStruct&gt;::_fptrAdd
+
+        ldftn valuetype [GenericSpecializationBenchmark.Core]DoubleStruct FastArithmetic::Add(valuetype [GenericSpecializationBenchmark.Core]DoubleStruct, valuetype [GenericSpecializationBenchmark.Core]DoubleStruct)
+        stsfld void* class FastArithmetic`1&lt;valuetype [GenericSpecializationBenchmark.Core]DoubleStruct&gt;::_fptrAdd
+
+        ldftn class [GenericSpecializationBenchmark.Core]IntClass FastArithmetic::Add(class [GenericSpecializationBenchmark.Core]IntClass, class [GenericSpecializationBenchmark.Core]IntClass)
+        stsfld void* class FastArithmetic`1&lt;class [GenericSpecializationBenchmark.Core]IntClass&gt;::_fptrAdd
+
+        ldftn class [GenericSpecializationBenchmark.Core]DoubleClass FastArithmetic::Add(class [GenericSpecializationBenchmark.Core]DoubleClass, class [GenericSpecializationBenchmark.Core]DoubleClass)
+        stsfld void* class FastArithmetic`1&lt;class [GenericSpecializationBenchmark.Core]DoubleClass&gt;::_fptrAdd
+
+        ret
+    }
+
+
+    .method assembly hidebysig static 
+        void Initialize () cil managed 
+    {
+        .maxstack 8
+
+        ret
+    }
+
+
+    .method public hidebysig static 
+        int32 Add (int32 lhs, int32 rhs) cil managed 
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        add
+        ret
+    }
+
+
+    .method public hidebysig static 
+        int64 Add (int64 lhs, int64 rhs) cil managed 
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        add
+        ret
+    }
+
+
+    .method public hidebysig static 
+        float32 Add (float32 lhs, float32 rhs) cil managed 
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        add
+        ret
+    }
+
+
+    .method public hidebysig static 
+        float64 Add (float64 lhs, float64 rhs) cil managed 
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        add
+        ret
+    }
+
+
+    .method public hidebysig static
+        valuetype [GenericSpecializationBenchmark.Core]IntStruct Add (
+            valuetype [GenericSpecializationBenchmark.Core]IntStruct lhs,
+            valuetype [GenericSpecializationBenchmark.Core]IntStruct rhs
+        )
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        call valuetype [GenericSpecializationBenchmark.Core]IntStruct [GenericSpecializationBenchmark.Core]IntStruct::op_Addition(valuetype [GenericSpecializationBenchmark.Core]IntStruct, valuetype [GenericSpecializationBenchmark.Core]IntStruct)
+        ret
+    }
+
+
+    .method public hidebysig static
+        valuetype [GenericSpecializationBenchmark.Core]DoubleStruct Add (
+            valuetype [GenericSpecializationBenchmark.Core]DoubleStruct lhs,
+            valuetype [GenericSpecializationBenchmark.Core]DoubleStruct rhs
+        )
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        call valuetype [GenericSpecializationBenchmark.Core]DoubleStruct [GenericSpecializationBenchmark.Core]DoubleStruct::op_Addition(valuetype [GenericSpecializationBenchmark.Core]DoubleStruct, valuetype [GenericSpecializationBenchmark.Core]DoubleStruct)
+        ret
+    }
+
+
+    .method public hidebysig static
+        class [GenericSpecializationBenchmark.Core]IntClass Add (
+            class [GenericSpecializationBenchmark.Core]IntClass lhs,
+            class [GenericSpecializationBenchmark.Core]IntClass rhs
+        )
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        call class [GenericSpecializationBenchmark.Core]IntClass [GenericSpecializationBenchmark.Core]IntClass::op_Addition(class [GenericSpecializationBenchmark.Core]IntClass, class [GenericSpecializationBenchmark.Core]IntClass)
+        ret
+    }
+
+
+    .method public hidebysig static
+        class [GenericSpecializationBenchmark.Core]DoubleClass Add (
+            class [GenericSpecializationBenchmark.Core]DoubleClass lhs,
+            class [GenericSpecializationBenchmark.Core]DoubleClass rhs
+        )
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        call class [GenericSpecializationBenchmark.Core]DoubleClass [GenericSpecializationBenchmark.Core]DoubleClass::op_Addition(class [GenericSpecializationBenchmark.Core]DoubleClass, class [GenericSpecializationBenchmark.Core]DoubleClass)
+        ret
+    }
+}
+
+
+
+.class public auto ansi abstract sealed beforefieldinit FastArithmetic`1&lt;T&gt;
+    extends [mscorlib]System.Object
+{
+    .field assembly static void* _fptrAdd
+
+
+    .property bool IsSupported()
+    {
+        .get bool FastArithmetic`1::get_IsSupported()
+    }
+
+
+    .method public hidebysig specialname static 
+        bool get_IsSupported () cil managed aggressiveinlining
+    {
+        .maxstack 8
+
+        ldsfld void* class FastArithmetic`1&lt;!T&gt;::_fptrAdd
+        ldc.i4.0
+        conv.u
+        ceq
+        ldc.i4.0
+        conv.u
+        ceq
+        ret
+    }
+
+
+    .method private hidebysig specialname rtspecialname static 
+        void .cctor () cil managed
+    {
+        .maxstack 8
+        call void class FastArithmetic::Initialize()
+        ret
+    }
+
+
+    .method public hidebysig static 
+        !T Add (!T lhs, !T rhs) cil managed aggressiveinlining
+    {
+        .maxstack 8
+
+        ldarg.0
+        ldarg.1
+        ldsfld void* class FastArithmetic`1&lt;!T&gt;::_fptrAdd
+        calli !T(!T, !T)
+        ret
+    }
+}
+
+
+使う側はこう。雰囲気は静的Strategyに近いです。unsafeならともかくILの保守なんかしたくないよ！という人は多いと思うので今のところ現実的な方法ではないが、csharplangでは関数ポインタがプロポーザルに上がってたりするのでそのうち実用の範囲まで降りてくるかもしれません。
+ひとまず今回は参考記録ということで。拡張メソッドに追い出してしまえば、クローズ型だろうとなんだろうと同名のメソッドでオーバーロードが可能。フ(ry
+
+public static class Container
+{
+    public static Container&lt;int&gt; AddByOverload(Container&lt;int&gt; lhs, Container&lt;int&gt; rhs)
+        =&gt; new Container&lt;int&gt;(lhs.Value + rhs.Value);
+
+
+    public static Container&lt;double&gt; AddByOverload(Container&lt;double&gt; lhs, Container&lt;double&gt; rhs)
+        =&gt; new Container&lt;double&gt;(lhs.Value + rhs.Value);
+
+
+    public static Container&lt;IntStruct&gt; AddByOverload(Container&lt;IntStruct&gt; lhs, Container&lt;IntStruct&gt; rhs)
+        =&gt; new Container&lt;IntStruct&gt;(lhs.Value + rhs.Value);
+
+
+    public static Container&lt;DoubleStruct&gt; AddByOverload(Container&lt;DoubleStruct&gt; lhs, Container&lt;DoubleStruct&gt; rhs)
+        =&gt; new Container&lt;DoubleStruct&gt;(lhs.Value + rhs.Value);
+
+
+    public static Container&lt;IntClass&gt; AddByOverload(Container&lt;IntClass&gt; lhs, Container&lt;IntClass&gt; rhs)
+        =&gt; new Container&lt;IntClass&gt;(lhs.Value + rhs.Value);
+
+
+    public static Container&lt;DoubleClass&gt; AddByOverload(Container&lt;DoubleClass&gt; lhs, Container&lt;DoubleClass&gt; rhs)
+        =&gt; new Container&lt;DoubleClass&gt;(lhs.Value + rhs.Value);
+}
+
+
+C#コンパイル時点で完全に別のメソッド呼び出しになってる上、IL命令もcallvirtじゃなくcallなのでパフォーマンスだけ見ればこれが最速でしょう。
+とはいえ最初の呼び出しがクローズ型じゃないと呼び分けが機能しないし、非publicなメンバにはアクセスできないし、演算子オーバーロードでは使えないしで、他の方法と比べるとかなり制約が厳しいです。
+完全な代替にはなりえないと思われます。
+こちらも参考記録ということで。メソッドも出揃ったのでベンチマークを取っていきます。まずはベンチマークメソッド全体を定義しておきます。(ry
+
+using System;
+using System.Linq;
+using System.Reflection;
+
+
+public static class GenericSpecializationBenchmarkCore
+{
+    public const int Iteration = 10000;
+
+
+    static GenericSpecializationBenchmarkCore()
+    {
+        var results = typeof(GenericSpecializationBenchmarkCore)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Select(mi =&gt; (double)mi.Invoke(null, null))
+            .ToList();
+        foreach(var res in results)
+            if(results[0] != res)
+                throw new Exception("Invalid add method impl");
+    }
+
+
+    public static double AddByStaticStrategy_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;int&gt;.AddByStaticStrategy(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;double&gt;.AddByStaticStrategy(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByContainerTypeSwitch_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;int&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;double&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByValueTypeSwitch_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;int&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;double&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByTypeOf_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;int&gt;.AddByTypeOf(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;double&gt;.AddByTypeOf(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByLdftnAndCalli_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;int&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;double&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByOverload_Primitive()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;int&gt;(1);
+            var y = new Container&lt;int&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value;
+        }
+        {
+            var x = new Container&lt;double&gt;(1);
+            var y = new Container&lt;double&gt;(1);
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByStaticStrategy_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntStruct&gt;.AddByStaticStrategy(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleStruct&gt;.AddByStaticStrategy(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByContainerTypeSwitch_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntStruct&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleStruct&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByValueTypeSwitch_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntStruct&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleStruct&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByTypeOf_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntStruct&gt;.AddByTypeOf(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleStruct&gt;.AddByTypeOf(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByLdftnAndCalli_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntStruct&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleStruct&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByOverload_Struct()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            var y = new Container&lt;IntStruct&gt;(new IntStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            var y = new Container&lt;DoubleStruct&gt;(new DoubleStruct(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByStaticStrategy_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntClass&gt;.AddByStaticStrategy(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleClass&gt;.AddByStaticStrategy(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByContainerTypeSwitch_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntClass&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleClass&gt;.AddByContainerTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByValueTypeSwitch_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntClass&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleClass&gt;.AddByValueTypeSwitch(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByTypeOf_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntClass&gt;.AddByTypeOf(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleClass&gt;.AddByTypeOf(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByLdftnAndCalli_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;IntClass&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container&lt;DoubleClass&gt;.AddByLdftnAndCalli(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+
+
+    public static double AddByOverload_Class()
+    {
+        var result = 0.0;
+        {
+            var x = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            var y = new Container&lt;IntClass&gt;(new IntClass(1)    );
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value.Value;
+        }
+        {
+            var x = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            var y = new Container&lt;DoubleClass&gt;(new DoubleClass(1));
+            for(var i = 0; i &lt; Iteration; ++i)
+                x = Container.AddByOverload(x, y);
+            result += x.Value.Value;
+        }
+        return result;
+    }
+}
+
+
+
+.Net Coreおよび.Net FrameworkではBenchmarkDotNetが使えるのでベンチマーククラスをかぶせていきます。(ry
+
+using System;
+using BenchmarkDotNet.Attributes;
+
+
+[CoreJob, ClrJob]
+public class GenericSpecializationBenchmark
+{
+    [Benchmark]
+    public double AddByStaticStrategy_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Primitive();
+
+    [Benchmark]
+    public double AddByContainerTypeSwitch_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Primitive();
+
+    [Benchmark]
+    public double AddByValueTypeSwitch_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Primitive();
+
+    [Benchmark]
+    public double AddByTypeOf_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Primitive();
+
+    [Benchmark]
+    public double AddByLdftnAndCalli_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Primitive();
+
+    [Benchmark]
+    public double AddByOverload_Primitive()
+        =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Primitive();
+
+    [Benchmark]
+    public double AddByStaticStrategy_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Struct();
+
+    [Benchmark]
+    public double AddByContainerTypeSwitch_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Struct();
+
+    [Benchmark]
+    public double AddByValueTypeSwitch_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Struct();
+
+    [Benchmark]
+    public double AddByTypeOf_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Struct();
+
+    [Benchmark]
+    public double AddByLdftnAndCalli_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Struct();
+
+    [Benchmark]
+    public double AddByOverload_Struct()
+        =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Struct();
+
+    [Benchmark]
+    public double AddByStaticStrategy_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Class();
+
+    [Benchmark]
+    public double AddByContainerTypeSwitch_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Class();
+
+    [Benchmark]
+    public double AddByValueTypeSwitch_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Class();
+
+    [Benchmark]
+    public double AddByTypeOf_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Class();
+
+    [Benchmark]
+    public double AddByLdftnAndCalli_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Class();
+
+    [Benchmark]
+    public double AddByOverload_Class()
+        =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Class();
+}
+
+
+C#のプラットフォームとしてもう一つデカいやつ、Unityがあるのですが、残念ながらBenchmarkDotNetはUnity上では動きません。
+代わりにPerformance Testing Extension for Unity Test Runnerなるものを見つけたので、今回はこれを使ってみます。(ry
+
+using System;
+using UnityEngine;
+using Unity.PerformanceTesting;
+
+
+public class GenericSpecializationBenchmark : MonoBehaviour
+{
+    [PerformanceTest]
+    public void AddByStaticStrategy_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByContainerTypeSwitch_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByValueTypeSwitch_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByTypeOf_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByLdftnAndCalli_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByOverload_Primitive()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Primitive())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByStaticStrategy_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByContainerTypeSwitch_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByValueTypeSwitch_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByTypeOf_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByLdftnAndCalli_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByOverload_Struct()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Struct())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByStaticStrategy_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByStaticStrategy_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByContainerTypeSwitch_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByContainerTypeSwitch_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByValueTypeSwitch_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByValueTypeSwitch_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByTypeOf_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByTypeOf_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByLdftnAndCalli_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByLdftnAndCalli_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+    [PerformanceTest]
+    public void AddByOverload_Class()
+    {
+        Measure.Method(() =&gt; GenericSpecializationBenchmarkCore.AddByOverload_Class())
+            .WarmupCount(16)
+            .MeasurementCount(128)
+            .IterationsPerMeasurement(16)
+            .Run();
+    }
+
+}
+
+
+という訳で結果発表。テスト環境は以下の通り。
+Unityも同じマシンを使っており、バージョンは2018.3.5f1です。.Net Frameworkの場合、値型では静的Strategy、クラスではtypeofが速かったです。
+プリミティブ相手だと関数ポインタが速くて悪くないんですが、苦労に比べれば大した改善じゃないし構造体やクラス相手だとむしろ遅いしでどうしようもないです。全体を通してtypeofが速いです。
+プリミティブ型に対しては値に対しての型スイッチが速いですが、構造体・クラス相手だとむしろ遅いです。
+プリミティブ型相手だとJITでガッツリ最適化かかってるんですかね。全体を通してあまり差がない・・・プリミティブ型・構造体相手のときに値の型スイッチに対してやたら遅くなるくらいですかね？速い手法はなぜ速いのか？を調べるにはJIT結果を見るのが一番なので試してみます。
+Tがint/IntStruct/IntClassのときの実質的なアセンブリを確認していきます。
+なお、Container&lt;T&gt;の各AddメソッドにはMethodImpl(MethodImplOptions.NoInlining)属性を指定して測定しています。
+メソッド全体インライン化されたらどこ見たらいいかわかんないからね。
+途中のcall先でどれだけ命令が呼ばれているのか追跡しきれなかったのであくまで参考値ですが命令数も載せておきます。ひとまずは.Net Core 2.2.1で実証。
+誰か他の環境を調べてAddByOverload_Primitive
+
+   174:         =&gt; new Container&lt;int&gt;(lhs.Value + rhs.Value);
+00007FFC87257260  push        rdi  
+00007FFC87257261  push        rsi  
+00007FFC87257262  sub         rsp,28h  
+00007FFC87257266  mov         rsi,rdx  
+00007FFC87257269  mov         edi,dword ptr [rcx+8]  
+00007FFC8725726C  mov         rcx,7FFC8730A778h  
+00007FFC87257276  call        00007FFCE6D5B3B0  
+00007FFC8725727B  mov         edx,edi  
+00007FFC8725727D  add         edx,dword ptr [rsi+8]  
+00007FFC87257280  mov         dword ptr [rax+8],edx  
+00007FFC87257283  add         rsp,28h  
+00007FFC87257287  pop         rsi  
+00007FFC87257288  pop         rdi  
+00007FFC87257289  ret  
+
+
+AddByStaticStrategy_Primitive
+
+    22:         =&gt; new Container&lt;T&gt;(Arithmetic&lt;T&gt;.Default.Add(lhs.Value, rhs.Value));
+00007FFC87265D90  push        rdi  
+00007FFC87265D91  push        rsi  
+00007FFC87265D92  push        rbp  
+00007FFC87265D93  push        rbx  
+00007FFC87265D94  sub         rsp,28h  
+00007FFC87265D98  mov         rsi,rcx  
+00007FFC87265D9B  mov         rdi,rdx  
+00007FFC87265D9E  mov         rcx,7FFC87349D80h  
+00007FFC87265DA8  xor         edx,edx  
+00007FFC87265DAA  call        00007FFCE6D32120  
+00007FFC87265DAF  mov         rcx,1A944672AD0h  
+00007FFC87265DB9  mov         rbx,qword ptr [rcx]  
+00007FFC87265DBC  mov         esi,dword ptr [rsi+8]  
+00007FFC87265DBF  mov         rcx,7FFC8731A778h  
+00007FFC87265DC9  call        00007FFCE6D5B3B0  
+00007FFC87265DCE  mov         rbp,rax  
+00007FFC87265DD1  mov         r8d,dword ptr [rdi+8]  
+00007FFC87265DD5  mov         rcx,rbx  
+00007FFC87265DD8  mov         edx,esi  
+00007FFC87265DDA  mov         r11,7FFC87150028h  
+00007FFC87265DE4  cmp         dword ptr [rcx],ecx  
+00007FFC87265DE6  call        qword ptr [7FFC87150028h]  
+
+    00007FFC872661C0  lea         eax,[rdx+r8]  
+    00007FFC872661C4  ret  
+
+00007FFC87265DEC  mov         dword ptr [rbp+8],eax  
+00007FFC87265DEF  mov         rax,rbp  
+00007FFC87265DF2  add         rsp,28h  
+00007FFC87265DF6  pop         rbx  
+00007FFC87265DF7  pop         rbp  
+00007FFC87265DF8  pop         rsi  
+00007FFC87265DF9  pop         rdi  
+00007FFC87265DFA  ret  
+
+
+AddByContainerTypeSwitch_Primitive
+
+    28:         switch(lhs)
+00007FFC872567D0  push        rdi  
+00007FFC872567D1  push        rsi  
+00007FFC872567D2  sub         rsp,0F8h  
+00007FFC872567D9  mov         rsi,rdx  
+00007FFC872567DC  test        rcx,rcx  
+00007FFC872567DF  je          00007FFC87256805  
+00007FFC872567E1  mov         edi,dword ptr [rcx+8]  
+00007FFC872567E4  mov         rcx,7FFC8730A778h  
+00007FFC872567EE  call        00007FFCE6D5B3B0  
+00007FFC872567F3  mov         ecx,edi  
+00007FFC872567F5  add         ecx,dword ptr [rsi+8]  
+00007FFC872567F8  mov         dword ptr [rax+8],ecx  
+00007FFC872567FB  add         rsp,0F8h  
+00007FFC87256802  pop         rsi  
+00007FFC87256803  pop         rdi  
+00007FFC87256804  ret  
+
+
+AddByValueTypeSwitch_Primitive
+
+    68:         switch(lhs.Value)
+00007FFC87256A90  push        rdi  
+00007FFC87256A91  push        rsi  
+00007FFC87256A92  sub         rsp,28h  
+00007FFC87256A96  mov         esi,dword ptr [rcx+8]  
+00007FFC87256A99  mov         ecx,dword ptr [rdx+8]  
+00007FFC87256A9C  mov         edi,ecx  
+    73:                     return new Container&lt;int&gt;(intL + r) as Container&lt;T&gt;;
+00007FFC87256A9E  mov         rcx,7FFC8730A778h  
+00007FFC87256AA8  call        00007FFCE6D5B3B0  
+00007FFC87256AAD  add         esi,edi  
+00007FFC87256AAF  mov         dword ptr [rax+8],esi  
+00007FFC87256AB2  add         rsp,28h  
+00007FFC87256AB6  pop         rsi  
+00007FFC87256AB7  pop         rdi  
+00007FFC87256AB8  ret  
+
+
+AddByTypeof_Primitive
+
+   114:         if(typeof(T) == typeof(int))
+00007FFC87256C90  push        rdi  
+00007FFC87256C91  push        rsi  
+00007FFC87256C92  sub         rsp,28h  
+00007FFC87256C96  mov         rsi,rdx  
+00007FFC87256C99  mov         edi,dword ptr [rcx+8]  
+00007FFC87256C9C  mov         rcx,7FFC8730A778h  
+00007FFC87256CA6  call        00007FFCE6D5B3B0  
+00007FFC87256CAB  mov         edx,edi  
+00007FFC87256CAD  add         edx,dword ptr [rsi+8]  
+00007FFC87256CB0  mov         dword ptr [rax+8],edx  
+00007FFC87256CB3  add         rsp,28h  
+00007FFC87256CB7  pop         rsi  
+00007FFC87256CB8  pop         rdi  
+00007FFC87256CB9  ret  
+
+
+AddByValueTypeSwitch、AddByTypeofはAddByOverloadと同じ命令数まで最適化されています。
+AddByTypeofに至っては一字一句すべて一致しています。
+つまり、JIT後はAddByOverloadとAddByTypeofで全く同じということですね。AddByOverload_Struct
+
+   184:         =&gt; new Container&lt;IntStruct&gt;(lhs.Value + rhs.Value);
+00007FFC87258530  push        rsi  
+00007FFC87258531  sub         rsp,20h  
+00007FFC87258535  mov         ecx,dword ptr [rcx+8]  
+00007FFC87258538  mov         eax,dword ptr [rdx+8]  
+00007FFC8725853B  lea         esi,[rcx+rax]  
+00007FFC8725853E  mov         rcx,7FFC8733B288h  
+00007FFC87258548  call        00007FFCE6D5B3B0  
+00007FFC8725854D  mov         dword ptr [rax+8],esi  
+00007FFC87258550  add         rsp,20h  
+00007FFC87258554  pop         rsi  
+00007FFC87258555  ret  
+
+
+AddByStaticStrategy_Struct
+
+    22:         =&gt; new Container&lt;T&gt;(Arithmetic&lt;T&gt;.Default.Add(lhs.Value, rhs.Value));
+00007FFC87257490  push        rdi  
+00007FFC87257491  push        rsi  
+00007FFC87257492  push        rbp  
+00007FFC87257493  push        rbx  
+00007FFC87257494  sub         rsp,28h  
+00007FFC87257498  mov         rax,23910002AE0h  
+00007FFC872574A2  mov         rsi,qword ptr [rax]  
+00007FFC872574A5  mov         edi,dword ptr [rcx+8]  
+00007FFC872574A8  mov         ebx,dword ptr [rdx+8]  
+00007FFC872574AB  mov         rcx,7FFC8733B288h  
+00007FFC872574B5  call        00007FFCE6D5B3B0  
+00007FFC872574BA  mov         rbp,rax  
+00007FFC872574BD  mov         rcx,rsi  
+00007FFC872574C0  mov         r8d,ebx  
+00007FFC872574C3  mov         edx,edi  
+00007FFC872574C5  mov         r11,7FFC87140038h  
+00007FFC872574CF  cmp         dword ptr [rcx],ecx  
+00007FFC872574D1  call        qword ptr [7FFC87140038h]  
+
+    00007FFC87257510  lea         eax,[rdx+r8]  
+    00007FFC87257514  ret  
+
+00007FFC872574D7  mov         dword ptr [rbp+8],eax  
+00007FFC872574DA  mov         rax,rbp  
+00007FFC872574DD  add         rsp,28h  
+00007FFC872574E1  pop         rbx  
+00007FFC872574E2  pop         rbp  
+00007FFC872574E3  pop         rsi  
+00007FFC872574E4  pop         rdi  
+00007FFC872574E5  ret  
+
+
+AddByContainerTypeSwitch_Struct
+
+    28:         switch(lhs)
+00007FFC872677A0  push        rdi  
+00007FFC872677A1  push        rsi  
+00007FFC872677A2  push        rbp  
+00007FFC872677A3  push        rbx  
+00007FFC872677A4  sub         rsp,0D8h  
+00007FFC872677AB  vzeroupper  
+00007FFC872677AE  vmovaps     xmmword ptr [rsp+0C0h],xmm6  
+00007FFC872677B8  mov         rsi,rdx  
+00007FFC872677BB  mov         rdi,rcx  
+00007FFC872677BE  test        rdi,rdi  
+00007FFC872677C1  je          00007FFC872678B6  
+00007FFC872677C7  mov         rdx,rdi  
+00007FFC872677CA  mov         rcx,7FFC8731A778h  
+00007FFC872677D4  call        00007FFCE6D59C70  
+00007FFC872677D9  mov         rbx,rax  
+00007FFC872677DC  test        rbx,rbx  
+00007FFC872677DF  jne         00007FFC872677FD  
+00007FFC872677E1  mov         rdx,rdi  
+00007FFC872677E4  mov         rcx,7FFC8731A978h  
+00007FFC872677EE  call        00007FFCE6D59C70  
+00007FFC872677F3  mov         rbp,rax  
+00007FFC872677F6  test        rbp,rbp  
+00007FFC872677F9  jne         00007FFC8726782E  
+00007FFC872677FB  jmp         00007FFC8726786B  
+
+00007FFC8726786B  mov         ecx,dword ptr [rdi+8]  
+00007FFC8726786E  mov         eax,dword ptr [rsi+8]  
+00007FFC87267871  lea         esi,[rcx+rax]  
+00007FFC87267874  mov         rcx,7FFC8734B288h  
+00007FFC8726787E  call        00007FFCE6D5B3B0  
+00007FFC87267883  mov         dword ptr [rax+8],esi  
+    43:                 return new Container&lt;IntStruct&gt;(intStructL.Value + r.Value) as Container&lt;T&gt;;
+00007FFC87267886  jmp         00007FFC872678A0  
+
+00007FFC872678A0  vmovaps     xmm6,xmmword ptr [rsp+0C0h]  
+00007FFC872678AA  add         rsp,0D8h  
+00007FFC872678B1  pop         rbx  
+00007FFC872678B2  pop         rbp  
+00007FFC872678B3  pop         rsi  
+00007FFC872678B4  pop         rdi  
+00007FFC872678B5  ret  
+
+
+AddByValueTypeSwitch_Struct
+
+    68:         switch(lhs.Value)
+00007FFC87257CC0  push        rsi  
+00007FFC87257CC1  sub         rsp,20h  
+00007FFC87257CC5  mov         ecx,dword ptr [rcx+8]  
+00007FFC87257CC8  mov         eax,dword ptr [rdx+8]  
+    85:                     return new Container&lt;IntStruct&gt;(intStructL + r) as Container&lt;T&gt;;
+00007FFC87257CCB  lea         esi,[rcx+rax]  
+00007FFC87257CCE  mov         rcx,7FFC8733B288h  
+00007FFC87257CD8  call        00007FFCE6D5B3B0  
+00007FFC87257CDD  mov         dword ptr [rax+8],esi  
+00007FFC87257CE0  add         rsp,20h  
+00007FFC87257CE4  pop         rsi  
+00007FFC87257CE5  ret  
+
+
+AddByTypeof_Struct
+
+   114:         if(typeof(T) == typeof(int))
+00007FFC87257F80  push        rsi  
+00007FFC87257F81  sub         rsp,20h  
+00007FFC87257F85  mov         ecx,dword ptr [rcx+8]  
+00007FFC87257F88  mov         eax,dword ptr [rdx+8]  
+00007FFC87257F8B  lea         esi,[rcx+rax]  
+00007FFC87257F8E  mov         rcx,7FFC8733B288h  
+00007FFC87257F98  call        00007FFCE6D5B3B0  
+00007FFC87257F9D  mov         dword ptr [rax+8],esi  
+00007FFC87257FA0  add         rsp,20h  
+00007FFC87257FA4  pop         rsi  
+00007FFC87257FA5  ret  
+
+
+
+AddByValueTypeSwitchとAddByTypeofは引き続き優秀で、AddByTypeofはAddByOverloadと同等なのもプリミティブ型のときと一緒です。
+プリミティブ型では前述の2手法には及ばなかったAddByStaticStrategyも、命令数肥大化がほとんどないためか構造体に対しては良好なパフォーマンスが得られていることがわかります。一方でAddByContainerTypeSwitchは著しく悪化してしまいました。
+途中jne/jmp命令が挟まっていることから最適化による条件判定の消去が実施されていないことが伺えます。AddByOverload_Class
+
+   194:         =&gt; new Container&lt;IntClass&gt;(lhs.Value + rhs.Value);
+00007FFC87299EC0  push        rdi  
+00007FFC87299EC1  push        rsi  
+00007FFC87299EC2  push        rbx  
+00007FFC87299EC3  sub         rsp,20h  
+00007FFC87299EC7  mov         rsi,qword ptr [rcx+8]  
+00007FFC87299ECB  mov         rdi,qword ptr [rdx+8]  
+00007FFC87299ECF  mov         rcx,7FFC8737A988h  
+00007FFC87299ED9  call        00007FFCE6D5B3B0  
+00007FFC87299EDE  mov         rbx,rax  
+00007FFC87299EE1  mov         ecx,dword ptr [rsi+8]  
+00007FFC87299EE4  add         ecx,dword ptr [rdi+8]  
+00007FFC87299EE7  mov         dword ptr [rbx+8],ecx  
+00007FFC87299EEA  mov         rcx,7FFC8737B7C8h  
+00007FFC87299EF4  call        00007FFCE6D5B3B0  
+00007FFC87299EF9  mov         rsi,rax  
+00007FFC87299EFC  lea         rcx,[rsi+8]  
+00007FFC87299F00  mov         rdx,rbx  
+00007FFC87299F03  call        00007FFCE6D59F10  
+00007FFC87299F08  mov         rax,rsi  
+00007FFC87299F0B  add         rsp,20h  
+00007FFC87299F0F  pop         rbx  
+00007FFC87299F10  pop         rsi  
+00007FFC87299F11  pop         rdi  
+00007FFC87299F12  ret  
+
+
+AddByStaticStrategy_Class
+
+    22:         =&gt; new Container&lt;T&gt;(Arithmetic&lt;T&gt;.Default.Add(lhs.Value, rhs.Value));
+00007FFC872687D0  push        r14  
+00007FFC872687D2  push        rdi  
+00007FFC872687D3  push        rsi  
+00007FFC872687D4  push        rbp  
+00007FFC872687D5  push        rbx  
+00007FFC872687D6  sub         rsp,30h  
+00007FFC872687DA  mov         qword ptr [rsp+28h],rcx  
+00007FFC872687DF  mov         rsi,rcx  
+00007FFC872687E2  mov         rdi,rdx  
+00007FFC872687E5  mov         rbx,r8  
+00007FFC872687E8  mov         rcx,qword ptr [rsi+30h]  
+00007FFC872687EC  mov         rbp,qword ptr [rcx]  
+00007FFC872687EF  mov         rcx,qword ptr [rbp+8]  
+00007FFC872687F3  test        rcx,rcx  
+00007FFC872687F6  jne         00007FFC8726880D  
+
+00007FFC8726880D  call        00007FFC872659F8  
+
+    00007FFC87268890  push        rsi  
+    00007FFC87268891  sub         rsp,30h  
+    00007FFC87268895  mov         qword ptr [rsp+28h],rcx  
+    00007FFC8726889A  mov         rsi,rcx  
+    00007FFC8726889D  mov         rcx,rsi  
+    00007FFC872688A0  call        00007FFCE6EBE2E0  
+    00007FFC872688A5  mov         rcx,rsi  
+    00007FFC872688A8  call        00007FFCE6CED420  
+    00007FFC872688AD  mov         rax,qword ptr [rax]  
+    00007FFC872688B0  add         rsp,30h  
+    00007FFC872688B4  pop         rsi  
+    00007FFC872688B5  ret  
+
+00007FFC87268812  mov         r14,rax  
+00007FFC87268815  mov         rdi,qword ptr [rdi+8]  
+00007FFC87268819  mov         rbx,qword ptr [rbx+8]  
+00007FFC8726881D  mov         rbp,qword ptr [rbp+10h]  
+00007FFC87268821  test        rbp,rbp  
+00007FFC87268824  jne         00007FFC8726883B  
+
+00007FFC8726883B  mov         rcx,rsi  
+00007FFC8726883E  call        00007FFCE6D5B3B0  
+00007FFC87268843  mov         rsi,rax  
+00007FFC87268846  mov         rcx,r14  
+00007FFC87268849  mov         r11,rbp  
+00007FFC8726884C  mov         rdx,rdi  
+00007FFC8726884F  mov         r8,rbx  
+00007FFC87268852  cmp         dword ptr [rcx],ecx  
+00007FFC87268854  call        qword ptr [rbp]  
+
+    00007FFC872688D0  push        rdi  
+    00007FFC872688D1  push        rsi  
+    00007FFC872688D2  sub         rsp,28h  
+    00007FFC872688D6  mov         rsi,rdx  
+    00007FFC872688D9  mov         rdi,r8  
+    00007FFC872688DC  mov         rcx,7FFC8734A988h  
+    00007FFC872688E6  call        00007FFCE6D5B3B0  
+    00007FFC872688EB  mov         edx,dword ptr [rsi+8]  
+    00007FFC872688EE  add         edx,dword ptr [rdi+8]  
+    00007FFC872688F1  mov         dword ptr [rax+8],edx  
+    00007FFC872688F4  add         rsp,28h  
+    00007FFC872688F8  pop         rsi  
+    00007FFC872688F9  pop         rdi  
+    00007FFC872688FA  ret  
+
+00007FFC87268857  lea         rcx,[rsi+8]  
+00007FFC8726885B  mov         rdx,rax  
+00007FFC8726885E  call        00007FFCE6D59F10  
+00007FFC87268863  mov         rax,rsi  
+00007FFC87268866  add         rsp,30h  
+00007FFC8726886A  pop         rbx  
+00007FFC8726886B  pop         rbp  
+00007FFC8726886C  pop         rsi  
+00007FFC8726886D  pop         rdi  
+00007FFC8726886E  pop         r14  
+00007FFC87268870  ret  
+
+
+AddByContainerTypeSwitch_Class
+
+    28:         switch(lhs)
+00007FFC87288B40  push        r15  
+00007FFC87288B42  push        r14  
+00007FFC87288B44  push        r13  
+00007FFC87288B46  push        r12  
+00007FFC87288B48  push        rdi  
+00007FFC87288B49  push        rsi  
+00007FFC87288B4A  push        rbp  
+00007FFC87288B4B  push        rbx  
+00007FFC87288B4C  sub         rsp,78h  
+00007FFC87288B50  vzeroupper  
+00007FFC87288B53  vmovaps     xmmword ptr [rsp+60h],xmm6  
+00007FFC87288B5A  mov         qword ptr [rsp+58h],rcx  
+00007FFC87288B5F  mov         rdi,rcx  
+00007FFC87288B62  mov         rsi,r8  
+00007FFC87288B65  mov         rbx,rdx  
+00007FFC87288B68  test        rbx,rbx  
+00007FFC87288B6B  je          00007FFC87288E64  
+00007FFC87288B71  mov         rdx,rbx  
+00007FFC87288B74  mov         rcx,7FFC8733A778h  
+00007FFC87288B7E  call        00007FFCE6D59C70  
+00007FFC87288B83  mov         rbp,rax  
+00007FFC87288B86  test        rbp,rbp  
+00007FFC87288B89  jne         00007FFC87288C2A  
+00007FFC87288B8F  mov         rdx,rbx  
+00007FFC87288B92  mov         rcx,7FFC8733A978h  
+00007FFC87288B9C  call        00007FFCE6D59C70  
+00007FFC87288BA1  mov         r14,rax  
+00007FFC87288BA4  test        r14,r14  
+00007FFC87288BA7  jne         00007FFC87288C6B  
+00007FFC87288BAD  mov         rdx,rbx  
+00007FFC87288BB0  mov         rcx,7FFC8736B288h  
+00007FFC87288BBA  call        00007FFCE6D59C70  
+00007FFC87288BBF  mov         r15,rax  
+00007FFC87288BC2  test        r15,r15  
+00007FFC87288BC5  jne         00007FFC87288CB6  
+00007FFC87288BCB  mov         rdx,rbx  
+00007FFC87288BCE  mov         rcx,7FFC8736B488h  
+00007FFC87288BD8  call        00007FFCE6D59C70  
+00007FFC87288BDD  mov         r12,rax  
+00007FFC87288BE0  test        r12,r12  
+00007FFC87288BE3  jne         00007FFC87288CFA  
+00007FFC87288BE9  mov         rdx,rbx  
+00007FFC87288BEC  mov         rcx,7FFC8736B7C8h  
+00007FFC87288BF6  call        00007FFCE6D59C70  
+00007FFC87288BFB  mov         r13,rax  
+00007FFC87288BFE  test        r13,r13  
+00007FFC87288C01  jne         00007FFC87288D84  
+
+00007FFC87288D84  mov         rdx,rsi  
+00007FFC87288D87  mov         rcx,7FFC8736B7C8h  
+00007FFC87288D91  call        00007FFCE6D59C70  
+00007FFC87288D96  mov         rsi,qword ptr [r13+8]  
+00007FFC87288D9A  mov         rbx,qword ptr [rax+8]  
+00007FFC87288D9E  mov         rcx,7FFC8736A988h  
+00007FFC87288DA8  call        00007FFCE6D5B3B0  
+00007FFC87288DAD  mov         rbp,rax  
+00007FFC87288DB0  mov         ecx,dword ptr [rsi+8]  
+00007FFC87288DB3  add         ecx,dword ptr [rbx+8]  
+00007FFC87288DB6  mov         dword ptr [rbp+8],ecx  
+00007FFC87288DB9  mov         rcx,7FFC8736B7C8h  
+00007FFC87288DC3  call        00007FFCE6D5B3B0  
+00007FFC87288DC8  mov         rsi,rax  
+00007FFC87288DCB  lea         rcx,[rsi+8]  
+00007FFC87288DCF  mov         rdx,rbp  
+00007FFC87288DD2  call        00007FFCE6D59F10  
+    53:                 return new Container&lt;IntClass&gt;(intClassL.Value + r.Value) as Container&lt;T&gt;;
+00007FFC87288DD7  mov         rcx,rdi  
+00007FFC87288DDA  mov         rdx,rsi  
+00007FFC87288DDD  call        00007FFCE6D59C70  
+00007FFC87288DE2  jmp         00007FFC87288E4B  
+
+00007FFC87288E4B  nop  
+00007FFC87288E4C  vmovaps     xmm6,xmmword ptr [rsp+60h]  
+00007FFC87288E53  add         rsp,78h  
+00007FFC87288E57  pop         rbx  
+00007FFC87288E58  pop         rbp  
+00007FFC87288E59  pop         rsi  
+00007FFC87288E5A  pop         rdi  
+00007FFC87288E5B  pop         r12  
+00007FFC87288E5D  pop         r13  
+00007FFC87288E5F  pop         r14  
+00007FFC87288E61  pop         r15  
+00007FFC87288E63  ret  
+
+
+AddByValueTypeSwitch_Class
+
+    68:         switch(lhs.Value)
+00007FFC87269080  push        r15  
+00007FFC87269082  push        r14  
+00007FFC87269084  push        r12  
+00007FFC87269086  push        rdi  
+00007FFC87269087  push        rsi  
+00007FFC87269088  push        rbp  
+00007FFC87269089  push        rbx  
+00007FFC8726908A  sub         rsp,90h  
+00007FFC87269091  vzeroupper  
+00007FFC87269094  vmovaps     xmmword ptr [rsp+80h],xmm6  
+00007FFC8726909E  vmovaps     xmmword ptr [rsp+70h],xmm7  
+00007FFC872690A5  mov         rsi,rcx  
+00007FFC872690A8  lea         rdi,[rsp+50h]  
+00007FFC872690AD  mov         ecx,6  
+00007FFC872690B2  xor         eax,eax  
+00007FFC872690B4  rep stos    dword ptr [rdi]  
+00007FFC872690B6  mov         rcx,rsi  
+00007FFC872690B9  mov         qword ptr [rsp+68h],rcx  
+00007FFC872690BE  mov         rdi,rcx  
+00007FFC872690C1  mov         rsi,r8  
+00007FFC872690C4  mov         rbx,qword ptr [rdx+8]  
+00007FFC872690C8  test        rbx,rbx  
+00007FFC872690CB  je          00007FFC87269557  
+00007FFC872690D1  mov         rbp,rbx  
+00007FFC872690D4  mov         rdx,rbp  
+00007FFC872690D7  mov         rcx,7FFCE69B6930h  
+00007FFC872690E1  cmp         qword ptr [rbp],rcx  
+00007FFC872690E5  je          00007FFC872690E9  
+00007FFC872690E7  xor         edx,edx  
+00007FFC872690E9  test        rdx,rdx  
+00007FFC872690EC  je          00007FFC87269119  
+
+00007FFC87269119  mov         rbp,rbx  
+00007FFC8726911C  mov         rdx,rbp  
+00007FFC8726911F  mov         rcx,7FFCE69B6768h  
+00007FFC87269129  cmp         qword ptr [rbp],rcx  
+00007FFC8726912D  je          00007FFC87269131  
+00007FFC8726912F  xor         edx,edx  
+00007FFC87269131  test        rdx,rdx  
+00007FFC87269134  je          00007FFC87269163  
+
+00007FFC87269163  mov         rbp,rbx  
+00007FFC87269166  mov         rdx,rbp  
+00007FFC87269169  mov         rcx,7FFC8734A6B8h  
+00007FFC87269173  cmp         qword ptr [rdx],rcx  
+00007FFC87269176  je          00007FFC8726917A  
+00007FFC87269178  xor         edx,edx  
+00007FFC8726917A  test        rdx,rdx  
+00007FFC8726917D  je          00007FFC872691AA  
+
+00007FFC872691AA  mov         rbp,rbx  
+00007FFC872691AD  mov         rdx,rbp  
+00007FFC872691B0  mov         rcx,7FFC8734A820h  
+00007FFC872691BA  cmp         qword ptr [rbp],rcx  
+00007FFC872691BE  je          00007FFC872691C2  
+00007FFC872691C0  xor         edx,edx  
+00007FFC872691C2  test        rdx,rdx  
+00007FFC872691C5  je          00007FFC872691F7  
+
+00007FFC872691F7  mov         r12,rbx  
+00007FFC872691FA  mov         rdx,7FFC8734A988h  
+    68:         switch(lhs.Value)
+00007FFC87269204  cmp         qword ptr [r12],rdx  
+00007FFC87269208  je          00007FFC8726920D  
+
+00007FFC8726920D  test        r12,r12  
+00007FFC87269210  jne         00007FFC87269456  
+
+00007FFC87269456  mov         rcx,qword ptr [rsi+8]  
+00007FFC8726945A  test        rcx,rcx  
+00007FFC8726945D  je          00007FFC87269470  
+00007FFC8726945F  mov         rax,7FFC8734A988h  
+00007FFC87269469  cmp         qword ptr [rcx],rax  
+00007FFC8726946C  je          00007FFC87269470  
+00007FFC8726946E  xor         ecx,ecx  
+00007FFC87269470  mov         rbx,rcx  
+00007FFC87269473  test        rbx,rbx  
+00007FFC87269476  je          00007FFC87269557  
+    97:                     return new Container&lt;IntClass&gt;(intClassL + r) as Container&lt;T&gt;;
+00007FFC8726947C  mov         rcx,7FFC8734A988h  
+00007FFC87269486  call        00007FFCE6D5B3B0  
+00007FFC8726948B  mov         rsi,rax  
+00007FFC8726948E  mov         ecx,dword ptr [r12+8]  
+00007FFC87269493  add         ecx,dword ptr [rbx+8]  
+00007FFC87269496  mov         dword ptr [rsi+8],ecx  
+00007FFC87269499  mov         rcx,7FFC8734B7C8h  
+00007FFC872694A3  call        00007FFCE6D5B3B0  
+00007FFC872694A8  mov         rbx,rax  
+00007FFC872694AB  lea         rcx,[rbx+8]  
+00007FFC872694AF  mov         rdx,rsi  
+00007FFC872694B2  call        00007FFCE6D59F10  
+00007FFC872694B7  mov         rcx,rdi  
+00007FFC872694BA  mov         rdx,rbx  
+00007FFC872694BD  call        00007FFCE6D59C70  
+00007FFC872694C2  jmp         00007FFC87269533  
+
+00007FFC87269533  nop  
+00007FFC87269534  vmovaps     xmm6,xmmword ptr [rsp+80h]  
+00007FFC8726953E  vmovaps     xmm7,xmmword ptr [rsp+70h]  
+00007FFC87269545  add         rsp,90h  
+00007FFC8726954C  pop         rbx  
+00007FFC8726954D  pop         rbp  
+00007FFC8726954E  pop         rsi  
+00007FFC8726954F  pop         rdi  
+00007FFC87269550  pop         r12  
+00007FFC87269552  pop         r14  
+00007FFC87269554  pop         r15  
+00007FFC87269556  ret  
+
+
+AddByTypeof_Class
+
+   114:         if(typeof(T) == typeof(int))
+00007FFC87269780  push        rdi  
+00007FFC87269781  push        rsi  
+00007FFC87269782  push        rbp  
+00007FFC87269783  push        rbx  
+00007FFC87269784  sub         rsp,48h  
+00007FFC87269788  vzeroupper  
+00007FFC8726978B  mov         qword ptr [rsp+40h],rcx  
+00007FFC87269790  mov         rsi,rcx  
+00007FFC87269793  mov         rdi,r8  
+00007FFC87269796  mov         rcx,qword ptr [rsi+30h]  
+00007FFC8726979A  mov         rcx,qword ptr [rcx]  
+00007FFC8726979D  mov         rbx,qword ptr [rcx]  
+00007FFC872697A0  mov         rcx,rbx  
+00007FFC872697A3  mov         ebp,ecx  
+00007FFC872697A5  and         ebp,1  
+   140:         }
+   141: 
+   142:         if(typeof(T) == typeof(IntClass))
+00007FFC872697A8  mov         rcx,rbx  
+00007FFC872697AB  test        ebp,ebp  
+00007FFC872697AD  je          00007FFC872697B3  
+
+00007FFC872697B3  mov         rax,7FFC8734A988h  
+00007FFC872697BD  cmp         rcx,rax  
+00007FFC872697C0  jne         00007FFC8726983C  
+   143:         {
+   144:             var l = lhs as Container&lt;IntClass&gt;;
+00007FFC872697C2  mov         rcx,7FFC8734B7C8h  
+00007FFC872697CC  call        00007FFCE6D59C70  
+00007FFC872697D1  mov         rbx,rax  
+00007FFC872697D4  mov         rdx,rdi  
+00007FFC872697D7  mov         rcx,7FFC8734B7C8h  
+00007FFC872697E1  call        00007FFCE6D59C70  
+00007FFC872697E6  mov         rbp,qword ptr [rbx+8]  
+00007FFC872697EA  mov         rdi,qword ptr [rax+8]  
+00007FFC872697EE  mov         rcx,7FFC8734A988h  
+00007FFC872697F8  call        00007FFCE6D5B3B0  
+00007FFC872697FD  mov         rbx,rax  
+00007FFC87269800  mov         ecx,dword ptr [rbp+8]  
+00007FFC87269803  add         ecx,dword ptr [rdi+8]  
+00007FFC87269806  mov         dword ptr [rbx+8],ecx  
+00007FFC87269809  mov         rcx,7FFC8734B7C8h  
+00007FFC87269813  call        00007FFCE6D5B3B0  
+00007FFC87269818  mov         rdi,rax  
+00007FFC8726981B  lea         rcx,[rdi+8]  
+00007FFC8726981F  mov         rdx,rbx  
+00007FFC87269822  call        00007FFCE6D59F10  
+   146:             return new Container&lt;IntClass&gt;(l.Value + r.Value) as Container&lt;T&gt;;
+00007FFC87269827  mov         rcx,rsi  
+00007FFC8726982A  mov         rdx,rdi  
+00007FFC8726982D  call        00007FFCE6D59C70  
+00007FFC87269832  nop  
+00007FFC87269833  add         rsp,48h  
+00007FFC87269837  pop         rbx  
+00007FFC87269838  pop         rbp  
+00007FFC87269839  pop         rsi  
+00007FFC8726983A  pop         rdi  
+00007FFC8726983B  ret  
+
+
+プリミティブ型や構造体のときと異なり、全体的に条件分岐の消去ができていない印象があります。
+それでもAddByTypeofは命令数も少なめで実測値もよろしく優秀。
+StaticStrategyもデザパタ的美しさの割りにはそれほど悪くはなさそうに感じます。typeofを駆使するのが最速っぽそう.Net Core上で、Tが値型の場合には普通に非ジェネリックオーバーロードで呼び分けるのと変わらない性能が出ます。
+ただし、UnityではJIT最適化が甘いのかtypeofでの特殊化を書いても大幅に性能向上という感じではなさそうです。また、最適化品質はプリミティブ型＞構造体＞＞＞クラスという感じで、特に値型と参照型の壁は非常に大きいものがあるみたいです。よっぽどじゃない限りクラスを使え、とは昔から言われていますが、これだけ最適化の恩恵があるなら構造体を使いたい欲が湧いてきます。イミュータブルなデータクラスならラッパー構造体を作るという手もありますね。正直な話、いくらILに専用命令があるとはいえ3typeof比較がこんなに速いとは思っていませんでした。
+これだけ高品質な最適化が働くなら積極的に使っていってもいいのではないでしょうか？加算のようにILで1命令で収まる小規模コードではなく、インライン化が利かなさそうな大規模処理相手だとどうなるか？if文やパターンマッチングswitch文には本来順序依存性があるが、特殊化においてその影響はないのか？特殊化で分岐ルートが決定した後はTが何なのかわかっているはずなので、もっと効率の良いキャスト手段はないだろうか？.Net Framework, Unityや、.Net Coreの別のバージョンでのJIT検証2019/03/062019/03/132020/10/19具体的な型引数が確定した後の型。対義語はオープン型。TやList&lt;T&gt;がオープン型、intやList&lt;int&gt;がクローズ型。 ↩typeofはリフレクションとは異なる概念でした。C#にリフレクションAPIが豊富なのは事実ですが、本件とは別の話題です。 ↩大嘘こきました。実際にはldtoken + call Type.GetTypeFromHandle(RuntimeTypeHandle)で表現されています。 ↩
+
+

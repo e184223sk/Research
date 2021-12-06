@@ -1,0 +1,56 @@
+using ICSharpCode.AvalonEdit.Rendering;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.TextFormatting;
+
+namespace TestApp
+{
+    public class WrappedTextView : ICSharpCode.AvalonEdit.Rendering.TextView
+    {
+        private const string CR_CHAR = "\u2190";
+        private const string LF_CHAR = "\u2193";
+        private const string CRLF_CHAR = "\u21B5";
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            if (this.Options?.ShowEndOfLine == true)
+                this.RefreshNonPrintableCharacterTexts();
+            return base.MeasureOverride(availableSize);
+        }
+
+        private void RefreshNonPrintableCharacterTexts()
+        {
+            var globalProterties = (TextRunProperties)typeof(ICSharpCode.AvalonEdit.Rendering.TextView)
+                .GetMethod("CreateGlobalTextRunProperties", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod)
+                .Invoke(this, null);
+            var formatter = (TextFormatter)typeof(ICSharpCode.AvalonEdit.Rendering.TextView).Assembly
+                .GetType("ICSharpCode.AvalonEdit.Utils.TextFormatterFactory")
+                .GetMethod("Create", BindingFlags.Static | BindingFlags.Public | BindingFlags.InvokeMethod)
+                .Invoke(null, new[] { this });
+            var cachedElements = typeof(ICSharpCode.AvalonEdit.Rendering.TextView)
+                .GetField("cachedElements", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(this);
+            var nonPrintableCharacterTexts = (Dictionary&lt;string, TextLine&gt;)cachedElements.GetType()
+                .GetField("nonPrintableCharacterTexts", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(cachedElements);
+
+            var elementProperties = new VisualLineElementTextRunProperties(globalProterties);
+            elementProperties.SetForegroundBrush(this.NonPrintableCharacterBrush);
+            var cr = FormattedTextElement.PrepareText(formatter, CR_CHAR, elementProperties);
+            var lf = FormattedTextElement.PrepareText(formatter, LF_CHAR, elementProperties);
+            var crlf = FormattedTextElement.PrepareText(formatter, CRLF_CHAR, elementProperties);
+
+            nonPrintableCharacterTexts ??= new Dictionary&lt;string, TextLine&gt;();
+            nonPrintableCharacterTexts["\\r"] = cr;
+            nonPrintableCharacterTexts["\\n"] = lf;
+            nonPrintableCharacterTexts["¶"] = crlf;
+
+            cachedElements.GetType()
+                .GetField("nonPrintableCharacterTexts", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(cachedElements, nonPrintableCharacterTexts);
+        }
+    }
+}
+

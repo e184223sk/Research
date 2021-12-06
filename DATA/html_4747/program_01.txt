@@ -1,0 +1,262 @@
+
+
+    /// &lt;summary&gt;
+    /// 配信オブジェクトの基本実装。
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TResponse"&gt;レスポンスの型&lt;/typeparam&gt;
+    public abstract class GrpcStreamingObservableBase&lt;TResponse&gt;
+        : IObservable&lt;TResponse&gt;, IDisposable
+    {
+
+        #region コンストラクタ
+
+        /// &lt;summary&gt;
+        /// レスポンスストリームを指定してインスタンスを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="responseStream"&gt;レスポンスストリーム&lt;/param&gt;
+        protected GrpcStreamingObservableBase(IAsyncStreamReader&lt;TResponse&gt; responseStream)
+        {
+            m_ResponseStream = responseStream;
+        }
+
+        #endregion
+
+        #region デストラクタ
+
+        /// &lt;summary&gt;
+        /// デストラクタ
+        /// &lt;/summary&gt;
+        ~GrpcStreamingObservableBase()
+        {
+            Dispose(false);
+        }
+
+        #endregion
+
+        #region dispose
+
+        /// &lt;summary&gt;
+        /// 使用しているリソースを解放します。
+        /// &lt;/summary&gt;
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// &lt;summary&gt;
+        /// 使用しているリソースを解放します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="disposing"&gt;dispose メソッドから呼び出されたかどうか&lt;/param&gt;
+        protected virtual void Dispose(bool disposing)
+        {
+            ReleaseObservers();
+            ReleaseSubscribers();
+        }
+
+        #endregion
+
+        #region Stream
+
+        /// &lt;summary&gt;
+        /// レスポンスストリーム
+        /// &lt;/summary&gt;
+        private IAsyncStreamReader&lt;TResponse&gt; m_ResponseStream;
+
+        #endregion
+
+        #region 監視
+
+        /// &lt;summary&gt;
+        /// 監視オブジェクトを格納するコレクション
+        /// &lt;/summary&gt;
+        private readonly List&lt;IObserver&lt;TResponse&gt;&gt; m_Observers = new List&lt;IObserver&lt;TResponse&gt;&gt;();
+
+        /// &lt;summary&gt;
+        /// 監視を開始します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task ObserveAsync()
+        {
+            try
+            {
+                while (await m_ResponseStream.MoveNext().ConfigureAwait(false))
+                {
+                    OnNext(m_ResponseStream.Current);
+                }
+                OnCompleted();
+            }
+            catch (Exception ex)
+            {
+                OnError(ex);
+                throw;
+            }
+            finally
+            {
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 監視オブジェクトを解放します。
+        /// &lt;/summary&gt;
+        private void ReleaseObservers()
+        {
+            lock (m_Observers)
+            {
+                m_Observers.Clear();
+            }
+        }
+
+        #endregion
+
+        #region IObservable&lt;Response&gt; インターフェースの実装
+
+        /// &lt;summary&gt;
+        /// 完了したときの処理を行います。
+        /// &lt;/summary&gt;
+        private void OnCompleted()
+        {
+            if (m_Observers.Count == 0) { return; }
+            lock (m_Observers)
+            {
+                if (m_Observers.Count &gt; 0)
+                {
+                    m_Observers.ForEach(o =&gt; o.OnCompleted());
+                    m_Observers.Clear();
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 例外が発生したときの処理を行います。
+        /// &lt;/summary&gt;
+        /// &lt;param name="error"&gt;&lt;/param&gt;
+        private void OnError(Exception error)
+        {
+            if (m_Observers.Count == 0) { return; }
+            lock (m_Observers)
+            {
+                if (m_Observers.Count &gt; 0)
+                {
+                    m_Observers.ForEach(o =&gt; o.OnError(error));
+                    m_Observers.Clear();
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// レスポンスを受け取ったときの処理を行います。
+        /// &lt;/summary&gt;
+        /// &lt;param name="response"&gt;&lt;/param&gt;
+        private void OnNext(TResponse response)
+        {
+            if (m_Observers.Count == 0) { return; }
+            lock (m_Observers)
+            {
+                if (m_Observers.Count &gt; 0)
+                {
+                    m_Observers.ForEach(o =&gt; o.OnNext(response));
+                }
+            }
+        }
+
+        #endregion
+
+        #region 購読
+
+        /// &lt;summary&gt;
+        /// 購読オブジェクトを格納するコレクション
+        /// &lt;/summary&gt;
+        private readonly List&lt;IDisposable&gt; m_Subscribers = new List&lt;IDisposable&gt;();
+
+        /// &lt;summary&gt;
+        /// 指定された監視オブジェクトを登録します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="observer"&gt;監視オブジェクト&lt;/param&gt;
+        /// &lt;returns&gt;購読オブジェクト&lt;/returns&gt;
+        public IDisposable Subscribe(IObserver&lt;TResponse&gt; observer)
+        {
+            lock (m_Observers)
+            {
+                m_Observers.Add(observer);
+            }
+
+            // dispose されたら監視オブジェクトを削除する
+            Action onDispose = () =&gt;
+            {
+                lock (m_Observers)
+                {
+                    m_Observers.Remove(observer);
+                }
+            };
+
+            IDisposable subscriber = new Subscriber(onDispose);
+
+            lock (m_Subscribers)
+            {
+                m_Subscribers.Add(subscriber);
+            }
+
+            return subscriber;
+        }
+
+        /// &lt;summary&gt;
+        /// 購読オブジェクトを解放します。
+        /// &lt;/summary&gt;
+        private void ReleaseSubscribers()
+        {
+            lock (m_Subscribers)
+            {
+                m_Subscribers.ForEach(o =&gt; o.Dispose());
+                m_Subscribers.Clear();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 購読オブジェクト。
+        /// &lt;/summary&gt;
+        private sealed class Subscriber : IDisposable
+        {
+            /// &lt;summary&gt;
+            /// 解放処理を指定してインスタンスを生成します。
+            /// &lt;/summary&gt;
+            /// &lt;param name="onDispose"&gt;解放処理&lt;/param&gt;
+            internal Subscriber(Action onDispose)
+            {
+                m_OnDispose = onDispose;
+            }
+
+            /// &lt;summary&gt;
+            /// デストラクタ
+            /// &lt;/summary&gt;
+            ~Subscriber()
+            {
+                Dispose(false);
+            }
+
+            private Action m_OnDispose;
+
+            /// &lt;summary&gt;
+            /// 使用しているリソースを解放します。
+            /// &lt;/summary&gt;
+            public void Dispose()
+            {
+                Dispose(true);
+                GC.SuppressFinalize(true);
+            }
+
+            /// &lt;summary&gt;
+            /// 使用しているリソースを解放します。
+            /// &lt;/summary&gt;
+            /// &lt;param name="disposing"&gt;&lt;/param&gt;
+            private void Dispose(bool disposing)
+            {
+                m_OnDispose();
+            }
+        }
+
+        #endregion
+
+    }
+
+

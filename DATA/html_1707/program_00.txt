@@ -1,0 +1,53 @@
+// NuGet で Newtonsoft.Json を要インストール
+
+public class Qiita
+{
+    // generate personal access token
+    // https://qiita.com/settings/applications
+    static string pat = Util.GetPassword("qiita");
+
+    // set output directory
+    static string outdir = @"C:\qiita";
+
+    static HttpClient httpClient = new HttpClient();
+
+    static async Task Main()
+    {
+        string itemsjson;
+        var itemsjsonfile = Path.Combine(outdir, "items.json");
+        if (File.Exists(itemsjsonfile))
+        {
+            itemsjson = File.ReadAllText(itemsjsonfile);
+        }
+        else
+        {
+            httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", pat);
+            itemsjson = await httpClient.GetStringAsync("https://qiita.com/api/v2/authenticated_user/items?page=1&amp;per_page=100");
+            httpClient.DefaultRequestHeaders.Authorization = null;
+            File.WriteAllText(itemsjsonfile, itemsjson);
+        }
+
+        var jobject = JArray.Parse(itemsjson);
+        foreach (var item in jobject)
+        {
+            var title = (string)item["title"];
+            var url = (string)item["url"];
+            var markdown = (string)item["body"];
+
+            Regex re = new Regex(@"https://qiita-image-store.s3.amazonaws.com/.*\.png");
+            var imgurls = re.Matches(markdown);
+
+            foreach (Match imgurlm in imgurls)
+            {
+                var imgurl = imgurlm.Value;
+                string fname = Path.Combine(outdir, imgurl.Split('/').Last());
+                if (!File.Exists(fname))
+                {
+                    var data = await httpClient.GetByteArrayAsync(imgurl);
+                    File.WriteAllBytes(fname, data);
+                }
+            }
+        }
+    }
+}
+

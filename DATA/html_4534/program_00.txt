@@ -1,0 +1,248 @@
+
+    /// &lt;summary&gt;
+    /// RPCメソッドの呼び出しをブロックするためのインターセプター。
+    /// &lt;/summary&gt;
+    public class RpcCallBlockInterceptor : Interceptor
+    {
+
+        #region コンストラクタ
+
+        /// &lt;summary&gt;
+        /// インスタンスを生成します。
+        /// &lt;/summary&gt;
+        public RpcCallBlockInterceptor(IRpcCallBlocker blocker, IRpcContextFilter contextFilter) : base()
+        {
+            Blocker = blocker ?? NullRpcCallBlocker.Default;
+            ContextFilter = contextFilter ?? NullRpcContextFilter.Default;
+        }
+
+        #endregion
+
+        #region RPCメソッド呼び出しの割り込み（クライアント側）
+
+        /// &lt;summary&gt;
+        /// Unary メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public override TResponse BlockingUnaryCall&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , BlockingUnaryCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnClient(context)) { AssertOnClient(request, context); }
+            return base.BlockingUnaryCall(request, context, continuation);
+        }
+
+        /// &lt;summary&gt;
+        /// 非同期 Unary メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public override AsyncUnaryCall&lt;TResponse&gt; AsyncUnaryCall&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , AsyncUnaryCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnClient(context)) { AssertOnClient(request, context); }
+            return base.AsyncUnaryCall(request, context, continuation);
+        }
+
+        /// &lt;summary&gt;
+        /// ClientStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public override AsyncClientStreamingCall&lt;TRequest, TResponse&gt; AsyncClientStreamingCall&lt;TRequest, TResponse&gt;(
+            ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , AsyncClientStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnClient(context)) { AssertOnClient(default(TRequest), context); }
+            return base.AsyncClientStreamingCall(context, continuation);
+        }
+
+        /// &lt;summary&gt;
+        /// ServerStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public override AsyncServerStreamingCall&lt;TResponse&gt; AsyncServerStreamingCall&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , AsyncServerStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnClient(context)) { AssertOnClient(request, context); }
+            return base.AsyncServerStreamingCall(request, context, continuation);
+        }
+
+        /// &lt;summary&gt;
+        /// DuplexStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public override AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt; AsyncDuplexStreamingCall&lt;TRequest, TResponse&gt;(
+            ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , AsyncDuplexStreamingCallContinuation&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnClient(context)) { AssertOnClient(default(TRequest), context); }
+            return base.AsyncDuplexStreamingCall(context, continuation);
+        }
+
+        #endregion
+
+        #region RPCメソッド呼び出しの割り込み（サーバー側）
+
+        /// &lt;summary&gt;
+        /// Unary メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public async override Task&lt;TResponse&gt; UnaryServerHandler&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ServerCallContext context
+            , UnaryServerMethod&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnServer(context)) { AssertOnServer(request, context); }
+            return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
+        }
+
+        /// &lt;summary&gt;
+        /// ClientStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public async override Task&lt;TResponse&gt; ClientStreamingServerHandler&lt;TRequest, TResponse&gt;(
+            IAsyncStreamReader&lt;TRequest&gt; requestStream
+            , ServerCallContext context
+            , ClientStreamingServerMethod&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnServer(context)) { AssertOnServer(default(TRequest), context); }
+            return await base.ClientStreamingServerHandler(requestStream, context, continuation).ConfigureAwait(false);
+        }
+
+        /// &lt;summary&gt;
+        /// ServerStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public async override Task ServerStreamingServerHandler&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , IServerStreamWriter&lt;TResponse&gt; responseStream, ServerCallContext context
+            , ServerStreamingServerMethod&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnServer(context)) { AssertOnServer(request, context); }
+            await base.ServerStreamingServerHandler(request, responseStream, context, continuation).ConfigureAwait(false);
+        }
+
+        /// &lt;summary&gt;
+        /// DuplexStreaming メソッド呼び出しに対する割り込みを行います。
+        /// &lt;/summary&gt;
+        public async override Task DuplexStreamingServerHandler&lt;TRequest, TResponse&gt;(
+            IAsyncStreamReader&lt;TRequest&gt; requestStream
+            , IServerStreamWriter&lt;TResponse&gt; responseStream
+            , ServerCallContext context
+            , DuplexStreamingServerMethod&lt;TRequest, TResponse&gt; continuation)
+        {
+            if (NeedInterceptOnServer(context)) { AssertOnServer(default(TRequest), context); }
+            await base.DuplexStreamingServerHandler(requestStream, responseStream, context, continuation).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region フィルタ
+
+        /// &lt;summary&gt;
+        /// フィルタを取得します。
+        /// &lt;/summary&gt;
+        public IRpcContextFilter ContextFilter { get; private set; }
+
+        /// &lt;summary&gt;
+        /// クライアント側で割り込みを行う必要があるかどうかを取得します。
+        /// &lt;/summary&gt;
+        protected virtual bool NeedInterceptOnClient&lt;TRequest, TResponse&gt;(ClientInterceptorContext&lt;TRequest, TResponse&gt; context)
+            where TRequest : class
+            where TResponse : class
+        {
+            if (!Blocker.Enabled) { return false; }
+            if (!ContextFilter.IsMatch(context)) { return false; }
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// サーバー側で割り込みを行う必要があるかどうかを取得します。
+        /// &lt;/summary&gt;
+        protected virtual bool NeedInterceptOnServer(ServerCallContext context)
+        {
+            if (!Blocker.Enabled) { return false; }
+            if (!ContextFilter.IsMatch(context)) { return false; }
+            return true;
+        }
+
+        #endregion
+
+        #region ブロック
+
+        /// &lt;summary&gt;
+        /// ブロッカーを取得します。
+        /// &lt;/summary&gt;
+        public IRpcCallBlocker Blocker { get; private set; }
+
+        /// &lt;summary&gt;
+        /// クライアント側でメソッド呼び出しをブロックする場合、例外を発生させます。
+        /// &lt;/summary&gt;
+        protected virtual void AssertOnClient&lt;TRequest, TResponse&gt;(TRequest request, ClientInterceptorContext&lt;TRequest, TResponse&gt; context)
+            where TRequest : class
+            where TResponse : class
+        {
+            if (!AllowInvocationOnClient(request, context, out Status errorStatus, out Metadata errorData))
+            {
+                throw CreateRpcException(errorStatus, errorData);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// サーバー側でメソッド呼び出しをブロックする場合、例外を発生させます。
+        /// &lt;/summary&gt;
+        protected virtual void AssertOnServer&lt;TRequest&gt;(TRequest request, ServerCallContext context)
+            where TRequest : class
+        {
+            if (!AllowInvocationOnServer(request, context, out Status errorStatus, out Metadata errorData))
+            {
+                throw CreateRpcException(errorStatus, errorData);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// クライアント側でメソッド呼び出しを許可するかどうかを取得します。
+        /// &lt;/summary&gt;
+        protected virtual bool AllowInvocationOnClient&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , out Status errorStatus, out Metadata errorData)
+            where TRequest : class
+            where TResponse : class
+        {
+            if (!Blocker.Enabled)
+            {
+                errorStatus = default(Status);
+                errorData = null;
+                return true;
+            }
+            return Blocker.AllowInvocationOnClient(request, context, out errorStatus, out errorData);
+        }
+
+        /// &lt;summary&gt;
+        /// サーバー側でメソッド呼び出しを許可するかどうかを取得します。
+        /// &lt;/summary&gt;
+        protected virtual bool AllowInvocationOnServer&lt;TRequest&gt;(
+            TRequest request
+            , ServerCallContext context
+            , out Status errorStatus, out Metadata errorData)
+            where TRequest : class
+        {
+            if (!Blocker.Enabled)
+            {
+                errorStatus = default(Status);
+                errorData = null;
+                return true;
+            }
+            return Blocker.AllowInvocationOnServer(request, context, out errorStatus, out errorData);
+        }
+
+        /// &lt;summary&gt;
+        /// 指定されたステータスとメタデータから例外を生成します。
+        /// &lt;/summary&gt;
+        protected virtual Exception CreateRpcException(Status errorStatus, Metadata errorData)
+        {
+            return Blocker.CreateRpcException(errorStatus, errorData);
+        }
+
+        #endregion
+
+    }
+
+

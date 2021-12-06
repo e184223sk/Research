@@ -1,0 +1,51 @@
+    private IEnumerator ScoreSendIterator()
+    {
+        leaderBoardButton.interactable = false; //スコア送信する前にリーダーボードを見ても自分のスコアが表示されないので無効化
+
+        var isHiscore = false;
+        if (score &gt; HiScore)    //所持しているHiScoreよりも今回のScoreの方が大きい場合
+        {
+            HiScore = score;
+            isHiscore = true;
+            retryButton.interactable = false;   //すぐリトライできるとスコア送信する前にCoroutineが止められてしまうので無効化
+        }
+
+        //スコア結果のパネル表示
+        resultPanel.Show("Time Attack Results","HiScore " + HiScore + "\nScore " + score + (isHiscore ? "\nハイスコア更新!!" : ""), "Time Attack の結果です。");
+
+        if (isHiscore)
+        {
+            resultPanel.Description = "サーバーのハイスコアを確認しています。";
+
+            //すでにスコアが登録されているかチェック
+            var hiScoreCheck = new SpreadSheetQuery();
+            yield return hiScoreCheck.Where("id", "=", SpreadSheetSetting.Instance.UniqueID).FindAsync();   //"id"を検索条件に入れることで、すでにスコアが登録されているかチェック
+
+            //既にハイスコアは登録されている
+            if (hiScoreCheck.Count &gt; 0)
+            {
+                resultPanel.Description = "ハイスコアの更新処理中・・・";
+
+                //登録されている＝hiScoreCheckの戻りリストが更新対象SpreadSheetObjectになるので、そのまま使用する
+                var so = hiScoreCheck.Result.First();
+                so["hiscore"] = HiScore;
+                yield return so.SaveAsync();
+            }
+            else
+            {
+                resultPanel.Description = "ハイスコアの新規登録中・・・";
+
+                //登録されていなかったので、新規としてidにUniqueIDを入れて次の更新処理に備えたデータで保存する
+                var so = new SpreadSheetObject();
+                so["id"] = SpreadSheetSetting.Instance.UniqueID;
+                so["hiscore"] = HiScore;
+                yield return so.SaveAsync();
+            }
+            resultPanel.Description = "サーバーへのハイスコア登録処理が終了しました。";
+        }
+
+        //ハイスコア登録処理が終わったので、リトライとリーダーボードへの遷移ボタンを有効化
+        leaderBoardButton.interactable = true;
+        retryButton.interactable = true;
+    }
+

@@ -1,0 +1,44 @@
+
+public class Utilitiy
+{
+    /// &lt;summary&gt;
+    /// 取得する式木を元に条件を満たしたら、代入を実行する
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TValue"&gt;値の型&lt;/typeparam&gt;
+    /// &lt;param name="propertySelector"&gt;代入される対象を選択する式木 例：() =&gt; this.Name&lt;/param&gt;
+    /// &lt;param name="predicate"&gt;代入する条件&lt;/param&gt;
+    /// &lt;param name="inputValue"&gt;代入する値&lt;/param&gt;
+    public static void SetIf&lt;TValue&gt;(Expression&lt;Func&lt;TValue&gt;&gt; propertySelector, Predicate&lt;TValue&gt; predicate, TValue inputValue)
+    {
+        //式木からデリゲート生成、生成したデリゲートを実行して現在の値を取得する
+        var value = propertySelector.Compile().Invoke();
+        //条件があてはまるなら、代入処理の実行
+        if (predicate(value))
+        {
+            //プロパティを取得する式木を材料にプロパティへの代入をする式木を組み立てて、デリゲート生成
+            var assignAction = Utilitiy.CreateAssignActionExpr(propertySelector).Compile();
+            //生成した代入デリゲートに値を指定して実行
+            assignAction.Invoke(inputValue);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 取得する式木を元に代入式木を組み立てる
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TValue"&gt;値の型&lt;/typeparam&gt;
+    /// &lt;param name="propertySelector"&gt;代入される対象を選択する式木 例：() =&gt; this.Name　&lt;/param&gt;
+    /// &lt;returns&gt;代入する式木 例: x=&gt;this.Name=x &lt;/returns&gt;
+    public static Expression&lt;Action&lt;TValue&gt;&gt; CreateAssignActionExpr&lt;TValue&gt;(Expression&lt;Func&lt;TValue&gt;&gt; propertySelector)
+    {
+        //生成される式：x
+        var inputExpr = Expression.Parameter(typeof(TValue), "x");
+        //生成される式：this.Name = x
+        var assignExpr = Expression.Assign(
+            propertySelector.Body,
+            inputExpr);
+
+        //生成される式：x =&gt; this.Name = x
+        return Expression.Lambda&lt;Action&lt;TValue&gt;&gt;(assignExpr, inputExpr);
+    }
+}
+

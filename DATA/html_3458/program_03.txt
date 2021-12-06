@@ -1,0 +1,160 @@
+
+using System.Collections;
+using UnityEngine;
+using UnityEditor;
+using UniRx;
+
+[ExecuteInEditMode]
+public class MyDebug : MonoBehaviour
+{
+    [SerializeField]
+    Transform targetTrasform;
+
+    [SerializeField, Range(5, 30)]
+    float speedParameter = 10;
+
+    [Header("---ここからデバッグ設定---")]
+    [SerializeField]
+    bool debug_SpaceKey;
+
+    [SerializeField]
+    float backTime = 3;
+
+    Vector3 thisObjPos;
+    Coroutine runCoroutine;
+
+    float x_Abs;
+    float y_Abs;
+    float z_Abs;
+
+    bool isStart;
+
+    void Update()
+    {
+        //エラーで警告
+        if (targetTrasform == null)
+        {
+            Debug.LogError("Please set target");
+            return;
+        }
+
+        x_Abs = Mathf.Abs(this.gameObject.transform.position.x - targetTrasform.position.x);
+        y_Abs = Mathf.Abs(this.gameObject.transform.position.y - targetTrasform.position.y);
+        z_Abs = Mathf.Abs(this.gameObject.transform.position.z - targetTrasform.position.z);
+
+
+        //プレイモード時テスト用
+        if (Input.GetKeyDown(KeyCode.Space) &amp;&amp; debug_SpaceKey)
+        {
+            Fall();
+        }
+    }
+
+    //Editor上でのみ使うメソッド。座標を開始位置まで戻す
+    public void ResetPosition()
+    {
+        this.gameObject.transform.position = thisObjPos;
+    }
+
+    //利用時はこれを呼ぶ
+    public void Fall()
+    {
+        if (runCoroutine == null)
+        {
+            runCoroutine = StartCoroutine(MoveCoroutine());
+        }
+
+    }
+
+    IEnumerator MoveCoroutine()
+    {
+        //Targetまで移動
+        while (x_Abs &gt; 0 || y_Abs &gt; 0 || z_Abs &gt; 0)
+        {
+            float speed = speedParameter * Time.fixedDeltaTime;
+            this.gameObject.transform.position = Vector3.MoveTowards(this.gameObject.transform.position, targetTrasform.position, speed);
+            yield return null;
+        }
+
+        //Editor上で動かした場合のみここを通る。元の座標に戻るまでの秒数
+        if (EditorApplication.isPlaying == false)
+        {
+            yield return new WaitForSeconds(backTime);
+        }
+
+        //PlayMode中はrunCoroutineにMoveCoroutineが入ってるので止めて空にしとく
+        if (runCoroutine != null)
+        {
+            StopCoroutine(runCoroutine);
+            runCoroutine = null;
+        }
+    }
+
+    //ここからEditor拡張
+#if UNITY_EDITOR
+    [CustomEditor(typeof(MyDebug))]
+    public class MyDebugEditor : Editor
+    {
+        static MyDebug rootClass;
+
+        //コンストラクタでPlayMode,EditModeの切り替え時の処理を登録
+        static MyDebugEditor()
+        {
+            EditorApplication.playModeStateChanged += OnPlayMode;
+        }
+
+        static void OnPlayMode(PlayModeStateChange playModeStateChange)
+        {
+            //まだ一回もTargetのpositionを保存していなかった時の為
+            if (rootClass.isStart == false)
+            {
+                rootClass.thisObjPos = rootClass.gameObject.transform.position;
+            }
+
+            //途中でPlayModeに切り替えても元に戻す
+            if (playModeStateChange == PlayModeStateChange.ExitingEditMode)
+            {
+                rootClass.ResetPosition();
+            }
+        }
+
+        public override void OnInspectorGUI()
+        {
+            base.OnInspectorGUI();
+
+            rootClass = target as MyDebug;
+            EditorGUILayout.Space();
+
+            // 押下時に実行したい処理
+            if (GUILayout.Button("Test") &amp;&amp; EditorApplication.isPlaying == false)
+            {
+                //エラーで警告
+                if (rootClass.targetTrasform == null)
+                {
+                    Debug.LogError("Please set target");
+                    return;
+                }
+
+                if (rootClass.isStart == false)
+                {
+                    //開始位置の座標保存
+                    rootClass.thisObjPos = rootClass.gameObject.transform.position;
+
+                    rootClass.isStart = true;
+
+                    Observable.FromMicroCoroutine(rootClass.MoveCoroutine).Subscribe(_ =&gt;
+                    {
+                        rootClass.isStart = false;
+                        rootClass.ResetPosition();
+                    }).AddTo(rootClass);
+                }
+            }
+
+            serializedObject.Update();
+            serializedObject.ApplyModifiedProperties();
+        }
+    }
+#endif
+}
+
+

@@ -1,0 +1,28 @@
+
+private void CreateServiceProvider()
+{
+    var services = new ServiceCollection();
+    services.AddSingleton(_BrowserHostBuilderContext);
+    services.AddSingleton&lt;IWebAssemblyHost, WebAssemblyHost&gt;();
+    services.AddSingleton&lt;IJSRuntime&gt;(WebAssemblyJSRuntime.Instance);
+    services.AddSingleton&lt;IComponentContext, WebAssemblyComponentContext&gt;();
+    services.AddSingleton&lt;IUriHelper&gt;(WebAssemblyUriHelper.Instance);
+    services.AddSingleton&lt;HttpClient&gt;(s =&gt;
+    {
+        // Creating the URI helper needs to wait until the JS Runtime is initialized, so defer it.
+        var uriHelper = s.GetRequiredService&lt;IUriHelper&gt;();
+        return new HttpClient
+        {
+            BaseAddress = new Uri(WebAssemblyUriHelper.Instance.GetBaseUri())
+        };
+    });
+
+    foreach (var configureServicesAction in _configureServicesActions)
+    {
+        configureServicesAction(_BrowserHostBuilderContext, services);
+    }
+
+    var builder = _serviceProviderFactory.CreateBuilder(services);
+    _appServices = _serviceProviderFactory.CreateServiceProvider(builder);
+}
+

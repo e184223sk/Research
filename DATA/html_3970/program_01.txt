@@ -1,0 +1,98 @@
+
+internal class LargeSearchServiceImpl : LargeSearch.LargeSearchBase
+{
+    public override async Task GetComplexObjects(Condition request, IServerStreamWriter&lt;ComplexObjectResponse&gt; responseStream, ServerCallContext context)
+    {
+        // レスポンスのインスタンスは使いまわす
+        ComplexObjectResponse response = new ComplexObjectResponse() { };
+
+        // オブジェクトのキーとインデックスの組み合わせ
+        Dictionary&lt;string, int&gt; indexes = new Dictionary&lt;string, int&gt;();
+
+        // header
+        foreach (ComplexHeader header in GetComplexHeaders(request))
+        {
+            response.Index = GetOrAddIndex(indexes, header.Id);
+            response.Header = header;
+            await responseStream.WriteAsync(response).ConfigureAwait(false);
+        }
+
+        // items
+        foreach (ComplexItem item in GetComplexItems(request))
+        {
+            response.Index = GetOrAddIndex(indexes, item.Id);
+            response.Item = item;
+            await responseStream.WriteAsync(response).ConfigureAwait(false);
+        }
+
+        // subitems
+        foreach (ComplexSubItem subitem in GetComplexSubItems(request))
+        {
+            response.Index = GetOrAddIndex(indexes, subitem.Id);
+            response.SubItem = subitem;
+            await responseStream.WriteAsync(response).ConfigureAwait(false);
+        }
+
+    }
+
+    /// &lt;summary&gt;
+    /// 指定されたキーに対応するインデックスを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="indexes"&gt;キーとインデックスの組み合わせ&lt;/param&gt;
+    /// &lt;param name="key"&gt;キー&lt;/param&gt;
+    /// &lt;returns&gt;インデックス&lt;/returns&gt;
+    private int GetOrAddIndex(Dictionary&lt;string, int&gt; indexes, string key)
+    {
+        if (indexes.TryGetValue(key, out int index)) { return index; }
+        lock (indexes)
+        {
+            if (indexes.TryGetValue(key, out index)) { return index; }
+            index = indexes.Count;
+            indexes.Add(key, index);
+            return index;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ヘッダーを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="condition"&gt;取得条件&lt;/param&gt;
+    /// &lt;returns&gt;ヘッダー&lt;/returns&gt;
+    private IEnumerable&lt;ComplexHeader&gt; GetComplexHeaders(Condition condition)
+    {
+        // 実際にはデータベースなどからデータを取得して返すような実装になります。
+        yield return new ComplexHeader() { Id = "1", Description = "オブジェクト1" };
+        yield return new ComplexHeader() { Id = "2", Description = "オブジェクト2" };
+        yield return new ComplexHeader() { Id = "4", Description = "オブジェクト4" };
+    }
+
+    /// &lt;summary&gt;
+    /// アイテムを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="condition"&gt;取得条件&lt;/param&gt;
+    /// &lt;returns&gt;アイテム&lt;/returns&gt;
+    private IEnumerable&lt;ComplexItem&gt; GetComplexItems(Condition condition)
+    {
+        // 実際にはデータベースなどからデータを取得して返すような実装になります。
+        string createdDate = DateTime.Now.ToString();
+        yield return new ComplexItem() { Id = "1", CreatedDate = createdDate, Value = 1001 };
+        yield return new ComplexItem() { Id = "1", CreatedDate = createdDate, Value = 1002 };
+        yield return new ComplexItem() { Id = "2", CreatedDate = createdDate, Value = 2001 };
+        yield return new ComplexItem() { Id = "2", CreatedDate = createdDate, Value = 2002 };
+        yield return new ComplexItem() { Id = "2", CreatedDate = createdDate, Value = 2003 };
+        yield return new ComplexItem() { Id = "4", CreatedDate = createdDate, Value = 4001 };
+    }
+
+    /// &lt;summary&gt;
+    /// サブアイテムを取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="condition"&gt;取得条件&lt;/param&gt;
+    /// &lt;returns&gt;サブアイテム&lt;/returns&gt;
+    private IEnumerable&lt;ComplexSubItem&gt; GetComplexSubItems(Condition condition)
+    {
+        // 実際にはデータベースなどからデータを取得して返すような実装になります。
+        yield return new ComplexSubItem() { Id = "1", Value = "サブアイテム1-1" };
+        yield return new ComplexSubItem() { Id = "5", Value = "サブアイテム5-1" };
+    }
+}
+

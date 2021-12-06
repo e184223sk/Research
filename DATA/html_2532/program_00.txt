@@ -1,0 +1,57 @@
+using System.Collections;
+using System.Collections.Generic;
+using UniRx;
+using UnityEngine;
+
+public class ObjectPool
+{
+    private GameObject obj;         // 生成元のオブジェクト
+    private int objNum;             // 生成する数
+    private GameObject[] objs;      // オブジェクトプール配列
+
+    public ObjectPool(GameObject obj, int objNum, bool instantiate = true)
+    {
+        this.obj = obj;
+        this.objNum = objNum;
+
+        objs = new GameObject[objNum];
+        if (instantiate) Init();
+    }
+
+    public void Init()
+    {
+        var objParent = new GameObject(obj.name).transform;
+        for (int i = 0; i &lt; objNum; i++)
+        {
+            objs[i] = Object.Instantiate(obj) as GameObject;
+            objs[i].name = obj.name + i;
+            objs[i].transform.parent = objParent;
+            objs[i].SetActive(false);
+        }
+    }
+
+    private int stateIndex = 0;
+
+    public void SetActive(Vector3 position)
+    {
+        if (objs[stateIndex].activeSelf)
+        {
+            var addObjs = Object.Instantiate(obj);
+            addObjs.transform.position = position;
+            Observable.Timer(System.TimeSpan.FromSeconds(10)).Subscribe(_ =&gt; Object.Destroy(addObjs));
+        }
+        else
+        {
+            objs[stateIndex].SetActive(true);
+            objs[stateIndex].transform.position = position;
+            Observable.Timer(System.TimeSpan.FromSeconds(10)).Subscribe(_ =&gt; objs[stateIndex].SetActive(false));    // 一定時間後にアクティブファルス - オブジェクト側で捜査したほうがいい
+            RoundRobin();
+        }
+    }
+
+    public void RoundRobin()
+    {
+        stateIndex = stateIndex &lt; objNum-1 ? stateIndex+1 : 0;
+    }
+}
+

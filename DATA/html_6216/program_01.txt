@@ -1,0 +1,58 @@
+
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Azure.WebJobs.Host;
+using Microsoft.WindowsAzure.Storage.Table;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+
+namespace DFSample
+{
+    public static class ParallelExec
+    {
+        [FunctionName("ParallelExec")]
+        public static async Task&lt;List&lt;string&gt;&gt;  Run(
+            [OrchestrationTrigger] DurableOrchestrationContext context, // Point 1
+            TraceWriter log
+        )
+        {
+            log.Info("ParallelExec started!");
+            var tasks = new Task&lt;string&gt;[3];
+            tasks[0] = context.CallFunctionAsync&lt;string&gt;(  // Point 2
+                "EchoExec",
+                "Hello, I'm Tsuyoshi"
+                );
+            tasks[1] = context.CallFunctionAsync&lt;string&gt;(
+                "EchoExec",
+                "Hello, I'm Kanio");
+            tasks[2] = context.CallFunctionAsync&lt;string&gt;(
+                "EchoExec",
+                "Hello, I'm NEO");
+            await Task.WhenAll(tasks);                     // Point 3
+            var outputs = new List&lt;string&gt;();
+            foreach(Task&lt;string&gt; task in tasks)
+            {
+                outputs.Add(task.Result);
+            }
+
+            log.Info("ParallelExec Done!");
+            return outputs;
+        }
+
+        [FunctionName("EchoExec")]                       // Point 4
+        public static string EchoExec (
+            [ActivityTrigger] DurableActivityContext context, 
+            TraceWriter log)
+        {
+
+            string message = context.GetInput&lt;string&gt;();
+            log.Info($"EchoExec started with '{message}'");
+
+            return message + "\nHi, I'm Azure Fucntions";
+        }
+    }
+}
+

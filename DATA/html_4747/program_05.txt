@@ -1,0 +1,60 @@
+
+
+GrpcServerStreamingObservable&lt;Response&gt; observable;
+IDisposable subscriber;
+IObserver&lt;Response&gt; observer;
+
+// レスポンスストリームの読み込みが完了するまでブロックされるため、待機しないように実装する必要があります。
+Task nowait = Task.Run(async () =&gt;
+{
+    try
+    {
+        // 1. RPCメソッドを実行し、配信オブジェクトを生成します。
+        using (observable = client.Receive(request, callOptions).ToObservable())
+        {
+            // 2. 監視オブジェクトを生成します。
+            observer = GrpcObservable.CreateObserver&lt;Response&gt;(
+                // レスポンスを受け取ったときの処理
+                response =&gt; OnResponse(response)
+                // 例外が発生したときの処理
+                , ex =&gt; OnError(ex)
+                // 完了したときの処理
+                , () =&gt; OnComplete()
+            );
+
+            // 3. 監視オブジェクトを渡して購読オブジェクトを受け取ります。
+            subscriver = observable.Subscribe(observer);
+
+            // 4. 監視を開始します。
+            await observable.ObserveAsync().ConfigureAwait(false);
+        }
+    }
+    catch (Exception ex)
+    {
+        // 配信クラスでは発生した例外を再スローしています。
+    }
+    finally
+    {
+        // 配信クラスでは dispose 時に購読オブジェクトを解放しています。
+        // if (subscriber!= null) {subscriber.Dispose();}
+    }
+}
+);
+
+// 5. 購読を終了するには購読オブジェクトを解放します。
+subscriber.Dispose();
+
+// 2'. 新しい監視オブジェクトを生成します。
+var observer2 = GrpcObservable.CreateObserver&lt;Response&gt;(
+    // レスポンスを受け取ったときの処理
+    response =&gt; OnResponse2(response)
+    // 例外が発生したときの処理
+    , ex =&gt; OnError2(ex)
+    // 完了したときの処理
+    , () =&gt; OnComplete2()
+);
+
+// 3'. 新しい監視オブジェクトを渡して購読オブジェクトを受け取ります。
+var subscriver2 = observable.Subscribe(observer2);
+
+

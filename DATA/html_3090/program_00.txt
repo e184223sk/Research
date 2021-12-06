@@ -1,0 +1,665 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.IO;
+using System.Drawing;
+
+class CreateODS
+{   //LibreOfficeや、OpenOfficeなどで使用できるODS形式を作成する。
+    //Excelでも、扱えるが、ズレたりします。。。
+
+    //グローバル変数用
+
+    //■Local file header関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //Local file headerの識別子 4bytes(0x04034b50)
+    readonly byte[] local_file_header_signature = BitConverter.GetBytes(Convert.ToInt32(0x4034B50));
+
+    //解凍に最低必要なバージョン 2bytes 今回は、ver.1.0で、無圧縮を指定(Default value)→0x000A 
+    readonly byte[] version_needed_to_extract = BitConverter.GetBytes(Convert.ToInt16(0xA));
+
+    //オプションフラグと、圧縮方法 2+2bytes{今回はオプションもなく、圧縮もしないので、0を指定共に0x0000}
+    readonly byte[] general_purpose_and_compression_method = BitConverter.GetBytes(Convert.ToInt32(0x0));
+
+    //ファイル更新時間 2bytes (秒数は偶数のみ指定可能)
+    readonly byte[] last_mod_file_time = new byte[2] { 0, 0 }; //00:00:00固定とする。
+
+    //ファイル更新年月日 2bytes
+    readonly byte[] last_mod_file_date = new byte[2] { 147, 76 }; //2018/4/19固定とする。
+
+    //CRC-32 4bytes{アーカイブ前の生ファイルから生成するCRC32}
+    byte[] crc_32;
+    List&lt;Int32&gt; ary_crc_32s = null; //zip内の各ファイルの、CRC-32を格納。
+
+    //圧縮後のファイルサイズ 4bytes{今回は無圧縮なので圧縮前の値と同値}
+    //圧縮前のファイルサイズ 4bytes
+    byte[] uncompressed_size;
+    List&lt;Int32&gt; ary_uncompressed_sizes = null; //zip内の各ファイルの、圧縮前のファイルサイズを格納。
+
+    //アーカイブ前のファイル名のサイズを格納する 2bytes
+    string file_name; //ファイル名
+    byte[] file_name_ary; // ファイル名のバイナリ
+    List&lt;string&gt; ary_file_name_arys = null; //zip内の各ファイルの、ファイル名のバイナリを格納。
+    byte[] file_name_length; //ファイル名のバイナリサイズ
+
+    //拡張フィールドのサイズ 2bytes{今回は、指定しないので0x0000}
+    readonly byte[] extra_field_length = BitConverter.GetBytes(Convert.ToInt16(0x0));
+
+
+    //■Central file header関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //Central file headerの識別子 4bytes(0x02014b50)
+    readonly byte[] central_file_header_signature = BitConverter.GetBytes(Convert.ToInt32(0x2014B50));
+
+    //作成したバージョン　1+1bytes{今回は、ver.1.0で、無圧縮を指定(Default value)→0x000A }
+    readonly byte[] version_made_by = BitConverter.GetBytes(Convert.ToInt16(0xA));
+
+    //ファイルの属性などの情報　2+2+2+4bytes　→　今回は無視するのですべて0
+    readonly byte[] file_attributes_etc = new byte[10] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+    //対応するファイルのlocal file header信号のある位置　4bytes
+    //出力zipの各local_file_header signatureの、バイト開始位置を示す4バイトのバイナリ配列を格納。
+    List&lt;Int32&gt; relative_offset_of_local_header = null;
+
+
+    //■End of central directory record関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //End of central directory record 4bytes(0x06054b50)
+    readonly byte[] end_of_central_dir_signature = BitConverter.GetBytes(Convert.ToInt32(0x6054B50));
+
+    //ディスク分割情報　2+2bytes{ディスク分割はしていないのですべて0}
+    readonly byte[] number_of_this_disk = BitConverter.GetBytes(Convert.ToInt32(0x0));
+
+    //アーカイブしたファイルの個数 2+2bytes{ディスク分割はしていないので同じ内容の重複}
+    byte[] total_number_of_entries;
+
+    //全Central file headerに要したの合計バイト数 4bytes
+    byte[] size_of_the_central_directory;
+
+    //最初のCentral file headerの記述されたバイト位置 4bytes
+    long offset_of_start_of_central_directory_int;
+    byte[] offset_of_start_of_central_directory;
+
+    //zipファイルへのコメントのサイズ 2bytes{今回は、指定しないので0x0000}
+    readonly byte[] ZIP_file_comment_length = BitConverter.GetBytes(Convert.ToInt16(0x0));
+
+    //◆zipファイル入出力など、取扱関係+++++++++++++++++++++++++++++
+    //出力zipのバイナリ一時格納用。
+    List&lt;byte&gt; ary_zip_file = null;
+
+
+
+    //■アーカイブする文字列関係+++++++++++++++++++++++++++++++++++++++++++++++
+    //OpenDocument Spreadsheetであることを示す
+    readonly string mimetype_xml = "application/vnd.oasis.opendocument.spreadsheet";
+
+    //ドキュメントの印刷情報など
+    readonly string styles_xml = "&lt;?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?&gt;" +
+        "&lt;office:document-styles xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" " +
+            "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" xmlns:fo=\"urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0\" " +
+            "xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:number=\"urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" " +
+            "xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\" office:version=\"1.2\"&gt;" +
+        "&lt;office:font-face-decls&gt;&lt;style:font-face style:name=\"ＭＳ Ｐゴシック\" svg:font-family=\"ＭＳ Ｐゴシック\"/&gt;&lt;/office:font-face-decls&gt;" +
+        "&lt;office:styles&gt;&lt;number:number-style style:name=\"N0\"&gt;&lt;number:number number:min-integer-digits=\"1\"/&gt;&lt;/number:number-style&gt;&lt;style:style style:name=\"Default\" style:family=\"table-cell\" style:data-style-name=\"N0\"&gt;" +
+        "&lt;style:table-cell-properties style:vertical-align=\"middle\" fo:background-color=\"transparent\"/&gt;" +
+        "&lt;style:text-properties fo:color=\"#000000\" style:font-name=\"ＭＳ Ｐゴシック\" style:font-name-asian=\"ＭＳ Ｐゴシック\" style:font-name-complex=\"ＭＳ Ｐゴシック\" fo:font-size=\"11pt\" style:font-size-asian=\"11pt\" style:font-size-complex=\"11pt\"/&gt;&lt;/style:style&gt;" +
+        "&lt;style:style style:family=\"graphic\" style:name=\"Graphics\"/&gt;&lt;style:default-style style:family=\"graphic\"&gt;" +
+        "&lt;style:graphic-properties draw:fill=\"solid\" draw:fill-color=\"#000000\" draw:opacity=\"100%\" draw:stroke=\"solid\" svg:stroke-width=\"0.01389in\" svg:stroke-color=\"#ffffff\" svg:stroke-opacity=\"100%\" draw:stroke-linejoin=\"miter\" svg:stroke-linecap=\"butt\"/&gt;" +
+        "&lt;/style:default-style&gt;&lt;/office:styles&gt;" +
+        "&lt;office:automatic-styles&gt;&lt;style:page-layout style:name=\"pm1\"&gt;" +
+        "&lt;style:page-layout-properties fo:margin-top=\"0.3cm\" fo:margin-bottom=\"0.3cm\" fo:margin-left=\"0.7cm\" fo:margin-right=\"0.7cm\" style:print-orientation=\"portrait\" style:print-page-order=\"ttb\" style:first-page-number=\"continue\" style:scale-to=\"100%\" style:table-centering=\"both\" style:print=\"objects charts drawings\"/&gt;" +
+        "&lt;style:header-style&gt;&lt;style:header-footer-properties fo:min-height=\"0.45cm\" fo:margin-left=\"0.7cm\" fo:margin-right=\"0.7cm\" fo:margin-bottom=\"0cm\"/&gt;&lt;/style:header-style&gt;" +
+        "&lt;style:footer-style&gt;&lt;style:header-footer-properties fo:min-height=\"0.45cm\" fo:margin-left=\"0.7cm\" fo:margin-right=\"0.7cm\" fo:margin-top=\"0cm\"/&gt;&lt;/style:footer-style&gt;&lt;/style:page-layout&gt;&lt;/office:automatic-styles&gt;" +
+        "&lt;office:master-styles&gt;&lt;style:master-page style:name=\"mp1\" style:page-layout-name=\"pm1\"&gt;" +
+        "&lt;style:header&gt;&lt;text:p&gt;ヘッダー文字列&lt;/text:p&gt;&lt;/style:header&gt;&lt;style:header-left style:display=\"false\"/&gt;" +
+        "&lt;style:footer&gt;&lt;text:p&gt;フッター文字列&lt;/text:p&gt;&lt;/style:footer&gt;&lt;style:footer-left style:display=\"false\"/&gt;" +
+        "&lt;/style:master-page&gt;&lt;/office:master-styles&gt;&lt;/office:document-styles&gt;";
+
+    //このシートで使用するファイル一覧
+    readonly string META_INF_manifest_xml_header = "&lt;?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?&gt;" +
+        "&lt;manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\"&gt;&lt;manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\"application/vnd.oasis.opendocument.spreadsheet\"/&gt;" +
+        "&lt;manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/&gt;" +
+        "&lt;manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/&gt;";
+
+    //画像指定用
+    readonly string META_INF_manifest_xml_image = "&lt;manifest:file-entry manifest:full-path=\"media/image1.jpeg\" manifest:media-type=\"image/jpeg\"/&gt;";
+    readonly string META_INF_manifest_xml_footer = "&lt;manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/&gt;&lt;/manifest:manifest&gt;";
+
+
+    //シートの内容すべてを格納するxml
+    //※列幅、行高、画像のサイズの単位は、cmで統一。
+    readonly string content_xml_header = "&lt;?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?&gt;" +
+        "&lt;office:document-content xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" " +
+            "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" xmlns:fo=\"urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0\" " +
+            "xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:number=\"urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" " +
+            "xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\" office:version=\"1.2\"&gt;" +
+        "&lt;office:font-face-decls&gt;&lt;style:font-face style:name=\"ＭＳ Ｐゴシック\" svg:font-family=\"ＭＳ Ｐゴシック\"/&gt;&lt;/office:font-face-decls&gt;&lt;office:automatic-styles&gt;";
+
+    //このシートで使用するセルの書式設定を格納
+    readonly string content_xml_cell_style = "&lt;style:style style:name=\"ce1\" style:family=\"table-cell\" style:parent-style-name=\"Default\" style:data-style-name=\"N0\"/&gt;" + //標準スタイル
+        "&lt;style:style style:name=\"ce2\" style:family=\"table-cell\" style:parent-style-name=\"Default\" style:data-style-name=\"N0\"&gt;&lt;style:table-cell-properties style:vertical-align=\"middle\" style:repeat-content=\"false\"/&gt;&lt;style:paragraph-properties fo:text-align=\"center\"/&gt;&lt;style:text-properties fo:font-size=\"12pt\" style:font-size-asian=\"12pt\" style:font-size-complex=\"12pt\"/&gt;&lt;/style:style&gt;" + //サブタイトル書式
+        "&lt;style:style style:name=\"ce3\" style:family=\"table-cell\" style:parent-style-name=\"Default\" style:data-style-name=\"N0\"&gt;&lt;style:table-cell-properties fo:border=\"thin solid #000000\" style:vertical-align=\"middle\" style:repeat-content=\"false\"/&gt;&lt;style:paragraph-properties fo:text-align=\"center\"/&gt;&lt;/style:style&gt;" + //肩書用
+        "&lt;style:style style:name=\"ce4\" style:family=\"table-cell\" style:parent-style-name=\"Default\" style:data-style-name=\"N0\"&gt;&lt;style:table-cell-properties style:vertical-align=\"middle\" style:repeat-content=\"false\"/&gt;&lt;style:paragraph-properties fo:text-align=\"center\"/&gt;&lt;style:text-properties fo:font-size=\"16pt\" style:font-size-asian=\"16pt\" style:font-size-complex=\"16pt\"/&gt;&lt;/style:style&gt;" + //タイトル用
+        "&lt;style:style style:name=\"ce5\" style:family=\"table-cell\" style:parent-style-name=\"Default\" style:data-style-name=\"N0\"&gt;&lt;style:table-cell-properties fo:border=\"thin solid #000000\" style:vertical-align=\"middle\" style:repeat-content=\"false\"/&gt;&lt;style:paragraph-properties fo:text-align=\"start\" fo:margin-left=\"0.353cm\"/&gt;&lt;/style:style&gt;"; //本文用
+
+    //列の幅
+    readonly string content_xml_column_style = "&lt;style:style style:name=\"co1\" style:family=\"table-column\"&gt;&lt;style:table-column-properties fo:break-before=\"auto\" style:column-width=\"11.5cm\"/&gt;&lt;/style:style&gt;" + //1列目の設定
+        "&lt;style:style style:name=\"co2\" style:family=\"table-column\"&gt;&lt;style:table-column-properties fo:break-before=\"auto\" style:column-width=\"2.0cm\"/&gt;&lt;/style:style&gt;"; //2～4列目の設定
+
+    //行の高さ
+    readonly string content_xml_row_style = "&lt;style:style style:name=\"ro1\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"0.48cm\" style:use-optimal-row-height=\"false\" fo:break-before=\"avoid\"/&gt;&lt;/style:style&gt;" + //タイトル・肩書の行高
+        "&lt;style:style style:name=\"ro2\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"1.06cm\" style:use-optimal-row-height=\"false\" fo:break-before=\"avoid\"/&gt;&lt;/style:style&gt;" + //タイトル下部・押印枠上部
+        "&lt;style:style style:name=\"ro3\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"0.5cm\" style:use-optimal-row-height=\"false\" fo:break-before=\"avoid\"/&gt;&lt;/style:style&gt;" + //サブタイトル・押印枠下部
+        "&lt;style:style style:name=\"ro4\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"0.48cm\" style:use-optimal-row-height=\"true\" fo:break-before=\"avoid\"/&gt;&lt;/style:style&gt;" + //タイトルと本文の間隔
+        "&lt;style:style style:name=\"ro5\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"0.85cm\" style:use-optimal-row-height=\"false\" fo:break-before=\"avoid\"/&gt;&lt;/style:style&gt;" + //本文用
+        "&lt;style:style style:name=\"ro6\" style:family=\"table-row\"&gt;&lt;style:table-row-properties style:row-height=\"0.48cm\" style:use-optimal-row-height=\"false\" fo:break-before=\"page\"/&gt;&lt;/style:style&gt;"; //タイトル用（改行付き）
+
+    //表全体
+    readonly string content_xml_table_style = "&lt;style:style style:name=\"ta1\" style:family=\"table\" style:master-page-name=\"mp1\"&gt;&lt;style:table-properties table:display=\"true\" style:writing-mode=\"lr-tb\"/&gt;&lt;/style:style&gt;";
+
+    //画像
+    readonly string content_xml_graphics_style = "&lt;style:style style:family=\"graphic\" style:name=\"a0\" style:parent-style-name=\"Graphics\"&gt;&lt;style:graphic-properties draw:fill=\"none\" draw:stroke=\"none\"/&gt;&lt;/style:style&gt;";
+
+    //スタイルフッター・シート本体開始
+    readonly string content_xml_span1 = "&lt;/office:automatic-styles&gt;" +
+        "&lt;office:body&gt;&lt;office:spreadsheet&gt;&lt;table:calculation-settings table:case-sensitive=\"false\" table:search-criteria-must-apply-to-whole-cell=\"true\" table:use-wildcards=\"true\" table:use-regular-expressions=\"false\" table:automatic-find-labels=\"false\"/&gt;" +
+        "&lt;table:table table:name=\"Sheet1\" table:style-name=\"ta1\"&gt;" + //シート名
+        "&lt;table:table-column table:style-name=\"co1\" table:default-cell-style-name=\"ce1\"/&gt;" + //1行目の書式設定
+        "&lt;table:table-column table:style-name=\"co2\" table:number-columns-repeated=\"3\" table:default-cell-style-name=\"ce1\"/&gt;"; //2→4行目の書式設定
+
+    //フッター。
+    readonly string content_xml_footer = "&lt;/table:table&gt;&lt;/office:spreadsheet&gt;&lt;/office:body&gt;&lt;/office:document-content&gt;";
+
+    //更新日時など
+    readonly string meta_xml = "&lt;?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?&gt;" +
+        "&lt;office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" office:version=\"1.2\"&gt;" +
+        "&lt;office:meta&gt;&lt;meta:generator&gt;photoreport.attachment.style&lt;/meta:generator&gt;" +
+        "&lt;meta:initial-creator&gt;TageSP&lt;/meta:initial-creator&gt;&lt;dc:creator&gt;TageSP&lt;/dc:creator&gt;" +
+        "&lt;meta:creation-date&gt;" +
+            DateTime.UtcNow.ToString("yyyy-MM-dd") + "T" +
+            DateTime.UtcNow.ToString("hh:mm:ss") + "Z" +
+        "&lt;/meta:creation-date&gt;&lt;dc:date&gt;" +
+            DateTime.UtcNow.ToString("yyyy-MM-dd") + "T" +
+            DateTime.UtcNow.ToString("hh:mm:ss") + "Z" +
+        "&lt;/dc:date&gt;&lt;/office:meta&gt;&lt;/office:document-meta&gt;";
+
+
+
+    public async System.Threading.Tasks.Task create_ods(string[] imagepath, string filepath)
+    {
+
+
+        if (System.IO.File.Exists(filepath))
+        {   //上書きする前に削除する
+            try
+            {
+                System.IO.File.Delete(filepath);
+            }
+            catch { }
+        }
+
+        //◎使用する各配列の初期化++++++++++++++++++++++++++
+        ary_Clear(ref ary_zip_file, false);
+        ary_crc_32s = new List&lt;Int32&gt; { };
+        ary_uncompressed_sizes = new List&lt;Int32&gt; { };
+        ary_file_name_arys = new List&lt;string&gt; { };
+        relative_offset_of_local_header = new List&lt;Int32&gt; { };
+
+        //zipは、無圧縮で自分でバイナリを打っていく。
+        using (System.IO.FileStream fs = new System.IO.FileStream(filepath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+        {
+            StringBuilder sheetdata = new StringBuilder();
+            sheetdata.Clear();
+
+            for (int i = 0; i &lt;= 5; i++)
+            {
+                //実際に格納するバイナリを格納する
+                byte[] moto_bs = null;
+
+                //順番に従った格納をする。
+                if (i == 0)
+                {   //アーカイブの先頭はmimetype固定。
+                    moto_bs = System.Text.Encoding.UTF8.GetBytes(mimetype_xml);
+                    file_name = "mimetype";
+                }
+                else if (i == 1)
+                {   //印刷設定
+                    moto_bs = System.Text.Encoding.UTF8.GetBytes(styles_xml);
+                    file_name = "styles.xml";
+                }
+                else if (i == 2)
+                {   //使用するファイルのリスト
+                    sheetdata.Append(META_INF_manifest_xml_header);
+                    sheetdata.Append(META_INF_manifest_xml_image);
+                    sheetdata.Append(META_INF_manifest_xml_footer);
+                    moto_bs = System.Text.Encoding.UTF8.GetBytes(sheetdata.ToString());
+                    sheetdata.Clear();
+                    file_name = "META-INF/manifest.xml";
+
+                }
+                else if (i == 3)
+                {   //シート本文
+                    sheetdata.Append(content_xml_header);
+                    sheetdata.Append(content_xml_cell_style);
+                    sheetdata.Append(content_xml_column_style);
+                    sheetdata.Append(content_xml_row_style);
+                    sheetdata.Append(content_xml_table_style);
+                    sheetdata.Append(content_xml_graphics_style);
+                    sheetdata.Append(content_xml_span1);
+
+                    //本文は別処理
+                    sheetdata.Append(content_xml_make_main());
+
+                    //フッターで閉じる
+                    sheetdata.Append(content_xml_footer);
+
+                    moto_bs = System.Text.Encoding.UTF8.GetBytes(sheetdata.ToString());
+                    file_name = "content.xml";
+                }
+                else if (i == 4)
+                {   //更新日時など
+                    moto_bs = System.Text.Encoding.UTF8.GetBytes(meta_xml);
+                    file_name = "meta.xml";
+                }
+                else if (i == 5)
+                {   //挿入画像
+                    using (Bitmap bitmap = new Bitmap(imagepath[0]))
+                    {
+                        using (var baos = new MemoryStream())
+                        {   //今回は、とりあえず1つだけ画像を適用する。  
+                            bitmap.Save(baos, System.Drawing.Imaging.ImageFormat.Jpeg);
+                            moto_bs = ((MemoryStream)baos).ToArray();
+                        }
+                    }
+                    file_name = "media/image1.jpeg";
+                }
+
+
+
+
+                //■Local file headerの作成------------ここから-----------------
+                //●予めlocal_file_header_signatureの記述位置を格納しておく(4バイト)
+                relative_offset_of_local_header.Add(Convert.ToInt32(fs.Length)); //つまり現在のファイルサイズ
+
+                //○local_file_header_signatureの記述(4バイト)
+                ary_zip_file.AddRange(local_file_header_signature);
+
+                //○解凍に必要なバージョンの記述(2バイト)
+                ary_zip_file.AddRange(version_needed_to_extract);
+
+                //○オプションフラグと、圧縮方法の記述(2+2バイト)
+                ary_zip_file.AddRange(general_purpose_and_compression_method);
+
+                //ファイルの更新時刻を格納(2バイト)//////////////////////////////////
+                ary_zip_file.AddRange(last_mod_file_time);
+
+                //○ファイルの更新年月日を格納(2バイト)//////////////////////////////////
+                ary_zip_file.AddRange(last_mod_file_date);
+
+
+                //○CRC32(4バイト)
+                //元ファイルのバイナリからCRC-32を取得する。
+                crc_32 = await CRC_32_Checksum(moto_bs); //計算に時間がかかるので、待機させる
+                ary_zip_file.AddRange(crc_32);
+                //再計算が面倒なので、central file headerに再利用するために記憶しておく。
+                ary_crc_32s.Add(BitConverter.ToInt32(crc_32, 0));
+
+
+                //○圧縮後のファイルサイズの取得(4バイト)｛無圧縮なので圧縮後のサイズと同値｝
+                uncompressed_size = BitConverter.GetBytes(Convert.ToInt32(moto_bs.Length));
+                ary_zip_file.AddRange(uncompressed_size);
+
+                //○圧縮前のファイルサイズの取得(4バイト)
+                ary_zip_file.AddRange(uncompressed_size);
+                //再計算が面倒なので、central file headerに再利用するために記憶しておく。
+                ary_uncompressed_sizes.Add(Convert.ToInt32(moto_bs.Length));
+
+                //○圧縮前のファイル名のサイズの取得(2バイト)
+                //文字列をUTF-8コードとしてバイナリ化する
+                file_name_ary = System.Text.Encoding.UTF8.GetBytes(file_name);
+
+                //文字列長を取得する。
+                file_name_length = BitConverter.GetBytes(Convert.ToInt16(file_name_ary.Length));
+                ary_zip_file.AddRange(file_name_length); //格納
+
+                //○拡張フィールドのサイズ指定(2バイト){今回は指定なし}
+                ary_zip_file.AddRange(extra_field_length); //格納
+
+
+                //○アーカイブ前のファイル名の格納
+                ary_zip_file.AddRange(file_name_ary);
+                //file_name_aryに再利用するために記憶しておく。
+                ary_file_name_arys.Add(file_name);
+
+                try
+                { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                    fs.Write((byte[])ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                    fs.Flush();
+                }
+                catch { }
+                ary_zip_file.Clear(); //初期化
+                //■Local file headerの作成------------ここまで-----------------
+                await System.Threading.Tasks.Task.Delay(10);
+
+
+                //■ファイル本体のバイナリを書き込む
+                try
+                { //ファイルに出力する
+                    fs.Write(moto_bs, 0, moto_bs.Length);
+                    fs.Flush();
+                }
+                catch { }
+                await System.Threading.Tasks.Task.Delay(10);//これがないと、書き込み途中で放棄される？？
+
+                //初期化
+                Array.Clear(moto_bs, 0, moto_bs.Length);
+                Array.Clear(crc_32, 0, crc_32.Length);
+                Array.Clear(file_name_length, 0, file_name_length.Length);
+                Array.Clear(file_name_ary, 0, file_name_ary.Length);
+            }
+
+
+            //★中盤戦。central file headerの記述********************************************
+            //予め最初のCentral file headerの記述開始バイト位置を記憶しておく
+            offset_of_start_of_central_directory_int = fs.Length;
+            offset_of_start_of_central_directory = BitConverter.GetBytes(Convert.ToInt32(offset_of_start_of_central_directory_int));
+
+
+            //各ファイル分ループ
+            for (int i = 0; i &lt; ary_file_name_arys.Count; i++)
+            {
+                byte[] bs;
+                //■central file headerの作成------------ここから-----------------
+                //○central_file_header_signatureの記述(4バイト)
+                ary_zip_file.AddRange(central_file_header_signature);
+
+                //○zipを作った時のバージョンとOSの記述(1+1バイト)
+                ary_zip_file.AddRange(version_made_by);
+
+                //○解凍に必要なバージョンの記述(2バイト)
+                ary_zip_file.AddRange(version_needed_to_extract);
+
+                //○オプションフラグと圧縮方法の記述(2+2バイト)
+                ary_zip_file.AddRange(general_purpose_and_compression_method);
+
+                //○ファイルの更新時刻(2バイト)[固定値]
+                ary_zip_file.AddRange(last_mod_file_time);
+
+                //○ファイルの更新年月日(2バイト)[固定値]
+                ary_zip_file.AddRange(last_mod_file_date);
+
+                //○CRC-32(4バイト)
+                //https://www.morgantechspace.com/2013/08/convert-object-to-byte-array-and-vice.html
+                ary_zip_file.AddRange(BitConverter.GetBytes(ary_crc_32s[i]));
+
+
+                //○圧縮後のファイルサイズ(4バイト) {今回は、無圧縮なので、圧縮前のファイルサイズを流用}
+                bs = BitConverter.GetBytes(ary_uncompressed_sizes[i]);
+                ary_zip_file.AddRange(bs);
+
+                //○圧縮前のファイルサイズ(4バイト)
+                ary_zip_file.AddRange(bs);
+                Array.Clear(bs, 0, bs.Length);//初期化
+
+                //○ファイル名のサイズ(2バイト)
+                byte[] name_bs = System.Text.Encoding.UTF8.GetBytes(ary_file_name_arys[i]);
+                ary_zip_file.AddRange(BitConverter.GetBytes(Convert.ToInt16(name_bs.Length)));
+
+
+                //○拡張フィールドのサイズ(2バイト)
+                ary_zip_file.AddRange(extra_field_length);
+
+                //○ファイルの属性などの情報(2+2+2+4バイト)
+                ary_zip_file.AddRange(file_attributes_etc);
+
+                //○対応するファイルのlocal File header信号のある位置(4バイト)
+                bs = BitConverter.GetBytes(relative_offset_of_local_header[i]);
+                ary_zip_file.AddRange(bs);
+                Array.Clear(bs, 0, bs.Length);//初期化
+
+
+                //○アーカイブ前のファイル名の格納
+                ary_zip_file.AddRange(name_bs);
+                Array.Clear(name_bs, 0, name_bs.Length);//初期化
+
+                try
+                { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                    fs.Write((byte[])ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                    fs.Flush();
+                }
+                catch { }
+                ary_zip_file.Clear(); //初期化
+                //■central file headerの作成------------ここまで-----------------
+                await System.Threading.Tasks.Task.Delay(10);
+            }
+
+            //◎使用する各配列の一旦、クリア++++++++++++++++++++++++++
+            ary_crc_32s.Clear();
+            ary_uncompressed_sizes.Clear();
+            relative_offset_of_local_header.Clear();
+
+
+            //★終盤戦End of central directory recordの記述********************************************
+            //全Central file headerに要したの合計バイト数を予め算出しておく
+            size_of_the_central_directory = BitConverter.GetBytes(
+                Convert.ToInt32(fs.Length - offset_of_start_of_central_directory_int));
+
+            //■End of central directory recordの作成------------ここから-----------------
+            //○end_of_central_dir_signatureの記述(4バイト)
+            ary_zip_file.AddRange(end_of_central_dir_signature);
+
+            //○ディスク分割情報(2+2バイト)
+            ary_zip_file.AddRange(number_of_this_disk);
+
+            //○アーカイブしたファイルの個数(2+2バイト){同じ内容を重複して格納}
+            total_number_of_entries = BitConverter.GetBytes(Convert.ToInt16(ary_file_name_arys.Count));
+            ary_zip_file.AddRange(total_number_of_entries);
+            ary_zip_file.AddRange(total_number_of_entries); //※重複分
+
+            //○全Central file headerに要したの合計バイト数を格納(4バイト)
+            ary_zip_file.AddRange(size_of_the_central_directory);
+
+            //○最初のCentral file headerの記述されたバイト位置(4バイト)
+            ary_zip_file.AddRange(offset_of_start_of_central_directory);
+
+            //○ファイルへのコメントのサイズ(2バイト){今回はなし}
+            ary_zip_file.AddRange(ZIP_file_comment_length);
+
+            try
+            { //一旦、書き貯めたバイト型配列の内容をファイルに出力する
+                fs.Write((byte[])ary_zip_file.ToArray(), 0, ary_zip_file.Count);
+                fs.Flush();
+                await System.Threading.Tasks.Task.Delay(10);//これがないと、書き込み途中で放棄される？？
+            }
+            catch { }
+            ary_zip_file.Clear(); //初期化
+            //■End of central directory recordの作成------------ここまで-----------------
+
+
+            //初期化
+            Array.Clear(total_number_of_entries, 0, total_number_of_entries.Length);
+            Array.Clear(size_of_the_central_directory, 0, size_of_the_central_directory.Length);//初期化
+            Array.Clear(offset_of_start_of_central_directory, 0, offset_of_start_of_central_directory.Length);//初期化
+
+
+            //◎使用する各配列の念のためクリア++++++++++++++++++++++++++
+            ary_crc_32s.Clear();
+            ary_uncompressed_sizes.Clear();
+            relative_offset_of_local_header.Clear();
+
+            //◎配列の初期化2++++++++++++++++++++++++++
+            ary_Clear(ref ary_zip_file, true);
+            ary_file_name_arys.Clear();
+
+            //■後処理
+            fs.Close(); //ファイルを閉じる 
+        }
+
+
+    }
+
+
+    public string title_string = "タイトル";
+    public string subtitle_string = "サブタイトル";
+    public string[] seal_string;
+    public string[] main_string;
+
+    public StringBuilder content_xml_make_main()
+    {   //content.xmlの本文を作成する場所
+        StringBuilder xmldata = new StringBuilder();
+
+        //◆1行目（タイトル・肩書）
+        xmldata.Append("&lt;table:table-row table:style-name=\"ro1\"&gt;");
+        //1列目{2行目と結合}
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:number-columns-spanned=\"1\" table:number-rows-spanned=\"2\" table:style-name=\"ce4\"&gt;&lt;text:p&gt;" +
+            title_string +
+            "&lt;/text:p&gt;&lt;/table:table-cell&gt;");
+
+        //2列目(空白)
+        xmldata.Append("&lt;table:table-cell table:style-name=\"ce1\"/&gt;");
+
+        //3列目(肩書1)
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:style-name=\"ce3\"&gt;&lt;text:p&gt;" +
+            seal_string[0] +
+            "&lt;/text:p&gt;&lt;/table:table-cell&gt;");
+        //4列目(肩書2)
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:style-name=\"ce3\"&gt;&lt;text:p&gt;" +
+            seal_string[1] +
+            "&lt;/text:p&gt;&lt;/table:table-cell&gt;");
+
+        //1行目おわり
+        xmldata.Append("&lt;/table:table-row&gt;");
+
+
+        //◆2行目（押印枠）
+        xmldata.Append("&lt;table:table-row table:style-name=\"ro2\"&gt;");
+        //1列目は、1行目との結合で遮蔽されている
+        xmldata.Append("&lt;table:covered-table-cell/&gt;");
+        //2列目(空白)
+        xmldata.Append("&lt;table:table-cell table:style-name=\"ce1\"/&gt;");
+        //3列目(押印枠1){3行目と結合}
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:number-columns-spanned=\"1\" table:number-rows-spanned=\"2\" table:style-name=\"ce3\"/&gt;");
+        //4列目(押印枠1){3行目と結合}
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:number-columns-spanned=\"1\" table:number-rows-spanned=\"2\" table:style-name=\"ce3\"/&gt;");
+        xmldata.Append("&lt;/table:table-row&gt;");
+
+        //◆3行目（サブタイトル）
+        xmldata.Append("&lt;table:table-row table:style-name=\"ro3\"&gt;");
+        //1列目（サブタイトル）
+        xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:style-name=\"ce2\"&gt;&lt;text:p&gt;" +
+            subtitle_string +
+            "&lt;/text:p&gt;&lt;/table:table-cell&gt;");
+        //2列目(空白)
+        xmldata.Append("&lt;table:table-cell table:style-name=\"ce1\"/&gt;");
+        //3、4列目は、2行目との結合で遮蔽されている
+        xmldata.Append("&lt;table:covered-table-cell/&gt;");
+        xmldata.Append("&lt;table:covered-table-cell/&gt;");
+        xmldata.Append("&lt;/table:table-row&gt;");
+
+        //◆4行目（全て空白）
+        xmldata.Append("&lt;table:table-row table:style-name=\"ro4\"/&gt;");
+
+        //◆5→14行目（本文）{10行分}
+        for (int i = 0; i &lt; 10; i++)
+        {
+            xmldata.Append("&lt;table:table-row table:style-name=\"ro5\"&gt;");
+            if (i == 0)
+            {
+                //1行目は写真の挿入
+                xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:number-columns-spanned=\"1\" table:number-rows-spanned=\"10\" table:style-name=\"ce3\"&gt;" +
+                    "&lt;text:p/&gt;" + //文字はなし
+                    "&lt;draw:frame draw:z-index=\"1\" draw:id=\"id0\" draw:style-name=\"a0\" draw:name=\"pic_image1\" svg:x=\"0.5cm\" svg:y=\"0.1cm\" svg:width=\"10.5cm\" svg:height=\"8.3cm\" style:rel-width=\"scale\" style:rel-height=\"scale\"&gt;" +
+                    "&lt;draw:image xlink:href=\"media/image1.jpeg\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/&gt;" +
+                    "&lt;svg:title/&gt;&lt;svg:desc/&gt;&lt;/draw:frame&gt;&lt;/table:table-cell&gt;");
+            }
+            else
+            {
+                //上のセルと結合
+                xmldata.Append("&lt;table:covered-table-cell/&gt;");
+            }
+
+            //コメント本文の記述
+            xmldata.Append("&lt;table:table-cell office:value-type=\"string\" table:number-columns-spanned=\"3\" table:number-rows-spanned=\"1\" table:style-name=\"ce3\"&gt;&lt;text:p&gt;" +
+                main_string[i] +
+                "&lt;/text:p&gt;&lt;/table:table-cell&gt;");
+
+            //右2行は結合により遮蔽されている。
+            xmldata.Append("&lt;table:covered-table-cell table:number-columns-repeated=\"2\"/&gt;");
+            xmldata.Append("&lt;/table:table-row&gt;");
+
+        }
+
+        return xmldata;
+    }
+
+    public void ary_Clear(ref List&lt;byte&gt; ary, bool Clear_only_flg)
+    {
+        //指定した配列の初期化をする
+        if (ary != null)
+        {
+            ary.Clear();
+            ary = null;
+        }
+        //初期化のみの場合→出る
+        if (Clear_only_flg) { return; }
+
+        //新たに配列をセットしなおす
+        ary = new List&lt;byte&gt;();
+    }
+
+    private async System.Threading.Tasks.Task&lt;byte[]&gt; CRC_32_Checksum(byte[] bytes)
+    {
+        //★CRC32の計算をするところ  
+        //UIntegerの方法では、上手くできないのですorz  
+        //また、返数をByte()でなく、Long型にすると、値が狂います。  
+
+        //https://code.msdn.microsoft.com/office/VBACRC-32-dad7d087  
+        //https://blog.csdn.net/ciaos/article/details/12490911
+        //http://sanity-free.org/12/crc32_implementation_in_csharp.html
+
+        //計算に時間がかかるので、待機させる
+        System.Threading.Tasks.Task&lt;byte[]&gt; uploadTask = System.Threading.Tasks.Task.Factory.StartNew&lt;byte[]&gt;(
+        () =&gt; {
+            //■CRC32のテーブル情報の事前生成  
+            uint[] crc32Table = new UInt32[256];
+            //CRC-32 の除数0x104c11db7を、予めビットの並び順を左右逆転させた値(0xEDB88320) を使用する。
+            uint poly = 0xedb88320;
+
+            uint temp = 0;
+            for (uint i = 0; i &lt; crc32Table.Length; ++i)
+            {
+                temp = i;
+                for (int j = 8; j &gt; 0; --j)
+                {
+                    if ((temp &amp; 1) == 1) //&amp;で、andのビット演算
+                    {
+                        temp = (uint)((temp &gt;&gt; 1) ^ poly); //^で、xorのビット演算
+                    }
+                    else
+                    {
+                        temp &gt;&gt;= 1; //÷(2の1乗)と同じ効果  
+                    }
+                }
+                crc32Table[i] = temp;
+            }
+
+
+            //初期化  
+            uint crc = 0xffffffff;
+
+            //■渡されたファイルのバイナリから、CRC-32を算出して返す 
+            for (int i = 0; i &lt; bytes.Length; ++i)
+            {   //■計算の引き合いに出すテーブルのインデックス番号の算出  
+                byte index = (byte)(((crc) &amp; 0xff) ^ bytes[i]);
+
+                //■次のビットにスライドする。  
+                //→(crc &gt;&gt; 8)は、crcを(2の8乗)で割っていることと同義  
+                crc = (uint)((crc &gt;&gt; 8) ^ crc32Table[index]);
+            }
+
+            //ビット反転後バイト配列に変換して返す
+            return BitConverter.GetBytes(~crc); //^で、notのビット演算
+        });
+
+        return await uploadTask;
+    }
+}
+
+

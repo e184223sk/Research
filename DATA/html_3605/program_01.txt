@@ -1,0 +1,90 @@
+
+using MessagePipe;
+
+namespace WindowsFormsApp1
+{
+    internal partial class Form1 : Form
+    {
+        #region ctor
+
+        /// &lt;summary&gt;
+        /// デフォルトコンストラクタ
+        /// &lt;/summary&gt;
+        private Form1()
+        {
+            InitializeComponent();
+        }
+
+        /// &lt;summary&gt;
+        /// サービスプロバイダから呼び出されるコンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="publisher"&gt;パブリッシャ&lt;/param&gt;
+        /// &lt;param name="subscriber"&gt;サブスクライバ&lt;/param&gt;
+        /// &lt;remarks&gt;
+        /// DIでフォームのインスタンスを生成した場合はこのコンストラクタが呼び出され、
+        /// publisher/subscriber にインスタンスが注入される。
+        /// コンストラクタのスコープは public でなくてはならない。
+        //// 型のスコープは public でなくてもよい。
+        /// &lt;/remarks&gt;
+        public Form1(
+            IPublisher&lt;string, SampleMassage&gt; publisher
+            , ISubscriber&lt;string, SampleMassage&gt; subscriber
+        ) : this()
+        {
+            m_Publisher = publisher;
+            m_Subscriber = subscriber;
+            InitializePubSub();
+        }
+
+        /// &lt;summary&gt;
+        /// ServiceProviderを内包したコンテキストを受け取るコンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="context"&gt;コンテキスト&lt;/param&gt;
+        /// &lt;remarks&gt;
+        /// ServiceProviderを利用して publisher/subscriber のインスタンスを生成する。
+        /// &lt;/remarks&gt;
+        internal Form1(MyContext context) : this()
+        {
+            m_Context = context;
+            m_Publisher = context.CreatePublisher&lt;string, SampleMassage&gt;();
+            m_Subscriber = context.CreateSubscriber&lt;string, SampleMassage&gt;();
+            InitializePubSub();
+        }
+
+        #endregion
+
+        /// &lt;summary&gt;
+        /// Pub/Sub に関する初期処理
+        /// &lt;/summary&gt;
+        private void InitializePubSub()
+        {
+            // キーが "form1" であるメッセージを購読する
+            m_Releaser = m_Subscriber?.Subscribe(
+                "form1"
+                , x =&gt;
+                {
+                    System.Diagnostics.Debug.WriteLine($"subscribe: {x.Message}");
+                }
+            );
+        }
+
+        private readonly MyContext? m_Context;
+        private readonly MessagePipe.IPublisher&lt;string, SampleMassage&gt;? m_Publisher;
+        private readonly MessagePipe.ISubscriber&lt;string, SampleMassage&gt;? m_Subscriber;
+        private IDisposable? m_Releaser;
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            // メッセージを発行する
+            // 前述のサブスクライバには一つめのメッセージのみが送られる
+            m_Publisher?.Publish("form1"
+                , new SampleMassage($"message to form1 at {DateTime.Now}")
+            );
+            m_Publisher?.Publish("form2"
+                , new SampleMassage($"message to form2 at {DateTime.Now}")
+            );
+        }
+
+    }
+}
+

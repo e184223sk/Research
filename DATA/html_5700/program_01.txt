@@ -1,0 +1,94 @@
+
+    public class SasSampleMain
+    {
+        static async Task Main(string[] args)
+        {
+            CloudBlobContainer container = await BlobHelper.GetBlobContainer("sas-read-container");
+            CloudBlockBlob blob = container.GetBlockBlobReference("SasRead.txt");
+
+            // SasRead.txtをアップロード
+            await blob.UploadTextAsync("StorageのShaaredAccessSignatureのテスト");
+
+            // 読み取り専用のアクセスポリシーを作成
+            SharedAccessBlobPolicy sasConstraints = new SharedAccessBlobPolicy
+            {
+                SharedAccessExpiryTime = DateTime.UtcNow.AddHours(2),
+                Permissions = SharedAccessBlobPermissions.Read,
+            };
+
+            // SASトークン取得 
+            string sasContainerToken = container.GetSharedAccessSignature(sasConstraints);
+            // Uri作成
+            string containerSasUri = String.Format("{0}{1}", container.Uri, sasContainerToken);
+
+
+            CloudBlobContainer downContainer = await BlobHelper.GetBlobContainer("sas-write-container");
+
+            // 書き込み専用のアクセスポリシーを作成
+            SharedAccessBlobPolicy sasWriteConstraints = new SharedAccessBlobPolicy
+            {
+                SharedAccessExpiryTime = DateTime.UtcNow.AddHours(2),
+                Permissions = SharedAccessBlobPermissions.Write
+            };
+
+            // SASトークン取得 
+            string sasOutContainerToken = downContainer.GetSharedAccessSignature(sasWriteConstraints);
+            // Uri作成
+            string outContainerSasUri = String.Format("{0}{1}", downContainer.Uri, sasOutContainerToken);
+
+            // 読取/書込SasUriを別プロセスの引数として実行
+            string arg = $"{containerSasUri} SasRead.txt {outContainerSasUri} SasWrite.txt";
+            Execute(arg);
+
+        }
+
+        private static string Execute(string args)
+        {
+            // 実行ファイルパスの取得
+            var exePath = typeof(SharedAccessSignature.Worker.SasSampleWorker).Assembly.Location;
+            var rootPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+
+            var startInfo = new ProcessStartInfo()
+            {
+                Arguments = args,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                FileName = exePath
+            };
+
+            var output = new StringBuilder();
+            var timeout = TimeSpan.FromMinutes(5);
+
+            using (Process proc = Process.Start(startInfo))
+            {
+                var stdout = new StringBuilder();
+                var stderr = new StringBuilder();
+
+                proc.OutputDataReceived += (sender, e) =&gt; { if (e.Data != null) { stdout.AppendLine(e.Data); } };
+                proc.ErrorDataReceived += (sender, e) =&gt; { if (e.Data != null) { stderr.AppendLine(e.Data); } }; 
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+
+                var isTimedOut = false;
+
+                if (!proc.WaitForExit((int)timeout.TotalMilliseconds))
+                {
+                    isTimedOut = true;
+                    proc.Kill();
+                }
+                proc.CancelOutputRead();
+                proc.CancelErrorRead();
+
+                output.AppendLine(stdout.ToString());
+                output.AppendLine(stderr.ToString());
+                if (isTimedOut) throw new TimeoutException("timeout.");
+            }
+
+            return output.ToString();
+        }
+    }
+

@@ -1,0 +1,47 @@
+
+using System.Data.SQLite;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = "decimal2.db" };
+
+        using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+        {
+            cn.Open();
+
+            using (var cmd = new SQLiteCommand(cn))
+            {
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS decimal(" +
+                    "id INTEGER NOT NULL PRIMARY KEY," +
+                    "value REAL," +
+                    "str TEXT)";
+                cmd.ExecuteNonQuery();
+
+                var values = new double[] { 3.14, 31415926535897932384626.4338327950288, double.PositiveInfinity, double.NegativeInfinity, double.NaN };
+                var strs = new string[] { "pi", "exppi", "infinity", "-infinity", null };
+
+                cmd.Transaction = cn.BeginTransaction();
+
+                cmd.CommandText = "INSERT INTO decimal VALUES (?,?,?)";//プリペアドステートメント
+                foreach(var i in Enumerable.Range(0, values.Length))
+                {
+                    cmd.Parameters.Clear();//必須
+
+                    var id = new SQLiteParameter { DbType = System.Data.DbType.Int32, Value = i + 1 };
+                    cmd.Parameters.Add(id);
+                    var value = new SQLiteParameter { DbType = System.Data.DbType.Double, Value = values[i] };
+                    cmd.Parameters.Add(value);
+                    var str = new SQLiteParameter { DbType = System.Data.DbType.String, Value = strs[i] };
+                    cmd.Parameters.Add(str);
+
+                    cmd.ExecuteNonQuery();
+                }
+
+                cmd.Transaction.Commit();
+            }
+        }
+    }
+}
+

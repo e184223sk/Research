@@ -1,0 +1,179 @@
+
+public class Game_Controller
+{
+    // ディーラー
+    private IPlayer _dealer;
+    // 山札
+    private Deck cards;
+    // 参加プレイヤー管理リスト
+    private List&lt;IPlayer&gt; players;
+
+
+    // ゲームを開始するメソッド
+    public void Start_Game()
+    {
+        // 参加プレイヤー数を取得する
+        var entryNum = Get_EntryNumber_Player();
+
+        // 初期化
+        Initialize(entryNum);
+
+        // 最初の手札を配る
+        Deal_Card();
+
+        // プレイヤーのターン
+        foreach (var player in players)
+        {
+            player.MyTurn(cards);
+        }
+
+        // ディーラーのターン
+        _dealer.MyTurn(cards);
+
+        // 判定
+        Judge();
+    }
+
+    /// &lt;summary&gt;
+    /// 初期化処理
+    /// &lt;/summary&gt;
+    private void Initialize(int entryNum)
+    {
+        _dealer = new Dealer();
+        cards = new Deck();
+        players = new List&lt;IPlayer&gt;();
+
+        // プレイヤーをリストで管理
+        for (int i = 1; i &lt;= entryNum; i++)
+        {
+            players.Add(new Player(i));
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 参加プレイヤー数を取得する(1～4人)
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;参加プレイヤー数&lt;/returns&gt;
+    private int Get_EntryNumber_Player()
+    {
+        while (true)
+        {
+            Console.WriteLine(Properties.Resource.Msg_EntryNum);
+            var input = Console.ReadLine();
+            if (int.TryParse(input, out int num))
+            {
+                if (num &gt; 0 &amp;&amp; num &lt; 5)
+                {
+                    return num;
+                }
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// プレイヤーとディーラーに最初の手札を2枚ずつ配る
+    /// &lt;/summary&gt;
+    private void Deal_Card()
+    {
+        // カードを引いて画面に表示する
+        for (int i = 1; i &lt;= 2; i++)
+        {
+            foreach (var player in players)
+            {
+                player.Add_MyHand(cards.Hit_Card());
+            }
+
+            _dealer.Add_MyHand(cards.Hit_Card());
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 勝敗の判定
+    /// &lt;/summary&gt;
+    private void Judge()
+    {
+        /* ブラックジャックの勝敗 */
+        // プレイヤーとディーラーの両方がバースト　＝＞　引き分け
+        // プレイヤーがバースト　＝＞　ディーラーの勝ち
+        // ディーラーがバースト　＝＞　プレイヤーの勝ち
+        // プレイヤーの得点がディーラーより大きい　＝＞　プレイヤーの勝ち
+        // ディーラーの得点がプレイヤーより大きい　＝＞　ディーラーの勝ち
+        // 得点が同じ　＝＞　引き分け
+
+        // プレイヤーごとにディーラーとの勝敗を表示
+        foreach (var player in players)
+        {
+            Console.WriteLine();
+            Console.WriteLine(Properties.Resource.Msg_Judge, player.ToString());
+
+            // A(エース)を考慮して再計算
+            player.BestSelect_TotalValue();
+            _dealer.BestSelect_TotalValue();
+
+            if (player.isBusted &amp;&amp; _dealer.isBusted)
+            {
+                Console.WriteLine(Properties.Resource.Msg_Draw);
+            }
+            else if (player.isBusted)
+            {
+                Console.WriteLine(Properties.Resource.Msg_Win, _dealer.ToString());
+            }
+            else if (_dealer.isBusted)
+            {
+                Console.WriteLine(Properties.Resource.Msg_Win, player.ToString());
+            }
+            else if (player.TotalValue &gt; _dealer.TotalValue)
+            {
+                Console.WriteLine(Properties.Resource.Msg_Win, player.ToString());
+                if (player.TotalValue == 21)
+                {
+                    Console.WriteLine(Properties.Resource.Msg_BlackJack);
+                }
+            }
+            else if (player.TotalValue &lt; _dealer.TotalValue)
+            {
+                Console.WriteLine(Properties.Resource.Msg_Win, _dealer.ToString());
+            }
+            else
+            {
+                // ここまで来たら同点
+                Console.WriteLine(Properties.Resource.Msg_Draw);
+            }
+            Console.WriteLine(Properties.Resource.Msg_JudgeValue, player.ToString(), player.TotalValue, _dealer.TotalValue);
+        }
+    }
+
+
+    /// &lt;summary&gt;
+    /// プレイヤーにYes/Noの確認をする
+    /// &lt;/summary&gt;
+    /// &lt;param name="msg"&gt;表示メッセージ&lt;/param&gt;
+    /// &lt;returns&gt;true:Yes false:No&lt;/returns&gt;
+    public static bool Confilm(string msg)
+    {
+        while (true)
+        {
+            try
+            {
+                Console.WriteLine(msg + " y/n");
+
+                ConsoleKeyInfo key = Console.ReadKey();
+
+                switch (key.KeyChar)
+                {
+                    case 'y':
+                        return true;
+                    case 'n':
+                        return false;
+                    default:
+                        break;
+                }
+            }
+            finally
+            {
+                Console.WriteLine();
+            }
+        }
+    }
+}
+

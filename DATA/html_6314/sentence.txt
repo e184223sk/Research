@@ -1,0 +1,26 @@
+More than 3 years have passed since last update.前提として、以下の記事ようにTensorFLowSharpの導入が済んでいること。
+C#でTensorFlowを動かす。直接、C#のコードでグラフを作成しようとしたが、どうやら先人たちはPython上でグラフを書き、学習モデルを作成後、それを他の言語上で読み込んでいる。モデルを読み込む際に、Android（Java）やC++上でも同様であるが、チェックポイント(シリアル化された変数)のエクスポートデータを直接読込むことはできないので、プロトコルバッファ(シリアル化されたグラフ)にチェックポイントをマージしなければ使うことができない。つまり、変数の状態をもつプロトコルバッファを作成する。
+ グラフとテンソルデータの両方を出力するためには、VariablesをConstantに変換後、再度グラフを作成してProtocolBuffersファイルとして出力する必要がある。　方法としては、2つあり、手動で変換する方法と、自動で変換する方法がある。今回は両方法を示す。macOS Sierra
+TensorFlow on python3: 1.0.0 
+TensorFlow on c#(c): 1.0.0-rc0
+Python 3.6.0
+Visul Studio for Mac ver 7.0.1まずは、以下のCNNのモデルを作成する.
+input_data.pyを、ここから落として、model.pyの同層に配置する。参考
+https://github.com/miyosuda/TensorFlowAndroidMNIST/blob/master/trainer-script/expert.py
+TensorFlow 畳み込みニューラルネットワークで手書き認識率99.2%の分類器を構築　学習後に、Variableの値をevalで取り出して、Constantにする。
+　流れとしてはViriables -&gt; ndarray -&gt; Constantと変換する。その後、Constantでグラフを再構成して、プロトコルバッファとして書き出す。名前は、C#上でモデルを読込むときに対応させるためのもの。参考
+https://github.com/miyosuda/TensorFlowAndroidMNIST/blob/master/trainer-script/expert.py
+TesorFlow: Pythonで学習したデータをAndroidで実行TensorFlowで学習してモデルファイルを小さくしてコマンドラインアプリを作るシンプルな流れ
+上記の記事のようにfreeze_graph.pyは使おうとしたが、エラーが何度も出て、r12の新しいモデル形式への未対応やpython3のとき引数が増えたりするので面倒になり、使わないことにした。そのため、今回はconvert_variables_to_constants()のみを使った。
+モデルの学習後に、convert_variables_to_constants()でvariableからconstantへ変換後、プロトコルバッファとして書き出す。
+　ただし、手動で変換していたときは、グラフの再構成するときに各ノードに名前をつけていたが、今回は学習を行ったグラフを変換するため、各ノードに名前をつけておく必要がある。この名前がC#上で読込むときに対応する。参考
+http://tyfkda.github.io/blog/2016/09/14/tensorflow-protobuf.html手動での変換と、convert_variables_to_constants()を用いた変換では、モデルの実行方法が少し異なる。
+　手動での変換では推論では使わないDropoutは入れてないが、convert_variables_to_constants()で変換したときDropoutのplaceholderはそのままなので、実行時に値を入れる必要がある。以下に手動で変換したときに書き出したモデルのManual_model.pbの読込み及び推測のコードを示す。以下のlabels.txtとtemp.jpg、作成した学習モデルを実行ファイルと同層に配置する。temp.jpg ↓
+convert_variables_to_constants()で変換したときは、以下のようにコードを変更する。一応実行時の結果の画像を示す。
+Manual_model.pbの実行結果
+
+Auto_model.pbの実行結果
+C#上で学習をさせたくて、一からモデルを構築しようとしたが、最適化関数が一つしか見つからず、リファレンスもなくなってたので使い方が分からず詰んだ。また、python上でモデルをつくって読み込み後、グラフを再構築すればよいとも考えたが、チェックポイントファイルから最適化器のデータを取り除いてあるので、pythonので書いてもC#上では使えない。
+今後の課題としては、最適化関数の使い方を知ってC#上で学習をさせたい。
+
+

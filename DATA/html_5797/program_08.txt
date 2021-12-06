@@ -1,0 +1,107 @@
+
+using System;
+using System.Collections.Generic;
+
+namespace Rpn.App {
+
+    public abstract class Node {
+        public abstract void Parse(Context context);
+        public static bool IsOperator(char c) {
+            return (c == '+' || c == '-' || c == '*' || c == '/');
+        }
+
+        public static bool IsParenthesis(char c) {
+            return (c == '(' || c == ')');
+        }
+
+        public static bool IsSign(char c) {
+            return (c == '-' || c == '+');
+        }
+
+        public static int GetSign(string s) {
+            if (s[0] == '-')
+                return -1;
+            return 1;
+        }
+    }
+
+    public class SignedNumberNode : Node {
+        public override void Parse(Context context) {
+            var token = context.CurrentToken;
+            int sign = 1;
+            IEnumerable&lt;char&gt; nstr = token;
+            if (IsSign(token[0])) {
+                sign = GetSign(token);
+                context.MoveNext();
+                token += context.CurrentToken;
+            }
+            if (decimal.TryParse(token, out var num)) {
+                context.Notation.Add(token);
+            } else {
+                throw new ArithmeticException("正しい式ではありません");
+            }
+            context.MoveNext();
+        }
+    }
+
+    public class FactorNode : Node {
+        public override void Parse(Context context) {
+            var token = context.CurrentToken;
+            if (token == "(") {
+                context.MoveNext();
+                Node node = new ExpressionNode();
+                node.Parse(context);
+                context.MoveNext();
+            } else {
+                Node node = new SignedNumberNode();
+                node.Parse(context);
+            }
+        }
+    }
+
+    public class DivTermNode : Node {
+        public override void Parse(Context context) {
+            Node node1 = new FactorNode();
+            node1.Parse(context);
+            string token = context.CurrentToken;
+            while (token == "/") {
+                context.MoveNext();
+                Node node2 = new FactorNode();
+                node2.Parse(context);
+                context.Notation.Add(token);
+                token = context.CurrentToken;
+            }
+        }
+    }
+
+    public class TermNode : Node {
+        public override void Parse(Context context) {
+            Node node1 = new DivTermNode();
+            node1.Parse(context);
+            string token = context.CurrentToken;
+            while (token == "*") {
+                context.MoveNext();
+                Node node2 = new DivTermNode();
+                node2.Parse(context);
+                context.Notation.Add(token);
+                token = context.CurrentToken;
+            }
+        }
+    }
+
+    public class ExpressionNode : Node {
+        public override void Parse(Context context) {
+            Node node1 = new TermNode();
+            node1.Parse(context);
+            var token = context.CurrentToken;
+            while (token == "+" || token == "-") {
+                context.MoveNext();
+                Node node2 = new TermNode();
+                node2.Parse(context);
+                context.Notation.Add(token);
+                token = context.CurrentToken;
+            }
+        }
+    }
+}
+

@@ -1,0 +1,310 @@
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+
+public static class NativeMethods
+{
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KBDLLHOOKSTRUCT
+    {
+        public int vkCode;
+        public int scanCode;
+        public int flags;
+        public int time;
+        public IntPtr dwExtraInfo;
+    }
+
+    public const int WH_KEYBOARD_LL = 13;
+    public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowsHookEx(int idHook, HookProc callback, IntPtr hInstance, int threadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UnhookWindowsHookEx(IntPtr hHook);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr CallNextHookEx(IntPtr hHook, int nCode, IntPtr wParam, IntPtr lParam);
+
+    public const int  WM_KEYDOWN = 0x0100;
+}
+
+
+public class MyCommand
+{
+    public string CommandType{get;set;}
+    public string CommandContent{get;set;}
+
+    public MyCommand(string type, string content)
+    {
+        CommandType = type;
+        CommandContent = content;    
+    }
+
+    public bool Execute()
+    {
+        if (CommandType == "OPEN") {
+            try {
+                Process.Start(CommandContent);
+            }
+            catch ( System.ComponentModel.Win32Exception e ) {
+                MessageBox.Show(e.ToString());
+            }
+            catch ( ObjectDisposedException e ) {
+                MessageBox.Show(e.ToString());
+            }
+            catch ( FileNotFoundException e ) {
+                MessageBox.Show(e.ToString());
+            }
+            return true;
+        }
+        return false;
+    }
+}
+
+public class ShortcutKeyboard : Form
+{
+    static readonly string mutexName = "kob58im_ShortcutKeyboard";
+
+    const int VK_0 = 0x30;
+    const int VK_9 = 0x39;
+    const int VK_A = 0x41;
+    const int VK_Z = 0x5A;
+    readonly string[] lineKeys = new string[]{"1234567890","QWERTYUIOP","ASDFGHJKL","ZXCVBNM"};
+    readonly string commandFile = "commands.txt";
+
+    IntPtr _hHook;
+    NativeMethods.HookProc _handler;
+    NativeMethods.KBDLLHOOKSTRUCT _lastKey;
+    GCHandle _hookProcHandle;
+    bool _hookExitReq;
+    Dictionary&lt;int,MyCommand&gt; _commands;
+
+    System.Windows.Forms.Timer timer;
+    PictureBox pct;
+    readonly int W = 450;
+    readonly int H = 200;
+
+    ShortcutKeyboard()
+    {
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 50;
+        timer.Tick += (s,e)=&gt;{Timer_Tick();};
+
+        Load += (s,e)=&gt;{Form_Load();};
+        FormClosed += (s,e)=&gt;{UnHook();};
+
+        this.Text = "ShortcutKeyboard";
+        // this.Opacity = 0.85;
+        this.StartPosition = FormStartPosition.CenterScreen;
+        this.ClientSize = new Size(W, H);
+        this.TopMost = true; // 最前面表示
+        this.FormBorderStyle = FormBorderStyle.FixedSingle;
+        this.MaximizeBox = false; // 最大化禁止
+        this.MinimizeBox = false; // 最小化禁止
+
+        pct = new PictureBox(){
+            Size = new Size(W, H),
+        };
+        pct.Image = new Bitmap(W, H);
+        Controls.Add(pct);
+
+        _commands = LoadCommands();
+    }
+
+    void MyDraw()
+    {
+        Color backColor = Color.White;
+        Brush foreBrush = Brushes.Black;
+        Brush nodataBrush = Brushes.LightGray;
+        Pen forePen = Pens.Black;
+        Pen nodataPen = new Pen(Color.LightGray, 1.0f);
+        /*
+        Color backColor = Color.Black;
+        Brush foreBrush = Brushes.White;
+        Brush nodataBrush = Brushes.Gray;
+        Pen forePen = Pens.White;
+        Pen nodataPen = new Pen(Color.Gray, 1.0f);
+        nodataPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+        */
+        Font font = new Font("Arial", 20.0f, GraphicsUnit.Pixel);
+        using ( Graphics g = Graphics.FromImage(pct.Image) ) {
+            g.Clear(backColor);
+            foreach ( char c in string.Join("", lineKeys) ) {
+                Rectangle rect = RectFromChar(c);
+                if ( _commands.ContainsKey((int)c) ) {
+                    g.DrawRectangle(forePen, rect);
+                    g.DrawString(c.ToString(), font, foreBrush, rect.Location);
+                }
+                else {
+                    g.DrawRectangle(nodataPen, rect);
+                    g.DrawString(c.ToString(), font, nodataBrush, rect.Location);
+                }
+            }
+        }
+        pct.Refresh();
+    }
+
+    void IndicesFromChar(char c, out int index, out int lineNo)
+    {
+        for ( lineNo=0 ; lineNo&lt;lineKeys.Length ; lineNo++ ) {
+            index = lineKeys[lineNo].IndexOf(c);
+            if ( index &gt;= 0 ) {
+                return;
+            }
+        }
+        index = -1;
+        lineNo = -1;
+    }
+
+    Rectangle RectFromChar(char c)
+    {
+        int xi;
+        int yi;
+        IndicesFromChar(c, out xi, out yi);
+        return new Rectangle(20 + xi*40 + yi*12, 20 + yi*40, 35, 35);
+    }
+
+    void Timer_Tick()
+    {
+        bool isFirst = timer.Enabled;
+        timer.Stop();
+        UnHook();
+
+        if ( !isFirst ) {
+            return;
+        }
+
+        _commands[_lastKey.vkCode].Execute();
+        this.Close();
+    }
+
+    void Form_Load()
+    {
+        MyDraw();
+
+        try {
+            SetHook();
+        }
+        catch (System.ComponentModel.Win32Exception e) {
+            MessageBox.Show(e.ToString());
+            return;
+        }
+    }
+
+    void SetHook()
+    {
+        IntPtr module = IntPtr.Zero;
+        _handler = CallbackProc;
+        _hookProcHandle = GCHandle.Alloc(_handler);
+        _hHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _handler, module, 0);
+
+        if ( _hHook == IntPtr.Zero ) {
+            // failed
+            int errorCode = Marshal.GetLastWin32Error();
+            _hookProcHandle.Free();
+            _handler = null;
+            throw new System.ComponentModel.Win32Exception(errorCode);
+        }
+    }
+
+    void UnHook()
+    {
+        if ( _hHook != IntPtr.Zero ) {
+            NativeMethods.UnhookWindowsHookEx(_hHook);
+            _hHook = IntPtr.Zero;
+            _hookProcHandle.Free();
+            _handler = null;
+        }
+    }
+
+
+    IntPtr CallbackProc(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if ( nCode &lt; 0 || _hookExitReq ) {
+            return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+        }
+        else {
+            if ( (long)wParam == NativeMethods.WM_KEYDOWN ) {
+                _lastKey = (NativeMethods.KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(NativeMethods.KBDLLHOOKSTRUCT));
+
+                if ( ( _lastKey.vkCode &gt;= VK_0 &amp;&amp; _lastKey.vkCode &lt;= VK_9 ) ||
+                     ( _lastKey.vkCode &gt;= VK_A &amp;&amp; _lastKey.vkCode &lt;= VK_Z ) ) {
+
+                    if ( _commands.ContainsKey(_lastKey.vkCode) ) {
+                        _hookExitReq = true;
+                        timer.Start();
+                    }
+                    // cancel
+                    return new IntPtr(1);
+                }
+            }
+
+            return NativeMethods.CallNextHookEx(_hHook, nCode, wParam, lParam);
+        }
+    }
+
+    Dictionary&lt;int,MyCommand&gt; LoadCommands()
+    {
+        string[] ss;
+        try {
+            ss = File.ReadAllLines(commandFile); //, Encoding.GetEncoding("SHIFT_JIS"));
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return null;
+        }
+
+        var dict = new Dictionary&lt;int,MyCommand&gt;();
+        Regex r = new Regex(@"^([A-Za-z0-9])\s+([A-Za-z0-9_]+)\s+(.*)$");
+
+        foreach (string s in ss) {
+            Match m = r.Match(s);
+            if (m.Success) {
+                char key = (m.Groups[1].Value.ToUpperInvariant())[0];
+                string type = m.Groups[2].Value.ToUpperInvariant();
+                string content = m.Groups[3].Value;
+                dict.Add((int)key, new MyCommand(type,content));
+            }
+        }
+        return dict;
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        var mutex = new System.Threading.Mutex(false, mutexName);
+
+        bool hasHandle = false;
+        try {
+            try {
+                //ミューテックスの所有権を要求する
+                hasHandle = mutex.WaitOne(0, false);
+            }
+            catch (System.Threading.AbandonedMutexException) {
+                // 別のアプリケーションがミューテックスを解放しないで終了した時
+                hasHandle = true;
+            }
+            if (hasHandle == false) {
+                MessageBox.Show("多重起動はできません。");
+                return;
+            }
+            Application.Run(new ShortcutKeyboard());
+        }
+        finally {
+            if (hasHandle) {
+                mutex.ReleaseMutex();
+            }
+            mutex.Close();
+        }
+    }
+}
+

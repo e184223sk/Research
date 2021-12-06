@@ -1,0 +1,144 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+
+namespace EnumSystemMessagesTool
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            //  サンプルDLL
+            var targetFilePath = @"C:\Windows\System32\kernel32.dll";
+
+            var messages = EnumMessageTableMessages(targetFilePath);
+            if (!messages.Any())
+            {
+                Console.WriteLine("読み込めませんでした");
+                return;
+            }
+            foreach (var msg in messages)
+            {
+                Console.WriteLine("{0} : {1}", msg.Item1, msg.Item2);
+            }
+            Console.WriteLine("おわりました");
+            Console.Read();
+        }
+
+        static IEnumerable&lt;System.Tuple&lt;UInt32, string&gt;&gt; EnumMessageTableMessages(string filePath)
+        {
+            //  メッセージテーブルリソースをもつファイルを読み込みます。
+            var hModule = NativeMethods.LoadLibraryEx(filePath, IntPtr.Zero, NativeMethods.LoadLibraryExFlags.DONT_RESOLVE_DLL_REFERENCES | NativeMethods.LoadLibraryExFlags.LOAD_LIBRARY_AS_DATAFILE);
+            if (IntPtr.Zero.Equals(hModule))
+                yield break;
+            try
+            {
+                var hRsrc = NativeMethods.FindResourceEx(hModule, new IntPtr(NativeMethods.RT_MESSAGETABLE), new IntPtr(1), NativeMethods.LANGID_NEUTRAL);
+                if (!IntPtr.Zero.Equals(hRsrc))
+                {
+                    var hGlobal = NativeMethods.LoadResource(hModule, hRsrc);
+                    if (!IntPtr.Zero.Equals(hGlobal))
+                    {
+                        var topOfResourceData = NativeMethods.LockResource(hGlobal);
+                        if (!IntPtr.Zero.Equals(topOfResourceData))
+                        {
+                            // ブロック数はDWORD
+                            var numOfBlocks = Marshal.ReadInt32(topOfResourceData);
+                            var ptrInBlocks = topOfResourceData + 4;
+                            for(int i = 0; i &lt; numOfBlocks; i++)
+                            {
+                                // 先頭IDはDWORD
+                                var lowID = (UInt32)Marshal.ReadInt32(ptrInBlocks);
+                                ptrInBlocks += 4;
+                                // 終端IDはDWORD
+                                var highID = (UInt32)Marshal.ReadInt32(ptrInBlocks);
+                                ptrInBlocks += 4;
+                                // オフセットはDWORD
+                                var offsetFromTop = Marshal.ReadInt32(ptrInBlocks);
+                                ptrInBlocks += 4;
+
+                                var ptrOfMessage = topOfResourceData + offsetFromTop;
+                                for(var j = lowID; j &lt;= highID; j++)
+                                {
+                                    // この構造のバイトサイズはWORD
+                                    var lengthInBytes = Marshal.ReadInt16(ptrOfMessage);
+                                    var messageLengthInBytes = lengthInBytes - 4;
+                                    ptrOfMessage += 2;
+                                    // フラグ（文字種）はWORD
+                                    var flag = Marshal.ReadInt16(ptrOfMessage);
+                                    ptrOfMessage += 2;
+
+                                    string str = string.Empty;
+                                    switch (flag)
+                                    {
+                                        case 0:
+                                            str = Marshal.PtrToStringAnsi(ptrOfMessage, messageLengthInBytes);
+                                            break;
+                                        case 1:
+                                            str = Marshal.PtrToStringUni(ptrOfMessage, messageLengthInBytes / 2);
+                                            break;
+                                    }
+                                    ptrOfMessage += messageLengthInBytes;
+
+                                    yield return new Tuple&lt;uint, string&gt;(j, str.Trim());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                // 読み込んだファイルを閉じます。
+                NativeMethods.FreeLibrary(hModule);
+            }
+
+        }
+
+        private class NativeMethods
+        {
+            public const int RT_MESSAGETABLE = 0x0000000B;
+            public const UInt16 LANGID_NEUTRAL = 0x0000;
+
+            [Flags]
+            public enum LoadLibraryExFlags : UInt32
+            {
+                DONT_RESOLVE_DLL_REFERENCES = 0x0000001,
+                LOAD_LIBRARY_AS_DATAFILE = 0x00000002
+            }
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr LoadLibraryEx(
+                string lpFileName,
+                IntPtr hFile,
+                LoadLibraryExFlags dwFlags
+                );
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool FreeLibrary(
+                IntPtr hModule
+                );
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr FindResourceEx(
+                IntPtr hModule,
+                IntPtr lpszType,
+                IntPtr lpszName,
+                UInt16 wLangID
+            );
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr LoadResource(
+                IntPtr hModule,
+                IntPtr hRsrc
+            );
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr LockResource(
+                IntPtr hResData
+            );
+        }
+    }
+}
+

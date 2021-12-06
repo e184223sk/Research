@@ -1,0 +1,96 @@
+using System;
+using System.Management;
+
+namespace CheckDeviceConnectionTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            string name = "通信ポート";
+            DeviceChecker dc = new DeviceChecker();
+            dc.Name = name;
+            dc.PartialMactch = true;
+
+            if (dc.IsDeviceConnected())
+            {
+                Console.WriteLine("Port : " + dc.GetPortName());
+            }
+            else
+            {
+                Console.WriteLine("接続されていません。");
+            }
+
+            Console.Read();
+        }
+    }
+
+    class DeviceChecker
+    {
+        public string Name { get; set; }
+        // 部分一致
+        public bool PartialMactch { get; set; }
+
+        private string QueryString
+        {
+            get
+            {
+                if (PartialMactch)
+                {
+                    return "SELECT * FROM Win32_PnPEntity WHERE Name LIKE \"%" + Name + "%\"";
+                }
+                else
+                {
+                    return "SELECT * FROM Win32_PnPEntity WHERE Name =" + Name;
+                }
+            }
+        }
+
+        public DeviceChecker()
+        {
+            PartialMactch = true;
+        }
+
+        // 接続されてるか確認
+        public bool IsDeviceConnected()
+        {
+            ManagementObjectSearcher mos = new ManagementObjectSearcher();
+
+            mos.Query.QueryString = QueryString;
+
+            var moc = mos.Get();
+
+            return moc.Count &gt; 0;
+        }
+
+        // ポート番号取得
+        public string GetPortName()
+        {
+            ManagementObjectSearcher mos = new ManagementObjectSearcher();
+            var check = new System.Text.RegularExpressions.Regex("(COM[1-9][0-9]?[0-9]?)");
+
+            mos.Query.QueryString = QueryString;
+
+            var moc = mos.Get();
+
+            foreach(var m in moc)
+            {
+                string value = m.GetPropertyValue("Name") as string;
+                if(value == null)
+                {
+                    continue;
+                }
+
+                if (check.IsMatch(value))
+                {
+                    var match = check.Match(value);
+                    return match.Captures[0].Value;
+                }
+            }
+
+            return null;
+        }
+    }
+}
+
+

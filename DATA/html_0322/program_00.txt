@@ -1,0 +1,78 @@
+using Microsoft.Azure.Kinect.BodyTracking;
+using Microsoft.Azure.Kinect.Sensor;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.UI;
+namespace BodyEffect
+{
+    public class ShoulderPet : MonoBehaviour
+    {
+        [SerializeField]
+        GameObject kusoPetPrefab;
+        [SerializeField]
+        RawImage cameraScreen;
+        private Device kinect;
+        private Tracker tracker;
+        private Texture2D texture;
+        private GameObject kusoPet;
+        private void Awake()
+        {
+            this.kinect = Device.Open(0);
+            this.kinect.StartCameras(new DeviceConfiguration
+            {
+                ColorFormat = ImageFormat.ColorBGRA32,
+                ColorResolution = ColorResolution.R720p,
+                DepthMode = DepthMode.NFOV_2x2Binned,
+                SynchronizedImagesOnly = true,
+                CameraFPS = FPS.FPS30
+            });
+            var width = kinect.GetCalibration().ColorCameraCalibration.ResolutionWidth;
+            var height = kinect.GetCalibration().ColorCameraCalibration.ResolutionHeight;
+            this.texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            this.texture.Apply();
+            this.cameraScreen.texture = this.texture;
+            this.tracker = Tracker.Create(kinect.GetCalibration(), TrackerConfiguration.Default);
+            this.kusoPet = Instantiate(this.kusoPetPrefab, this.transform);
+            var t = this.KinectLoop();
+        }
+        private void OnDestroy()
+        {
+            this.kinect.StopCameras();
+        }
+        private async Task KinectLoop()
+        {
+            while (true)
+            {
+                using (var capture = await Task.Run(() =&gt; this.kinect.GetCapture()).ConfigureAwait(true))
+                {
+                    var colorImage = capture.Color;
+                    var colorArray = colorImage.GetPixels&lt;BGRA&gt;().ToArray();
+                    var colors = new Color32[colorArray.Length];
+                    for (var i = 0; i &lt; colorArray.Length; i++)
+                    {
+                        colors[i].b = colorArray[i].B;
+                        colors[i].g = colorArray[i].G;
+                        colors[i].r = colorArray[i].R;
+                        colors[i].a = 255;
+                    }
+                    this.texture.SetPixels32(colors);
+                    this.texture.Apply();
+                    this.tracker.EnqueueCapture(capture);
+                    var frame = tracker.PopResult();
+                    if (frame.NumberOfBodies &gt; 0)
+                    {
+                        var joint = frame.GetBodySkeleton(0).GetJoint(JointId.ShoulderRight);
+                        // 生座標は動きすぎるので適当に調整
+                        var jointPos = new Vector3(
+                                -1 * joint.Position.X / 30,
+                                -1 * joint.Position.Y / 30 + 6,
+                                joint.Position.Z / 30
+                            );
+                        this.kusoPet.transform.localPosition = jointPos;
+                    }
+                }
+            }
+        }
+    }
+}
+

@@ -1,0 +1,56 @@
+
+using System.Linq;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.Extensions.Logging;
+
+namespace FiltersSample.Filters
+{
+    public class ValidateIdAttribute : ActionFilterAttribute
+    {
+        // パラメータのnullチェックをするかどうか
+        public string ParameterName { get; set; }
+        private readonly ILogger&lt;ValidateIdAttribute&gt; _logger;
+
+        public ValidateIdAttribute()
+        {
+            _logger = new LoggerFactory().CreateLogger&lt;ValidateIdAttribute&gt;();
+            ParameterName = "id";
+        }
+
+        public override void OnActionExecuting(ActionExecutingContext actionContext)
+        {
+            if (!actionContext.ActionArguments.All(x =&gt; x.Key != ParameterName || checkValue(x.Value as string ?? string.Empty)))
+            {
+                // 数字じゃない
+                string message = $"バリデート:{ParameterName}に数字以外が含まれます。";
+                actionContext.ModelState[ParameterName].Errors.Add(message);
+                actionContext.ModelState[ParameterName].ValidationState = ModelValidationState.Invalid;
+                _logger.LogError(message);
+                actionContext.Result = new BadRequestObjectResult(actionContext.ModelState);
+                //actionContext.Result = new BadRequestResult();// こっちだと既定のbodyが返る
+            }
+            else if (!actionContext.ModelState.IsValid)
+            {
+                // Data Annotationsでひっかかった
+                string message = string.Join("; ", actionContext.ModelState.Select(pair=&gt;$"{pair.Key} = {pair.Value.RawValue.ToString()} "));
+                _logger.LogError($"バリデート:{message}");
+                actionContext.Result = new BadRequestObjectResult(actionContext.ModelState);
+                //actionContext.Result = new BadRequestResult();// こっちだと既定のbodyが返る
+            }
+
+            // その他チェックすべきものがあれば実装
+
+            base.OnActionExecuting(actionContext);
+        }
+
+
+        private bool checkValue(string id)
+        {
+            return id.Length == 12 &amp;&amp; id.All(char.IsDigit);
+        }
+    }
+}
+
+

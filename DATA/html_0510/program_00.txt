@@ -1,0 +1,64 @@
+using VRM;
+
+private VRMBlendShapeProxy vrmBlendShapeProxy;
+private AudioSource audioSource;
+
+void Start()
+{
+    vrmBlendShapeProxy = this.GetComponent&lt;VRMBlendShapeProxy&gt;();
+    string[] letters = new string[5] { "ko","nn","ni","ti","wa" };
+    float[] dts = new float[5] { 0.15f, 0.2f, 0.22f, 0.2f, 0.18f };
+
+    // 上記の他、口の形のデータを Dictionary&lt;string, float[]&gt;　で lipShape に読み込んでおきます。
+    //（例）lipShape["k"] = { 0.1f, 0.0f, 0.1f, 0.0f, 0.0f }　　　"A","I","U","E","O" の各 BlendShape.Value
+
+    // AudioSource での音声データ再生
+    // 実際には、以下の4行は PlayVoice というコルーチンで処理しています。
+    // PlayVoice内から PlayLipSync(letters, dts) を実行しています。
+
+    audioSource = this.GetComponent&lt;AudioSource&gt;();
+    audioSource.clip = "こんにちは";
+    audioSource.Play();
+    StartCoroutine(PlayLipSync(letters, dts));
+}
+
+IEnumerator PlayLipSync(string[] letters, string[] dts)
+{
+    // 【注】この例ではリミテッドアニメーションぽい処理になっています。
+    // 実際は Mathf.Lerp, Time.deltaTime等 を使ってフルアニメーションぽい感じにしています。 
+
+    // 口の大きさを AudioSourceのvolumeで取得する。
+    // リアルタイムでClipの音量を取得し口の大きさに反映させる方法は試したものの、思ったほど効果はありませんでした。
+    float vv = 0.5f * audioSoure.volume + 0.5f;
+
+    for (int i = 0; i &lt; letters.Length; i++ )
+    {
+        string let1 = letters[i].Substring(0, 1);
+        string let2 = letters[i].Substring(1, 1);
+
+        // 1文字目の時間は0.05秒で固定
+        // そもそも 1文字目で 0.05秒未満の発話時間しかない場合には、以下の処理を行わないようにしておきます。
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.A), lipShape[let1][0] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.I), lipShape[let1][1] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.U), lipShape[let1][2] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.E), lipShape[let1][3] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.O), lipShape[let1][4] * vv);
+        vrmBlendShapeProxy.Apply();
+
+        // 1文字目の口の形で 0.05秒
+        yield return new WaitForSecondsRealtime(0.05f);
+
+        // 2文字目
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.A), lipShape[let2][0] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.I), lipShape[let2][1] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.U), lipShape[let2][2] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.E), lipShape[let2][3] * vv);
+        vrmBlendShapeProxy.AccumulateValue(BlendShapeKey.CreateFromPreset(BlendShapePreset.O), lipShape[let2][4] * vv);
+        vrmBlendShapeProxy.Apply();
+
+        // 2文字目の口の形で （dts[i] - 0.05）秒
+        yield return new WaitForSecondsRealtime(dts[i] - 0.05f);
+    }
+    yield break;
+}
+

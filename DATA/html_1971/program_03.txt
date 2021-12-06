@@ -1,0 +1,41 @@
+
+public static Task&lt;string&gt; GenerateResolverAsync(MpcArgument argument)
+{
+    var psi = new ProcessStartInfo()
+    {
+        CreateNoWindow = true,
+        WindowStyle = ProcessWindowStyle.Hidden,
+        StandardOutputEncoding = Encoding.UTF8,
+        StandardErrorEncoding = Encoding.UTF8,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        FileName = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Personal), ".dotnet/tools/dotnet-mpc"),
+        Arguments = argument.ToString(),
+        WorkingDirectory = Application.dataPath
+    };
+
+    Process p;
+    try
+    {
+        p = Process.Start(psi);
+    }
+    catch (Exception ex)
+    {
+        return Task.FromException&lt;string&gt;(ex);
+    }
+
+    var tcs = new TaskCompletionSource&lt;string&gt;();
+    p.EnableRaisingEvents = true;
+    p.Exited += (object sender, System.EventArgs e) =&gt;
+    {
+        var data = p.StandardOutput.ReadToEnd();
+        p.Dispose();
+        p = null;
+
+        tcs.TrySetResult(data);
+    };
+
+    return tcs.Task;
+}
+

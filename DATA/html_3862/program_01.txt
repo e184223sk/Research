@@ -1,0 +1,122 @@
+
+using System;
+using System.Linq;
+using System.IO;
+using System.Text;
+using System.Collections;
+using System.Collections.Generic;
+
+class Player
+{
+    static void Main(string[] args) {
+        Player control = new Player();
+        string[] inputs;
+        Position[] positions;
+        // game loop
+        while (true) {
+            inputs = Console.ReadLine().Split(' ');
+            int N = int.Parse(inputs[0]); // total number of players (2 to 4).
+            int P = int.Parse(inputs[1]); // your player number (0 to 3).
+            Console.Error.WriteLine("P={0}", P);
+            positions = new Position[N];
+            for (int i = 0; i &lt; N; i++) {
+                inputs = Console.ReadLine().Split(' ');
+                int X0 = int.Parse(inputs[0]); // starting X coordinate of lightcycle (or -1)
+                int Y0 = int.Parse(inputs[1]); // starting Y coordinate of lightcycle (or -1)
+                int X1 = int.Parse(inputs[2]); // starting X coordinate of lightcycle (can be the same as X0 if you play before this player)
+                int Y1 = int.Parse(inputs[3]); // starting Y coordinate of lightcycle (can be the same as Y0 if you play before this player)
+                positions[i] = new Position(i, X0, Y0, X1, Y1);
+            }
+            string dir = control.HandleVehicless(positions, P);
+            control.DumpMap();
+            Console.WriteLine(dir);
+        }
+    }
+    // 自分も含めて誰かが通った座標を記憶しておくために使う。
+    // 誰も通ってない場合は -1。通った、または現在いるマスに対してはプレイヤーのメンバーIDを格納する。
+    int[,] map = new int[30,20];
+    // メインコントロールクラスのコンストラクタ(map内の値を-1(＝誰も通ってない)に初期化しておく。)
+    private Player() {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                map[x, y] = -1;
+            }
+        }
+    }
+    private string HandleVehicless(Position[] positions, int myIndex) {
+        Position me = positions[myIndex]; // me = 自分の座標情報
+        Console.Error.WriteLine(me); // me を標準エラーに出力(public override string ToString()の定義による)
+        foreach(var p in positions) { // (me も含めて)全キャラの座標を通ってはいけない場所に登録。
+            AddToMap(p); // ただし、死にキャラの場合はそのキャラの座標情報を全消去する。
+        }
+        // 上下左右のマスを判定し通ってはいけない場所でなければその方向を返す。
+        if (!FoundFromMap(me, -1, 0)) return "LEFT";
+        if (!FoundFromMap(me, 1, 0)) return "RIGHT";
+        if (!FoundFromMap(me, 0, -1)) return "UP";
+        if (!FoundFromMap(me, 0, 1)) return "DOWN";
+        return "LEFT"; // ここに来た時点でどの方向も通れないが一応正式な値の一つとして "LEFT" を返す。
+    }
+    void AddToMap(Position p) {
+        if (p.X1 &lt; 0) {
+            DeleteMemberIdsFromMap(p.Id); // 現在座標がマイナス値で来たら死にキャラなのでマップから消す。
+            return;
+        }
+        this.map[p.X1, p.Y1] = p.Id; // 配列にプレイヤーのメンバーIDを登録する。
+    }
+    void DeleteMemberIdsFromMap(int id) {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                if (map[x, y] == id) map[x, y] = -1;
+            }
+        }
+    }
+    // map を検索して通れない場所の場合 true を返す。通れる場合は false。
+    // me(自機の座標)に xOffset と yOffset を加えた場所について判定(検索)する。
+    bool FoundFromMap(Position me, int xOffset, int yOffset) {
+        int x = me.X1+xOffset;
+        int y = me.Y1+yOffset;
+        if (x &lt; 0) return true;
+        if (x &gt; 29) return true;
+        if (y &lt; 0) return true;
+        if (y &gt; 19) return true;
+        return map[x, y] != -1;
+    }
+    // デバッグ用に 30x20 のマップを表示(現在生きているメンバーのIDを表示。空のマスは '-' を出力)
+    void DumpMap() {
+        for(int y=0; y&lt;20; y++) {
+            for(int x=0; x&lt;30; x++) {
+                if (map[x, y] == -1) Console.Error.Write("-"); // -1の場合はマイナス記号を出力。
+                else Console.Error.Write(map[x, y]); // -1でなければプレイヤーID(0以上)を出力。
+                Console.Error.Write(" ");
+            }
+            Console.Error.WriteLine();
+        }
+    }
+}
+// キャラクターの座標を登録・記憶しておくための入れ物。
+// Main 関数が受け取る標準入力の情報を格納するための構造体のようなもの。
+// Player インスタンスの各メソッドの引数は標準入力とのやり取りを意識せず、この構造体を期待できる。
+class Position
+{
+    public int Id;
+    public int X0;
+    public int Y0;
+    public int X1;
+    public int Y1;
+    public Position(int id, int x0, int y0, int x1, int y1)
+    {
+        this.Id = id;
+        this.X0 = x0;
+        this.Y0 = y0;
+        this.X1 = x1;
+        this.Y1 = y1;
+    }
+    // デバッグなどで出力される際のフォーマットを制御する。
+    public override string ToString()
+    {
+        //return "{X0:" + X0 + ", Y0:" + Y0 + ", X1:" + X1 + ", Y1:" + Y1 + "}";
+        return String.Format("{{X0:{0}, Y0:{1}, X1:{2}, Y1:{3}}}", X0, Y0, X1, Y1);
+    }
+}
+
+

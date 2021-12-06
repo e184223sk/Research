@@ -1,0 +1,257 @@
+/* NCMBSetting と同じGameObjectにでもアタッチして使う */
+
+using System.Collections;
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.IO;
+using UnityEngine;
+using NCMB; //追記
+
+public class SaveDataBackupCtr : MonoBehaviour
+{
+    //GameManagerのサンプル（https://qiita.com/azumagoro/items/d2b1a4e59ae8f48996c3）
+    //Save,Loadメソッドを呼ぶのに必要
+    [SerializeField]GameManager _GameManager;
+    GameManager gameManager
+    {
+        get
+        {
+            if (_GameManager == null)
+            {
+                _GameManager = GameManager.instace;
+            }
+            return _GameManager;
+        }
+    }
+
+    //最前面で画面全体を覆う RaycastBlock = true なImageコンポーネントを持つGameObject
+    [SerializeField]GameObject ButtonDownStopper;
+
+    //パスとファイル名
+    string path;
+    string fileName;
+
+    // Timestamp用, 別途TimeUtilクラスを設けてそっちに書いても可
+    private static DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);
+    // DateTimeからUnixTimeへ変換
+    public static long GetUnixTime(DateTime dateTime)
+    {
+        return (long)(dateTime - UnixEpoch).TotalSeconds;
+    }
+
+    void Start()
+    {
+        //SaveDataクラス（http://magnaga.com/unity/2016/04/25/unity-save2/）で書き込むpathと同じにする
+        path = Application.persistentDataPath + "/";
+        fileName = Application.companyName + "." + Application.productName + ".savedata.json";
+    }
+
+    // セーブデータファイルをサーバーにアップロード
+    public void UploadSaveData()
+    {
+        Debug.Log("UploadSaveData");  
+        //ログインチェック,ログインの処理は別途用意しておく
+        //参考)オートログイン:https://qiita.com/azumagoro/items/2a82b55422354ac7cee8
+        if (NCMBUser.CurrentUser == null)
+        {
+            Debug.Log("ログインしてません");
+            return;
+        }
+
+        //UI操作の制御
+        ButtonDownStopper.SetActive(true);
+
+        //JSONファイルを読んでstring,byteへ
+        string str = "";
+        if (File.Exists(path + fileName))
+        {
+            using (StreamReader sr 
+              = new StreamReader(path + fileName, Encoding.GetEncoding("utf-8")))
+            {
+                str = sr.ReadToEnd();
+            }
+        }
+        byte[] data = System.Text.Encoding.UTF8.GetBytes(str);
+
+        //ファイル名重複を避けるためユーザーID+Timestampでファイル名を固有にする
+        string NCMBFileName 
+        = "SaveData-" 
+          + SaveData.GetString("NCMB_UserName")
+          + "-" + GetUnixTime(DateTime.Now);
+        //セーブ用NCMBFileを作成
+        NCMBFile file = new NCMBFile(NCMBFileName, data);
+        //ファイルストアにセーブ
+        file.SaveAsync((NCMBException error) =&gt;
+        {
+            if (error != null)
+            {
+                Debug.Log("ファイルのアップロードに失敗しました");
+                //UI操作制御を解除
+                ButtonDownStopper.SetActive(false);
+            }
+            else
+            {
+                Debug.Log("ファイルのアップロードに成功しました");
+                //セーブ用クラスにレコードを追加
+                AddRecord(NCMBFileName);
+            }
+        });
+    }
+
+    //userID-fileName の紐づけ情報を管理するNCMBクラスにレコードを追加する処理
+    void AddRecord(string filename)
+    {
+        NCMBObject obj = new NCMBObject("BackupSaveData");
+        //フィールドに値を設定,NCMB_UserNameは会員登録時に予め設定して、セーブ済み
+        obj.Add("userName", SaveData.GetString("NCMB_UserName"));
+        obj.Add("fileName", filename);
+
+        obj.Save((NCMBException e) =&gt;
+        {
+            if (e != null)
+            {
+                Debug.Log("セーブ用クラスのレコード追加に失敗しました");
+                //UI操作の制御を解除
+                ButtonDownStopper.SetActive(false);
+            }
+            else
+            {
+                Debug.Log("セーブ用クラスのレコード追加に成功しました");
+                //UI操作の制御を解除
+                ButtonDownStopper.SetActive(false);
+            }
+        });
+    }
+
+    //ファイル名を取得, ファイルを取得, 読み込む
+    public void LoadSaveData()
+    {
+        Debug.Log("LoadSaveData");
+
+        //ログインチェック,ログインの処理は別途用意しておく
+        if (NCMBUser.CurrentUser == null)
+        {
+            Debug.Log("ログインしてません");
+            return;
+        }
+
+        //UI操作の制御
+        ButtonDownStopper.SetActive(true);
+
+        //Queryを作成
+        NCMBQuery&lt;NCMBObject&gt; query = new NCMBQuery&lt;NCMBObject&gt;("BackupSaveData");
+        //設定追加：ユーザー名で抽出
+        query.WhereEqualTo("userName", SaveData.GetString("NCMB_UserName", ""));
+        //設定追加：作成日時・降順でソート
+        query.OrderByDescending("createDate");
+        //検索結果を取得,検索結果はobjListに格納される
+        query.FindAsync((List&lt;NCMBObject&gt; objList, NCMBException e) =&gt;
+        {
+            if (e != null)
+            {
+                //検索失敗時の処理
+                Debug.Log("データのダウンロードに失敗しました");
+                //UI操作の制御を解除
+                ButtonDownStopper.SetActive(false);
+            }
+            else
+            {
+                Debug.Log("データのダウンロードに成功しました");
+                //最新のファイルを読み込む
+                LoadSaveFile(objList[0]["fileName"].ToString());
+
+                //レコード数が2以下になるまで古いデータから順に削除
+                for (int i = objList.Count - 1; i &gt; 1; i--)
+                {
+                    NCMBObject objDelete = new NCMBObject("BackupSaveData");
+                    //ObjectIdを指定して削除してるけど、objList[i].DeleteAsyncでOKかも
+                    objDelete.ObjectId = objList[i].ObjectId;
+                    objDelete.DeleteAsync((NCMBException error) =&gt;
+                    {
+                        if (e != null)
+                        {
+                            Debug.Log("古いレコードの削除に失敗しました");
+                            //UI操作の制御を解除
+                            ButtonDownStopper.SetActive(false);
+                        }
+                        else
+                        {
+                            Debug.Log("古いレコードの削除に成功しました");
+                        }
+                    });
+                }
+
+                //ファイル数が2以下になるまで古いデータから順に削除
+                for (int i = objList.Count - 1; i &gt; 1; i--)
+                {
+                    NCMBFile file = new NCMBFile(objList[i]["fileName"].ToString());
+                    file.DeleteAsync((NCMBException error) =&gt;
+                    {
+                        if (error != null)
+                        {
+                            Debug.Log("古いファイルの削除に失敗しました");
+                            //UI操作の制御を解除
+                            ButtonDownStopper.SetActive(false);
+                        }
+                        else
+                        {
+                            Debug.Log("古いファイルの削除に成功しました");
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    //SaveDataファイルを取得
+    void LoadSaveFile(string Name)
+    {
+        NCMBFile file = new NCMBFile(Name);
+        file.FetchAsync((byte[] fileData, NCMBException error) =&gt;
+        {
+            if (error != null)
+            {
+                Debug.Log("ファイルの取得に失敗しました");
+                //UI操作の制御を解除
+                ButtonDownStopper.SetActive(false);
+            }
+            else
+            {
+                Debug.Log("ファイルの取得に成功しました");
+                SaveBytesTo(fileData);
+                //ロードと初期化
+                LoadAndInit();
+                //UI操作の制御を解除
+                ButtonDownStopper.SetActive(false);
+                //UIに成功メッセージを表示する
+            }
+        });
+    }
+
+    //Byteデータをsavedata.jsonに書き込む
+    void SaveBytesTo(byte[] b)
+    {
+        Debug.Log("SaveBytesTo");
+        //UTF8 エンコードでbyteからstringへ
+        string text = System.Text.Encoding.UTF8.GetString(b);
+        Debug.Log("SaveBytesTo:" + text);
+        //上書き
+        StreamWriter writer = new StreamWriter(path + fileName, false, Encoding.GetEncoding("utf-8"));
+        writer.WriteLine(text);
+        writer.Close();
+    }
+
+    //ファイルからデータを読み込む
+    void LoadAndInit()
+    {
+        Debug.Log("LoadAndInit");
+        //ファイルの読み込み
+        SaveData.UpdateSaveData();
+        //ゲームデータのLoad
+        gameManager.Load();
+        //復元ペナルティがあればここに書いてSave()する
+    }
+}
+
+

@@ -1,0 +1,133 @@
+using System;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using Cysharp.Threading.Tasks;
+using UniRx;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+/// &lt;summary&gt;
+/// MSTranslatorの最小構成サンプル
+/// &lt;/summary&gt;
+public class SimpleTranslation : MonoBehaviour
+{
+    [SerializeField] private Dropdown fromLanguageDd;
+    [SerializeField] private Dropdown toLanguageDd;
+    [SerializeField] private Button translateButton;
+    [SerializeField] private InputField inputField;
+    [SerializeField] private Text translationText;
+
+    /// &lt;summary&gt;
+    /// レスポンスを格納する構造体
+    /// &lt;/summary&gt;
+    [Serializable]
+    public struct TranslateData
+    {
+        public Translations[] translations;
+
+        [Serializable]
+        public struct Translations
+        {
+            public string text;
+            public string to;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// リクエストを格納する構造体
+    /// &lt;/summary&gt;
+    [Serializable]
+    public struct SpeechData
+    {
+        public string Text;
+    }
+
+    private const string SUBSCRIPTION_KEY = "登録キー";
+    private const string ENDPOINT = "https://api.cognitive.microsofttranslator.com/";
+    private const string LOCATION = "登録時に設定したLocation";
+
+    /// &lt;summary&gt;
+    /// 設定言語
+    /// &lt;/summary&gt;
+    private enum Language
+    {
+        ja,
+        en
+    }
+
+    private Language fromLanguage = Language.ja;
+    private Language toLanguage = Language.en;
+
+    private void Start()
+    {
+        var token = this.GetCancellationTokenOnDestroy();
+
+        //ドロップダウンメニュー作成
+        var languages = Enum.GetNames(typeof(Language));
+        fromLanguageDd.ClearOptions();
+        fromLanguageDd.AddOptions(languages.ToList());
+        toLanguageDd.ClearOptions();
+        toLanguageDd.AddOptions(languages.ToList());
+        fromLanguageDd.value = (int) fromLanguage;
+        toLanguageDd.value = (int) toLanguage;
+
+        //翻訳元言語
+        fromLanguageDd.OnValueChangedAsObservable()
+            .Subscribe(value =&gt; { fromLanguage = (Language) value; })
+            .AddTo(this);
+
+        //翻訳後言語
+        toLanguageDd.OnValueChangedAsObservable()
+            .Subscribe(value =&gt; { toLanguage = (Language) value; })
+            .AddTo(this);
+
+        //翻訳ボタン押下
+        translateButton.OnClickAsObservable()
+            .Subscribe(async _ =&gt;
+            {
+                //結果が送られてくるまで待ってから表示
+                var result = GetTranslation(fromLanguage, toLanguage, inputField.text, token);
+                translationText.text = await result;
+            })
+            .AddTo(this);
+    }
+
+    /// &lt;summary&gt;
+    /// 翻訳結果を返す
+    /// &lt;/summary&gt;
+    /// &lt;param name="from"&gt;翻訳前の言語設定&lt;/param&gt;
+    /// &lt;param name="to"&gt;翻訳語の言語設定&lt;/param&gt;
+    /// &lt;param name="speechText"&gt;翻訳したい文字列&lt;/param&gt;
+    /// &lt;param name="ct"&gt;CancellationToken&lt;/param&gt;
+    /// &lt;returns&gt;翻訳結果&lt;/returns&gt;
+    private async UniTask&lt;string&gt; GetTranslation(Language from,Language to,string speechText, CancellationToken ct)
+    {
+        //POSTメソッドのリクエストを作成
+        var requestInfo = "translate?api-version=3.0";
+        requestInfo += $"&amp;from={from}&amp;to={to}";
+        var request = UnityWebRequest.Post(ENDPOINT + requestInfo, "Post");
+
+        //リクエストに使用するJSON作成
+        var speechData = new SpeechData {Text = speechText};
+        var jsonData = "[" + JsonUtility.ToJson(speechData) + "]";
+        var bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+        request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+        request.downloadHandler = new DownloadHandlerBuffer();
+        request.SetRequestHeader("Content-Type", "application/json");
+        //ヘッダーに必要な情報を追加
+        request.SetRequestHeader("Ocp-Apim-Subscription-Region", LOCATION);
+        request.SetRequestHeader("Ocp-Apim-Subscription-Key", SUBSCRIPTION_KEY);
+
+        //結果受け取り
+        var second = TimeSpan.FromSeconds(3);
+        var result = await request.SendWebRequest().ToUniTask(cancellationToken: ct).Timeout(second);
+        var rawJson = result.downloadHandler.text;
+        var json = rawJson.Substring(1, rawJson.Length - 2);
+        var data = JsonUtility.FromJson&lt;TranslateData&gt;(json);
+        return data.translations[0].text;
+    }
+}
+
+

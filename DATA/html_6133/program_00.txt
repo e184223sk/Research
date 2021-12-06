@@ -1,0 +1,85 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Net.Http;
+
+namespace OMSSample
+{
+    class Program
+    {
+        // Workspace ID
+        static string customerId = "YOUR_WORKSPACE_ID";
+        // Primary Key
+        static string sharedKey = "YOUR_PRIMARY_KEY";
+        // LogName
+        static string LogName = "DemoExample";
+
+        static string TimeStampField = "";
+        static string json = @"[{""DemoField1"":""DemoValue1"",""DemoField2"":""DemoValue2""},{""DemoField3"":""DemoValue3"",""DemoField4"":""DemoValue4""}]";
+
+        static void Main(string[] args)
+        {
+
+            // Create a hash for the API signature
+            var datestring = DateTime.UtcNow.ToString("r");
+            string stringToHash = "POST\n" + json.Length + "\napplication/json\n" + "x-ms-date:" + datestring + "\n/api/logs";
+            string hashedString = BuildSignature(stringToHash, sharedKey);
+            string signature = "SharedKey " + customerId + ":" + hashedString;
+
+            PostDataAsync(signature, datestring, json).Wait();
+            Console.ReadLine();
+        }
+
+        public static string BuildSignature(string message, string secret)
+        {
+            var encoding = new System.Text.ASCIIEncoding();
+            byte[] keyByte = Convert.FromBase64String(secret);
+            byte[] messageBytes = encoding.GetBytes(message);
+            using (var hmacsha256 = new HMACSHA256(keyByte))
+            {
+                byte[] hash = hmacsha256.ComputeHash(messageBytes);
+                return Convert.ToBase64String(hash);
+            }
+        }
+        public static async Task PostDataAsync(string signature, string date, string json)
+        {
+            try
+            {
+                string url = "https://" + customerId + ".ods.opinsights.azure.com/api/logs?api-version=2016-04-01";
+                var client = new System.Net.Http.HttpClient();
+
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.DefaultRequestHeaders.Add("Log-Type", LogName);
+                client.DefaultRequestHeaders.Add("Authorization", signature);
+                client.DefaultRequestHeaders.Add("x-ms-date", date);
+                client.DefaultRequestHeaders.Add("time-generated-field", TimeStampField);
+
+                Console.WriteLine(json);
+                //  var httpContent = new System.Net.Http.StringContent(json, Encoding.UTF8, "application/json");
+                var httpContent = new StringContent(json);
+                httpContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mediaType: "application/json");
+                Console.WriteLine(await httpContent.ReadAsStringAsync());
+
+                var response = await client.PostAsync(new Uri(url), httpContent);
+                Console.WriteLine(response.RequestMessage);
+
+                var responseContent = response.Content;
+                var result = await responseContent.ReadAsStringAsync();
+                Console.WriteLine("Return Result: " + result);
+                Console.WriteLine("Status : " + response.StatusCode);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("API POST Exception" + ex.Message);
+            }
+
+        }
+    }
+
+}
+
+
+

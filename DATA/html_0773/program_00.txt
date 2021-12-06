@@ -1,0 +1,109 @@
+using System.IO;
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Events;
+using UnityEditor;
+
+namespace Sample
+{
+    public class DragAndDropEditor : EditorWindow
+    {
+        [MenuItem("Custom/DragAndDropEditor")]
+        static void ShowWindow()
+        {
+            var window = GetWindow&lt;DragAndDropEditor&gt;();
+            window.titleContent = new GUIContent("DragAndDropEditor");
+        }
+
+
+        // テスト用.
+        StringBuilder stringBuilder = new StringBuilder(512);
+        string targetExtension = ".unity";
+
+
+        // UI描画.
+        void OnGUI()
+        {
+            // テスト用,ターゲットの拡張子を変更する.
+            targetExtension = EditorGUILayout.TextField("targetExtension", targetExtension);
+
+            // 目的とするファイルの拡張子を指定してDrag &amp; Dropの領域を描画する.
+            // 複数ファイルドロップに対応し、指定した拡張子以外のファイルがマスクされた配列がコールバックで呼ばれる.
+            DrawFileDragArea(
+                GUILayoutUtility.GetRect(0.0f, 75.0f, GUILayout.ExpandWidth(true)),
+                "Drag &amp; Drop",
+                targetExtension,
+                (objs) =&gt;
+                {
+                    stringBuilder.Clear();
+                    foreach (var obj in objs)
+                    {
+                        stringBuilder.AppendLine(obj.name);
+                    }
+                });
+
+            if (GUILayout.Button("Clear"))
+            {
+                stringBuilder.Clear();
+            }
+
+            // 取得したアイテムのリストを描画.
+            EditorGUILayout.LabelField(stringBuilder.ToString(), GUILayout.Height(300));
+        }
+
+
+        /// &lt;summary&gt;
+        /// ドラッグアンドドロップ領域を描画,コールバックで取得したオブジェクトを得る.
+        /// &lt;/summary&gt;
+        /// &lt;param name="dropArea"&gt; Drag &amp; Dropを受け付ける範囲. &lt;/param&gt;
+        /// &lt;param name="dropAreaMessage"&gt; Drag &amp; Dropを受け付ける領域に描画する文字列. &lt;/param&gt;
+        /// &lt;param name="targetFileExtension"&gt; 目的のファイルの拡張子. &lt;/param&gt;
+        /// &lt;param name="dropCallback"&gt; Dropされた時のコールバック.  &lt;/param&gt;
+        /// &lt;param name="visualMode"&gt; マウスカーソルの見ため,基本的にGenericでよいと思われる. &lt;/param&gt;
+        private void DrawFileDragArea(
+            Rect dropArea,
+            string dropAreaMessage,
+            string targetFileExtension,
+            UnityAction&lt;UnityEngine.Object[]&gt; dropCallback,
+            DragAndDropVisualMode visualMode = DragAndDropVisualMode.Generic)
+        {
+            Event evt = Event.current;
+            GUI.Box(dropArea, dropAreaMessage);
+
+            switch (evt.type)
+            {
+                // ドラッグ中.
+                case EventType.DragUpdated:
+                case EventType.DragPerform:
+                    if (!dropArea.Contains(evt.mousePosition))  break;
+
+                    // Dragされている間のカーソルの見た目を変更.
+                    DragAndDrop.visualMode = visualMode;
+
+                    if (evt.type == EventType.DragPerform)
+                    {
+                        // オブジェクトを受け入れる.
+                        DragAndDrop.AcceptDrag();
+                        if (0 &lt; DragAndDrop.objectReferences.Length)
+                        {
+                            var dropObjects = new List&lt;UnityEngine.Object&gt;();
+                            for (var i = 0; i &lt; DragAndDrop.paths.Length; ++i)
+                            {
+                                if (Path.GetExtension(DragAndDrop.paths[i]) == targetFileExtension)
+                                    dropObjects.Add(DragAndDrop.objectReferences[i]);
+                            }
+
+                            if (0 &lt; dropObjects.Count)
+                                dropCallback?.Invoke(dropObjects.ToArray());
+                        }
+                        DragAndDrop.activeControlID = 0;
+                    }
+                    Event.current.Use();
+                    break;
+            }
+        }
+
+    }    
+}
+

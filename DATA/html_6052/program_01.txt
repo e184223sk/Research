@@ -1,0 +1,64 @@
+
+using System.Collections.Generic;
+using System.IO.Ports;
+using System.Threading;
+using SimpleJSON;
+using UniRx;
+using UnityEngine;
+
+
+public class SerialHandler : MonoBehaviour {
+  [SerializeField] private string _portName;
+
+  private SerialPort _serialPort;
+  private Thread _thread;
+  private bool _isRunning;
+
+  private int _baudRate = 115200;
+
+  private string _sensorMsg;
+
+  public IReadOnlyReactiveProperty&lt;string&gt; SensorMsg { get; private set; }
+
+  void Awake () {
+    _serialPort = new SerialPort (_portName, _baudRate, Parity.None, 8, StopBits.One);
+    _serialPort.Open();
+
+    _serialPort.DtrEnable = true;
+    _serialPort.RtsEnable = true;
+    _serialPort.DiscardInBuffer();
+
+    _isRunning = true;
+
+    _thread = new Thread (Read);
+    _thread.Start();
+
+    SensorMsg = this.ObserveEveryValueChanged (x =&gt; x._sensorMsg)
+      .ToReadOnlyReactiveProperty();
+  }
+
+  private void Read () {
+    while (_isRunning &amp;&amp; _serialPort != null &amp;&amp; _serialPort.IsOpen) {
+      try {
+        _sensorMsg = _serialPort.ReadLine();
+      }
+      catch (System.Exception e) {
+        Debug.LogWarning (e.Message);
+      }
+    }
+  }
+
+  public void Close () {
+    _isRunning = false;
+
+    if (_thread != null &amp;&amp; _thread.IsAlive) {
+      _thread.Join();
+    }
+
+    if (_serialPort != null &amp;&amp; _serialPort.IsOpen) {
+      _serialPort.Close();
+      _serialPort.Dispose();
+    }
+  }
+}
+

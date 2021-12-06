@@ -1,0 +1,92 @@
+
+using System.Collections;
+using UnityEditor;
+using UnityEngine;
+using UniRx;
+
+public class EditorDebugTest : MonoBehaviour
+{
+    [SerializeField]
+    GameObject targetObj;
+
+    Coroutine coroutine;
+
+    Vector3 originalPosition;
+
+    float x_Abs;
+    float y_Abs;
+    float z_Abs;
+
+    [SerializeField,Range(1,100)]
+    float speedParameter = 10;
+
+    bool isCoroutineRun;
+
+    void Move()
+    {
+        coroutine = StartCoroutine(MoveCoroutine());  
+    }
+
+    IEnumerator MoveCoroutine()
+    {
+        float speed = speedParameter * Time.deltaTime;
+        originalPosition = this.gameObject.transform.position;
+
+        x_Abs = Mathf.Abs(this.gameObject.transform.position.x - targetObj.transform.position.x);
+        y_Abs = Mathf.Abs(this.gameObject.transform.position.y - targetObj.transform.position.y);
+        z_Abs = Mathf.Abs(this.gameObject.transform.position.z - targetObj.transform.position.z);
+        while (x_Abs &gt; 0 || y_Abs &gt; 0 || z_Abs &gt; 0)
+        {
+            x_Abs = Mathf.Abs(this.gameObject.transform.position.x - targetObj.transform.position.x);
+            y_Abs = Mathf.Abs(this.gameObject.transform.position.y - targetObj.transform.position.y);
+            z_Abs = Mathf.Abs(this.gameObject.transform.position.z - targetObj.transform.position.z);
+            this.gameObject.transform.position = Vector3.MoveTowards(this.gameObject.transform.position, targetObj.transform.position, speed);
+            yield return null;
+        }
+
+        if (coroutine != null)
+        {
+            StopCoroutine(coroutine);
+            coroutine = null;
+
+        }
+    }
+
+     void ResetPosition()
+    {
+        this.gameObject.transform.position = originalPosition;
+    }
+
+#if UNITY_EDITOR
+    [CustomEditor(typeof(EditorDebugTest))]
+    public class Debug : Editor
+    {
+
+        public override void OnInspectorGUI()
+        {
+            base.OnInspectorGUI();
+
+            EditorDebugTest _RootClass = target as EditorDebugTest;
+
+            EditorGUILayout.Space();
+
+            // 押下時に実行したい処理
+            if (GUILayout.Button("Test") &amp;&amp; EditorApplication.isPlaying == false)
+            {
+                if (_RootClass.isCoroutineRun == false)
+                {
+                    _RootClass.isCoroutineRun = true;
+
+                    Observable.FromCoroutine(_RootClass.MoveCoroutine).Subscribe(_ =&gt;
+                    {
+                        _RootClass.isCoroutineRun = false;
+                        _RootClass.ResetPosition();
+                    });
+                }
+            }
+        }
+    }
+#endif
+
+}
+

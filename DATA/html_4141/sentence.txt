@@ -1,0 +1,37 @@
+More than 1 year has passed since last update.C#でMICRO ORMapperを書きました。名前はDBSimpleです。ORMapperとはデータベース上の情報をプログラミング言語上のデータ構造にマッピングするライブラリの事です。代表的なライブラリとしてRubyのActive Record
+PHPのEloquent
+JavaのHibernate, MyBatis
+C#のEntity Framework, Dapperなどが挙げられます。今回僕が作ったDBSimpleはC#のExpressionTreeという仕組みを使っていて動的にコードを生成、Compileします。StackOverFlow社製のDapperより早いです。
+また、RailsのActiveRecordの様にリレーションを意識したマッピングが出来ます。（belongs_toやhas_manyが出来ます。preloadやlazyloadが出来ます。inverse_ofが出来ます。)DBSimpleにある機能はSELECT文で取得したレコードをオブジェクトにMapするだけです。UPDATEやINSERTは出来ません。ソースコード
+https://github.com/ha2ne2/DBSimpleDapperはStack Over Flowが開発したMicro ORMapperです。薄くて早いライブラリです。ORMapperは簡単に言うと、SQLの発行結果をC#のオブジェクトにマッピングするライブラリです。例えばORMapperを使わずに、愚直にマッピングするとこういうコードになりますこういうコードは書きたくないですよね(T_T)Dapperを使うと下記のように書けます
+↓↓↓短い！こうでなくっちゃ！Dapperの（個人的な）問題点として以下の問題があります。
+例えばこういうテーブルがあったとします。AuthorIDと名前を持つ単純なテーブルです。
+対してPOCOのモデルがこう定義されていたとします。そしてマッピングさせます。
+var authorList = connection.Query&lt;Author&gt;("SELECT * FROM Author");これは例外も何も起きず普通に動きます。しかし返ってきたオブジェクトのNamaeプロパティには何も入っていません。DB上のカラム名はNameでPOCOではNamaeだからです。Dapperはプロパティ名をタイプミスしていても何もしません。ただマッピングしないだけです。警告を出すオプションもありません。GitHub上のDapperリポジトリのIssueで、そういう場合に例外を投げるオプションが欲しいという要望が出ていてそれに対して議論がかわされていましたが、思想的にそういう機能は付けたくないそうです。option to throw when result set has unmapped columns
+https://github.com/StackExchange/Dapper/issues/254（確かにテストをしっかりしていれば問題にはなりませんが…）DBSimpleではPOCOに定義されたプロパティ名と同名のカラムがSQLの発行結果に全て存在しなくてはいけません。存在しなかった場合は例外を投げます。また最初にも言いましたが、DBSimpleはRailsのActiveRecordの様にリレーションを意識したマッピングが出来ます。ActiveRecordのbelongs_toやhas_many、preloadやlazyload、inverse_ofと云った機能が実装されています。それはどういう機能か？ 実際に動かして動きを見ていきましょう。
+まずは単純なマッピングによる速度比較からやっていきたいと思います。先のDapperのコードに対して、DBSimpleで単純なマッピングする際のコードはこうなります。
+↓↓↓AdventureWoksという架空の企業の基幹システムのDBをMicrosoftが公開しているので、それを使います。
+そのDBの中にあるSalesOrderHeaderテーブルをオブジェクトにマッピングして行きます。テーブルには31465レコード入っていますがこれを単純に4倍して125860レコード入っている状態にします。カラム数は26です。GitリポジトリをCloneしてVisualStudioで開くとSampleFormsがスタートアッププロジェクトになっていると思うので起動させます。起動するとこんな感じです。
+まずはデータテーブル＋リフレクションという手法で12万件のマッピングをしてみます。
+「リフレクションで取得」ボタンを押します。
+結果：
+2620ms = 2.6秒かかりました。次にDBSimpleでマッピングしてみます。
+「DBSimpleで取得」ボタンを押します。
+結果：
+795ms = 0.795秒で取得できました！イェイ！早いぜ！最後にDapperでマッピングします。
+「Dapperで取得」ボタンを押します。
+結果：
+884msで取得しました。
+Dapperも早いですね。以下簡単にですが、10回試行した時の平均値です。先の章で行ったのは単純でフラットなマッピングでした。
+次はDBのリレーションを意識したマッピングをやっていきます。
+（RailsのActiveRecordやLaravelのEloquentみたいなやつのことです。）テーブルの定義がこうなっていたとします。対してモデルはこう定義します。これで準備完了です。
+下記の様にマップするとAuthorのリストが手に入ります。これだけでAuthorにも、AuthorのプロパティであるBookListにも全て値がマッピングされます！巷でよく聞くn+1問題に対してはORMapメソッドの第三引数で対処します。
+第三番目の引数は省略可能なint型の引数で、これはプリロードする深さを指定します。DBSimple.ORMap(connectionString , selectQuery, 1)とした場合
+1階層目（Authorのプロパティ）までがプリロードされます。
+2階層目以降のプロパティは遅延バインドされ、プロパティへのアクセス時にSQLが発行されます。DBSimple.ORMap(connectionString , selectQuery, 2)とした場合
+2階層目（プリロードされたプロパティのプロパティ）までがプリロードされます。
+3階層目以降のプロパティは遅延バインドされ、プロパティへのアクセス時にSQLが発行されます。第三引数が省略された場合は1が入ります。そんな感じです！
+使ってみてください。ソースコード
+https://github.com/ha2ne2/DBSimple
+
+

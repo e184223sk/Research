@@ -1,0 +1,27 @@
+
+    private List&lt;string&gt; chatLogList = new List&lt;string&gt;();
+    private long lastGetTime;
+
+    private IEnumerator GetChatLogIterator()
+    {
+        while (true)
+        {
+            var query = new SpreadSheetQuery("Chat");
+            query.OrderByDescending("createTime").Where("createTime","&gt;",lastGetTime).Limit(20);//ローカルで保持していない最新データ上限20件に絞る
+            yield return query.FindAsync();
+
+            if (query.Count &gt; 0)//有効なデータが無い場合は何もしない
+            {
+                foreach (var so in query.Result.Reverse())
+                {
+                    chatLogList.Add(so["name"] + "&gt;" + so["message"]);//いきなりlogTextに入れるのではなく、一旦Listに追加
+                    if (chatLogList.Count &gt; 17) chatLogList.RemoveAt(0);//画面に収まりきらない部分(17以上)からは古いデータを削除
+                }
+                logText.text = string.Join("\n", chatLogList.ToArray());//Listを改行でjoinしてlogTextにセット
+                lastGetTime = (long)query.Result.First()["createTime"];//createTimeの新しい順に並んでいるので、先頭(First)のcreateTimeを保持しておく。
+            }
+
+            yield return new WaitForSeconds(5.0f);
+        }
+    }
+

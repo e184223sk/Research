@@ -1,0 +1,110 @@
+
+using System;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Forms;
+
+using Windows.UI.Notifications;
+
+public static class IconUtil
+{
+    static class NativeMethods
+    {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public extern static bool DestroyIcon(IntPtr handle);
+    } 
+
+    static readonly string[] iconDot = new string[]{
+        "................",
+        ".###.###..##.###",
+        "..#..#...#....#.",
+        "..#..#...#....#.",
+        "..#..#...#....#.",
+        "..#..#...#....#.",
+        "..#..#...#....#.",
+        "..#..###..#...#.",
+        "..#..#.....#..#.",
+        "..#..#.....#..#.",
+        "..#..#.....#..#.",
+        "..#..#.....#..#.",
+        "..#..#.....#..#.",
+        "..#..#.....#..#.",
+        "..#..###.##...#.",
+        "................",
+    };
+
+    public static Icon MakeDefaultIcon()
+    {
+        using ( Bitmap bmp = new Bitmap(16,16) ) {
+            using ( Graphics g = Graphics.FromImage(bmp) ) {
+                g.Clear(Color.Blue);
+            }
+            for(int y=0;y&lt;16;y++){
+                for(int x=0;x&lt;16;x++){
+                    if (iconDot[y][x]=='#') {
+                        bmp.SetPixel(x,y,Color.Yellow);
+                    }
+                }
+            }
+
+            IntPtr Hicon = bmp.GetHicon();
+            return Icon.FromHandle(Hicon);
+        }
+    }
+
+    public static void DestroyIcon(Icon ico)
+    {
+        NativeMethods.DestroyIcon(ico.Handle);
+    }
+}
+
+class TaskTrayLauncher
+{
+    NotifyIcon trayIcon;
+
+    static void ShowSampleToast()
+    {
+        string xmlStr = File.ReadAllText("sample.xml", Encoding.GetEncoding("Shift_JIS"));
+        var content = new Windows.Data.Xml.Dom.XmlDocument();
+        content.LoadXml(xmlStr);
+        var notifier = ToastNotificationManager.CreateToastNotifier("Microsoft.Windows.Computer");
+        notifier.Show(new ToastNotification(content));
+    }
+
+    TaskTrayLauncher()
+    {
+        trayIcon = new NotifyIcon();
+        Icon tmpIcon = IconUtil.MakeDefaultIcon();
+        trayIcon.Icon = tmpIcon;
+        trayIcon.Visible = true;
+
+        trayIcon.Text = "Launcher";
+        var menu = new ContextMenuStrip();
+        var menuItem = new ToolStripMenuItem();
+
+        menu.Items.AddRange(new ToolStripMenuItem[]{
+            new ToolStripMenuItem("E&amp;xit", null, (s,e)=&gt;{Application.Exit();}, "Exit")
+        });
+
+        trayIcon.MouseClick += TrayIcon_MouseClick;
+        trayIcon.ContextMenuStrip = menu;
+    }
+
+    void TrayIcon_MouseClick(object sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left) {
+            ShowSampleToast();
+        }
+        // 右クリックはcontextmenuを表示させるので、ここでは何もしない
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        new TaskTrayLauncher();
+        Application.Run();
+    }
+}
+

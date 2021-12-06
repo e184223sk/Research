@@ -1,0 +1,103 @@
+using MessagePipe;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace WindowsFormsApp1
+{
+    static class Program
+    {
+        /// &lt;summary&gt;
+        ///  アプリケーションのエントリポイント
+        /// &lt;/summary&gt;
+        [STAThread]
+        static void Main(string[] args)
+        {
+            // MessagePipe を使用するためのサービスを生成する
+            ServiceCollection services = CreateMessagePipeServices();
+
+            // フォームのインスタンスをDIで生成する場合はアプリケーションのフォームを登録する
+            services.AddTransient&lt;Form1&gt;();
+
+            // サービスプロバイダーを生成する
+            ServiceProvider provider = services.BuildServiceProvider();
+
+            // Windowsフォームアプリケーションの既定の初期処理
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            // これではDIを利用できない
+            // 後述するどちらかの方法でフォームのインスタンスを生成してアプリケーションを開始する
+            // Application.Run(new Form1());
+
+            // サービスプロバイダーからフォームのインスタンスを生成する
+            // コンストラクタの引数に定義された MessagePipe のインスタンスが注入される
+            Application.Run(provider.GetRequiredService&lt;Form1&gt;());
+
+            // サービスプロバイダーを内包したコンテキストを渡す
+            // フォーム内で MessagePipe のインスタンスを生成する
+            Application.Run(new Form1(new MyContext(provider)));
+        }
+
+        /// &lt;summary&gt;
+        /// MessagePipe を使用するためのサービスを生成します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        static ServiceCollection CreateMessagePipeServices()
+        {
+            ServiceCollection services = new ServiceCollection();
+
+            // MessagePipe の標準サービスを登録する
+            services.AddMessagePipe(options =&gt;
+            {
+                // 全てのメッセージに適用したいフィルタはグローバルフィルタとして定義するとよい
+                options.AddGlobalMessageHandlerFilter(typeof(SampleFilter&lt;&gt;));
+            }
+            );
+
+            // 使用するメッセージを登録する
+            services.AddSingleton(typeof(MessagePipe.IPublisher&lt;,&gt;), typeof(MessageBroker&lt;,&gt;));
+            services.AddSingleton(typeof(MessagePipe.ISubscriber&lt;,&gt;), typeof(MessageBroker&lt;,&gt;));
+
+            return services;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// サービスプロバイダを内包したコンテキスト
+    /// &lt;/summary&gt;
+    internal class MyContext
+    {
+        internal MyContext(ServiceProvider serviceProvider)
+        {
+            m_ServiceProvider = serviceProvider;
+        }
+
+        private readonly ServiceProvider m_ServiceProvider;
+
+        public IPublisher&lt;TKey, TMessage&gt; CreatePublisher&lt;TKey, TMessage&gt;()
+        {
+            return m_ServiceProvider.GetRequiredService&lt;IPublisher&lt;TKey, TMessage&gt;&gt;();
+        }
+
+        public ISubscriber&lt;TKey, TMessage&gt; CreateSubscriber&lt;TKey, TMessage&gt;()
+        {
+            return m_ServiceProvider.GetRequiredService&lt;ISubscriber&lt;TKey, TMessage&gt;&gt;();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// サンプルフィルタ
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+    internal class SampleFilter&lt;T&gt; : MessageHandlerFilter&lt;T&gt;
+    {
+        public override void Handle(T message, Action&lt;T&gt; next)
+        {
+            System.Diagnostics.Debug.WriteLine("subscribing...");
+            next(message);
+            System.Diagnostics.Debug.WriteLine("subscribed.");
+        }
+    }
+
+}
+

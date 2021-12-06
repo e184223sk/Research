@@ -1,0 +1,62 @@
+using ChinhDo.Transactions;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Transactions; // System.Transactions.dll
+
+namespace FileTest
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            TxFileManager fileMgr = new TxFileManager();
+            using (TransactionScope scope1 = new TransactionScope())
+            {
+                try
+                {
+                    // 「newfolder」ディレクトリを作成
+                    fileMgr.CreateDirectory(@"test\a\newfolder");
+
+                    // 「newfolder\aaa.txt」ファイルを作成
+                    fileMgr.WriteAllText(@"test\a\newfolder\aaa.txt", "あああああ");
+
+                    // 「newfolder\aaa.txt」ファイルに追記
+                    fileMgr.AppendAllText(@"test\a\newfolder\aaa.txt", "いいいい");
+
+                    // test.txt→test_renamed.txt に変更
+                    fileMgr.Move(@"test\a\test.txt", @"test\a\test_renamed.txt");
+
+                    // WriteAllTextはBOMなしのUTF8になるので、エンコードを変えたかったりバイナリを操作したい場合はSnapshotを行う
+                    fileMgr.Snapshot(@"test\a\test_renamed.txt");
+                    System.IO.StreamWriter sw = new System.IO.StreamWriter(@"test\a\test_renamed.txt", false, System.Text.Encoding.Unicode);
+                    sw.Write("ああああああ");
+                    sw.Close();
+
+                    String ret;
+                    Console.WriteLine("Completeを実行する場合は[Y]を入力してください");
+                    ret = Console.ReadLine();
+                    if (ret.Equals("Y"))
+                    {
+                        scope1.Complete();
+                        Console.WriteLine("ファイル操作完了");
+                    }
+                    else
+                    {
+                        Console.WriteLine("ロールバック");
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex);
+                }
+            }
+            Console.ReadLine();
+        }
+    }
+}
+
+

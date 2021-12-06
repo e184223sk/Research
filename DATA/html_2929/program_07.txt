@@ -1,0 +1,74 @@
+
+public class ScenarioTest
+{
+    private static object _testFilter = null;
+
+    private List&lt;string&gt; _errorLogs = new List&lt;string&gt;();
+    private List&lt;string&gt; _runTestNames = new List&lt;string&gt;();
+
+    // クラス内で最初のテストが実行される前に一度だけ呼ばれる
+    [OneTimeSetUp]
+    public void OneTimeSetUp()
+    {
+        // 【注意】 この例では、Logメソッドを省略
+        Application.logMessageReceived += Log;
+
+        // Restartするため、テスト情報を保持しておく
+        var assembly = Assembly.Load("UnityEngine.TestRunner");
+        var controllerType = assembly.GetType("UnityEngine.TestTools.TestRunner.PlaymodeTestsController");
+        var controllerObject = GameObject.Find("Code-based tests runner");
+        var controller = controllerObject.GetComponent(controllerType);
+        var settingsField = controllerType.GetField("settings");
+        var settings = settingsField.GetValue(controller);
+        var settingsType = assembly.GetType("UnityEngine.TestTools.TestRunner.PlaymodeTestsControllerSettings");
+        var filterField = settingsType.GetField("filter");
+        _testFilter = filterField.GetValue(settings);
+    }
+
+    // 【注意】 この例では、FILES変数の宣言は省略
+    [TestCaseSource("FILES")]
+    [UnityTest]
+    public IEnumerator Run(string file)
+    {
+        // 前回のテストが失敗していたら、UnityのPlay状態を止める
+        if (_errorLogs.Count &gt; 0 &amp;&amp; _testFilter != null)
+        {
+            // 【注意】 テスト情報の更新処理（今回は名前で更新しているが、カテゴリーなら別の処理が必要）
+            var assembly = Assembly.Load("UnityEngine.TestRunner");
+            var testFilterType = assembly.GetType("UnityEngine.TestTools.TestRunner.GUI.TestRunnerFilter");
+            var testNamesField = testFilterType.GetField("testNames");
+            var testNames = (string[])testNamesField.GetValue(_testFilter);
+            // すでに実行しているテストは削除する
+            testNames = testNames.Where(testName =&gt; !_runTestNames.Any(runTestName =&gt; testName.Contains(runTestName))).ToArray();
+            testNamesField.SetValue(_testFilter, testNames);
+
+            // Unityを止めて、Test Runnerを再び実行する
+            EditorApplication.isPlaying = false;
+            EditorApplication.update += OnRestart;
+        }
+
+        _errorLogs.Clear();
+        _runTestNames.Add(file);
+
+        yield return RunScenarioWithFile(file);
+    }
+
+    private static void OnRestart()
+    {
+        Restart(_testFilter);
+    }
+
+    // コード側からTest Runnerを実行する
+    private static void Restart(object testFilter)
+    {
+        var assembly = Assembly.Load("UnityEditor.TestRunner");
+        var runnerWindowType = assembly.GetType("UnityEditor.TestTools.TestRunner.TestRunnerWindow");
+        var runnerWindow = runnerWindowType.GetField("s_Instance", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
+        var listGUIField = runnerWindowType.GetField("m_PlayModeTestListGUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var listGUI = runnerWindow != null ? listGUIField.GetValue(runnerWindow) : Activator.CreateInstance(listGUIField.FieldType);
+        var runMethod = listGUIField.FieldType.GetMethod("RunTests", BindingFlags.Instance | BindingFlags.NonPublic);
+        runMethod.Invoke(listGUI, new object[] { testFilter });
+        EditorApplication.update -= OnRestart;
+    }
+}
+

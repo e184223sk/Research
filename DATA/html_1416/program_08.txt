@@ -1,0 +1,103 @@
+
+// PartDocument編集中を確認。
+if (!(InventorApplication.ActiveEditDocument is PartDocument partDoc)) return;
+
+// ActivatedObjectを、PlanarSketch, SketchBlockDefinition, SketchBlockに変換してみる。
+var activeSketch = partDoc.ActivatedObject as PlanarSketch; // 普通のSketch編集中と、InPlaceではないBlock編集中時に非null
+var activeBlockDef = partDoc.ActivatedObject as SketchBlockDefinition;    // InPlaceではないBlock編集中時に非null
+var activeBlock = partDoc.ActivatedObject as SketchBlock;   // InPlaceでBlock編集中に非null
+
+// InPlaceでBlock編集中時は、activeBlockからactiveSketchとblockDefを取得する。
+if (activeBlock != null)
+{
+    activeBlockDef = activeBlock.Definition;
+    activeSketch = activeBlockDef as PlanarSketch;
+}
+
+// activeSketchがnullの場合は中止。例えば、ActivatedObjectがSketch3Dだった場合とか。
+if (activeSketch == null) return;
+
+// Assembly環境で、PartDocumentをInPlace編集している可能性を考慮する。
+ComponentOccurrence? activeOccurrence = null;
+if (partDoc != InventorApplication.ActiveDocument)
+{
+    // InPlace編集中だった場合
+    var topAssyDoc = InventorApplication.ActiveDocument as AssemblyDocument;
+    if (topAssyDoc == null) return; // あり得ないはずだが、念のため
+
+    // activeSketchをSketchProxyに変換する。
+    object proxy;
+    activeOccurrence = topAssyDoc.ComponentDefinition.ActiveOccurrence;
+    activeOccurrence.CreateGeometryProxy(activeSketch, out proxy);
+    activeSketch = (PlanarSketch)proxy;
+
+    // blockDefが非nullの場合は、activeBlockDef == activeSketchなので、同じproxy値を設定する。
+    if (activeBlockDef != null)
+    {
+        activeBlockDef = (SketchBlockDefinition)proxy;
+    }
+
+    // activeBlockが設定されている場合は、同様にSketchBlockProxyに変換する。
+    if (activeBlock != null)
+    {
+        activeOccurrence.CreateGeometryProxy(activeBlock, out proxy);
+        activeBlock = (SketchBlock)proxy;
+    }
+}
+
+// SketchBlockを編集中かどうか
+bool inSketchBlockEdit = activeBlockDef != null;
+// Sketch編集中に、SketchBlockをInPlace編集中かどうか
+bool inInplaceSketchBlockEdit = activeBlock != null;
+
+// Debug
+System.Diagnostics.Debug.WriteLine($"{nameof(inSketchBlockEdit)} : {inSketchBlockEdit}");
+System.Diagnostics.Debug.WriteLine($"{nameof(inInplaceSketchBlockEdit)} : {inInplaceSketchBlockEdit}");
+
+// SelectSetから要素を1つ取る。
+var selectSet = InventorApplication.ActiveDocument.SelectSet;   // ActiveEditDocumentではないことに注意
+if (selectSet.Count == 0) return;
+if (!(selectSet[1] is SketchEntity entity)) return; // Indexは1から始まる
+
+// entityが、ActivatedObjectの直接の要素かどうか。
+bool isDirectChildOfActivatedObject = false;
+
+if (inInplaceSketchBlockEdit)
+{
+    // Sketch環境でBlockをInPlace編集中は、entityの親が編集中のBlockかどうかで確認する。
+    if (activeBlock == entity.ContainingSketchBlock)
+    {
+        isDirectChildOfActivatedObject = true;
+    }
+}
+else
+{
+    // それ以外(通常のSketch編集、Blockのみを編集)の場合は、entityの親がactiveSketchかどうかで判断する。
+    if (entity.Parent == activeSketch)
+    {
+        isDirectChildOfActivatedObject = true;
+    }
+}
+
+// Debug
+System.Diagnostics.Debug.WriteLine($"{nameof(isDirectChildOfActivatedObject)} : {isDirectChildOfActivatedObject}");
+
+// ActiveOccurrenceに含まれるかどうか
+bool inActiveOccurrence = false;
+if (activeOccurrence == null)
+{
+    // アセンブリ中の編集でなければ、常にtrue
+    inActiveOccurrence = true;
+}
+else
+{
+    var containingSketchProxy = entity.Parent as PlanarSketchProxy;
+    if (containingSketchProxy?.ContainingOccurrence == activeOccurrence)
+    {
+        inActiveOccurrence = true;
+    }
+}
+
+// Debug
+System.Diagnostics.Debug.WriteLine($"{nameof(inActiveOccurrence)} : {inActiveOccurrence}");
+

@@ -1,0 +1,558 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+
+public class ID3v1
+{
+    const int CodePage_Shift_JIS = 932;
+
+    string[] Genres = {
+        "Blues","ClassicRock","Country","Dance",
+        "Disco","Funk","Grunge","Hip-Hop",
+        "Jazz","Metal","NewAge","Oldies",
+        "Other","Pop","R&amp;B","Rap",
+        "Reggae","Rock","Techno","Industrial",
+        "Alternative","Ska","DeathMetal","Pranks",
+        "Soundtrack","Euro-Techno","Ambient","Trip-Hop",
+        "Vocal","Jazz+Funk","Fusion","Trance",
+        "Classical","Instrumental","Acid","House",
+        "Game","SoundClip","Gospel","Noise",
+        "Alt.Rock","Bass","Soul","Punk",
+        "Space","Meditative","InstrumentalPop","InstrumentalRock",
+        "Ethnic","Gothic","Darkwave","Techno-Industrial",
+        "Electronic","Pop-Folk","Eurodance","Dream",
+        "SouthernRock","Comedy","Cult","Gangsta",
+        "Top40","ChristianRap","Pop/Funk","Jungle",
+        "NativeAmerican","Cabaret","NewWave","Psychadelic",
+        "Rave","Showtunes","Trailer","Lo-Fi",
+        "Tribal","AcidPunk","AcidJazz","Polka",
+        "Retro","Musical","Rock&amp;Roll","HardRock",
+        "Folk","Folk/Rock","NationalFolk","Swing",
+        "Fusion","Bebob","Latin","Revival",
+        "Celtic","Bluegrass","Avantgarde","GothicRock",
+        "ProgressiveRock","PsychedelicRock","SymphonicRock","SlowRock",
+        "BigBand","Chorus","EasyListening","Acoustic",
+        "Humour","Speech","Chanson","Opera",
+        "ChamberMusic","Sonata","Symphony","BootyBass",
+        "Primus","PornGroove","Satire","SlowJam",
+        "Club","Tango","Samba","Folklore",
+        "Ballad","Power Ballad","Rhytmic Soul","Freestyle",
+        "Duet","Punk Rock","Drum Solo","Acapella",
+        "Euro-House","Dance Hall","Goa","Drum &amp; Bass",
+        "Club-House","Hardcore","Terror","Indie",
+        "BritPop","Negerpunk","Polsk Punk","Beat",
+        "Christian Gangsta Rap","Heavy Metal","Black Metal","Crossover",
+        "Contemporary Christian","Christian Rock","Merengue","Salsa",
+        "Trash Metal","Anime","JPop","SynthPop",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "(reserved)","(reserved)","(reserved)","(reserved)",
+        "Sacred","Northern Europe","Irish &amp; Scottish","Scotland",
+        "Ethnic Europe","Enka","Children's Song","(reserved)",
+        "Heavy Rock(J)","Doom Rock(J)","J-POP(J)","Seiyu(J)",
+        "Tecno Ambient(J)","Moemoe(J)","Tokusatsu(J)","Anime(J)", // 255 ("Anime(J)") は本来「不使用」がアサインされている(?)
+    };
+
+    // null終端文字列の扱い
+    // https://www.ipentec.com/document/csharp-null-terminate-string-trimming
+    byte[] TitleInBytes;
+    byte[] ArtistInBytes;
+    byte[] AlbumInBytes;
+    byte[] YearInByte;
+    byte[] CommnetInByte;
+    byte GenreNumber; // ジャンル
+    public int Year {
+        get { 
+            try {
+                return Convert.ToInt32(Encoding.ASCII.GetString(YearInByte));
+            }
+            catch(Exception){return 0;}
+        }
+    }
+
+    string TryToGetString(byte[] t)
+    {
+        try {
+            return Encoding.GetEncoding(CodePage_Shift_JIS).GetString(t).TrimEnd(new char[]{'\0',' '});
+        }
+        catch(Exception){return "";}
+    }
+
+    public string Title   { get { return TryToGetString(TitleInBytes); } }
+    public string Artist  { get { return TryToGetString(ArtistInBytes); } }
+    public string Album   { get { return TryToGetString(AlbumInBytes); } }
+    public string Comment { get { return TryToGetString(CommnetInByte); } }
+    public string Genre {
+        get {return Genres[GenreNumber];}
+    }
+    public int Track{get;private set;}
+
+
+    public static ID3v1 PargeFromFoot(byte[] buffer)
+    {
+        return Parge(buffer, buffer.Length-128);
+    }
+
+    public static ID3v1 Parge(byte[] buffer, int offset)
+    {
+        ID3v1 ret = new ID3v1();
+        if ( offset &lt; 0 ) {
+            return null;
+        }
+        if (buffer.Length &lt; offset + 128 ) {
+            return null;
+        }
+
+        // ヘッダチェック ("TAG")
+        if ( buffer[offset] != 0x54 || buffer[offset+1] != 0x41 || buffer[offset+2] != 0x47) {
+            return null;
+        }
+        ret.TitleInBytes = new byte[30];
+        ret.ArtistInBytes = new byte[30];
+        ret.AlbumInBytes = new byte[30];
+        ret.YearInByte = new byte[4];
+        Array.Copy(buffer, offset+ 3, ret.TitleInBytes,  0, 30);
+        Array.Copy(buffer, offset+33, ret.ArtistInBytes, 0, 30);
+        Array.Copy(buffer, offset+63, ret.AlbumInBytes,  0, 30);
+        Array.Copy(buffer, offset+93, ret.YearInByte,    0,  4);
+        if ( buffer[offset+125] == 0x00 ) { // Track情報あり
+            ret.CommnetInByte = new byte[28];
+            Array.Copy(buffer, offset+97, ret.CommnetInByte, 0, 28);
+            ret.Track = buffer[offset+126];
+        }
+        else {
+            ret.CommnetInByte = new byte[30];
+            Array.Copy(buffer, offset+97, ret.CommnetInByte, 0, 30);
+            ret.Track = 0;
+        }
+        ret.GenreNumber = buffer[offset+127];
+
+        return ret;
+    }
+}
+
+public class ID3v2
+{
+    const int CodePage_Shift_JIS = 932;
+
+
+    static int SynchsafeIntFrom4Bytes(byte[] buffer, int offset) {
+        return ((buffer[offset  ]&amp;0x7F)&lt;&lt;21) |
+               ((buffer[offset+1]&amp;0x7F)&lt;&lt;14) | 
+               ((buffer[offset+2]&amp;0x7F)&lt;&lt; 7) | 
+               ((buffer[offset+3]&amp;0x7F)    ) ;
+    }
+
+    public class Frame
+    {
+        public string ID{get;private set;}
+        int MajorVer;
+        int Size;
+        int EncodingID;
+        byte Flags1;
+        byte Flags2;
+        byte[] Data; // EncodingIDを除く
+
+        public override string ToString()
+        {
+            int offset = 0;
+
+            if ( ID == "PIC" || ID == "APIC" ) {
+                return "";
+            }
+
+            if ( ID == "COM" || ID == "COMM" ) {
+                return ""; // 未実装
+                /*
+                if ( Data.Length &gt;= 3+1 &amp;&amp; 'a' &lt;= Data[0] &amp;&amp; Data[0] &lt;= 'z' ) {
+                    // 国別コードらしきものがある場合
+                    offset = 3;
+                    if ( EncodingID == 1 ) {
+                        // BOM 2byteすてて 2byteずつサーチしてNULL終端0x00 00を探す
+                    }
+                    else if ( EncodingID == 2 ) {
+                        // 2byteずつサーチしてNULL終端0x00 00を探す
+                    }
+                    else if ( EncodingID == 0 || EncodingID == 3 ) {
+                        // NULL終端0x00を探す
+                    }
+                }
+                else {
+                    return ""; // 不正なフォーマット
+                }
+                */
+            }
+
+            try {
+                if ( EncodingID == 3 ) {
+                    // UTF-8 BOMなし
+                    return (new System.Text.UTF8Encoding(false)).GetString(Data, offset, Data.Length-offset);
+                }
+                else if ( EncodingID == 2 ) {
+                    // UTF-16BE BOMなし
+                    return (new System.Text.UnicodeEncoding(true,false)).GetString(Data, offset, Data.Length-offset);
+                }
+                else if ( EncodingID == 1 ) {
+                    // UTF-16 BOMあり
+                    return (new System.Text.UnicodeEncoding()).GetString(Data, offset, Data.Length-offset);
+                }
+                else if ( EncodingID == 0 ) {
+                    // MPEGの規格上は
+                    //   ISO-8859-1 (CodePage=28591 西ヨーロッパ言語 (ISO))
+                    //return Encoding.GetEncoding(28591).GetString(Data);
+
+                    // 日本ではShift_JISが横行しているらしい(?)
+                    //   shift_jis(CodePage=932)
+                    return Encoding.GetEncoding(CodePage_Shift_JIS).GetString(Data, offset, Data.Length-offset);
+                }
+                else {
+                    // unknown
+                    return "";
+                }
+            }
+            catch ( DecoderFallbackException ) {
+                // 読み取り不能
+                return "";
+            }
+        }
+
+        public static Frame Parse(int majorVer, byte[] buffer, ref int pos, int endPos)
+        {
+            Frame ret = new Frame();
+
+            if ( endPos &gt; buffer.Length ){ return null; }
+
+            if ( endPos &lt; pos+6 ) { return null; }
+            if ( majorVer &gt;= 3 &amp;&amp; endPos &lt; pos+10 ) { return null; }
+
+            ret.MajorVer = majorVer;
+            try {
+                ret.ID = Encoding.ASCII.GetString(buffer, pos, (majorVer&lt;=2)?3:4 );
+            }
+            catch ( DecoderFallbackException ) {
+                // 読み取り不能
+                Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                return null;
+            }
+
+            if ( majorVer &lt;= 2 ) {
+                ret.Size = (buffer[pos+3]&lt;&lt;16) | (buffer[pos+4]&lt;&lt;8) | (buffer[pos+5]);
+                pos += 6;
+            }
+            else {
+                if ( majorVer &lt;= 3 ) {
+                    ret.Size = (buffer[pos+4]&lt;&lt;24) |
+                               (buffer[pos+5]&lt;&lt;16) | 
+                               (buffer[pos+6]&lt;&lt;8) |
+                               (buffer[pos+7]);
+                }
+                else {
+                    ret.Size = SynchsafeIntFrom4Bytes(buffer, pos+4);
+                }
+                ret.Flags1 = buffer[pos+8];
+                ret.Flags2 = buffer[pos+9];
+                pos += 10;
+            }
+            if ( endPos &lt; pos + ret.Size ) {
+                Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                Console.WriteLine("Address over");
+                return null;
+            }
+            if ( ret.Size &gt; 0 ) {
+                ret.Data = new byte[ret.Size-1];
+                ret.EncodingID = buffer[pos];
+                Array.Copy(buffer, pos+1, ret.Data, 0, ret.Size-1);
+            }
+            else {
+                ret.Data = new byte[0];
+                ret.EncodingID = 0;
+            }
+            pos += ret.Size;
+
+            return ret;
+        }
+    }
+
+    public int TagVerMajor{get;private set;}
+    public int TagVerMinor{get;private set;}
+    public int Flags{get;private set;}
+    public int TagSize{get;private set;}
+    public int ExtSize{get;private set;}
+
+    public bool HasExtendedHeader{get{return ((Flags&amp;0x40)!=0);}}
+    public bool HasFooter{get{return ((Flags&amp;0x10)!=0);}}
+
+    List&lt;Frame&gt; Frames;
+
+    int FindFirstFrameByID(string FrameID) {
+        for(int i=0;i&lt;Frames.Count;i++){
+            if ( Frames[i].ID == FrameID ) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public string Artist { get { return GetStringByID("TP1","TPE1"); } }
+    public string Title { get { return GetStringByID("TT2","TIT2"); } }
+    public string Album { get { return GetStringByID("TAL","TALB"); } }
+    public string Track { get { return GetStringByID("TRK","TRCK"); } }
+    public string Year { get { return GetStringByID("TYE","TYER"); } }
+    public string Genre { get { return GetStringByID("TCO","TCON"); } }
+    public string Comment { get { return GetStringByID("COM","COMM"); } }
+
+    string GetStringByID(string idForV3p2, string idForV3p3)
+    {
+        string id = (TagVerMajor&lt;=2)?idForV3p2:idForV3p3;
+        if ( id == null ) { return ""; }
+        int index = FindFirstFrameByID(id);
+        if ( index &lt; 0 ) { return ""; }
+        return Frames[index].ToString();
+    }
+
+    public static ID3v2 Parge(byte[] buffer, int offset)
+    {
+        ID3v2 ret = new ID3v2();
+
+        if ( offset &lt; 0 ) {
+            return null;
+        }
+        // ID3v2は最低でも10byte以上なので10byte以上であることをチェックする
+        if (buffer.Length &lt; offset + 10 ) {
+            return null;
+        }
+
+        // ヘッダチェック "ID3"
+        if ( buffer[offset] != 0x49 || buffer[offset+1] != 0x44 || buffer[offset+2] != 0x33) {
+            return null;
+        }
+
+        ret.TagVerMajor = buffer[offset+3];
+        ret.TagVerMinor = buffer[offset+4];
+        ret.Flags = buffer[offset+5];
+        ret.TagSize = SynchsafeIntFrom4Bytes(buffer, offset+6);
+
+        int pos = offset+10;
+        int endPos = pos + ret.TagSize;
+        if ( endPos &gt; buffer.Length ) {
+            return null;
+        }
+        if ( ret.HasFooter ) {
+            endPos -= 10; // Footer(10byte)分末尾位置を手前にセットする
+        }
+
+        if ( ret.HasExtendedHeader ) {
+            // 最小6byteある
+            if ( buffer.Length &lt; pos+6 ) {
+                return null;
+            }
+            if ( ret.TagVerMajor &lt;= 3 ) {
+                // IDv2.3.x以下
+                ret.ExtSize = (buffer[pos  ]&lt;&lt;24) |
+                              (buffer[pos+1]&lt;&lt;16) |
+                              (buffer[pos+2]&lt;&lt; 8) |
+                              (buffer[pos+3]    );
+            }
+            else {
+                ret.ExtSize = SynchsafeIntFrom4Bytes(buffer, pos);
+            }
+            pos += 4 + ret.ExtSize;
+        }
+
+        // parsing Frame
+        ret.Frames = new List&lt;Frame&gt;();
+        while ( pos &lt; endPos ) {
+            if ( buffer[pos] == 0 ) { // padding領域(っぽい)を検出
+                break;
+            }
+            Frame t = Frame.Parse(ret.TagVerMajor, buffer, ref pos, endPos);
+            if ( t == null ) {
+                Console.WriteLine("Failed to parse at address 0x" + pos.ToString("X"));
+                return null;
+            }
+            else {
+                ret.Frames.Add(t);
+            }
+        }
+        return ret;
+    }
+}
+
+
+class MainForm : Form
+{
+    ListView lsvID3v1;
+    ListView lsvID3v2;
+
+    MainForm(string filePath)
+    {
+        Text = "Mp3TagViewer";
+
+        Controls.Add(
+            lsvID3v1 = new ListView() {
+                Location = new Point(0, 0),
+                Size = new Size(600, 200),
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true,
+                AllowDrop = true,
+            }
+        );
+        lsvID3v1.Columns.Add("ID3v1項目", 150);
+        lsvID3v1.Columns.Add("値", 250);
+        lsvID3v1.DragEnter += Control_DragEnter;
+        lsvID3v1.DragDrop += Control_DragDrop;
+
+        Controls.Add(
+            lsvID3v2 = new ListView() {
+                Location = new Point(0, 200),
+                Size = new Size(600, 400),
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true,
+                AllowDrop = true,
+            }
+        );
+        lsvID3v2.Columns.Add("ID3v2項目", 150);
+        lsvID3v2.Columns.Add("値", 250);
+        lsvID3v2.DragEnter += Control_DragEnter;
+        lsvID3v2.DragDrop += Control_DragDrop;
+
+        this.AllowDrop = true;
+        this.DragEnter += Control_DragEnter;
+        this.DragDrop += Control_DragDrop;
+
+
+        if ( filePath != null ) {
+            LoadFile(filePath);
+        }
+
+        ClientSize = new Size(600,650);
+    }
+
+    void Control_DragEnter(Object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)) {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    void Control_DragDrop(Object sender, DragEventArgs e)
+    {
+        var fileNames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+        if ( fileNames != null &amp;&amp; fileNames.Length == 1 ) {
+            if ( fileNames[0].EndsWith(".mp3", true, null) ) {// Note: 第2引数はignoreCase
+                LoadFile(fileNames[0]);
+            }
+        }
+    }
+
+    void LoadFile(string filePath)
+    {
+        if ( filePath.EndsWith(".mp3", true, null) ) {// Note: 第2引数はignoreCase
+            byte[] data = File.ReadAllBytes(filePath);
+            ID3v1 id3v1 = ID3v1.PargeFromFoot(data);
+            ID3v2 id3v2 = ID3v2.Parge(data,0);
+
+            RegisterID3v1ToControl(id3v1);
+            RegisterID3v2ToControl(id3v2);
+        }
+    }
+
+
+    void RegisterID3v1ToControl(ID3v1 id3v1)
+    {
+        lsvID3v1.Items.Clear();
+        if ( id3v1 != null ) { 
+            lsvID3v1.BeginUpdate();
+            try {
+                lsvID3v1.Items.AddRange(
+                    new ListViewItem[]{
+                        new ListViewItem(new string[]{"アーティスト", id3v1.Artist}),
+                        new ListViewItem(new string[]{"アルバム", id3v1.Album}),
+                        new ListViewItem(new string[]{"トラック", id3v1.Track.ToString()}),
+                        new ListViewItem(new string[]{"曲名", id3v1.Title}),
+                        new ListViewItem(new string[]{"年", id3v1.Year.ToString()}),
+                        new ListViewItem(new string[]{"ジャンル", id3v1.Genre}),
+                        new ListViewItem(new string[]{"コメント", id3v1.Comment}),
+                    }
+                );
+            }
+            finally {
+                lsvID3v1.EndUpdate();
+            }
+        }
+    }
+
+    void RegisterID3v2ToControl(ID3v2 id3v2)
+    {
+        lsvID3v2.Items.Clear();
+        if ( id3v2 != null ) { 
+            lsvID3v2.BeginUpdate();
+            try {
+                lsvID3v2.Items.AddRange(
+                    new ListViewItem[]{
+                        new ListViewItem(new string[]{"アーティスト", id3v2.Artist}),
+                        new ListViewItem(new string[]{"アルバム", id3v2.Album}),
+                        new ListViewItem(new string[]{"トラック", id3v2.Track}),
+                        new ListViewItem(new string[]{"曲名", id3v2.Title}),
+                        new ListViewItem(new string[]{"年", id3v2.Year}),
+                        new ListViewItem(new string[]{"ジャンル", id3v2.Genre}),
+                        //new ListViewItem(new string[]{"コメント", id3v2.Comment}),
+                    }
+                );
+            }
+            finally {
+                lsvID3v2.EndUpdate();
+            }
+        }
+    }
+
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm((args.Length==1)?args[0]:null));
+    }
+}
+
+

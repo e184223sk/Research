@@ -1,0 +1,64 @@
+More than 1 year has passed since last update.前回の記事で、何となくBluetooth v4で環境センサから値をとるためには、ここからとればよいというのが分かったので、それをWindowsで(WinRTで)実装するにはどう書けばよいかを調べていく。今回は、下記のものを使って実験をする。基本的に、下記のサンプルをもとにしている。
+https://github.com/microsoft/Windows-universal-samples/tree/master/Samples/BluetoothLE/cs
+これをベースに、今回やろうとしていることに最低限必要な処理だけ抜き出したのが今回やったこと。BLE環境センサから温度をとってきてアプリで使うということをしたいので、温度を採ってこれるライブラリ(dll)を作る。
+まずは勉強のためにあまりエラー処理を入れずに、正常系だけで最低限必要な処理だけつくるイメージにする。機能としては、下記のようなイメージ。前回の記事で、調べた限りの知識でとても乱暴に「どうやって通信するか」「温度を取得するか」を言うと、ということをする。
+測定間隔を設定する機能については、Read要求が「Write要求」になるイメージ。ペアリングは事前に手でやっておく前提で、下記のような流れになる。値の読み込み、変化通知(Notify)、書き込みのすべてで共通して行う処理。環境センサはWindowsの設定でペアリングされている前提。
+下記のようにselectorを書いてウォッチャーを作成してスタートすると、デバイス情報更新時のハンドラとして登録されたメソッドにて、ペアリングされていて指定のUUIDを持つ機器のみ検索されてくる。※ちなみに、selectorを下記のように書くと、ペアリングしていないBLE機器もまとめて検索されてくるっぽい。そこから、下の流れてデバイス情報を保存することもできるので、「ペアリングせずに対象機器を探してデータをとる」こともできる。(試したら実際できた)
+ただ複数のセンサがある場合など、検索してどれを使うかを選ぶとかしないといけなくなりそうなため、やめた。ペアリングは手動でやってもらうこととしたい。ウォッチャーが検索してくれた機器が、引数に載ってやってくるので、お目当ての機器かどうかを名前で判定して、当たっていたら保存する。※MSのサンプルだとDeviceWatcher.Added以外に、Updated、Removed、EnumerationCompleted、Stoppedのハンドラも登録している。が、試したときにはAdded以外は使ってなかったので、今回は簡単のためにAddedだけにした。ウォッチャーで保存したデバイス情報に載っているIDをもとに、BluetoothLEDeviceを取得する。※APIの名前に「Connect」とつかないのでよくわからないが、BluetoothLEDeviceを取得した時点でいわゆる「Connect」状態っぽい。（Device.ConnectionStatusが「Conected」になっている）デバイス情報取得までは、データの取得、変化検出、設定に共通する処理。
+これ以降は、取得したい値、設定したい値ごとに、対応するサービスやキャラクタリスティックを、UUIDを使って指定する。UUIDを指定して、温度の取得に必要なサービスを取得する。
+今回の場合は、UUID=0x3000のサービスを取得する。
+※ベースのUUIDは0C4CXXXX-7700-46F4-AA96-D5E974E32A54なので、XXXXのところを3000に置き換える。
+　以降、キャラクタリスティックのUUIDも同じようにする。サービスから、UUIDを指定してキャラクタリスティックを取得する。
+今回の場合は、UUID=0x3001のキャラクタリスティックを取得する。
+サービスもキャラクタリスティックも、取得の際はリストとして取得されてくるが、UUIDを指定しているので、取得されてくるのは1つだけのはず。なので、ここでは[0]を使っている。初期状態(接続したての状態)では、ディスクリプタの値が「None」になっていて、値が変化しても検出しない(後で登録するハンドラを通らない)ので、「Notify」にしてやる。変化検出したときに行うハンドラを登録する。
+試したところ、この環境センサでは、後で設定する「計測間隔」の間隔でこのハンドラを通るっぽい。データの整形は、環境センサのキャラクタリスティックの仕様に則って行う。変化検出時ではなく、好きなときに値をとるために、下記の処理を書く。(両方やっても、どちらか片方だけでもOK)※HasFlagでReadできるかどうか確認するのは、仕様書で確実にReadできることを確認ずみであれば、チェックしなくていい気がする。
+(MSのサンプルでは、いろいろな機器のサービスやキャラクタリスティックを汎用的に読み書きできるようにしていたのでHasFlagでチェックしてるが、決め打ちのサービス/キャラクタリスティックであればいらないと思う)今回使う温度センサは、デフォルトで5分間隔で温度やその他センサ値を計測し、最新のデータとしてキャラクタリスティックに反映させる。つまり、変化検出時のハンドラとして登録したメソッドが、5分に一回呼ばれることになる。
+今回は、もうすこし早く値が更新されてほしいので、測定間隔を短く設定できるようにする。→「サービスから温度取得に使いたいキャラクタリスティックを取得」と同じやり方で、UUIDだけ変えて行う。測定間隔設定用のサービスのUUIDは0x3010。→「サービスから温度取得に使いたいキャラクタリスティックを取得」と同じやり方で、UUIDだけ変えて行う。測定間隔設定用のキャラクタリスティックのUUIDは0x3011。設定のためのキャラクタリスティックは、下記のような使用になっている。
+今回は、5秒に設定することにする。
+設定に必要なキャラクタリスティックを取得したうえで、下記を行う。※今回の測定間隔は2バイトのデータのため、writer.WriteInt16(5);としている。
+もし設定が1バイトのデータだった場合は、writer.WriteByte(5);にする必要がある。ここまでで、一応温度やその他のセンサの値をとるということはできた。
+ここまでを調べたうえで分かったことや不明点を、以下にメモとして残す。ペアリングなしでデータとりたい場合の流れペアリングもアプリ内でやりたい場合の流れできれば、BLEで何かつくるときは、
+「アプリを使う前に温度センサをペアリングしておいて、その機器とだけ通信する」仕様にしたい。
+でないと、近所に同じセンサが複数あった時に、アプリ上でその機器をListにして、どれを使うか選択してもらわないといけないようなややこしい仕様になりそう。
+(何でもアプリでやらず、Windowsの機能でやれるところ(使う機器の選択=ペアリング)はやってしまいたい)・CreateWatcherで使う「selector」は、何をあらわしている？？
+→https://docs.microsoft.com/ja-jp/windows/uwp/devices-sensors/aep-service-class-idsに書いてる。
+このIDで、何を相手にするかを絞ってやることで、電池の寿命が延びたりする。
+プロトコルIDを指定してCreateWatcherすることで、そのプロトコルを持つ機器をwatchできる。
+下記に、セレクタの例がある。この例のようにセレクタを書けば、ウォッチするデバイスを絞れそう。
+https://docs.microsoft.com/en-gb/windows/uwp/devices-sensors/build-a-device-selector#aqs-string-examples
+https://docs.microsoft.com/ja-jp/windows/uwp/devices-sensors/enumerate-devices-over-a-networkWPFで実験用に作ったものを、ほぼ同じコードでUWPにして、PCのWindows10上で動かすと、うまく動作した。
+ただ、ラズパイ3のWindows IOT core上で動かすと、うまく動かなかった。
+具体的には、デバイス、サービス、キャラクタリスティックを取得するまではうまく動くが、Notifyをセットするところでほぼ毎回失敗し「Unreachable」になる。(「ほぼ」というのは、何度もやっていると、たまーにNotifyのsetが成功して、成功後は値をうまく取れ続ける、ということ。原因はわからなかった)
+Win Iot coreまたはラズパイ3ではいまのところそんなもんとして、今回はあきらめた。■GATT公式
+公式ページトップ
+https://www.bluetooth.com/公式プロファイルとサービス一覧
+https://www.bluetooth.com/specifications/gatt/公式サービスとUUID一覧
+https://www.bluetooth.com/specifications/gatt/services/公式キャラクタリスティックとUUID一覧
+https://www.bluetooth.com/specifications/gatt/characteristics/公式UUID
+https://www.bluetooth.com/specifications/assigned-numbers/■実験につかうオムロンBL01の仕様
+BAG型
+https://www.omron.co.jp/ecb/product-detail?partId=73062
+https://omronfs.omron.com/ja_JP/ecb/products/pdf/CDSC-015.pdfUSB型
+https://www.omron.co.jp/ecb/product-detail?partId=73063■MSページ
+CreateWatcherで使うProtocolIdの一覧
+https://docs.microsoft.com/ja-jp/windows/uwp/devices-sensors/aep-service-class-idsAQS(ウォッチャーのselector)の書き方
+https://docs.microsoft.com/ja-jp/windows/uwp/devices-sensors/enumerate-devices-over-a-network■MSサンプル
+サービス/キャラクタリスティック接続と取得/設定
+https://github.com/microsoft/Windows-universal-samples/tree/master/Samples/BluetoothLE/csデバイス検索とペアリング
+https://github.com/microsoft/Windows-universal-samples/tree/master/Samples/DeviceEnumerationAndPairing/cs■非公式解説ページ
+以下のページを見れば、だいたいBLEがどういう構造なのかわかる。
+下記のページで勉強させていただきました。ありがとうございます。
+どのページも、むちゃくちゃわかりやすいです。BLEの説明
+http://jellyware.jp/kurage/bluejelly/ble_guide.htmlUUIDとは？
+http://jellyware.jp/kurage/bluejelly/uuid.htmlBLE v4とは
+https://micro.rohm.com/jp/techweb_iot/knowledge/iot02/s-iot02/01-s-iot02/39Gattの構造
+https://micro.rohm.com/jp/techweb_iot/knowledge/iot02/s-iot02/04-s-iot02/3792NotifyとIndicateの違い
+http://yegang.hatenablog.com/entry/2014/08/09/195246BLEの通信の手順(というか流れ)
+http://www.microtechnica.tv/support/manual/clickble_man.pdfアドバタイズパケットについて
+https://qiita.com/gebo/items/2e51bebd3d26a3025d9fアドバタイズパケットでデータをとる
+https://qiita.com/komde/items/7209b36159da69ae79d2.net4.7.0のときのAPIは、ペアリングしたBLE機器でないとServiceをとってこれないっぽい
+https://codeday.me/jp/qa/20190629/1132145.htmlMSブログの実装の説明
+https://blogs.msdn.microsoft.com/shozoa/2016/02/28/windows-10-bluetooth/Windowsのバージョンによって、ペアリングがいるとかいらないとか(15030以降は要らないとか)
+https://docs.microsoft.com/ja-jp/windows/uwp/devices-sensors/bluetooth-dev-faq
+
+

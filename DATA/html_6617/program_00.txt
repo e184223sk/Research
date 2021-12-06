@@ -1,0 +1,100 @@
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+
+namespace Mandelbrot{
+    static class Program{
+        public const int WIDTH = 1000;
+        public const int HEIGHT = 1000;
+
+        public static void Main(string[] args){
+            Bitmap image = new Bitmap(WIDTH, HEIGHT, PixelFormat.Format32bppArgb);
+            BitmapData data = image.LockBits(
+                new Rectangle(0, 0, WIDTH, HEIGHT),
+                ImageLockMode.WriteOnly,
+                PixelFormat.Format32bppArgb);
+            byte[] buf = new byte[4*WIDTH*HEIGHT];
+            for(int i = 0; i &lt; WIDTH; i++){
+                for(int j = 0; j &lt; HEIGHT; j++){
+                    byte a = 0, r = 0, g = 0, b = 0;
+                    CalcMandelbrot(i, j, ref a, ref r, ref g, ref b);
+                    buf[4*(WIDTH*j+i)+3] = a;
+                    buf[4*(WIDTH*j+i)+2] = r;
+                    buf[4*(WIDTH*j+i)+1] = g;
+                    buf[4*(WIDTH*j+i)] = b;
+                }
+            }
+            System.Runtime.InteropServices.Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+            image.UnlockBits(data);
+            image.Save("mandelbrot.png");
+        }
+
+        // マンデルブロ集合のパラメータ
+        public const double xMin = -0.7406219098542647;
+        public const double xMax = -0.7406219098519411;
+        public const double yMin = 0.15805475052205210;
+        public const double yMax = 0.15805475052421664;
+        public const int nMax = 18000;
+
+        // 点(i, j)に対する色をAHSVで計算
+        public static void CalcMandelbrot(int i, int j, ref byte a, ref byte r, ref byte g, ref byte b){
+            double c = xMin+i*(xMax-xMin)/WIDTH;
+            double d = yMin+j*(yMax-yMin)/HEIGHT;
+            double x1 = 0.0, y1 = 0.0, x2, y2;
+            int n = 0;
+            for(n = 0; n &lt; nMax; n++){
+                x2 = x1*x1-y1*y1+c;
+                y2 = 2*x1*y1+d;
+                if(x2*x2+y2*y2 &gt; 4.0) break;
+                x1 = x2;
+                y1 = y2;
+            }
+            double t = (double)n/nMax;
+            if(t &gt;= 1.0){
+                a = 0xff;
+                r = g = b = 0; //black
+            }else{
+                ARGBfromAHSV(ref a, ref r, ref g, ref b, 1.0, 0.55, 0.3+0.3*Math.Sin(12*Math.PI*t), 0.7+0.3*Math.Cos(16*Math.PI*t));
+            }
+        }
+
+        // ARGBからAHSVへ変換
+        public static void ARGBfromAHSV(ref byte aOut, ref byte r, ref byte g, ref byte b, double aIn, double h, double s, double v){
+            aOut = (byte)(255*aIn);
+            r = (byte)(255*v);
+            g = (byte)(255*v);
+            b = (byte)(255*v);
+            if (s &lt;= 0.0) return;
+            h *= 6.0;
+            int i = (int)h;
+            double f = h-i;
+            switch(i){
+                case 0:
+                    g = (byte)(g*(1-s*(1-f)));
+                    b = (byte)(b*(1-s));
+                    break;
+                case 1:
+                    r = (byte)(r*(1-s*f));
+                    b = (byte)(b*(1-s));
+                    break;
+                case 2:
+                    r = (byte)(r*(1-s));
+                    b = (byte)(b*(1-s*(1-f)));
+                    break;
+                case 3:
+                    r = (byte)(r*(1-s));
+                    g = (byte)(g*(1-s*f));
+                    break;
+                case 4:
+                    r = (byte)(r*(1-s*(1-f)));
+                    g = (byte)(g*(1-s));
+                    break;
+                case 5:
+                    g = (byte)(g*(1-s));
+                    b = (byte)(b*(1-s*f));
+                    break;
+            }
+        }
+    }
+}
+

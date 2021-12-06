@@ -1,0 +1,122 @@
+using System;
+using System.DirectoryServices.Protocols;
+using System.Text.RegularExpressions;
+using System.Collections;
+using System.Collections.Generic;
+using System.Net;
+
+namespace LdapTest
+{
+    public static class LdapAuthnTest
+    {
+        /// &lt;summary&gt;
+        /// LDAP で認証する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="userId"&gt;ユーザー名&lt;/param&gt;
+        /// &lt;param name="userPassword"&gt;ユーザーのパスワード&lt;/param&gt;
+        /// &lt;param name="userAttr"&gt;DN に指定されている属性 (多くの場合、CN)&lt;/param&gt;
+        /// &lt;param name="baseDN"&gt;ベース DN&lt;/param&gt;
+        /// &lt;param name="ldapServer"&gt;LDAP サーバーのホスト名または IP アドレス&lt;/param&gt;
+        /// &lt;param name="isTls"&gt;LDAPS にする場合 true。LDAP のままにする場合 false。&lt;/param&gt;
+        /// &lt;returns&gt;認証成功でそのユーザーの &lt;see cref="SearchResultEntry" /&gt;、認証失敗は null。&lt;/returns&gt;
+        /// &lt;exception cref="LdapException"&gt;LDAP 例外&lt;/exception&gt;
+        public static SearchResultEntry LdapAuthn(string userId, string userPassword, string userAttr, string baseDN, string ldapServer, bool isTls)
+        {
+            // 認証情報が空の場合は即認証失敗
+            if (userId.Length &lt; 1 || userPassword.Length &lt; 1)
+            {
+                return null;
+            }
+
+            ldapServer = ServerPortSpecify(ldapServer, isTls);
+
+            LdapConnection ldapConnection = new LdapConnection(ldapServer) {
+                Credential = new NetworkCredential(userAttr + "=" + LdapEscape(userId) + "," + baseDN, userPassword),
+                AuthType = AuthType.Basic,
+                Timeout = new TimeSpan(0, 0, 10)
+            };
+            ldapConnection.SessionOptions.ProtocolVersion = 3;
+            ldapConnection.SessionOptions.SecureSocketLayer = isTls;
+
+            SearchResultEntry searchResultEntry = null;
+            try
+            {
+
+                // 認証したいユーザーでバインドしてみる
+                ldapConnection.Bind();
+
+                // バインドが通ったらユーザー情報を得る
+                SearchRequest searchRequest = new SearchRequest()
+                {
+                    DistinguishedName = baseDN,
+                    Filter = "(" + userAttr + "=" + userId + ")"
+                };
+                SearchResponse searchResponse = ldapConnection.SendRequest(searchRequest) as SearchResponse;
+
+                if (searchResponse.Entries.Count == 1)
+                {
+                    foreach (SearchResultEntry item in searchResponse.Entries)
+                    {
+                        searchResultEntry = item;
+                        break;
+                    }
+                }
+
+                if (searchResultEntry == null)
+                {
+                    // 念のため。この例外がスローされることはない。
+                    throw new ArgumentOutOfRangeException(searchResponse.Entries.Count.ToString());
+                }
+            }
+            catch (LdapException e)
+            {
+                if (e.ErrorCode != 49) // エラー コード 49 は「認証失敗」
+                {
+                    throw e;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine(e.Message);
+                    System.Diagnostics.Debug.WriteLine(e.ServerErrorMessage);
+                }
+            }
+            finally
+            {
+                if (ldapConnection != null)
+                {
+                    try
+                    {
+                        ldapConnection.Dispose();
+                    }
+                    catch (Exception e)
+                    {
+                        System.Diagnostics.Debug.WriteLine(e);
+                    }
+                }
+            }
+
+            return searchResultEntry;
+        }
+
+        /// &lt;summary&gt;
+        /// TCP ポート指定なし、かつ、LDAPS のときはポート指定「:636」を追加する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="ldapServer"&gt;LDAP サーバー指定&lt;/param&gt;
+        private static string ServerPortSpecify(string ldapServer, bool isTls)
+        {
+            if (isTls &amp;&amp; !Regex.IsMatch(ldapServer, ":[1-9][0-9]*$")) return ldapServer + ":636";
+            else return ldapServer;
+        }
+
+        /// &lt;summary&gt;
+        /// 正常に処理できるよう、特殊文字をエスケープする。(RFC2253)
+        /// &lt;/summary&gt;
+        /// &lt;param name="ldapValue"&gt;エスケープ処理前の文字列&lt;/param&gt;
+        /// &lt;returns&gt;エスケープ処理済みの文字列&lt;/returns&gt;
+        static string LdapEscape(string ldapValue)
+        {
+            return "\"" + ldapValue.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+    }
+}
+

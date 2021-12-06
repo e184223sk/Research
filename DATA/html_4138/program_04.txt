@@ -1,0 +1,130 @@
+
+using SampleApi.Filters;
+using SampleApi.Handlers;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Swashbuckle.AspNetCore.Swagger;
+using System;
+using System.IO;
+using System.Reflection;
+using SampleApi.Handlers.Accounts;
+using SampleApi.Handlers.Accounts.Interfaces;
+using SampleApi.Models.ApplicationUsers.DataModels;
+using Microsoft.AspNetCore.Identity;
+
+namespace SampleApi
+{
+    public class Startup
+    {
+        public Startup(IConfiguration configuration, IOptions&lt;AppSettings&gt; optionsAccessor)
+        {
+            Configuration = configuration;
+        }
+
+        public IConfiguration Configuration { get; }
+
+        // This method gets called by the runtime. Use this method to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            //Sql
+            services.AddDbContext&lt;JetonModelContext&gt;(options =&gt;
+                options.UseSqlServer(
+                    Configuration.GetConnectionString("DefaultConnection")));
+
+            services.AddDbContext&lt;ApplicationDbContext&gt;(options =&gt;
+                options.UseSqlServer(
+                    Configuration.GetConnectionString("UserDabtaseConnection")));
+
+            services.AddIdentity&lt;ApplicationUserDataModel, IdentityRole&gt;()
+                .AddEntityFrameworkStores&lt;ApplicationDbContext&gt;()
+                .AddUserManager&lt;UserManager&lt;ApplicationUserDataModel&gt;&gt;()
+                .AddDefaultTokenProviders();
+
+            services.Configure&lt;IdentityOptions&gt;(
+                options =&gt;
+                {
+                    // Password settings
+                    options.Password.RequireDigit = false;
+                    options.Password.RequiredLength = 6;
+                    options.Password.RequireNonAlphanumeric = false;
+                    options.Password.RequireUppercase = false;
+                    options.Password.RequireLowercase = false;
+                    options.Password.RequiredUniqueChars = 3;
+
+                    // Lockout settings
+                    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(30);
+                    options.Lockout.MaxFailedAccessAttempts = 5;
+                    options.Lockout.AllowedForNewUsers = true;
+
+                    // User settings
+                    options.User.RequireUniqueEmail = true;
+                });
+
+            services.AddSingleton&lt;IHttpContextAccessor, HttpContextAccessor&gt;();
+            services.AddTransient&lt;IAccountHandler, AccountHandler&gt;();
+
+            services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+
+            // Register the Swagger generator, defining 1 or more Swagger documents
+            services.AddSwaggerGen(c =&gt;
+            {
+                c.SwaggerDoc("v1", new Info
+                {
+                    Title = "{title}",
+                    Version = "1",
+                    Description = "{description}",
+                    Contact = new Contact
+                    {
+                        Name = "{name}",
+                        Email = "{email}",
+                        Url = "{url}"
+                    }
+                });
+
+                c.OperationFilter&lt;AddAuthorizationHeaderParameterOperationFilter&gt;();
+
+                // Set the comments path for the Swagger JSON and UI.
+                string xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+                string xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                c.IncludeXmlComments(xmlPath);
+            });
+
+        }
+
+        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app, IHostingEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+            else
+            {
+                app.UseHsts();
+            }
+
+            // Enable middleware to serve generated Swagger as a JSON endpoint.
+            app.UseSwagger();
+
+            // Enable middleware to serve swagger-ui (HTML, JS, CSS, etc.), 
+            // specifying the Swagger JSON endpoint.
+            app.UseSwaggerUI(c =&gt;
+            {
+                c.SwaggerEndpoint("/swagger/v1/swagger.json", "Jeton API V1");
+
+                c.RoutePrefix = string.Empty;
+            });
+
+            app.UseAuthentication();
+            app.UseHttpsRedirection();
+            app.UseMvc();
+        }
+    }
+}
+

@@ -1,0 +1,61 @@
+using System.Linq;
+using UnityEngine;
+
+public class TerrainDigging : MonoBehaviour
+{
+    private Camera mainCamera;
+
+    void Start()
+    {
+        mainCamera = Camera.main; // カメラを取得
+        TerrainData terrainData = gameObject.GetComponent&lt;Terrain&gt;().terrainData; // テレインデータを取得
+        // テクスチャをリセット
+        var alphamaps = terrainData.GetAlphamaps(0, 0, terrainData.alphamapResolution, terrainData.alphamapResolution);
+        for (int x = 0; x &lt; alphamaps.GetLength(0); x++)
+        {
+            for (int y = 0; y &lt; alphamaps.GetLength(1); y++)
+            {
+                alphamaps[x, y, 0] = 1f;
+                alphamaps[x, y, 1] = 0f;
+            }
+        }
+        terrainData.SetAlphamaps(0, 0, alphamaps);
+        // 高さを中間にリセット
+        var heights = terrainData.GetHeights(0, 0, terrainData.heightmapResolution, terrainData.heightmapResolution);
+        for (int x = 0; x &lt; heights.GetLength(0); x++)
+        {
+            for (int y = 0; y &lt; heights.GetLength(1); y++)
+            {
+                heights[x, y] = 0.5f;
+            }
+        }
+        terrainData.SetHeights(0, 0, heights);
+    }
+
+    void Update()
+    {
+        if (Input.GetMouseButton(0))
+        {
+            var ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            RaycastHit hit;
+            if (Physics.Raycast(ray, out hit, Mathf.Infinity))
+            {
+                TerrainData terrainData = hit.collider.gameObject.GetComponent&lt;Terrain&gt;().terrainData; // テレインデータを取得
+
+                int ax = Mathf.FloorToInt(hit.textureCoord.x * terrainData.alphamapResolution); // アルファマップのX座標
+                int ay = Mathf.FloorToInt(hit.textureCoord.y * terrainData.alphamapResolution); // アルファマップのY座標
+                var alphamaps = terrainData.GetAlphamaps(ax, ay, 1, 1); // クリック箇所のアルファマップを取得[1x1]
+                alphamaps[0, 0, 0] = 0; // 1個目のテクスチャを無効
+                alphamaps[0, 0, 1] = 1; // 2個目のテクスチャを有効
+                terrainData.SetAlphamaps(ax, ay, alphamaps); // アルファマップに反映
+
+                int hx = Mathf.FloorToInt(hit.textureCoord.x * terrainData.heightmapResolution); // ハイトマップのX座標
+                int hy = Mathf.FloorToInt(hit.textureCoord.y * terrainData.heightmapResolution); // ハイトマップのY座標
+                var heights = terrainData.GetHeights(hx, hy, 1, 1); // クリック箇所のヘイトマップを取得[1x1]
+                heights[0, 0] = 0; // 高さを0にする
+                terrainData.SetHeightsDelayLOD(hx, hy, heights); // ハイトマップに反映
+            }
+        }
+    }
+}
+

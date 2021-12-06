@@ -1,0 +1,116 @@
+
+using System.Data.SQLite;
+using System.Data.Linq;
+using System.Data.Linq.Mapping;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = ":memory:" };
+
+        using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+        {
+            cn.Open();
+
+            using (var cmd = new SQLiteCommand(cn))
+            {
+                //テーブル作成
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS denco(" +
+                    "no INTEGER NOT NULL PRIMARY KEY," +
+                    "name TEXT NOT NULL," +
+                    "type TEXT NOT NULL," +
+                    "attribute TEXT NOT NULL," +
+                    "maxap INTEGER NOT NULL," +
+                    "maxhp INTEGER NOT NULL," +
+                    "skill TEXT)";
+                cmd.ExecuteNonQuery();
+
+                using (var context = new DataContext(cn))
+                {
+                    var table = context.GetTable&lt;Denco&gt;();
+
+                    //データ追加
+                    table.InsertOnSubmit(new Denco(2, "為栗メロ", "アタッカー", "eco", 310, 300, "きゃのんぱんち"));
+                    table.InsertOnSubmit(new Denco(3, "新阪ルナ", "ディフェンダー", "cool", 220, 360, "ナイトライダー"));
+                    table.InsertOnSubmit(new Denco(4, "恋浜みろく", "トリックスター", "heat", 300, 360, "ダブルアクセス"));
+                    table.InsertOnSubmit(new Denco(8, "天下さや", "アタッカー", "cool", 400, 240));
+                    table.InsertOnSubmit(new Denco(13, "新居浜いずな", "ディフェンダー", "heat", 290, 336, "重連壁"));
+                    table.InsertOnSubmit(new Denco(31, "新居浜ありす", "ディフェンダー", "heat", 270, 350, "ハッピーホリデイ"));
+
+                    context.SubmitChanges();
+
+                    //MaxAPが300以上のでんこをMaxHPで降順ソート(LINQ to SQL版)
+                    foreach(var q in table.Where(x =&gt; x.MaxAp &gt;= 300).OrderByDescending(x =&gt; x.MaxHp))
+                    {
+                        Console.WriteLine(q.Dump());
+                    }
+                    Console.WriteLine();
+
+                    //新居浜～で始まる名前を選択
+                    foreach(var q in table.Where(x =&gt; x.Name.StartsWith("新居浜")))
+                    {
+                        Console.WriteLine(q.Dump());
+                    }
+
+                    //アタッカーを選択（ダメな例）
+                    /*
+                    foreach (var q in table.Where(x =&gt; x.Type == "アタッカー"))
+                    {
+                        Console.WriteLine(q.Dump());//NotSupportedException
+                    }
+                    //x.Type == "アタッカー" を string.Compare(x.Type, "アタッカー") == 0で置き換える　→　同様にダメ
+                    // 同様に　string.Equals(x.Type, "アタッカー"))で置き換える　→　ダメ
+                        */
+
+                    //アタッカーを選択（一応通るけど怪しい例　多分遅い）
+                    foreach (var q in table.Where(x =&gt; x.Type.StartsWith("アタッカー") &amp;&amp; x.Type.EndsWith("アタッカー")))
+                    {
+                        Console.WriteLine(q.Dump());
+                    }
+
+                    //↑多分こっちのほうが無難
+                    foreach(var q in table.ToArray().Where(x =&gt; x.Type == "アタッカー"))
+                    {
+                        Console.WriteLine(q.Dump());
+                    }
+                }
+            }
+        }
+    }
+}
+
+//テーブル構造定義クラス
+[Table(Name = "denco")]
+public class Denco
+{
+    [Column(Name ="no", CanBeNull =false, DbType = "INT", IsPrimaryKey =true)]
+    public int No { get; set; }
+    [Column(Name ="name", CanBeNull =false, DbType ="TEXT")]
+    public string Name { get; set; }
+    [Column(Name ="type", CanBeNull =false, DbType ="TEXT")]
+    public string Type { get; set; }
+    [Column(Name ="attribute", CanBeNull =false, DbType ="TEXT")]
+    public string Attribute { get; set; }
+    [Column(Name ="maxap", CanBeNull =false, DbType ="INT")]
+    public int MaxAp { get; set; }
+    [Column(Name ="maxhp", CanBeNull =false, DbType ="INT")]
+    public int MaxHp { get; set; }
+    [Column(Name ="skill", CanBeNull =true, DbType ="TEXT")]
+    public string Skill { get; set; }
+
+    public Denco() { }
+    public Denco(int no, string name, string type, string attribute, int maxap, int maxhp, string skill = null)
+    {
+        No = no;
+        Name = name; Type = type; Attribute = attribute;
+        MaxAp = maxap; MaxHp = maxhp;
+        Skill = skill;
+    }
+
+    public string Dump()
+    {
+        return $"{No}\t{Name}\t{Type}\t{Attribute}\t{MaxAp}\t{MaxHp}\t{Skill}";
+    }
+}
+

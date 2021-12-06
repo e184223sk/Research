@@ -1,0 +1,217 @@
+
+
+        private class ResourceDictionary : PdfDictionary
+        {
+            private IList&lt;PdfDictionary&gt; resourcesStack = new List&lt;PdfDictionary&gt;();
+
+            virtual public void Push(PdfDictionary resources)
+            {
+                resourcesStack.Add(resources);
+            }
+
+            virtual public void Pop()
+            {
+                resourcesStack.RemoveAt(resourcesStack.Count - 1);
+            }
+
+            public override PdfObject GetDirectObject(PdfName key)
+            {
+                for (int i = resourcesStack.Count - 1; i &gt;= 0; i--)
+                {
+                    PdfDictionary subResource = resourcesStack[i];
+                    if (subResource != null)
+                    {
+                        PdfObject obj = subResource.GetDirectObject(key);
+                        if (obj != null) return obj;
+                    }
+                }
+                return base.GetDirectObject(key); // shouldn't be necessary, but just in case we've done something crazy
+            }
+        }
+
+        private Stack&lt;GraphicsState&gt; gsStack = new Stack&lt;GraphicsState&gt;();
+        public GraphicsState Gs()
+        {
+            return gsStack.Peek();
+        }
+
+        private IDictionary&lt;int, CMapAwareDocumentFont&gt; cachedFonts = new Dictionary&lt;int, CMapAwareDocumentFont&gt;();
+        private CMapAwareDocumentFont GetFont(PRIndirectReference ind)
+        {
+            CMapAwareDocumentFont font;
+            cachedFonts.TryGetValue(ind.Number, out font);
+            if (font == null)
+            {
+                font = new CMapAwareDocumentFont(ind);
+                cachedFonts[ind.Number] = font;
+            }
+            return font;
+        }
+
+        private class TextAreaInfo
+        {
+            public long start;
+            public long end;
+            public TextAreaInfo(long s, long e)
+            {
+                start = s;
+                end = e;
+            }
+        }
+
+        private string InPdf;
+        private string OutPdf;
+        PdfReader reader;
+
+        public PDFContentsRemover(string input, string output)
+        {
+            InPdf = input;
+            OutPdf = output;
+            reader = new PdfReader(InPdf);
+        }
+
+        public void RemoveString(string keyword)
+        {
+
+            int pc = reader.NumberOfPages;
+            for (int i = 1; i &lt;= pc; i++)
+            {
+                Console.WriteLine("ページ番号：" + i);
+
+                PdfDictionary page = reader.GetPageN(i);
+                PRStream stream;
+                PdfArray contentarray;
+                contentarray = page.GetAsArray(PdfName.CONTENTS);
+
+                List&lt;TextAreaInfo&gt; lArea = new List&lt;TextAreaInfo&gt;();
+
+                if (contentarray != null)
+                {
+                    for (int j = 0; j &lt; contentarray.Size; j++)
+                    {
+                        stream = (PRStream)contentarray.GetAsStream(j);
+                        PRTokeniser tokeniser = new PRTokeniser(
+                            new RandomAccessFileOrArray(
+                                new RandomAccessSourceFactory().CreateSource(
+                                    ContentByteUtils.GetContentBytesFromContentObject(stream)))); // streamの内容をパース。コマンドとコンテンツを取得
+
+                        PdfContentParser ps = new PdfContentParser(tokeniser);
+                        List&lt;PdfObject&gt; operands = new List&lt;PdfObject&gt;();
+                        CMapAwareDocumentFont font = null;
+
+                        long posq = 0, posQ = 0;
+                        bool isText = false, isMatch = false;
+                        while (ps.Parse(operands).Count &gt; 0)
+                        {
+                            PdfLiteral cmd = null;
+                            try
+                            {
+                                cmd = (PdfLiteral)operands[operands.Count - 1];// operands[]の最後がコマンド
+                            }
+                            catch (Exception)
+                            {
+                                // ファイルが破損しているとコマンドが取れない
+                                throw new PDFContentsRemoverException(cmd == null ? "NULL" : cmd.ToString());
+                            }
+
+                            Console.WriteLine(cmd);
+                            if (cmd.ToString() == "q") // GraphicsStateの開始
+                            {
+                                posQ = -1;
+                                try
+                                {
+                                    posq = tokeniser.FilePointer;
+                                    // Pointerの位置がqの後の改行を指している場合
+                                    if (PdfReader.GetStreamBytes(stream)[posq] != 'q') posq --;
+
+                                }
+                                catch (Exception)
+                                {
+                                    throw;
+                                }
+
+                            }
+                            else if (cmd.ToString() == "Q") // GraphicsStateの終了
+                            {
+                                if (posq &gt; 0 &amp;&amp; isText &amp;&amp; isMatch)
+                                {
+                                    // streamから消す区間
+                                    try
+                                    {
+                                        posQ = tokeniser.FilePointer;
+
+                                        // Pointerの位置がQの後の改行を指している場合
+                                        //if (PdfReader.GetStreamBytes(stream)[posQ] != 'Q') posQ --; 
+                                    }
+                                    catch (Exception)
+                                    {
+                                        throw;
+                                    }
+
+                                    lArea.Add(new TextAreaInfo(posq, posQ));
+                                }
+                                posQ = -1;
+                                posq = -1;
+                                isText = false;
+                                isMatch = false;
+                            }
+                            else if (cmd.ToString() == "BT") // テキストエリアの開始
+                            {
+                                isText = true;
+                            }
+                            else if (cmd.ToString() == "ET") { }// テキストエリアの終了
+                            else if (cmd.ToString() == "Tf") // フォント
+                            {
+                                PdfName fontResourceName = (PdfName)operands[0];
+                                float size = ((PdfNumber)operands[1]).FloatValue;
+
+                                PdfDictionary resourcesDic = page.GetAsDict(PdfName.RESOURCES);
+                                PdfDictionary fontsDictionary = resourcesDic.GetAsDict(PdfName.FONT);
+
+                                PdfObject fontObject = fontsDictionary.Get(fontResourceName);
+                                font = GetFont((PRIndirectReference)fontObject);
+                            }
+                            else if (cmd.ToString() == "Tj")  
+                            {
+                                PdfString str = (PdfString)operands[0];
+                                byte[] bytes = str.GetBytes();
+                                if (isText &amp;&amp; font.Decode(bytes, 0, bytes.Length) == keyword) isMatch = true;
+
+                                Console.WriteLine(font.Decode(bytes, 0, bytes.Length));
+                            }
+                            else if (cmd.ToString() == "TJ") 
+                            {
+                                PdfArray array = (PdfArray)operands[0];
+                                StringBuilder sb = new StringBuilder();
+                                foreach (PdfObject entryObj in array)
+                                {
+                                    if (entryObj is PdfString)
+                                    {
+                                        byte[] bytes = entryObj.GetBytes();
+                                        sb.Append(font.Decode(bytes, 0, bytes.Length));
+                                    }
+                                }
+                                if (isText &amp;&amp; sb.ToString() == keyword) isMatch = true;
+                                Console.WriteLine(sb.ToString());
+                            }
+                        }
+
+                        lArea.Reverse(); // 出現箇所を後ろから処理
+                        foreach (TextAreaInfo A in lArea)
+                        {
+                            byte[] shalf = PdfReader.GetStreamBytes(stream).Take((int)A.start).ToArray();
+                            byte[] ehalf = PdfReader.GetStreamBytes(stream).Skip((int)A.end + 1).ToArray();
+                            Array.Resize(ref shalf, shalf.Length + ehalf.Length);
+                            Array.Copy(ehalf, 0, shalf, shalf.Length - ehalf.Length, ehalf.Length);
+
+                            stream.Put(PdfName.LENGTH, new PdfNumber(shalf.Length));
+                            stream.SetData(shalf);
+(PdfReader.GetStreamBytes(stream));
+                        }
+                    }
+                }
+            }
+
+        }
+
+

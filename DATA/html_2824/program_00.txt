@@ -1,0 +1,203 @@
+using ClangNet;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+
+namespace ClangNetTest
+{
+    public class ClangParser
+    {
+        /// &lt;summary&gt;
+        /// ソースファイル解析処理実行
+        /// &lt;/summary&gt;
+        public void Execute()
+        {
+            /* ソースコード解析用設定 */
+
+            /* 解析対象ファイルパス */
+            var src_path = $"./Code/src/main.cpp";
+
+            /* インクルードファイルディレクトリパス */
+            var inc_dir = $"./Code/inc";
+
+            /* コンパイラに渡すコマンドラインオプション */
+            var command_line_args = new string[]
+            {
+                /* インクルードパスを-Iオプションで指定 */
+                $"-I{inc_dir}",
+            };
+
+            /* ダイアグ情報表示フラグ */
+            var display_diag = true;
+
+            /* ソース解析オプション */
+            var options = TranslationUnitFlags.None;
+
+            /* ソース解析処理 */
+            /* Clang Index(libclangのソース解析用インタフェース)生成 */
+            using (var index = Clang.CreateIndex(false, display_diag))
+            {
+                /* ソースファイルをパースし、Clang Translation Unit(コンパイラの変換単位)を生成 */
+                using (var tu = index.ParseTranslationUnit(src_path, command_line_args, new ClangUnsavedFile[0], options))
+                {
+                    /* Translation Unitのカーソルを取得 */
+                    /* カーソル : Translation Unit内の抽象構文木(Abstract Syntax Tree:AST)の要素を指し示す */
+                    var cursor = tu.Cursor;
+
+                    Console.WriteLine($"AST Dump:");
+
+                    /* カーソル位置を探索 */
+                    this.VisitCursor(cursor, null, 0);
+
+                    Console.WriteLine();
+
+                    Console.WriteLine($"Include Files Dump:");
+
+                    /* インクルードファイルを再帰的に検索 */
+                    tu.GetInclusions(this.InclusionVisitor, IntPtr.Zero);
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// インクルードファイルの再帰的な検索
+        /// &lt;/summary&gt;
+        /// &lt;param name="file"&gt;インクルードファイル情報&lt;/param&gt;
+        /// &lt;param name="loc_stack"&gt;インクルード位置のスタック&lt;/param&gt;
+        /// &lt;param name="client_data"&gt;ユーザデータ(未使用)&lt;/param&gt;
+        private void InclusionVisitor(ClangFile file, ClangSourceLocation[] loc_stack, IntPtr client_data)
+        {
+            /* インクルードファイルの階層 */
+            var depth = loc_stack.Length;
+
+            /* インクルードファイルのファイルパス('\'を'/'に変換) */
+            var file_name = file.FileName.Replace(@"\", "/");
+
+            /* 階層によるインデント */
+            var indent = new string(' ', depth * 2);
+
+            /* ファイルの絶対パス */
+            var file_full_path = Path.GetFullPath(file_name);
+
+            Console.WriteLine($"{indent}{file_full_path}");
+        }
+
+        /// &lt;summary&gt;
+        /// カーソル探索処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="cursor"&gt;カーソル&lt;/param&gt;
+        /// &lt;param name="parent"&gt;親カーソル&lt;/param&gt;
+        /// &lt;param name="depth"&gt;ASTの深さ&lt;/param&gt;
+        /// &lt;returns&gt;探索結果(継続、中断、再帰)&lt;/returns&gt;
+        private ChildVisitResult CursorVisitor(ClangCursor cursor, ClangCursor parent, int depth)
+        {
+            /* カーソルのClang Location(論理的な位置情報)を取得 */
+            var loc = cursor.Location;
+
+            /* カーソル位置が解析対象ファイル(*.cpp)内 */
+            if (loc.IsFromMainFile)
+            {
+                /* カーソル位置を探索 */
+                this.VisitCursor(cursor, parent, depth);
+            }
+            /* カーソル位置が解析対象ファイル外(インクルードしているヘッダなど) */
+            else
+            {
+                /* カーソル位置がシステムヘッダ内(標準ヘッダなど) */
+                if (loc.IsInSystemHeader)
+                {
+                    /* 何もしない */
+                }
+                /* カーソル位置がシステムヘッダ外(ユーザ定義ヘッダなど) */
+                else
+                {
+                    /* カーソル位置を探索 */
+                    this.VisitCursor(cursor, parent, depth);
+                }
+            }
+
+            /* 解析を継続 */
+            return ChildVisitResult.Continue;
+        }
+
+        /// &lt;summary&gt;
+        /// カーソル位置に対する処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="cursor"&gt;カーソル&lt;/param&gt;
+        /// &lt;param name="parent"&gt;親カーソル&lt;/param&gt;
+        /// &lt;param name="depth"&gt;ASTの深さ&lt;/param&gt;
+        private void VisitCursor(ClangCursor cursor, ClangCursor parent, int depth)
+        {
+            /* 階層によるインデント */
+            var indent = new string(' ', depth * 2);
+
+            /* カーソルが指す要素の種類 */
+            var kind = cursor.Kind;
+
+            /* カーソルがさす要素の表示名(クラス、関数、変数など) */
+            var name = cursor.DisplayName;
+
+            /* カーソル位置のファイル上の位置情報を取得 */
+            var loc = this.GetCursorLocationText(cursor.Location);
+
+            /* 表示名が空の場合 */
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                Console.WriteLine($"{indent}[{kind}] @{loc}");
+            }
+            /* 表示名が空でない場合 */
+            else
+            {
+                Console.WriteLine($"{indent}[{kind}] {name} @{loc}");
+            }
+
+            /* ASTの子要素を探索 */
+            cursor.VisitChildren(this.CursorVisitor, depth + 1);
+        }
+
+        /// &lt;summary&gt;
+        /// カーソル位置のソースファイル上の位置情報を取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="loc"&gt;カーソル位置&lt;/param&gt;
+        /// &lt;returns&gt;ソースファイル上の位置情報&lt;/returns&gt;
+        private string GetCursorLocationText(ClangSourceLocation loc)
+        {
+            /* カーソルのファイル上の物理的な位置情報 */
+            var floc = loc.FileLocation;
+
+            /* ファイル情報あり */
+            if (floc.File != null)
+            {
+                /* カーソル位置のファイルパス('\'を'/'に変換) */
+                var file = floc.File.FileName.Replace(@"\", "/");
+
+                /* カーソル位置のファイル行数 */
+                var line = floc.Line;
+
+                /* カーソル位置のファイル列数 */
+                var col = floc.Column;
+
+                /* カーソル位置情報 : &lt;ファイルパス&gt;[L.&lt;行数&gt;,C.&lt;列数&gt;] */
+                var result = $"{file}[L.{line},C.{col}]";
+
+                return result;
+            }
+            /* ファイル情報なし */
+            else
+            {
+                /* カーソル位置のファイル行数 */
+                var line = floc.Line;
+
+                /* カーソル位置のファイル列数 */
+                var col = floc.Column;
+
+                /* カーソル位置情報 : [L.&lt;行数&gt;,C.&lt;列数&gt;] */
+                var result = $"[L.{line},C.{col}]";
+
+                return result;
+            }
+        }
+    }
+}
+

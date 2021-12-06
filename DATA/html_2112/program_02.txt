@@ -1,0 +1,59 @@
+
+using ProjectName.Scripts.Application.ValueObject;
+using ProjectName.Scripts.Domain.Entity;
+using UniRx;
+using UniRx.Async;
+
+namespace ProjectName.Scripts.Domain.UseCase
+{
+    // 本来は、TakeDamageとFindCharacterは全く用途が違うので別のクラスに分ける
+    public interface IUseCase
+    {
+        IReadOnlyReactiveProperty&lt;int&gt; OnDefenseChangeAsObservable();
+        void TakeDamage(int damage);
+        void FindCharacter(string charecterId);
+    }
+
+    public interface IData
+    {
+        UniTask&lt;CharacterData&gt; FindCharacter(string characterId);
+        CharacterData Find(string id);
+    }
+
+    public class UseCase : IUseCase
+    {
+        private readonly ILifeEntity _lifeEntity = default;
+        private readonly IDamageReduceEntity _damageReduceEntity = default;
+        private readonly IEntity _entity = default;
+        private readonly IData _data = default;
+
+        public UseCase(
+            ILifeEntity lifeEntity,
+            IDamageReduceEntity damageReduceEntity,
+            IData data
+        )
+        {
+            _lifeEntity = lifeEntity;
+            _damageReduceEntity = damageReduceEntity;
+            _data = data;
+        }
+
+        // EntityのReactivePropertyをそのまま流しているだけなので必要なのか？というお気持ちにになることもしばしば
+        public IReadOnlyReactiveProperty&lt;int&gt; OnDefenseChangeAsObservable()
+        {
+            return _entity.ReactiveProperty;
+        }
+
+        public void TakeDamage(int damage)
+        {
+            _lifeEntity.TakeDamage(_damageReduceEntity.Calculation(damage));
+        }
+
+        public async void FindCharacter(string characterId)
+        {
+            var characterData = await _data.FindCharacter(characterId);
+            // 受け取った結果を現在参照しているCharacterを管理するEntityに書き込む
+        }
+    }
+}
+

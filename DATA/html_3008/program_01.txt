@@ -1,0 +1,43 @@
+
+/// &lt;summary&gt;
+/// 学習
+/// &lt;/summary&gt;
+private void Train()
+{
+    // SVM
+    this.msvm = new MulticlassSupportVectorMachine&lt;ChiSquare&gt;(0, new ChiSquare(), this.classDict.Count);
+
+    // 一対一多の学習アルゴリズム
+    var smo = new MulticlassSupportVectorLearning&lt;ChiSquare&gt;()
+    {
+        // 逐次最小問題最適化法というのを用いて2次計画問題に対応する（理解薄い。。）
+        Learner = (param) =&gt; new SequentialMinimalOptimization&lt;ChiSquare&gt;()
+        {
+            UseComplexityHeuristic = true,
+            UseKernelEstimation = true
+        }
+    };
+
+    // 学習データ
+    var inputs = this.vectorList.ToArray();
+    var outputs = this.labelList.ToArray();
+
+    // 学習する
+    this.msvm = smo.Learn(inputs, outputs);
+
+    // キャリブレーション
+    var calibration = new MulticlassSupportVectorLearning&lt;ChiSquare&gt;()
+    {
+        // キャリブレーションで使用するアルゴリズムを設定
+        Model = this.msvm, Learner = (param) =&gt; new ProbabilisticOutputCalibration&lt;ChiSquare&gt;()
+        {
+            Model = param.Model
+        }
+    };
+
+    calibration.ParallelOptions.MaxDegreeOfParallelism = 4;
+    calibration.Learn(inputs, outputs);
+
+    textBox1.Text += "学習が完了しました\r\n";
+}
+

@@ -1,0 +1,103 @@
+
+using Grpc.Core;
+using Grpc.Core.Interceptors;
+
+/// &lt;summary&gt;
+/// Polly によるフロー制御を行うインターセプター。
+/// &lt;/summary&gt;
+public class RpcPollyInterceptor : Interceptor
+{
+    public RpcPollyInterceptor(IRpcPollyProvider pollyProvider) : base()
+    {
+        PollyProvider = pollyProvider;
+    }
+
+    #region Polly
+
+    /// &lt;summary&gt;
+    /// ポリシープロバイダーを取得します。
+    /// &lt;/summary&gt;
+    public IRpcPollyProvider PollyProvider { get; }
+
+    /// &lt;summary&gt;
+    /// クライアントサイド用の同期ポリシーを取得します。
+    /// &lt;/summary&gt;
+    protected virtual Polly.ISyncPolicy GetClientSyncPolicy&lt;TRequest, TResponse&gt;(ClientInterceptorContext&lt;TRequest, TResponse&gt; context)
+        where TRequest : class
+        where TResponse : class
+    {
+        return PollyProvider.GetClientSyncPolicy(context);
+    }
+
+    /// &lt;summary&gt;
+    /// クライアントサイド用の非同期ポリシーを取得します。
+    /// &lt;/summary&gt;
+    protected virtual Polly.IAsyncPolicy GetClientAsyncPolicy&lt;TRequest, TResponse&gt;(ClientInterceptorContext&lt;TRequest, TResponse&gt; context)
+        where TRequest : class
+        where TResponse : class
+    {
+        return PollyProvider.GetClientAsyncPolicy(context);
+    }
+
+    /// &lt;summary&gt;
+    /// サーバーサイド用の同期ポリシーを取得します。
+    /// &lt;/summary&gt;
+    protected virtual Polly.ISyncPolicy GetServerSyncPolicy(ServerCallContext context)
+    {
+        return PollyProvider.GetServerSyncPolicy(context);
+    }
+
+    /// &lt;summary&gt;
+    /// サーバーサイド用の非同期ポリシーを取得します。
+    /// &lt;/summary&gt;
+    protected virtual Polly.IAsyncPolicy GetServerAsyncPolicy(ServerCallContext context)
+    {
+        return PollyProvider.GetServerAsyncPolicy(context);
+    }
+
+    #endregion
+
+    #region client interceptor
+
+    /// &lt;summary&gt;
+    /// Intercepts a blocking invocation of a simple remote call.
+    /// &lt;/summary&gt;
+    public override TResponse BlockingUnaryCall&lt;TRequest, TResponse&gt;(TRequest request, ClientInterceptorContext&lt;TRequest, TResponse&gt; context, BlockingUnaryCallContinuation&lt;TRequest, TResponse&gt; continuation)
+    {
+        Polly.ISyncPolicy policy = GetClientSyncPolicy(context);
+        if (policy == null) { return base.BlockingUnaryCall(request, context, continuation); }
+        else { return policy.Execute(() =&gt; base.BlockingUnaryCall(request, context, continuation)); }
+    }
+
+    /// &lt;summary&gt;
+    /// Intercepts an asynchronous invocation of a simple remote call.
+    /// &lt;/summary&gt;
+    public override AsyncUnaryCall&lt;TResponse&gt; AsyncUnaryCall&lt;TRequest, TResponse&gt;(TRequest request, ClientInterceptorContext&lt;TRequest, TResponse&gt; context, AsyncUnaryCallContinuation&lt;TRequest, TResponse&gt; continuation)
+    {
+        Polly.ISyncPolicy policy = GetClientSyncPolicy(context);
+        if (policy == null) { return base.AsyncUnaryCall(request, context, continuation); }
+        else { return policy.Execute(() =&gt; base.AsyncUnaryCall(request, context, continuation)); }
+    }
+
+    // ClientStreaming, ServerStreaming, DuplexStreaming も実装の流れは同じですので割愛します。
+
+    #endregion
+
+    #region server interceptor
+
+    /// &lt;summary&gt;
+    /// Server-side handler for intercepting and incoming unary call.
+    /// &lt;/summary&gt;
+    public override Task&lt;TResponse&gt; UnaryServerHandler&lt;TRequest, TResponse&gt;(TRequest request, ServerCallContext context, UnaryServerMethod&lt;TRequest, TResponse&gt; continuation)
+    {
+        Polly.IAsyncPolicy policy = GetServerAsyncPolicy(context);
+        if (policy == null) { return base.UnaryServerHandler(request, context, continuation); }
+        else { return policy.ExecuteAsync(() =&gt; base.UnaryServerHandler(request, context, continuation)); }
+    }
+
+    // ClientStreaming, ServerStreaming, DuplexStreaming も実装の流れは同じですので割愛します。
+
+    #endregion
+
+}
+

@@ -1,0 +1,85 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MultiThreadingTesting
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var context = new OrchestratorContext();
+            Console.WriteLine("No threading");
+            context.AssignToCurrentThread();
+            context.Execute();
+            context.ExecuteAsync().Wait();
+
+            Console.ReadKey();
+
+        }
+
+        class OrchestratorContext
+        {
+            private int owingThreadId;
+
+            internal void AssignToCurrentThread()
+            {
+                this.owingThreadId = Thread.CurrentThread.ManagedThreadId;
+            }
+
+            public void Execute()
+            {
+                Console.WriteLine($"Execute(): OwingThreadId: {this.owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+                var t = Task.Factory.StartNew(() =&gt;
+                {
+                    Console.WriteLine($"Parent: OwingThreadId: {owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+                    Task.Factory.StartNew(() =&gt;
+                    {
+                        Console.WriteLine($"Children: OwingThreadId: {owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+
+                    }, TaskCreationOptions.AttachedToParent);
+                });
+            }
+
+            public async Task ExecuteAsync()
+            {
+                Console.WriteLine($"ExecuteAsync(): OwingThreadId: {this.owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+                var tasks = new List&lt;Task&gt;();
+                for (int i = 0; i &lt; 20; i++)
+                {
+                    var task = HelloAsync();
+                    tasks.Add(task);
+                }
+                await Task.WhenAll(tasks);
+
+
+                Parallel.For(0, 5, i =&gt;
+                {
+                    for (int j = 0; j &lt; 5; j++)
+                    {
+                        Thread.Sleep(1);
+                        Console.WriteLine($"Parallel.For(): OwingThreadId: {this.owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+
+                    }
+                });
+            }
+
+
+            public async Task HelloAsync()
+            {
+                Console.WriteLine($"HelloAsync(): OwingThreadId: {this.owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+                await Hello2Async();
+                await Hello2Async();
+            }
+
+            public async Task Hello2Async()
+            {
+                Console.WriteLine($"Hello2Async(): OwingThreadId: {this.owingThreadId} Current: {Thread.CurrentThread.ManagedThreadId}");
+            }
+
+        }
+    }
+}
+
+

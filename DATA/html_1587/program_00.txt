@@ -1,0 +1,70 @@
+class ApiService
+{
+    private static Logger log = Logger.GetInstance();
+    private HttpListener listener;
+    private ControllerMapper mapper = new ControllerMapper();
+
+    /// &lt;summary&gt;
+    /// APIサービスを起動する
+    /// &lt;/summary&gt;
+    public void Start()
+    {
+        try
+        {
+            // HTTPサーバーを起動する
+            this.listener = new HttpListener();
+            this.listener.Prefixes.Add(String.Format("http://+:{0}/{1}/", Settings.Default.API_PORT, Settings.Default.API_PATH));
+            this.listener.Start();
+
+            while (this.listener.IsListening)
+            {
+                IAsyncResult result = this.listener.BeginGetContext(OnRequested, this.listener);
+                result.AsyncWaitHandle.WaitOne();
+            }
+        }
+        catch (Exception ex)
+        {
+            /* ～エラー処理～ */
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// リクエスト時の処理を実行する
+    /// &lt;/summary&gt;
+    /// &lt;param name="result"&gt;結果&lt;/param&gt;
+    private void OnRequested(IAsyncResult result)
+    {
+        HttpListener clsListener = (HttpListener)result.AsyncState;
+        if (!clsListener.IsListening)
+        {
+            return;
+        }
+
+        HttpListenerContext context = clsListener.EndGetContext(result);
+        HttpListenerRequest req = context.Request;
+        HttpListenerResponse res = context.Response;
+
+        try
+        {
+            mapper.Execute(req, res);
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex.ToString());
+        }
+        finally
+        {
+            try
+            {
+                if (null != res)
+                {
+                    res.Close();
+                }
+            }
+            catch (Exception clsEx)
+            {
+                log.Error(clsEx.ToString());
+            }
+        }
+    }
+

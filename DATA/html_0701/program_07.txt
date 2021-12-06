@@ -1,0 +1,52 @@
+
+using Azure.Communication.Chat;
+using Azure.Communication.Identity;
+using Microsoft.Extensions.Options;
+using SimpleChat.Core;
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace SimpleChat.Client.Services
+{
+    public class CommunicationService
+    {
+        private static string ThreadId =&gt; "hello-world-sample";
+        private readonly CommunicationServiceSettings _communicationServiceSettings;
+        private readonly HttpClient _http;
+        private GetTokenResponse _getTokenResponse;
+        private ChatClient _chatClient;
+        private ChatThreadClient _chatThreadClient;
+        public CommunicationService(IOptions&lt;CommunicationServiceSettings&gt; settings, HttpClient http)
+        {
+            _communicationServiceSettings = settings.Value;
+            _http = http;
+        }
+
+        public bool IsJoined =&gt; _chatThreadClient != null;
+
+        // チャットに参加
+        public async ValueTask JoinToChatAsync()
+        {
+            var res = await _http.GetStringAsync("/api/GetToken");
+            _getTokenResponse = JsonSerializer.Deserialize&lt;GetTokenResponse&gt;(res);
+
+            _chatClient = new ChatClient(
+                new Uri(_communicationServiceSettings.Endpoint), 
+                new CommunicationUserCredential(_getTokenResponse.Token));
+            _chatThreadClient =  _chatClient.GetChatThreadClient(_getTokenResponse.ThreadId);
+        }
+
+        // チャットにメッセージを送信
+        public async ValueTask SendMessageAsync(string name, string message)
+        {
+            await _chatThreadClient.SendMessageAsync(message, senderDisplayName: name);
+        }
+
+        // チャットのメッセージを取得
+        public IAsyncEnumerable&lt;ChatMessage&gt; GetMessagesAsync() =&gt; _chatThreadClient.GetMessagesAsync();
+    }
+}
+

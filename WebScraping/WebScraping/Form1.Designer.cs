@@ -52,6 +52,8 @@
             this.downloadHTMLSToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.downloadAsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.getSourceTargetToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.seperateProgramsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.dataSetEditorToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.folderBrowser = new System.Windows.Forms.FolderBrowserDialog();
             this.reference = new System.Windows.Forms.Button();
             this.openFile = new System.Windows.Forms.OpenFileDialog();
@@ -189,7 +191,7 @@
             this.separateToolStripMenuItem1,
             this.datasetToolStripMenuItem1});
             this.extractModeToolStripMenuItem.Name = "extractModeToolStripMenuItem";
-            this.extractModeToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.extractModeToolStripMenuItem.Size = new System.Drawing.Size(141, 22);
             this.extractModeToolStripMenuItem.Text = "ExtractMode";
             // 
             // testToolStripMenuItem1
@@ -218,7 +220,7 @@
             this.uRLToolStripMenuItem,
             this.toolStripComboBox1});
             this.readModeToolStripMenuItem.Name = "readModeToolStripMenuItem";
-            this.readModeToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.readModeToolStripMenuItem.Size = new System.Drawing.Size(141, 22);
             this.readModeToolStripMenuItem.Text = "Read Mode";
             // 
             // uRLToolStripMenuItem
@@ -239,7 +241,8 @@
             // 
             this.preprocessingToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.exclusionToolStripMenuItem,
-            this.downloadHTMLSToolStripMenuItem});
+            this.downloadHTMLSToolStripMenuItem,
+            this.dataSetEditorToolStripMenuItem});
             this.preprocessingToolStripMenuItem.Name = "preprocessingToolStripMenuItem";
             this.preprocessingToolStripMenuItem.Size = new System.Drawing.Size(93, 20);
             this.preprocessingToolStripMenuItem.Text = "Preprocessing";
@@ -247,7 +250,7 @@
             // exclusionToolStripMenuItem
             // 
             this.exclusionToolStripMenuItem.Name = "exclusionToolStripMenuItem";
-            this.exclusionToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.exclusionToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
             this.exclusionToolStripMenuItem.Text = "Delete Extra URL";
             this.exclusionToolStripMenuItem.Click += new System.EventHandler(this.exclusionToolStripMenuItem_Click);
             // 
@@ -255,24 +258,41 @@
             // 
             this.downloadHTMLSToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.downloadAsToolStripMenuItem,
-            this.getSourceTargetToolStripMenuItem});
+            this.getSourceTargetToolStripMenuItem,
+            this.seperateProgramsToolStripMenuItem});
             this.downloadHTMLSToolStripMenuItem.Name = "downloadHTMLSToolStripMenuItem";
-            this.downloadHTMLSToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.downloadHTMLSToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
             this.downloadHTMLSToolStripMenuItem.Text = "HTMLs";
             // 
             // downloadAsToolStripMenuItem
             // 
             this.downloadAsToolStripMenuItem.Name = "downloadAsToolStripMenuItem";
-            this.downloadAsToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.downloadAsToolStripMenuItem.Size = new System.Drawing.Size(168, 22);
             this.downloadAsToolStripMenuItem.Text = "download as...";
             this.downloadAsToolStripMenuItem.Click += new System.EventHandler(this.downloadHTMLSToolStripMenuItem_Click);
             // 
             // getSourceTargetToolStripMenuItem
             // 
             this.getSourceTargetToolStripMenuItem.Name = "getSourceTargetToolStripMenuItem";
-            this.getSourceTargetToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.getSourceTargetToolStripMenuItem.Size = new System.Drawing.Size(168, 22);
             this.getSourceTargetToolStripMenuItem.Text = "GetSourceTarget";
             this.getSourceTargetToolStripMenuItem.Click += new System.EventHandler(this.GetSourceTargetToolStripMenuItem_Click);
+            // 
+            // seperateProgramsToolStripMenuItem
+            // 
+            this.seperateProgramsToolStripMenuItem.Name = "seperateProgramsToolStripMenuItem";
+            this.seperateProgramsToolStripMenuItem.Size = new System.Drawing.Size(168, 22);
+            this.seperateProgramsToolStripMenuItem.Text = "seperatePrograms";
+            this.seperateProgramsToolStripMenuItem.Click += new System.EventHandler(this.seperateProgramsToolStripMenuItem_Click);
+            // 
+            // dataSetEditorToolStripMenuItem
+            // 
+            this.dataSetEditorToolStripMenuItem.Name = "dataSetEditorToolStripMenuItem";
+            this.dataSetEditorToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)(((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Shift) 
+            | System.Windows.Forms.Keys.D)));
+            this.dataSetEditorToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.dataSetEditorToolStripMenuItem.Text = "DataSetEditor";
+            this.dataSetEditorToolStripMenuItem.Click += new System.EventHandler(this.dataSetEditorToolStripMenuItem_Click);
             // 
             // reference
             // 
@@ -349,6 +369,8 @@
         private System.Windows.Forms.ToolStripMenuItem downloadHTMLSToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem downloadAsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem getSourceTargetToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem seperateProgramsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem dataSetEditorToolStripMenuItem;
     }
 }
 

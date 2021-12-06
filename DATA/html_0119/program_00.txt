@@ -1,0 +1,83 @@
+public static class ObservableCollectionExtension
+{
+    /// &lt;summary&gt;
+    /// 指定したコレクションからコピーされた要素を格納するObservableCollectionを生成
+    /// &lt;/summary&gt;
+    public static ObservableCollection&lt;T&gt; ToObservableCollection&lt;T&gt;(this IEnumerable&lt;T&gt; source) =&gt; new ObservableCollection&lt;T&gt;(source);
+
+    /// &lt;summary&gt;
+    /// 指定したObservableCollectionと双方向に同期したObservableCollectionを生成する
+    /// &lt;/summary&gt;
+    public static ObservableCollection&lt;TargetT&gt; ToObservableCollctionSynced&lt;SourceT, TargetT&gt;(this ObservableCollection&lt;SourceT&gt; sources,
+    Func&lt;SourceT, TargetT&gt; sourceToTarget, Func&lt;TargetT, SourceT&gt; targetToSource)
+    {
+        //sourcesの要素を変換したコレクションを生成
+        var targets = sources.Select(sourceToTarget).ToObservableCollection();
+
+        //2つのコレクションを同期させる
+        SyncCollectionTwoWay(sources, targets, sourceToTarget, targetToSource);
+
+        //同期済みのコレクションを返す
+        return targets;
+    }
+
+    /// &lt;summary&gt;
+    /// ２つのObservableCollectionを双方向に同期させる
+    /// &lt;/summary&gt;
+    public static void SyncCollectionTwoWay&lt;SourceT, TargetT&gt;(ObservableCollection&lt;SourceT&gt; sources, ObservableCollection&lt;TargetT&gt; targets,
+        Func&lt;SourceT, TargetT&gt; sourceToTarget, Func&lt;TargetT, SourceT&gt; targetToSource)
+    {
+        bool isChanging = false;
+
+        //Source -&gt; Target
+        sources.CollectionChanged += (o, e) =&gt;
+            ExcuteIfNotChanging(() =&gt; SyncByChangedEventArgs(sources, targets, sourceToTarget, e));
+        //Target -&gt; Source
+        targets.CollectionChanged += (o, e) =&gt;
+            ExcuteIfNotChanging(() =&gt; SyncByChangedEventArgs(targets, sources, targetToSource, e));
+
+        //変更イベントループしてしまわないように、ローカル変数(isChanging)でチェック
+        //ローカル変数(isChanging)にアクセスするため、ローカル関数で記述
+        void ExcuteIfNotChanging(Action action)
+        {
+            if (isChanging)
+                return;
+            isChanging = true;
+            action.Invoke();
+            isChanging = false;
+        }
+    }
+
+    private static void SyncByChangedEventArgs&lt;OriginT, DestT&gt;(ObservableCollection&lt;OriginT&gt; origin, ObservableCollection&lt;DestT&gt; dest,
+        Func&lt;OriginT, DestT&gt; originToDest, NotifyCollectionChangedEventArgs originE)
+    {
+        switch (originE.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                if (originE.NewItems?[0] is OriginT addItem)
+                    dest.Insert(originE.NewStartingIndex, originToDest(addItem));
+                return;
+
+            case NotifyCollectionChangedAction.Remove:
+                if (originE.OldStartingIndex &gt;= 0)
+                    dest.RemoveAt(originE.OldStartingIndex);
+                return;
+
+            case NotifyCollectionChangedAction.Replace:
+                if (originE.NewItems?[0] is OriginT replaceItem)
+                    dest[originE.NewStartingIndex] = originToDest(replaceItem);
+                return;
+
+            case NotifyCollectionChangedAction.Move:
+                dest.Move(originE.OldStartingIndex, originE.NewStartingIndex);
+                return;
+
+            case NotifyCollectionChangedAction.Reset:
+                dest.Clear();
+                foreach (DestT item in origin.Select(originToDest))
+                    dest.Add(item);
+                return;
+        }
+    }
+}
+

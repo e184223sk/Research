@@ -1,0 +1,40 @@
+
+// 休講情報を取得したいサイトのURL
+var urlstring = "https://www.ead.tut.ac.jp/board/main.aspx";
+
+// 指定したサイトのHTMLをストリームで取得する
+var doc = default(IHtmlDocument);
+using (var client = new HttpClient())
+using (var stream = await client.GetStreamAsync(new Uri(urlstring)))
+{
+    // AngleSharp.Html.Parser.HtmlParserオブジェクトにHTMLをパースさせる
+    var parser = new HtmlParser();
+    doc = await parser.ParseAsync(stream);
+}
+
+// クエリーセレクタを指定して休講情報テーブル部分を取得する
+var items = doc.QuerySelectorAll("#grvCancel &gt; tr")
+    .Skip(1)
+    .Select(item =&gt;
+    {
+        // td単位で複数のデータを取得する
+        var data = item.GetElementsByTagName("td");
+
+        // 休講日
+        var date = data[1].TextContent;
+
+        // 時限
+        var period = data[2].TextContent;
+
+        // 授業の名前
+        var subject = data[3].TextContent;
+
+        return new { Date = date, Period = period, Subject = subject };
+    });
+
+// 取得した休講情報を出力する
+items.ToList().ForEach(item =&gt;
+{
+    Debug.WriteLine("${item.Date}({item.Period}) {item.Subject}");
+});
+

@@ -1,0 +1,80 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+
+
+#if UNITY_EDITOR
+
+using UnityEditor;
+
+public class AutoAssetLoader&lt;T&gt; where T : UnityEngine.Object
+{
+    private readonly Dictionary&lt;string, T&gt; _assets = new Dictionary&lt;string, T&gt;();
+
+    private string GetFilter()
+    {
+        if (typeof(T) == typeof(GameObject)) return "t:Prefab t:GameObject";
+        else if (typeof(T) == typeof(Sprite)) return "t:Sprite";
+        throw new Exception("とりあえずprefabとspriteのみ対応");
+    }
+
+    public AutoAssetLoader(string dir)
+    {
+        var assetPaths = AssetDatabase
+            .FindAssets(GetFilter(), new string[] { "Assets/Editor/" + dir } )
+            .Select(AssetDatabase.GUIDToAssetPath);
+
+        foreach (var path in assetPaths)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath&lt;T&gt;(path);
+            _assets.Add(asset.name, asset);
+        }
+    }
+
+
+    public T Get(string name)
+    {
+        var f = _assets.TryGetValue(name, out var o);
+        return f ? o : null;
+    }
+
+    public IEnumerable&lt;string&gt; Names() =&gt; _assets.Keys;
+}
+
+#else
+
+public class AutoAssetLoader&lt;T&gt; where T : UnityEngine.Object
+{
+    private readonly AssetBundle _assetBundle;
+    private readonly Dictionary&lt;string, T&gt; _assets = new Dictionary&lt;string, T&gt;();
+
+    public AutoAssetLoader(string path)
+    {
+        _assetBundle = AssetBundle.LoadFromFile("AssetBundleData/" + path);
+
+    }
+
+
+    public T Get(string name)
+    {
+        var f = _assets.TryGetValue(name, out var asset);
+        if (f) return asset;
+        asset = _assetBundle.LoadAsset&lt;T&gt;(name);
+        _assets.Add(name, asset);
+        return asset;
+    }
+
+    public IEnumerable&lt;string&gt; Names() =&gt; _assetBundle.GetAllAssetNames().Select(str=&gt;
+        {
+            var from = str.LastIndexOf("/", StringComparison.Ordinal) + "/".Length;
+            var to = str.LastIndexOf(".", StringComparison.Ordinal);
+            var len = to &lt; from ? (str.Length - from) : (to - from);
+            return str.Substring(from, len);
+        });
+}
+
+
+#endif
+

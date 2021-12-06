@@ -1,0 +1,84 @@
+using UnityEngine;
+using NAudio.Wave;
+
+public class MoveMouth : MonoBehaviour
+{
+    // Inspectorで録音デバイスを指定する場合の名前(未指定は既定)
+    [SerializeField]
+    string DeviceName;
+
+    // 口パク対象(SkinnedMeshRenderer)のIndex
+    [SerializeField]
+    int Index;
+
+    // 入力音量に口パク具合を合わせる係数
+    [SerializeField]
+    float Gain = 1;
+
+    // このスクリプトは口パク対象(SkinnedMeshRenderer)に付ける前提
+    SkinnedMeshRenderer Skinned;
+
+    // 入力音声データ
+    WaveIn Wave;
+
+    // 入力音声データを音量としてBlendShapeに設定する値
+    float Weight = 0;
+
+    void Start()
+    {
+        int selectDevice = 0;
+
+        if (DeviceName == "")
+        {
+            // 録音デバイス未指定なら既定
+            DeviceName = WaveIn.GetCapabilities(0).ProductName;
+        }
+        else
+        {
+            // 録音デバイスが指定されていたら探す
+            for (int i = 0; i &lt; WaveIn.DeviceCount; i++)
+            {
+                Debug.Log(WaveIn.GetCapabilities(i).ProductName  + " : " + DeviceName);
+                if (WaveIn.GetCapabilities(i).ProductName == DeviceName)
+                {
+                    selectDevice = i;
+                    break;
+                }
+            }
+        }
+
+        Debug.Log(selectDevice);
+
+        // NAudioの録音初期化
+        Wave = new WaveIn();
+        Wave.DeviceNumber = selectDevice;
+        Wave.DataAvailable += Wave_DataAvailable;
+        Wave.StartRecording();
+
+        Skinned = GetComponent&lt;SkinnedMeshRenderer&gt;();
+    }
+
+    // 音量取得
+    void Wave_DataAvailable(object sender, WaveInEventArgs e)
+    {
+        Weight = 0;
+        var buffer = new WaveBuffer(e.Buffer);
+        for (int index = 0; index &lt; e.BytesRecorded / 2; index++)
+        {
+            Weight += Mathf.Abs(buffer.ShortBuffer[index]);
+        }
+        Weight /= e.BytesRecorded / 2;
+    }
+
+    // 取得した音量に係数をかけて調整してBlendShapeに設定
+    void Update()
+    {
+        Skinned.SetBlendShapeWeight(Index, Weight * Gain);
+    }
+
+    void OnDestroy()
+    {
+        Wave.StopRecording();
+    }
+}
+

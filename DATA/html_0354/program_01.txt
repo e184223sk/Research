@@ -1,0 +1,39 @@
+
+class hogeClass{
+    private Mutex mutex; // 排他制御に使用
+    MemoryMappedFile mmfile = null;
+    // Formの作成時などに呼ばれる
+    public void Initialize(){ 
+        string mutexName = "SensorAppMutex";
+        bool createdNew = false;
+        mutex = new Mutex(false, mutexName, out createdNew);
+    }
+    // アプリ終了時に呼ばれる
+    public void Finalize(){
+        mmfile?.Dispose();
+        mutex?.Dispose();
+    }
+
+    // 共有するデータを保存したいタイミングで呼ぶ
+    public void SaveSensorData(const SensorData data){
+        // シリアライザーの作成
+        System.Xml.Serialization.XmlSerializer serializer =
+            new System.Xml.Serialization.XmlSerializer(typeof(SensorData));
+
+        bool getMutex = false;
+        try {
+            if (getMutex = mutex.WaitOne(5000)) {
+                mmfile?.Dispose();
+                mmfile = MemoryMappedFile.CreateNew("SensorAppData", 1024 * 1024 * 1);
+                using (MemoryMappedViewStream stream = mmfile.CreateViewStream())
+                {
+                    serializer.Serialize(stream, data);
+                }
+            }
+        }
+        finally{
+            if (getMutex) mutex.ReleaseMutex();
+        }
+    }
+}
+

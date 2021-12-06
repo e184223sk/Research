@@ -1,0 +1,148 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using myop.Models;
+
+namespace myop.Controllers
+{
+    [Route("op/[controller]")]
+    [ApiController]
+    public class AuthController : ControllerBase
+    {
+        private readonly ApplicationDbContext _context;
+        string CLIENT_ID;
+        string RESPONSE_TYPE;
+        string REDIRECT_URI;
+        string SCOPE;
+        string STATE;
+        string NONCE;
+        string AT_HASH;
+        public AuthController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+        // GET: op/auth
+        [HttpGet]
+        [Authorize]
+        public async Task&lt;ActionResult&gt; doGet()
+        {
+            // 要求URLパラメータ取得
+            CLIENT_ID = HttpContext.Request.Query["client_id"].ToString();
+            RESPONSE_TYPE = HttpContext.Request.Query["response_type"].ToString();
+            REDIRECT_URI = HttpContext.Request.Query["redirect_uri"].ToString();
+            SCOPE = HttpContext.Request.Query["scope"].ToString();
+            STATE = HttpContext.Request.Query["state"].ToString();
+            NONCE = HttpContext.Request.Query["nonce"].ToString();
+
+            // 要求URLパラメータclient_idチェック
+            var client = await _context.Clients.FindAsync(CLIENT_ID);
+            if (client == null) {
+                return Redirect("#error=unauthorized_client&amp;error_description=client authentication failed.");
+            }
+            // 要求URLパラメータredirect_uriチェック
+            if (client.RedirectUris != System.Web.HttpUtility.UrlDecode(REDIRECT_URI)) {
+                return Redirect("#error=invalid_request&amp;error_description=redirect_uri is not valid.");
+            }
+            // 要求URLパラメータstateチェック
+            if (STATE == null) {
+                return Redirect(REDIRECT_URI + "#error=invalid_request&amp;error_description=state is not valid.");
+            }
+            // access_token発番(token)
+            string random = Guid.NewGuid().ToString("N").ToUpper();
+            // refresh_token発番(code)
+            string refresh = Guid.NewGuid().ToString("N").ToUpper();
+            // 応答URLパラメータにstateを引き継ぐ
+            string param = "&amp;state="+STATE;
+            // 要求がAuthorization Code Flow(code)の場合
+            if (RESPONSE_TYPE == "code") {
+                // クライアントがcodeをサポートしているかチェック
+                if (client.GrantTypes != "authorization_code") {
+                    return Redirect(REDIRECT_URI + "#error=unsupported_response_type&amp;error_description=the response_type value is not supported.");
+                }
+                // 認可コード(code)を発行
+                var code = new Code {CodeId = random, UserId = User.Identity.Name, ClientId = CLIENT_ID, Nonce = NONCE, Iat=DateTime.Now};
+                _context.Add(code);
+                await _context.SaveChangesAsync();
+                // 応答URLパラメータを生成
+                param = "?code=" + random + param;
+            // 要求がImplicit Grant(token)の場合
+            } else if (RESPONSE_TYPE == "token") {
+                // クライアントがtokenをサポートしているかチェック
+                if (client.GrantTypes != "implicit") {
+                    return Redirect(REDIRECT_URI + "#error=unsupported_response_type&amp;error_description=the response_type value is not supported.");
+                }
+                // 削除タイミングがないためaccess_tokenは１ユーザーにつき１つの制限
+                var access_token = await _context.Tokens.FindAsync(User.Identity.Name);
+                if (access_token != null) {
+                    _context.Tokens.Remove(access_token);
+                    await _context.SaveChangesAsync();
+                }
+                // 有効期限60秒固定のaccess_tokenを発行
+                access_token = new Token {UserId = User.Identity.Name, AccessToken = random, ClientId = CLIENT_ID, Scope = SCOPE, Iat=DateTime.Now};
+                _context.Add(access_token);
+                await _context.SaveChangesAsync();
+                // 応答URLパラメータを生成
+                param = "#access_token=" + random + "&amp;token_type=bearer" + param;
+            // 要求がImplicit Flow(id_token)の場合
+            } else if (RESPONSE_TYPE == "id_token") {
+                // クライアントがid_tokenをサポートしているかチェック
+                if (client.GrantTypes != "implicit") {
+                    return Redirect(REDIRECT_URI + "#error=unsupported_response_type&amp;error_description=the response_type value is not supported.");
+                }
+                // 共通関数にてIDトークン(id_token)を生成
+                var claims = new[] {
+                new Claim(JwtRegisteredClaimNames.Sub, User.Identity.Name),
+                new Claim(JwtRegisteredClaimNames.Nonce, NONCE)
+                };
+                var id_token = Util.GetIdToken(claims, CLIENT_ID);
+                // 応答URLパラメータを生成
+                param = "#id_token=" + id_token + param;
+            // 要求がImplicit Flow(token id_token)の場合
+            } else if (RESPONSE_TYPE == "token id_token" || RESPONSE_TYPE == "id_token token") {
+                // クライアントがtoken id_tokenをサポートしているかチェック
+                if (client.GrantTypes != "implicit") {
+                    return Redirect(REDIRECT_URI + "#error=unsupported_response_type&amp;error_description=the response_type value is not supported.");
+                }
+                // 削除タイミングがないためaccess_tokenは１ユーザーにつき１つの制限
+                var access_token = await _context.Tokens.FindAsync(User.Identity.Name);
+                if (access_token != null) {
+                    _context.Tokens.Remove(access_token);
+                    await _context.SaveChangesAsync();
+                }
+                // 有効期限60秒固定のaccess_tokenを発行
+                access_token = new Token {UserId = User.Identity.Name, AccessToken = random, ClientId = CLIENT_ID, Scope = SCOPE, Iat=DateTime.Now};
+                _context.Add(access_token);
+                await _context.SaveChangesAsync();
+                // 共通関数にてハッシュ値(at_hash)を生成
+                AT_HASH = Util.GetAtHash(random);
+                // 共通関数にてIDトークン(id_token)を生成
+                var claims = new[] {
+                new Claim(JwtRegisteredClaimNames.Sub, User.Identity.Name),
+                new Claim(JwtRegisteredClaimNames.AtHash, AT_HASH),
+                new Claim(JwtRegisteredClaimNames.Nonce, NONCE)
+                };
+                var id_token = Util.GetIdToken(claims, CLIENT_ID);
+                // 応答URLパラメータを生成
+                param = "#access_token=" + random + "&amp;token_type=bearer&amp;id_token=" + id_token + param;
+            // 不明の場合
+            } else {
+                return Redirect(REDIRECT_URI + "#error=unsupported_response_type&amp;error_description=the response_type value is not supported.");
+            }
+            // 応答をリダイレクト
+            return Redirect(REDIRECT_URI + param);
+        }
+    }
+}
+

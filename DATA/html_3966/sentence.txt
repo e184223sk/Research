@@ -1,0 +1,21 @@
+More than 1 year has passed since last update.こんにちは。Azure Function v2使ってますか。最近ようやく.NET Core化しつつあるのですが、依存関係で躓くことが多いです。.Net Coreとか、ASP.NET Core 2.xとか、.NET Standardとか、追いきれないし、
+SDKが対応してなかったり、依存関係地獄。
+今度はCore 3系と、ASP.NET Core 2.2とか？.NET 1.1と2.0しかない世界は平和だったと思う。
+超図解 .NET Core エコシステムの全貌 的な本ないですかね。今回はAzure Function上でのHttpClientのはなしです。HttpClientは簡単なようで扱い方が難しいクラスです。
+具体的になにが難しいかは、昔からいろんな方がたくさん書かれているので、そちらに。そういったことを解消するため、
+ASP.NET Core 2.1から、HttpClientFactoryが登場しました。
+nugetパッケージ Microsoft.Extensions.Http で提供されています（つかいかたは だいたい↓のBLOG Part1,2,3,5読めばわかる。）Microsoft.Extensions.DependencyInjection.Abstractions依存なので、対応するDIコンテナが必要です。ざっくり、一時的な障害の対処系ライブラリ。
+３大雑記の一つであるところの、芝村先生のしばやん雑記が詳しい。Polly単体で使うのも悪くないですが、テストが…とかあるので、DIにしてくれるいいやつ。HttpClient(Factory)とPollyの統合は nugetパッケージ Microsoft.Extensions.Http.Polly で提供される（だいたい↓のBLOG Part4読めばわかる。）公式ドキュメントではstaticで使いまわすことが推奨されています。staticだとテストが…とか、staticだとDNSの問題が…とかあるので、
+HttpClientFactoryを使いたい。再試行もPolly使いたいし。でも、Azure FunctionでDI使うのはとてもハードルが高い。
+そこで、Functionの入力引数にHttpClientをバインドするExtentionを作ります。Azure Function Extentionと聞いて敷居が高い気もしますが、
+入力バインドであればとてもシンプルです。たった3クラス数行。出来上がったものはこちら→GitHub宣言だけ。Azure Functionsランタイムが検出するExtentionのエントリポイントと、その処理
+Extentionの追加と、HttpClientFactoryの登録をします。バインディングルールの設定
+HttpClientFactoryをDIで受け取り。PollyHttpClient属性を付けた、HttpClient を引数に宣言。ASP.NET Core 2.1のころ動作してて、このエントリを書こうとローカルで動かしてみたら、以下のエラーがAzure Functions Runtimeが2.0.12265からASP.NET Core 2.2になっていて、
+HttpClientFactoryが子スコープでHttpMessageHandlerBuilderを生成するようになった？ため？
+らしい…こうしたら治った。けど、子スコープってなに…？Azure上では回し続けててエラーが出てなかった、Runtimeが1個前のまま動いてて、再起動したら無事死にました。
+~2とか設定した場合の、Runtimeの更新契機っていつでしょう…？
+本番適用前だったので良かったですが、知らないうちにRuntime上がって死ぬとか悪夢
+Runtime固定して、手動でアップデートするのがセオリーなんですかね…？皆さんどうしてますか？今回作ったものは、以下が解決した場合、不要となるハズ。ここまで書いて、今更ですが、コンストラクタインジェクションができるようになったそうで。バインディングじゃなくて、型付HttpClientをコンテナに入れるだけで良い気がする。
+ふーむ。…確定申告しよっと。
+
+

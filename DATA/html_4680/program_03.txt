@@ -1,0 +1,51 @@
+
+
+    public class UnitTest1
+    {
+        private DbContextOptions&lt;StockContext&gt; GetOptions()
+        {
+            // In-memory database only exists while the connection is open
+            var connection = new SqliteConnection("DataSource=:memory:");
+            connection.Open();
+            var options = new DbContextOptionsBuilder&lt;StockContext&gt;()
+                .UseSqlite(connection)
+                .Options;
+            return options;            
+        }
+
+        [Theory]
+        [InlineData(3, true)]
+        [InlineData(4, true)]
+        [InlineData(5, false)]
+        [InlineData(6, false)]
+        public async Task ConcurrencyCheckTest(int saleCount, bool expectedResult)
+        {
+            var options = GetOptions();
+            var conflictCtx = new StockContext(options);
+            conflictCtx.Database.EnsureCreated();
+            var moq = new Mock&lt;StockContext&gt;(options){ CallBase = true};
+            bool conflictedPatch = false;
+            moq.Setup(x =&gt; x.SaveChangesAsync(It.IsAny&lt;CancellationToken&gt;()))
+                .Callback(() =&gt;
+                {                    
+                    if (!conflictedPatch)
+                    {
+                        var stock = conflictCtx.ProductStocks.Single();
+                        stock.SoldQuantity += 1;
+                        stock.RemainingQuantity -= 1;
+                        conflictCtx.Update(stock);
+                        conflictCtx.SaveChanges();
+                        conflictedPatch = true;
+                    }
+                })
+                .CallBase();
+
+            var ctx = moq.Object;
+
+            var result = await Logic.StockUpdateLogic(1, ctx, saleCount);
+
+            Assert.Equal(expectedResult, result);
+        }
+    }
+
+

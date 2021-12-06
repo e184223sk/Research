@@ -1,0 +1,105 @@
+/// &lt;summary&gt;
+/// Quaternionの差分の保持
+/// &lt;/summary&gt;
+private class Offset
+{
+    /// &lt;summary&gt;
+    /// 対象モデルのQuaternion
+    /// &lt;/summary&gt;
+    private Quaternion Model;
+    /// &lt;summary&gt;
+    /// 参照モデルのQuaternion
+    /// &lt;/summary&gt;
+    private Quaternion Leap;
+
+    /// &lt;summary&gt;
+    /// Quaternionの差分を保持し、参照モデルのQuaternionの変化を対象モデルへと伝搬する
+    /// &lt;/summary&gt;
+    /// &lt;param name="model"&gt;対象モデル&lt;/param&gt;
+    /// &lt;param name="leap"&gt;参照モデル&lt;/param&gt;
+    public Offset(Quaternion model, Quaternion leap)
+    {
+        Model = model;
+        Leap = Quaternion.Inverse(leap);
+    }
+
+    /// &lt;summary&gt;
+    /// オフセットの適用
+    /// &lt;/summary&gt;
+    /// &lt;param name="currentLeap"&gt;現在の参照モデルのQuaternion&lt;/param&gt;
+    /// &lt;returns&gt;オフセットを適用した対象モデルのQuaternion&lt;/returns&gt;
+    public Quaternion ApplyOffset(Quaternion currentLeap)
+    {
+        return currentLeap * Leap * Model;
+    }
+}
+
+/// &lt;summary&gt;
+/// 指のオフセット
+/// &lt;/summary&gt;
+private class FingerOffset
+{
+    private Offset Bone1;
+    private Offset Bone2;
+    private Offset Bone3;
+    private Offset Bone4;
+
+    public FingerOffset(Finger model, Finger leap)
+    {
+        if (model.Bone1 != null &amp;&amp; leap.Bone1 != null)
+        {
+            Bone1 = new Offset(model.Bone1.transform.rotation, leap.Bone1.transform.rotation);
+        }
+        Bone2 = new Offset(model.Bone2.transform.rotation, leap.Bone2.transform.rotation);
+        Bone3 = new Offset(model.Bone3.transform.rotation, leap.Bone3.transform.rotation);
+        Bone4 = new Offset(model.Bone4.transform.rotation, leap.Bone4.transform.rotation);
+    }
+
+    public void ApplyOffset(Finger model, Finger leap)
+    {
+        if (Bone1 != null)
+        {
+            model.Bone1.rotation = Bone1.ApplyOffset(leap.Bone1.rotation);
+        }
+        model.Bone2.rotation = Bone2.ApplyOffset(leap.Bone2.rotation);
+        model.Bone3.rotation = Bone3.ApplyOffset(leap.Bone3.rotation);
+        model.Bone4.rotation = Bone4.ApplyOffset(leap.Bone4.rotation);
+    }
+}
+
+private class HandOffset
+{
+    private FingerOffset Thumb;
+    private FingerOffset Index;
+    private FingerOffset Middle;
+    private FingerOffset Ring;
+    private FingerOffset Pinky;
+    private Offset Wirst;
+    private Vector3 OffsetWirst;
+
+    public HandOffset(Hand model, Hand leap)
+    {
+        Thumb = new FingerOffset(model.Thumb, leap.Thumb);
+        Index = new FingerOffset(model.Index, leap.Index);
+        Middle = new FingerOffset(model.Middle, leap.Middle);
+        Ring = new FingerOffset(model.Ring, leap.Ring);
+        Pinky = new FingerOffset(model.Pinky, leap.Pinky);
+
+        Wirst = new Offset(model.Wirst.rotation, leap.Wirst.rotation);
+        OffsetWirst = model.Wirst.position - leap.Wirst.position;
+    }
+
+    public void ApplyOffset(Hand model, Hand leap)
+    {
+        Thumb.ApplyOffset(model.Thumb, leap.Thumb);
+        Index.ApplyOffset(model.Index, leap.Index);
+        Middle.ApplyOffset(model.Middle, leap.Middle);
+        Ring.ApplyOffset(model.Ring, leap.Ring);
+        Pinky.ApplyOffset(model.Pinky, leap.Pinky);
+
+        model.Wirst.rotation = Wirst.ApplyOffset(leap.Wirst.rotation);
+
+        model.Wirst.position = leap.Wirst.position + OffsetWirst;
+    }
+}
+

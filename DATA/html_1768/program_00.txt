@@ -1,0 +1,137 @@
+using MathNet.Numerics.Statistics;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Windows.Forms.DataVisualization.Charting;
+
+namespace Kimisyo.Forms
+{
+    public partial class ScatterPlotForm : Form
+    {
+        public int width = 1500;
+        public int height = 1500;
+        public int margin = 20;
+        int nBuckets = 20;
+
+        // パラメータIDのリスト
+        List&lt;int&gt; parameterIds = new List&lt;int&gt;();
+        // パラメータ名のリスト
+        List&lt;String&gt; parameterNames = new List&lt;String&gt;(); 
+        // パラメータID毎にデータが格納されたディクショナリ
+        Dictionary&lt;int, Dictionary&lt;int, Double&gt;&gt; parameterId2ValueMap = new Dictionary&lt;int, Dictionary&lt;int, Double&gt;&gt;();
+
+        public ScatterPlotForm()
+        {
+            InitializeComponent();
+        }
+
+        private void ScatterPlotForm_Load(object sender, EventArgs e)
+        {
+            chart1.BackColor = Color.Black;
+            chart1.Width = this.width;
+            chart1.Height = this.height;
+            chart1.Series.Clear();
+            chart1.Legends.Clear();
+            chart1.ChartAreas.Clear();
+
+            float margin_rate = ((float)margin / (float)chart1.Width) * 100;
+            Random random = new System.Random();
+            for (int i = 0; i &lt; parameterIds.Count; i++)
+            {
+                for (int j = 0; j &lt; parameterIds.Count; j++)
+                {
+                    String name = Convert.ToString(i) + "_" + Convert.ToString(j);
+                    ChartArea ca = new ChartArea(name);
+                    ca.AxisX.Enabled = AxisEnabled.False;
+                    ca.AxisY.Enabled = AxisEnabled.False;
+
+                    ca.Position.X = margin_rate + ((float)j / (float)parameterIds.Count) * (100 - margin_rate);
+                    ca.Position.Y = margin_rate + ((float)i / (float)parameterIds.Count) * (100 - margin_rate);
+                    ca.Position.Width = ((float)1/(float)parameterIds.Count) * (100 - margin_rate) - (float)0.2;
+                    ca.Position.Height = ((float)1/(float)parameterIds.Count) * (100 - margin_rate) - (float)0.2;
+                    this.chart1.ChartAreas.Add(ca);
+
+                    Series series = new Series();
+                    series.ChartArea = name;
+
+                    // ScatterPlotを作成
+                    if (i != j)
+                    {
+                        series.ChartType = SeriesChartType.Point;
+                        series.MarkerColor = Color.Blue;
+                        series.MarkerStyle = MarkerStyle.Circle;
+                        series.MarkerSize = 2;
+
+                        // データ
+                        int parameterIdX = parameterIds[j];
+                        int parameterIdY = parameterIds[i];
+                        Dictionary&lt;int, double&gt; valueMapX = parameterId2ValueMap[parameterIdX];
+                        Dictionary&lt;int, double&gt; valueMapY = parameterId2ValueMap[parameterIdY];
+                        foreach (int sampleId in valueMapX.Keys)
+                        {
+                            DataPoint dp = new DataPoint(valueMapX[sampleId], valueMapY[sampleId]);
+                            series.Points.Add(dp);
+                        }
+                    }
+                    // ヒストグラムを作成
+                    else
+                    {
+                        series.ChartType = SeriesChartType.Column;
+                        series.Color = Color.Blue;
+
+                        int parameterId = parameterIds[i];
+                        Dictionary&lt;int, double&gt; valueMap = parameterId2ValueMap[parameterId];
+                        Histogram hist = new Histogram(valueMap.Values, nBuckets, -50, 50);
+                        for (int k = 0; k &lt; nBuckets; k++)
+                        {
+                            double mid = Math.Round((hist[k].UpperBound + hist[k].LowerBound) / 2, 1);
+                            series.Points.Add(new DataPoint(mid, hist[k].Count));
+                        }
+                    }
+                    chart1.Series.Add(series);
+                }
+            }
+        }
+
+        /// ラベルを表示する(PostPaintイベント）
+        private void chart1_PostPaint(object sender, ChartPaintEventArgs e)
+        {
+            ChartGraphics cg = e.ChartGraphics;
+            Graphics g = cg.Graphics;
+            SolidBrush myBrushWhite = new SolidBrush(Color.White);
+            g.FillRectangle(myBrushWhite, 0, 0, margin-3, this.height);
+            g.FillRectangle(myBrushWhite, 0, 0, this.width, margin-3);
+            for(int i=0; i&lt;parameterIds.Count; i++)
+            {
+                float margin_rate = ((float)margin / (float)chart1.Width) * 100;
+                float x_rate = margin_rate + ((float)i / (float)parameterIds.Count) * (100 - margin_rate);
+                int x = Convert.ToInt32(this.width * x_rate/100);
+                SolidBrush myBrushBlack = new SolidBrush(Color.Black);
+                Font font = new Font("MS UI Gothic", 6);
+                g.DrawString(parameterNames[i], font, myBrushBlack, new Point(x, 3));
+            }
+
+            // 原点を移動
+            g.TranslateTransform(0, this.height);
+
+            // -90度回転
+            g.RotateTransform(-90f);
+
+            // 文字列を描画
+            for(int i=0; i&lt;parameterIds.Count; i++)
+            {
+                float margin_rate = ((float)margin / (float)chart1.Width) * 100;
+                float x_rate = ((float)i / (float)parameterIds.Count) * (100 - margin_rate);
+                int x = Convert.ToInt32(this.width * x_rate/100);
+                SolidBrush myBrushBlack = new SolidBrush(Color.Black);
+                Font font = new Font("MS UI Gothic", 6);
+                g.DrawString(parameterNames[parameterIds.Count-i-1], font, myBrushBlack, new Point(x, 3));
+            }
+
+            // 元に戻す
+            g.ResetTransform();
+        }
+    }
+}
+

@@ -1,0 +1,82 @@
+
+using Unity.Entities;
+using Unity.Transforms;
+using Unity.Mathematics;
+using Unity.Collections;
+
+namespace Samples.Common
+{
+    public class CubeSystem : ComponentSystem
+    {
+        // 要求リスト一覧
+        struct Group
+        {
+            [ReadOnly]
+            public SharedComponentDataArray&lt;Cube&gt; Spawner;
+            public ComponentDataArray&lt;Position&gt; Position;
+            public EntityArray Entity;
+            public readonly int Length;
+        }
+
+        [Inject]
+        Group m_Group;
+
+        protected override void OnUpdate()
+        {
+            while (m_Group.Length != 0)
+            {
+                var spawner = m_Group.Spawner[0];
+                var sourceEntity = m_Group.Entity[0];
+                var center = m_Group.Position[0].Value;
+
+                var entities = new NativeArray&lt;Entity&gt;(spawner.count, Allocator.Temp);
+                EntityManager.Instantiate(spawner.prefab, entities);
+
+                var positions = new NativeArray&lt;float3&gt;(spawner.count, Allocator.Temp);
+
+                if (spawner.spawnLocal)
+                {
+                    GeneratePoints.RandomPointsInSquare(new float3(), spawner.halfWidth, ref positions);
+                    for (int i = 0; i &lt; spawner.count; i++)
+                    {
+                        var position = new Position
+                        {
+                            Value = positions[i]
+                        };
+                        EntityManager.SetComponentData(entities[i], position);
+
+                        // Spawn Attach
+                        var attach = EntityManager.CreateEntity();
+                        EntityManager.AddComponentData(attach, new Attach
+                        {
+                            Parent = sourceEntity,
+                            Child = entities[i]
+                        });
+                    }
+                }
+                else
+                {
+                    GeneratePoints.RandomPointsInSquare(center, spawner.halfWidth, ref positions);
+                    for (int i = 0; i &lt; spawner.count; i++)
+                    {
+                        var position = new Position
+                        {
+                            Value = positions[i]
+                        };
+                        EntityManager.SetComponentData(entities[i], position);
+                    }
+                }
+
+                entities.Dispose();
+                positions.Dispose();
+
+                EntityManager.RemoveComponent&lt;Cube&gt;(sourceEntity);
+
+                // Instantiate &amp; AddComponent &amp; RemoveComponent calls invalidate the injected groups,
+                // so before we get to the next spawner we have to reinject them  
+                UpdateInjectedComponentGroups();
+            }
+        }
+    }
+}
+

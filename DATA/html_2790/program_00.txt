@@ -1,0 +1,60 @@
+        public static unsafe bool FastestMedian(IplImage src_img, IplImage dst_img, int n) {
+            Cv.Copy(src_img, dst_img);//元のをコピー
+            if ((n &amp; 1) == 0) return false;//偶数はさいなら 
+            int MaskSize = n &gt;&gt; 1;//処理できない端部の大きさを定義 左右にあるので2で割る
+            SelectBucketMedian BucketMedian = GetBucketMedianAscendingOrder;//背景が暗い場合
+            if (SelectAscendingDescendingOrder(src_img) == Is.DESCENDING_ORDER)//背景が明るい(白い)か判定
+                BucketMedian = GetBucketMedianDescendingOrder;//背景が明るい場合
+
+            byte* dst = (byte*)dst_img.ImageData;//出力先のポインタ．unsafeが必要
+            dst += MaskSize * (src_img.WidthStep) + MaskSize;//端部は処理できないのでポインタを画像の内陸部に進める
+            for (int y = MaskSize; y &lt; src_img.Height - MaskSize; ++y, dst += src_img.WidthStep) {
+                int[] Bucket = new int[Const.Tone8Bit];//256tone It is cleared each time
+                for (int x = 0; x &lt; n; ++x) {//画像左端である．メディアンを求めるブロック(バケツ)を作る
+                    byte* src = (byte*)src_img.ImageData;
+                    src += (y - MaskSize) * src_img.WidthStep + x;
+                    for (int yy = 0; yy &lt; n; ++yy, src += src_img.WidthStep)
+                        ++Bucket[*src];
+                }/* */
+                *dst = BucketMedian(Bucket, ((n * n) &gt;&gt; 1));//中央値(ブロックの((n * n) &gt;&gt; 1)番目の値)を求める．ソートはしない
+
+                for (int x = 0; x &lt; src_img.Width - n; ++x) {
+                    byte* src = (byte*)src_img.ImageData;
+                    src += (y - MaskSize) * src_img.WidthStep + x;
+                    for (int yy = 0; yy &lt; n; ++yy, src += src_img.WidthStep) {//ブロックの更新．一部をリサイクルできるので高速化できる．
+                        --Bucket[*src];//ここが味噌 ピクセルをブロックから削除
+                        ++Bucket[*(src + n)];//ここが味噌 ピクセルにブロックに追加
+                    }
+                    *(dst + x + 1) = BucketMedian(Bucket, ((n * n) &gt;&gt; 1));//中央値を求める．ソートをしないので早い
+                }
+            }
+            return true;
+        }
+        private static unsafe bool SelectAscendingDescendingOrder(IplImage src_img) {
+            byte* src = (byte*)src_img.ImageData;
+            return src[0] + src[src_img.ImageSize - (src_img.WidthStep - src_img.Width) - 1] + src[src_img.Width - 1] + src[src_img.ImageSize - src_img.Width - 1] &gt; 511 ? Is.DESCENDING_ORDER : Is.ASCENDING_ORDER;
+        }
+
+        delegate byte SelectBucketMedian(int[] Bucket, int Median);
+
+        private static byte GetBucketMedianDescendingOrder(int[] Bucket, int Median) {//明るい
+            byte YIndex = 0;//byte 0 = 256.中央値を上(白)からを探す
+            int ScanHalf = 0;//要素を半分カウントしたときのインデックス値が中央値
+            while ((ScanHalf += Bucket[--YIndex]) &lt; Median) ;//Underflow
+            return YIndex;
+        }
+        private static byte GetBucketMedianAscendingOrder(int[] Bucket, int Median) {//暗い
+            byte YIndex = 0;//中央値を下(黒)からを探す　　
+            int ScanHalf = 0;
+            while ((ScanHalf += Bucket[YIndex++]) &lt; Median) ;//要素数を半分カウントしたときのインデックス値が中央値
+            return --YIndex;
+        }
+
+        public static void Hage() {
+            IplImage InputGrayImage = Cv.LoadImage(f, LoadMode.GrayScale);//グレースケールで読み込む
+            IplImage MedianImage = Cv.CreateImage(InputGrayImage.Size, BitDepth.U8, 1);//出力先を作る
+            FastestMedian(InputGrayImage , MedianImage ,5);//入力，出力，n*nのブロックでフィルタ
+            Cv.ReleaseImage(InputGrayImage);
+            Cv.ReleaseImage(MedianImage );
+        }
+

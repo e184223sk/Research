@@ -1,0 +1,68 @@
+
+using Autofac;
+using Autofac.Features.OwnedInstances;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace PerOwned
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var builder = new ContainerBuilder();
+            builder.RegisterType&lt;Backend&gt;().AsImplementedInterfaces().InstancePerOwned&lt;Command&gt;();
+            builder.RegisterType&lt;Command&gt;();
+            var container = builder.Build();
+
+            using (var scope = container.BeginLifetimeScope()) // using は 変数の Dispose() を呼ぶ
+            {
+                Console.WriteLine("BeginLifetimeScope");
+                using (var command = scope.Resolve&lt;Owned&lt;Command&gt;&gt;())
+                {
+                    command.Value.Execute();
+                }
+
+                using (var command = scope.Resolve&lt;Owned&lt;Command&gt;&gt;())
+                {
+                    command.Value.Execute();
+                }
+                Console.WriteLine("EndLifetimeScope");
+            }
+            Console.ReadLine();
+
+
+        }
+    }
+
+    interface IBackend
+    {
+        string Id { get; }
+    }
+    class Backend: IBackend, IDisposable
+    {
+        public string Id { get; } = Guid.NewGuid().ToString();
+        public void Dispose()
+        {
+            Console.WriteLine($"Backend#Dispose is called. InstanceId: {Id}");
+        }
+    }
+
+    class Command
+    {
+        private IBackend Backend { get; }
+        public Command(IBackend backend)
+        {
+            this.Backend = backend;
+        }
+        public void Execute()
+        {
+            Console.WriteLine($"Command#Execute is called with Backend {Backend.Id}");
+        }
+    }
+}
+
+

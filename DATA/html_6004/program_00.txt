@@ -1,0 +1,84 @@
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public class AppCtrlWrap
+{
+    protected const uint BM_CLICK = 0x00F5;
+    protected const uint WM_SETTEXT = 0x000C;
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    protected static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, uint wParam, uint lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    protected static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, uint wParam, string lParam);
+
+    protected class Info
+    {
+        public string name;
+        public IntPtr handle;
+    }
+
+    protected List&lt;Info&gt; list;
+
+    protected List&lt;Info&gt; GetAllHandle(string title)
+    {
+        IntPtr app = FindWindowEx(IntPtr.Zero, IntPtr.Zero, null, title);
+
+        var handleList = new List&lt;Info&gt;();
+        GetAllHandle(app, ref handleList);
+
+        return handleList;
+    }
+
+    void GetAllHandle(IntPtr parent, ref List&lt;Info&gt; handleList)
+    {
+        foreach (Info info in GetChildHandle(parent))
+        {
+            handleList.Add(new Info() { name = info.name, handle = info.handle });
+            GetAllHandle(info.handle, ref handleList);
+        }
+    }
+
+    List&lt;Info&gt; GetChildHandle(IntPtr parent)
+    {
+        var handleList = new List&lt;Info&gt;();
+        var child = IntPtr.Zero;
+        while (true)
+        {
+            IntPtr handle = FindWindowEx(parent, child, null, null);
+            if (handle == IntPtr.Zero) break;
+
+            int length = GetWindowTextLength(handle);
+            StringBuilder sb = new StringBuilder(length + 1);
+            GetWindowText(handle, sb, sb.Capacity);
+
+            handleList.Add(new Info() { name = sb.ToString(), handle = handle });
+            child = handle;
+        }
+        return handleList;
+    }
+
+    protected IntPtr GetHandle(string name)
+    {
+        foreach (Info i in list)
+        {
+            if (i.name == name)
+            {
+                return i.handle;
+            }
+        }
+        return IntPtr.Zero;
+    }
+}
+

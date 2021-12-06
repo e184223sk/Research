@@ -1,0 +1,22 @@
+
+using var audioConfig = AudioConfig.FromWavFileInput(f);
+using var recognizer = new SpeechRecognizer(config, audioConfig).Also(r =&gt;
+{
+    // e is SpeechRecognitionEventArgs
+    // refs: https://docs.microsoft.com/ja-jp/dotnet/api/microsoft.cognitiveservices.speech.speechrecognitioneventargs?view=azure-dotnet
+    r.Recognized += (_, e) =&gt; e.Result.Also(result =&gt;
+    {
+        if (result.Reason == ResultReason.RecognizedSpeech)
+        {
+            resultSubject.OnNext(result.Best().FirstOrDefault().Let(r =&gt; new RecognitionResult()
+            {
+                File = f,
+                Result = r.Text,
+                Confidence = r.Confidence,
+            }));
+        }
+    });
+
+    r.SessionStopped += (_, __) =&gt; recognitionRunningSubject.OnNext(true);
+});
+

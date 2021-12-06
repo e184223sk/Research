@@ -1,0 +1,115 @@
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Windows.Forms;
+
+class FontMetricsTest : Form
+{
+    TrackBar   trackbar;
+    PictureBox pct;
+    ComboBox   cmbFonts;
+    TextBox    txtContent;
+
+    FontMetricsTest()
+    {
+        Text = "Font metrics test";
+        ClientSize = new Size(600, 400);
+
+        cmbFonts = new ComboBox();
+        foreach (FontFamily ff in FontFamily.Families) {
+            cmbFonts.Items.Add(ff.Name);
+        }
+        cmbFonts.Text = SystemFonts.DefaultFont.Name;
+        cmbFonts.Location = new Point(0,0);
+        cmbFonts.Width = 300;
+        cmbFonts.DropDownHeight = 500;
+        cmbFonts.DropDownStyle = ComboBoxStyle.DropDownList;
+        cmbFonts.SelectedIndexChanged += (sender,e)=&gt;{MyRedraw();};
+        Controls.Add(cmbFonts);
+
+        trackbar = new TrackBar();
+        trackbar.Location = new Point(300,0);
+        trackbar.Maximum = 100;
+        trackbar.Value   = 50;
+        trackbar.Minimum = 1;
+        trackbar.TickFrequency = 33;
+        trackbar.ValueChanged += (sender,e)=&gt;{MyRedraw();};
+        Controls.Add(trackbar);
+
+        txtContent = new TextBox();
+        txtContent.Location = new Point(0, 50);
+        txtContent.Width = 300;
+        txtContent.Text = "g あいう Qiita";
+        txtContent.TextChanged += (sender,e)=&gt;{MyRedraw();};
+        Controls.Add(txtContent);
+
+        pct = new PictureBox();
+        pct.Location = new Point(0, 80);
+        pct.Size = new Size(600, 300);
+        pct.Image = new Bitmap(600,300);
+        Controls.Add(pct);
+
+        MyRedraw();
+    }
+
+    void MyRedraw()
+    {
+        int w = pct.Image.Width;
+        int h = pct.Image.Height;
+
+        string fontName = cmbFonts.Text;
+        Font font = new Font(fontName, (float)trackbar.Value, GraphicsUnit.Pixel);
+
+        string text = txtContent.Text;
+        if (font.Name != fontName) {
+            text = "Font unmatch: \"" + font.Name + "\" is loaded.";
+        }
+
+        using ( Graphics g = Graphics.FromImage(pct.Image) ) {
+            g.Clear(Color.White);
+
+            FontFamily ff = font.FontFamily;
+
+            int ascent = ff.GetCellAscent(font.Style);
+            int descent = ff.GetCellDescent(font.Style);
+            int emHeight = ff.GetEmHeight(font.Style);
+
+            float fontHeight = font.GetHeight(g);
+            float ascentSize    = font.Size  * ascent  / emHeight;
+            float descentSize   = font.Size  * descent  / emHeight;
+
+            Console.Write("==== "); Console.Write(font.Name); Console.WriteLine(" ====");
+            Console.Write("font.Size: ");  Console.WriteLine(font.Size);
+            Console.Write("fontHeight: "); Console.WriteLine(fontHeight);
+            Console.Write("sum in pixel: ");        Console.WriteLine(ascentSize+descentSize);
+            Console.Write("ascent in pixel: ");     Console.WriteLine(ascentSize);
+            Console.Write("descent in pixel: ");    Console.WriteLine(descentSize);
+            Console.Write("sum: ");        Console.WriteLine(ascent+descent);
+            Console.Write("ascent: ");     Console.WriteLine(ascent);
+            Console.Write("descent: ");    Console.WriteLine(descent);
+            Console.Write("emHeight: ");   Console.WriteLine(emHeight);
+
+            Pen pen = new Pen(Color.Black, 1.0f);
+            Pen penDash = new Pen(Color.Blue, 1.0f);
+            penDash.DashStyle = DashStyle.Dash;
+            g.DrawLine(pen,     0, ascentSize+descentSize, w, ascentSize+descentSize);
+            g.DrawLine(penDash, 0, ascentSize, w, ascentSize);
+
+            StringFormat sf = new StringFormat();
+            sf.FormatFlags = StringFormatFlags.NoFontFallback;
+            g.DrawString(text, font, Brushes.Black, new PointF(0,0), sf);
+        }
+
+        pct.Refresh();
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new FontMetricsTest());
+    }
+}
+

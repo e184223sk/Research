@@ -1,0 +1,106 @@
+
+
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+
+namespace HttpClient_test
+{
+    class Program
+    {
+
+        private static HttpClient client;
+
+        static void Main(string[] args)
+        {
+            //ログインページ
+            string url_login = "https://grp01.id.rakuten.co.jp/rms/nid/vc?__event=login&amp;service_id=top";
+            //formタグ内のaction
+            string url_action = "./logini";
+　　　　　　 //POST要求先
+            string url_post = url_login + url_action;
+            //ログイン後にジャンプするページ(ホーム画面)
+            string url_history = "https://www.rakuten.co.jp/";
+
+
+            string USER_ID = "XXXXXXXXXXXXXX@mineo.jp";
+            string PASSWORD = "XXXXXXXX";
+
+
+            try
+            {
+                //クライアント接続開始
+                client = new HttpClient();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("【接続エラー】：" + ex.Message);
+            }
+
+            string HTMLtext = "";
+            try
+            {
+                //POST要求（ログインしてクッキー取得）
+                Task&lt;bool&gt; task_login = PostRequest(url_post, USER_ID, PASSWORD);
+
+                //URLでHTMLを取得する。
+                if (task_login.Result)
+                {
+                    Task&lt;string&gt; task_get = GetRequest(url_history);
+                    HTMLtext = task_get.Result;
+                }
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("【応答エラー】：" + ex.Message);
+            }
+
+            //HTMLテキスト確認
+            Console.WriteLine(HTMLtext);
+
+            //HTML構造解析
+            //string resultstr = AnalizeHtml(50, HTMLtext);
+
+
+            // ファイルの保存（別タスクで非同期処理　続けて処理をおこなうときはWait()を削除する）
+            //Task task1 = Task.Run(() =&gt; { SaveFile(resultstr); });
+            //task1.Wait();
+
+            //End待機
+            //Thread.Sleep(1000);
+            Console.ReadKey();
+
+        }
+
+        //POST要求（ログイン）
+        async static Task&lt;bool&gt; PostRequest(string url_post, string user, string password)
+        {
+            //POSTで送る内容作成。mContent.Add(属性の値, 属性の名前) 
+            MultipartFormDataContent mContent = new MultipartFormDataContent();
+            mContent.Add(new StringContent(user), "u");
+            mContent.Add(new StringContent(password), "p");
+
+            //ヘッダ情報確認
+            Console.WriteLine("【PostRequest Headers】" + mContent.Headers);
+
+            //POSTしてレスポンスの要求。（要求先、要求内容）
+            HttpResponseMessage response = await client.PostAsync(url_post, mContent);
+            Console.WriteLine("【PostRequest Response】 " + response.StatusCode.ToString());
+
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                //応答ステータスがOKならHTML文字列を取得する。
+                string contentstr = await response.Content.ReadAsStringAsync();
+                Console.WriteLine("【PostRequest HTMLcontent】" + contentstr);
+                Console.WriteLine("【PostRequest Cookie】" + response.Headers.GetValues("Set-Cookie").First());
+            }
+
+            return true;
+
+        }
+
+
+

@@ -1,0 +1,84 @@
+#nullable enable
+using System;
+using System.Linq;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+
+class Program
+{
+    static void Main()
+    {
+        var mainModuleDefinition = CreateMain();
+        ModuleDefinition systemModuleDefinition = GetSystemModule();
+
+        DefineEntryType(mainModuleDefinition, systemModuleDefinition);
+        mainModuleDefinition.Write("../HelloWorld.exe");
+    }
+
+    private static void DefineEntryType(ModuleDefinition mainModuleDefinition, ModuleDefinition systemModuleDefinition)
+    {
+        TypeDefinition entryTypeDefinition = new TypeDefinition("", "Program", TypeAttributes.Class | TypeAttributes.Public, mainModuleDefinition.TypeSystem.Object);
+
+        MethodDefinition constructorMethodDefinition = DefineConstructor(mainModuleDefinition);
+
+        MethodDefinition mainMethodDefinition = DefineMain(mainModuleDefinition, systemModuleDefinition);
+
+        mainModuleDefinition.EntryPoint = mainMethodDefinition;
+        entryTypeDefinition.Methods.Add(mainMethodDefinition);
+        entryTypeDefinition.Methods.Add(constructorMethodDefinition);
+        mainModuleDefinition.Types.Add(entryTypeDefinition);
+    }
+
+    private static ModuleDefinition CreateMain() =&gt;
+        AssemblyDefinition.CreateAssembly(new AssemblyNameDefinition("HW", new Version(1, 0, 0)), "HelloWorld", new ModuleParameters()
+        {
+            Kind = ModuleKind.Console,
+        }).MainModule;
+
+    private static ModuleDefinition GetSystemModule()
+    {
+        const string netStandardDllPath = "C:\\Program Files\\dotnet\\sdk\\NuGetFallbackFolder\\netstandard.library\\2.0.3\\build\\netstandard2.0\\ref\\netstandard.dll";
+        AssemblyDefinition systemAssemblyDefinition = AssemblyDefinition.ReadAssembly(netStandardDllPath);
+        ModuleDefinition systemModuleDefinition = systemAssemblyDefinition.MainModule;
+        return systemModuleDefinition;
+    }
+
+    private static MethodDefinition DefineMain(ModuleDefinition mainModuleDefinition, ModuleDefinition systemModuleDefinition)
+    {
+        MethodDefinition mainMethodDefinition = new MethodDefinition("Main", MethodAttributes.Static | MethodAttributes.Public, mainModuleDefinition.TypeSystem.Void);
+
+        ParameterDefinition argsParameterDefinition = new ParameterDefinition("args", ParameterAttributes.None, new ArrayType(mainModuleDefinition.TypeSystem.String));
+        mainMethodDefinition.Parameters.Add(argsParameterDefinition);
+
+        MethodBody body = mainMethodDefinition.Body;
+
+        static bool Predicate(MethodDefinition method) =&gt; method.Name == "WriteLine" &amp;&amp; method.Parameters.Count == 1 &amp;&amp; method.Parameters[0].ParameterType.Name == "String";
+
+        MethodReference writeLine = mainModuleDefinition.ImportReference(systemModuleDefinition.GetType("System", "Console").Methods.Single(Predicate));
+
+        ILProcessor processor = body.GetILProcessor();
+
+        processor.Append(Instruction.Create(OpCodes.Ldstr, "Hello, world!"));
+        processor.Append(Instruction.Create(OpCodes.Call, writeLine));
+        processor.Append(Instruction.Create(OpCodes.Ret));
+
+        return mainMethodDefinition;
+    }
+
+    private static MethodDefinition DefineConstructor(ModuleDefinition mainModuleDefinition)
+    {
+        MethodDefinition constructorMethodDefinition = new MethodDefinition(".ctor", MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName | MethodAttributes.Public, mainModuleDefinition.TypeSystem.Void);
+
+        MethodBody body = constructorMethodDefinition.Body;
+        ILProcessor processor = body.GetILProcessor();
+
+        MethodReference objectConstructorMethodReference = mainModuleDefinition.ImportReference(mainModuleDefinition.TypeSystem.Object.Resolve().Methods.Single(x =&gt; x.Name == ".ctor"));
+
+        processor.Append(Instruction.Create(OpCodes.Ldarg_0));
+        processor.Append(Instruction.Create(OpCodes.Call, objectConstructorMethodReference));
+        processor.Append(Instruction.Create(OpCodes.Ret));
+
+        return constructorMethodDefinition;
+    }
+}
+

@@ -1,0 +1,61 @@
+
+public static class Extensions
+{
+    public static List&lt;T&gt; AsList&lt;T&gt;(this T[] @this) =&gt; CreateList(@this);
+
+    public static List&lt;T&gt; AsList&lt;T&gt;(this T[] @this, T @value)
+    {
+        for (int i = 0; i &lt; @this.Length; i++)
+            @this[i] = value;
+
+        return CreateList(@this);
+    }
+
+    public static List&lt;T&gt; AsList&lt;T&gt;(this T[] @this, Func&lt;int, T&gt; generator)
+    {
+        for (int i = 0; i &lt; @this.Length; i++)
+            @this[i] = generator(i);
+
+        return CreateList(@this);
+    }
+
+    public static List&lt;T&gt; AsListParallel&lt;T&gt;(this T[] @this, T @value)
+    {
+        Parallel.ForEach(Partitioner.Create(0, @this.Length), partition =&gt;
+        {
+            var (start, end) = partition;
+            for (int i = start; i &lt; end; i++)
+                @this[i] = value;
+        });
+
+        return CreateList(@this);
+    }
+
+    public static List&lt;T&gt; AsListParallel&lt;T&gt;(this T[] @this, Func&lt;int, T&gt; generator)
+    {
+        Parallel.ForEach(Partitioner.Create(0, @this.Length), partition =&gt;
+        {
+            var (start, end) = partition;
+            for (int i = start; i &lt; end; i++)
+                @this[i] = generator(i);
+        });
+
+        return CreateList(@this);
+    }
+
+    private static List&lt;T&gt; CreateList&lt;T&gt;(T[] src)
+    {
+        // 空配列で初期化させる.
+        // capacity を指定すると, 余計な new が発生する.
+        var ls = new List&lt;T&gt;();
+
+        var type = ls.GetType();
+        var size = type.GetField("_size", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+        var items = type.GetField("_items", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+        items.SetValue(ls, src);
+        size.SetValue(ls, src.Length);
+
+        return ls;
+    }
+}
+

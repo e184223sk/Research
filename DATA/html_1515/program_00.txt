@@ -1,0 +1,73 @@
+
+    public class G
+    {
+        //・・・略
+        public static int catch_extendStyle;    //拡張WINDOW　イベント受け用の保存変数
+        public static int through_extendStyle;  //　　　　　　イベント透過用の保存変数
+    }
+
+//・・・中略・・・
+        //Icon mode Ignore click event
+        protected const int GWL_EXSTYLE = (-20);
+        protected const int WS_EX_TRANSPARENT   = 0x00000020; //透過時の値
+        protected const int WS_EX_TOPMOST       = 0x00000008; //topmost時の値
+        [DllImport("user32")]
+        protected static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32")]
+        protected static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwLong);
+//・・・中略・・・
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            //Icon Mode時のクリックEventの受け・スルー切り替え
+
+            base.OnSourceInitialized(e);
+
+            //WindowHandle(Win32) を取得
+            var handle = new WindowInteropHelper(this).Handle;
+            //クリックをキャッチする場合の値を算出して保存
+            int extendStyle = GetWindowLong(handle, GWL_EXSTYLE);
+            G.catch_extendStyle = extendStyle;
+            //クリックをスルーする場合の値を算出して保存
+            extendStyle |= WS_EX_TRANSPARENT; //フラグの追加
+            G.through_extendStyle = extendStyle;
+            //初期はキャッチで設定
+            SetWindowLong(handle, GWL_EXSTYLE, G.catch_extendStyle);
+
+        }
+//・・・中略・・・
+        private void NotifyIcon_MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            //ノティファイアイコン上でのコンテキストメニュー全般の処理
+            MenuItem selectedItem = (MenuItem)sender;
+            switch (selectedItem.Tag.ToString())
+            {
+                case "0":   //show/hide
+                   //・・・中略・・・
+                case "8":   //Icon Mode click ignore on/off
+                    if (G.MODE == 2)    //ICONモードの場合のみ許可
+                    {
+                        var handle = new WindowInteropHelper(this).Handle;
+                        int extendStyle = GetWindowLong(handle, GWL_EXSTYLE);
+                        if (this.Topmost == false)
+                        {
+                            extendStyle ^= WS_EX_TOPMOST;  //TopMostでない場合はその分の値を減算
+                        }
+                        if (extendStyle == G.catch_extendStyle)
+                        {
+                            SetWindowLong(handle, GWL_EXSTYLE, G.through_extendStyle);
+                            this.IgnoreEvent.IsChecked = true;
+                        }
+                        else
+                        {
+                            SetWindowLong(handle, GWL_EXSTYLE, G.catch_extendStyle);
+                            this.IgnoreEvent.IsChecked = false;
+                        }
+                    }
+                    else this.IgnoreEvent.IsChecked = false;
+                    break;
+                  //・・・中略・・・
+            }
+        }
+
+

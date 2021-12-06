@@ -1,0 +1,60 @@
+
+
+using System;
+using System.IO; // Fileクラス使用のため
+using System.Diagnostics; // Stopwatchクラス使用のため
+using System.Runtime.CompilerServices; // MethodImpl使用のため
+
+
+class LoadTest
+{
+    const int TestTimes = 1001; // 中央値を取りたいので奇数回にする。
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void TestMeasureTime()
+    {
+        var measuredTicks = new long[TestTimes];
+        Stopwatch sw = new Stopwatch();
+        sw.Start();
+        for ( int i=0;i&lt;TestTimes;i++ ) {
+            // 明示的にGCを呼び出すことで、途中でGCが発生しにくくする。
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+
+            // 計測開始
+            sw.Restart();
+            {
+                // 下行のコメントアウトを外してLoadTimeTest_ascii.exe として保存 ・・・ 表中の「ASCII」
+                // File.ReadAllLines("tmp_ascii.txt",System.Text.Encoding.ASCII);
+
+                // 下行のコメントアウトを外してコンパイルし LoadTimeTest_no_opt.exe として保存 ・・・ 表中の「no_opt (UTF-8)」
+                // File.ReadAllLines("tmp_ascii.txt");
+
+                // 下行のコメントアウトを外してLoadTimeTest_utf16le.exe として保存 ・・・ 表中の「UTF-16 LE」
+                // File.ReadAllLines("tmp_utf16le.txt",System.Text.Encoding.Unicode);
+            }
+            sw.Stop();
+
+            // 計測結果を取得
+            measuredTicks[i] = sw.ElapsedTicks;
+        }
+
+        for ( int i=0;i&lt;TestTimes;i++ ) {
+            Console.WriteLine(measuredTicks[i]);
+        }
+
+        // 中央値を取得
+        Array.Sort(measuredTicks);
+        Console.WriteLine("Median[Ticks]:" + measuredTicks[TestTimes/2].ToString());
+        double medianInNs = (measuredTicks[TestTimes/2]*1000.0*1000.0*1000.0)/Stopwatch.Frequency;
+        Console.WriteLine("Median[ns]:" + medianInNs.ToString());
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        TestMeasureTime();
+    }
+}
+
+

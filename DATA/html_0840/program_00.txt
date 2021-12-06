@@ -1,0 +1,207 @@
+    public abstract class ServiceCommand
+    {
+        public DateTimeOffset ScheduleTime { get; set; } = DateTimeInfo.GetNow();
+        public DateTimeOffset? CommandStartTime { get; set; }
+        public DateTimeOffset? CommandEndTime { get; set; }
+        public abstract void Execute();
+        public void WriteInfo(String message)
+        {
+#if DEBUG
+            Console.WriteLine(message);
+#endif
+        }
+        protected void SetDatabaseSetting(Database database)
+        {
+            var db = database;
+            db.CommandCreated += Database_CommandCreated;
+        }
+        protected void Database_CommandCreated(object sender, CommandCreatedEventArgs e)
+        {
+            var cm = e.Command;
+            cm.CommandTimeout = 150;
+        }
+    }
+    public class ServiceCommandExecuteResult
+    {
+        public String Name { get; set; }
+        public DateTimeOffset StartTime { get; set; }
+        public TimeSpan Duration { get; set; }
+
+        public ServiceCommandExecuteResult(ServiceCommand command)
+        {
+            this.Name = command.GetType().Name;
+            this.StartTime = command.CommandStartTime.Value;
+            this.Duration = command.CommandEndTime.Value - command.CommandStartTime.Value;
+        }
+        public override string ToString()
+        {
+            return String.Format("{0} (StartTime={1}, Duration={2}ms)"
+                , this.Name, this.StartTime.ToString("MM/dd HH:mm:ss.fffffff")
+                , this.Duration.TotalMilliseconds);
+        }
+    }
+    public enum BackgroundCommandServiceState
+    {
+        Ready,
+        Executing,
+        Suspend,
+    }
+    public class BackgroundCommandService
+    {
+        private Thread _Thread = null;
+        private AutoResetEvent _AutoResetEvent = new AutoResetEvent(true);
+        private Int32 _ThreadSleepSecondsPerCommand = 0;
+        private ConcurrentQueue&lt;ServiceCommand&gt; _CommandList = new ConcurrentQueue&lt;ServiceCommand&gt;();
+        private ServiceCommand _CurrentCommand = null;
+        private List&lt;ServiceCommand&gt; _PreviousCommandList = new List&lt;ServiceCommand&gt;();
+        private DateTimeOffset _PreviousResetTime = DateTimeInfo.GetNow();
+        private Int64 _ExecutedCommandCount = 0;
+        private Int64 _ExecutedSeconds = 0;
+        private Boolean _IsStarted = false;
+        private Int64 _IsSuspend = 0;
+
+        public String Name { get; private set; }
+        public BackgroundCommandServiceState State
+        {
+            get
+            {
+                if (_IsStarted)
+                {
+                    if (_IsSuspend == 1) { return BackgroundCommandServiceState.Suspend; }
+                    else { return BackgroundCommandServiceState.Executing; }
+                }
+                else
+                {
+                    return BackgroundCommandServiceState.Ready;
+                }
+            }
+        }
+        public Int64 ExecutedCommandCount
+        {
+            get { return Interlocked.Read(ref _ExecutedCommandCount); }
+        }
+        public Int64 ExecutedSeconds
+        {
+            get { return Interlocked.Read(ref _ExecutedSeconds); }
+        }
+        public Int32 CommandCount
+        {
+            get { return _CommandList.Count; }
+        }
+
+        public BackgroundCommandService(String name, Int32 threadSleepSecondsPerCommand)
+        {
+            this.Name = name;
+            _ThreadSleepSecondsPerCommand = threadSleepSecondsPerCommand;
+        }
+        public void StartThread()
+        {
+            if (_Thread != null) { throw new InvalidOperationException(); }
+
+            _Thread = new Thread(() =&gt; this.Start());
+            _Thread.Name = String.Format("BackgroundService({0})", this.Name);
+            _Thread.IsBackground = true;
+            _Thread.Priority = ThreadPriority.BelowNormal;
+            _Thread.Start();
+            _IsStarted = true;
+        }
+        private void Start()
+        {
+            while (true)
+            {
+                var l = new List&lt;ServiceCommand&gt;();
+                while (_CommandList.TryDequeue(out var cm))
+                {
+                    if (cm == null) { continue; }
+                    l.Add(cm);
+                }
+
+                var now = DateTimeInfo.GetNow();
+                DateTimeOffset? minNextStartTime = null;
+                foreach (var cm in l)
+                {
+                    if (cm.ScheduleTime &gt; now)
+                    {
+                        _CommandList.Enqueue(cm);
+                        if (minNextStartTime == null || minNextStartTime &gt; cm.ScheduleTime)
+                        {
+                            minNextStartTime = cm.ScheduleTime;
+                        }
+                    }
+                    try
+                    {
+                        var sw = Stopwatch.StartNew();
+                        cm.CommandStartTime = DateTimeInfo.GetNow();
+                        _CurrentCommand = cm;
+                        cm.Execute();
+                        cm.CommandEndTime = DateTimeInfo.GetNow();
+                        sw.Stop();
+
+                        Interlocked.Increment(ref _ExecutedCommandCount);
+                        Interlocked.Add(ref _ExecutedSeconds, sw.ElapsedTicks / TimeSpan.TicksPerSecond);
+                        if (_PreviousResetTime.Day != now.Day)
+                        {
+                            Interlocked.Exchange(ref _ExecutedCommandCount, 0);
+                            Interlocked.Exchange(ref _ExecutedSeconds, 0);
+                        }
+                        _PreviousResetTime = now;
+                    }
+                    catch (Exception ex)
+                    {
+                        cm.CommandEndTime = DateTimeInfo.GetNow();
+                        try
+                        {
+                            var bl = HignullLog.Current.AddAsync(ex, false);
+                        }
+                        catch { }
+                    }
+                    finally
+                    {
+                        _CurrentCommand = null;
+                    }
+                    if (_ThreadSleepSecondsPerCommand &gt; 0)
+                    {
+                        Thread.Sleep(_ThreadSleepSecondsPerCommand);
+                    }
+                }
+                _PreviousCommandList = l;
+
+                if (minNextStartTime.HasValue)
+                {
+                    var ts = minNextStartTime.Value - DateTimeInfo.GetNow();
+                    _AutoResetEvent.WaitOne((Int32)ts.TotalMilliseconds);
+                }
+                else
+                {
+                    _AutoResetEvent.WaitOne();
+                }
+            }
+        }
+        public void Suspend()
+        {
+            Interlocked.Exchange(ref _IsSuspend, 1);
+        }
+        public void Resume()
+        {
+            Interlocked.Exchange(ref _IsSuspend, 0);
+        }
+        public void AddCommand(ServiceCommand command)
+        {
+            if (_Thread == null) { return; }
+            if (_IsSuspend == 1) { return; }
+            _CommandList.Enqueue(command);
+            _AutoResetEvent.Set();
+        }
+        public void AddCommand(IEnumerable&lt;ServiceCommand&gt; commandList)
+        {
+            if (_Thread == null) { return; }
+            if (_IsSuspend == 1) { return; }
+            foreach (var command in commandList)
+            {
+                _CommandList.Enqueue(command);
+            }
+            _AutoResetEvent.Set();
+        }
+    }
+
+

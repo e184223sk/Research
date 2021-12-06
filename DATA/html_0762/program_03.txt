@@ -1,0 +1,82 @@
+
+/// &lt;summary&gt;
+/// リネーム前後のファイル名を含むファイル情報モデル
+/// &lt;/summary&gt;
+public class FileElementModel : NotificationObject
+{
+    private readonly IFileSystem fileSystem;   //☆変更
+    private readonly IFileSystemInfo fsInfo;   //☆変更
+
+    /// &lt;summary&gt;
+    /// リネーム前 フルファイルパス
+    /// &lt;/summary&gt;
+    public string InputFilePath =&gt; fsInfo.FullName;
+
+    /// &lt;summary&gt;
+    /// リネーム前 ファイル名
+    /// &lt;/summary&gt;
+    public string InputFileName =&gt; fsInfo.Name;
+
+    private string outputFileName = "--.-";
+    /// &lt;summary&gt;
+    /// リネーム後 ファイル名
+    /// &lt;/summary&gt;
+    public string OutputFileName
+    {
+        get =&gt; outputFileName;
+        set =&gt; RaisePropertyChangedIfSet(ref outputFileName, value, new[] { nameof(IsReplaced) });
+    }
+
+    /// &lt;summary&gt;
+    /// リネーム後 ファイルパス
+    /// &lt;/summary&gt;
+    public string OutputFilePath =&gt; Path.Combine(DirectoryPath, outputFileName);
+
+    /// &lt;summary&gt;
+    /// リネーム前後で変更があったか
+    /// &lt;/summary&gt;
+    public bool IsReplaced =&gt; InputFileName != OutputFileName;
+
+    /// &lt;summary&gt;
+    /// ファイルの所属しているディレクトリ名
+    /// &lt;/summary&gt;
+    public string DirectoryPath =&gt; fsInfo.GetDirectoryPath() ?? string.Empty;
+
+    public FileElementModel(IFileSystem fileSystem, string filePath)   //☆変更
+    {
+        this.fileSystem = fileSystem;   //☆変更
+
+        this.fsInfo = fileSystem.FileInfo.FromFileName(filePath);   //☆変更
+
+        this.outputFileName = InputFileName;
+    }
+
+    /// &lt;summary&gt;
+    /// 指定された置換パターンで、ファイル名を置換する（ストレージに保存はされない）
+    /// &lt;/summary&gt;
+    internal void Replace(IReadOnlyList&lt;ReplaceRegex&gt; repRegexes)
+    {
+        string outFileName = InputFileName;
+
+        foreach (var reg in repRegexes)
+        {
+            outFileName = reg.Replace(outFileName);
+        }
+
+        OutputFileName = outFileName;
+    }
+
+    /// &lt;summary&gt;
+    /// リネームを実行（ストレージに保存される）
+    /// &lt;/summary&gt;
+    internal void Rename()
+    {
+            fsInfo.Rename(OutputFilePath);
+            fsInfo.Refresh();
+            //rename時にFileInfoが変更されるので、通知を上げておく
+            foreach (var name in new[] { nameof(InputFileName), nameof(InputFilePath), nameof(IsReplaced) })
+                RaisePropertyChanged(name);       
+    }
+}
+
+

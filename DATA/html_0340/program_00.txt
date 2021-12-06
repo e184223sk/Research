@@ -1,0 +1,337 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+
+// KeyValueWithUpDown
+public class KeyUD
+{
+    public enum Stroke{
+        Down,
+        Up
+    };
+
+    public Keys Key{get;private set;}
+    public Stroke KeyStroke{get;private set;} // true: down,   false: up
+
+    public KeyUD(Keys key, Stroke keyStroke) {
+        Key = key;
+        KeyStroke = keyStroke;
+    }
+}
+
+class NativeUtil
+{
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern void SendInput(int nInputs, Input[] pInputs, int cbsize);
+
+        [DllImport("user32.dll", EntryPoint = "MapVirtualKeyA")]
+        public static extern int MapVirtualKey(int wCode, int wMapType);
+
+        //[DllImport("user32.dll", SetLastError = true)]
+        //public extern static IntPtr GetMessageExtraInfo();
+
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetDC(IntPtr hwnd);
+
+        [DllImport("gdi32.dll")]
+        public static extern int BitBlt(IntPtr hDestDC,
+            int x,
+            int y,
+            int nWidth,
+            int nHeight,
+            IntPtr hSrcDC,
+            int xSrc,
+            int ySrc,
+            int dwRop
+        );
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindowDC(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowRect(IntPtr hwnd, ref  RECT lpRect);
+
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetProcessDPIAware();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT 
+    {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public int Data;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput
+    {
+        public short VirtualKey;
+        public short ScanCode;
+        public int Flags;
+        public int Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HardwareInput
+    {
+        public int uMsg;
+        public short wParamL;
+        public short wParamH;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public int Type;
+        public InputUnion ui;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mouse;
+        [FieldOffset(0)]
+        public KeyboardInput Keyboard;
+        [FieldOffset(0)]
+        public HardwareInput Hardware;
+    }
+
+    private const int KEYEVENTF_EXTENDEDKEY = 0x0001;
+    private const int KEYEVENTF_KEYUP = 0x0002;
+    private const int KEYEVENTF_SCANCODE = 0x0008;
+    private const int KEYEVENTF_UNICODE = 0x0004;
+
+    private const int MAPVK_VK_TO_VSC = 0;
+    // private const int MAPVK_VSC_TO_VK = 1;
+
+
+    public static void SendInputKeys(KeyUD[] keys)
+    {
+        Input[] inputs = new Input[keys.Length];
+
+        for(int k=0; k&lt;keys.Length; k++) {
+            int vsc = NativeMethods.MapVirtualKey((int)keys[k].Key, MAPVK_VK_TO_VSC);
+
+            inputs[k] = new Input();
+            inputs[k].Type = 1; // KeyBoard = 1
+            inputs[k].ui.Keyboard.VirtualKey = (short)keys[k].Key;
+            inputs[k].ui.Keyboard.ScanCode = (short)vsc;
+            inputs[k].ui.Keyboard.Flags = (keys[k].KeyStroke==KeyUD.Stroke.Down)?0:KEYEVENTF_KEYUP;
+            inputs[k].ui.Keyboard.Time = 0;
+            inputs[k].ui.Keyboard.ExtraInfo = IntPtr.Zero;
+        }
+
+        NativeMethods.SendInput(inputs.Length, inputs, Marshal.SizeOf(inputs[0]));
+    }
+
+
+    //private const int MOUSEEVENTF_MOVE        = 0x0001;
+    //private const int MOUSEEVENTF_LEFTDOWN    = 0x0002;
+    //private const int MOUSEEVENTF_LEFTUP      = 0x0004;
+    //private const int MOUSEEVENTF_VIRTUALDESK = 0x4000;
+    //private const int MOUSEEVENTF_ABSOLUTE    = 0x8000;
+    private const int MOUSEEVENTF_WHEEL = 0x0800;
+
+    private static Input MakeMouseWheelData(int amountOfMove, IntPtr extraInfo)
+    {
+        Input input = new Input();
+        input.Type = 0; // MOUSE = 0
+        input.ui.Mouse.Flags = MOUSEEVENTF_WHEEL;
+        input.ui.Mouse.Data = amountOfMove;
+        input.ui.Mouse.X = 0;
+        input.ui.Mouse.Y = 0;
+        input.ui.Mouse.Time = 0;
+        input.ui.Mouse.ExtraInfo = extraInfo;
+        return input;
+    }
+
+    public static void SendMouseWheel(int amountOfMove)
+    {
+        Input[] inputs = new Input[]{MakeMouseWheelData(amountOfMove, IntPtr.Zero)};
+        NativeMethods.SendInput(inputs.Length, inputs, Marshal.SizeOf(inputs[0]));
+    }
+
+
+    private const int SRCCOPY = 13369376;
+    private const int CAPTUREBLT = 1073741824;
+
+    public static Bitmap CaptureActiveWindow()
+    {
+        //アクティブなウィンドウのデバイスコンテキストを取得
+        IntPtr hWnd = NativeMethods.GetForegroundWindow();
+        IntPtr winDC = NativeMethods.GetWindowDC(hWnd);
+
+        if (hWnd==IntPtr.Zero){return null;}
+
+        //ウィンドウの大きさを取得
+        RECT winRect = new RECT();
+        NativeMethods.GetWindowRect(hWnd, ref winRect);
+        Bitmap bmp = new Bitmap(winRect.right - winRect.left, winRect.bottom - winRect.top);
+        Graphics g = Graphics.FromImage(bmp);
+        //Graphicsのデバイスコンテキストを取得
+        IntPtr hDC = g.GetHdc();
+        //Bitmapに画像をコピーする
+        NativeMethods.BitBlt(hDC, 0, 0, bmp.Width, bmp.Height, winDC, 0, 0, SRCCOPY);
+        g.ReleaseHdc(hDC);
+        g.Dispose();
+        NativeMethods.ReleaseDC(hWnd, winDC);
+
+        return bmp;
+    }
+
+    public static bool SetProcessDPIAware()
+    {
+        return NativeMethods.SetProcessDPIAware();
+    }
+}
+
+
+class CopyTeamsChat : Form
+{
+    Button btnStart;
+    Button btnAbort;
+    NumericUpDown nudMouseScroll;
+
+    System.Windows.Forms.Timer tmr;
+    int _countForStartDelay;
+    bool _abortReq;
+    bool _timerIsRunning;
+    List&lt;MemoryStream&gt; _msBuffer;
+    readonly int IntervalInMs   = 300;
+    readonly int StartDelayInMs = 3000;
+    int _countOfSavedImage;
+
+    CopyTeamsChat()
+    {
+        NativeUtil.SetProcessDPIAware();
+
+        _countForStartDelay = 0;
+        _abortReq = false;
+        _timerIsRunning = false;
+        _countOfSavedImage = 0;
+
+        tmr = new System.Windows.Forms.Timer();
+        tmr.Interval = IntervalInMs;
+        tmr.Tick += (s,e)=&gt;{
+            if ( _abortReq ) {
+                // 停止させる
+                tmr.Stop();
+                btnStart.Enabled = true;
+                //btnSave.Enabled = (_msBuffer.Count&gt;0);
+                nudMouseScroll.Enabled = true;
+                _abortReq = false;
+                _timerIsRunning = false;
+                return;
+            }
+
+            if ( _countForStartDelay &gt; 0 ) {
+                _countForStartDelay--;
+                int inMsecForShowingCountDown = _countForStartDelay * IntervalInMs;
+                Text = (inMsecForShowingCountDown/1000).ToString() + "." + ((inMsecForShowingCountDown%1000)/100).ToString();
+            }
+            else{
+                tmr.Stop();
+                NativeUtil.SendMouseWheel((int)nudMouseScroll.Value);
+
+                Screen curScreen =  Screen.FromControl(this);
+                Bitmap bmp = new Bitmap(curScreen.Bounds.Width, curScreen.Bounds.Height);
+                Graphics g = Graphics.FromImage(bmp);
+                //画面全体をコピーする
+                g.CopyFromScreen(new Point(curScreen.Bounds.Left, curScreen.Bounds.Top), new Point(0, 0), bmp.Size);
+                g.Dispose();
+
+                bmp.Save(@"img/TeamsCapture" + _countOfSavedImage.ToString().PadLeft(6, '0') + ".png", System.Drawing.Imaging.ImageFormat.Png);
+                _countOfSavedImage++;
+
+                Text = "SavedCount:" + _countOfSavedImage.ToString();
+                tmr.Start();
+            }
+        };
+
+        nudMouseScroll = new NumericUpDown(){
+            Location = new Point(0,0),
+            Width = 100,
+            Maximum = 1000,
+            Value = 200,
+            Minimum = -1000,
+        };
+        Controls.Add(nudMouseScroll);
+
+        btnStart = new Button(){
+            Location = new Point(0,40),
+            Size = new Size(150,30),
+            Text = "Start Injection",
+        };
+        btnStart.Click += (s,e)=&gt;{
+            btnStart.Enabled = false;
+            //btnSave.Enabled = false;
+            nudMouseScroll.Enabled = false;
+            if ( !_timerIsRunning ) {
+                _msBuffer = new List&lt;MemoryStream&gt;();
+                _timerIsRunning = true;
+                _countForStartDelay = StartDelayInMs/IntervalInMs;
+                tmr.Start();
+            }
+        };
+        Controls.Add(btnStart);
+
+
+        btnAbort = new Button(){
+            Location = new Point(0,80),
+            Size = new Size(150,30),
+            Text = "Stop(Abort)",
+        };
+        btnAbort.Click += (s,e)=&gt;{
+            _abortReq = true;
+        };
+        Controls.Add(btnAbort);
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new CopyTeamsChat());
+    }
+}
+

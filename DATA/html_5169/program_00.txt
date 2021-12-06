@@ -1,0 +1,135 @@
+/// &lt;summary&gt;
+/// 編集可能ListView
+/// &lt;/summary&gt;
+public class ListViewEx : ListView
+{
+    #region events
+    /// &lt;summary&gt;セルの編集が開始された&lt;/summary&gt;
+    public event EventHandler BeginTextEdit;
+    /// &lt;summary&gt;セルの編集が終了した&lt;/summary&gt;
+    public event EventHandler&lt;TextEditEventArgs&gt; AfterTextEdit;
+    /// &lt;summary&gt;行追加された&lt;/summary&gt;
+    public event EventHandler&lt;ListViewItemEventArgs&gt; ItemAdded;
+    /// &lt;summary&gt;行削除された&lt;/summary&gt;
+    public event EventHandler&lt;ListViewItemEventArgs&gt; ItemRemoved;
+    #endregion
+
+    #region properties
+    /// &lt;summary&gt;編集可能にするキー値&lt;/summary&gt;
+    public ActivationEditing ActivateEditing { get; set; } = ActivationEditing.None;
+    #endregion
+
+    /// &lt;summary&gt;
+    /// デフォルトコンストラクタ
+    /// &lt;/summary&gt;
+    public ListViewEx() : base()
+    {
+        #region init value
+        this.FullRowSelect = true; // 行全体
+        this.View = View.Details; // 詳細モード
+        this.MultiSelect = false; // 単一行のみ
+        this.LabelEdit = false; // テキストボックスを表示するので、編集不可にしておく
+        #endregion
+
+        #region handle events
+        // 編集開始
+        this.MouseClick += (sender, e) =&gt;
+            {
+                if (!ActivateEditing.HasFlag(ActivationEditing.MouseClick)) return;
+                ListViewHitTestInfo info = this.HitTest(e.X, e.Y);
+                if (info != null) ShowTextBox(info.Item, info.SubItem);
+            };
+        this.MouseDoubleClick += (sender, e) =&gt;
+            {
+                if (!ActivateEditing.HasFlag(ActivationEditing.MouseDoubleClick)) return;
+                ListViewHitTestInfo info = this.HitTest(e.X, e.Y);
+                if (info != null) ShowTextBox(info.Item, info.SubItem);
+            };
+        this.KeyDown += (sender, e) =&gt;
+            {
+                if (ActivateEditing.HasFlag(ActivationEditing.F2) &amp;&amp; e.KeyCode == Keys.F2)
+                    ShowTextBox(this.SelectedItems[0], this.SelectedItems[0].SubItems[0]); // 先頭カラム固定
+            };
+
+        // 行削除
+        this.KeyDown += (sender, e) =&gt;
+            {
+                if (e.KeyCode == Keys.Delete &amp;&amp; this.SelectedItems.Count &gt; 0)
+                {
+                    var item = this.SelectedItems[0];
+                    var args = new ListViewItemEventArgs() { Item = item, Index = item.Index };                        
+
+                    this.Items.Remove(item);
+                    // ユーザ入力なので、イベント送信
+                    ItemRemoved?.Invoke(this, args);
+                }
+            };
+
+        #endregion
+    }
+
+    /// &lt;summary&gt;
+    /// テキストボックスを表示
+    /// &lt;/summary&gt;
+    /// &lt;param name="item"&gt;編集する行&lt;/param&gt;
+    /// &lt;param name="subItem"&gt;編集するセル&lt;/param&gt;
+    private void ShowTextBox(ListViewItem item, ListViewItem.ListViewSubItem subItem)
+    {
+        // 編集開始イベント送信
+        BeginTextEdit?.Invoke(this, EventArgs.Empty);
+
+        var text = new ListViewTextBox(this, item, subItem);
+        // テキスト編集が終わったら、内容を確定させる
+        text.AfterTextEditing += (sender, e) =&gt; 
+            {
+                if (e.Cancel) return;
+
+                // 入力した値が空で１カラム目が空だったら、行削除にする
+                if (string.IsNullOrEmpty(e.Text) &amp;&amp; string.IsNullOrEmpty(item.SubItems[0].Text))
+                {
+                    var index = item.Index;
+                    this.Items.Remove(item);
+                    // 新規行未入力で行削除になっても、ItemRemovedイベント送信する
+                    ItemRemoved?.Invoke(this, new ListViewItemEventArgs() { Item = item, Index = index });
+                }
+                else
+                {
+                    // テキストボックスの内容をセルに設定する
+                    subItem.Text = e.Text;
+                    // 編集終了イベント送信
+                    AfterTextEdit?.Invoke(this, new TextEditEventArgs() { Row = text.Row, Column = text.Column, Text = e.Text });
+                }
+            };
+        // タブ移動
+        text.TabMoved += (sender, e) =&gt;
+            {
+                if (e.Next) // 次のタブ
+                {
+                    if (e.Column &lt; this.Columns.Count - 1) // 次の列
+                        ShowTextBox(item, item.SubItems[e.Column + 1]);
+                    else
+                    {
+                        if (e.Row &lt; this.Items.Count - 1) // 次の行の先頭
+                            ShowTextBox(this.Items[e.Row + 1], this.Items[e.Row + 1].SubItems[0]);
+                        else // 最後のセル
+                            this.Focus();
+                    }
+                }
+                else // 前のタブ
+                {
+                    if (e.Column &gt; 0) // 前の列
+                        ShowTextBox(item, item.SubItems[e.Column - 1]);
+                    else
+                    {
+                        if (e.Row &gt; 0) // 前の行の最後
+                            ShowTextBox(this.Items[e.Row - 1], this.Items[e.Row - 1].SubItems[this.Columns.Count - 1]);
+                        else // 最初にセル
+                            this.Focus();
+                    }
+                }
+            };
+        // テキストボックス表示
+        text.Show();
+    }
+}
+

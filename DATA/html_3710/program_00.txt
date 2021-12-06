@@ -1,0 +1,70 @@
+    /// &lt;summary&gt;
+    /// ログ出力の設定項目
+    /// &lt;/summary&gt;
+    public struct LogSettings
+    {
+        /// &lt;summary&gt;
+        /// TopMessageの空白埋め
+        /// &lt;/summary&gt;
+        public const int TopMessagePadding = -20;
+    }
+    public static class StringExtensions
+    {
+        /// &lt;summary&gt;
+        /// 正規表現
+        /// &lt;/summary&gt;
+        public static string RegexReplace(this string text, string regex, string replacement, RegexOptions options = RegexOptions.None)
+        {
+            return new Regex(regex, options).Replace(text, replacement);
+        }
+        /// &lt;summary&gt;
+        /// SQL Queryの文字列を短縮化 (不要な改行、空白を除去)
+        /// &lt;/summary&gt;
+        public static string MinifySql(this string sql)
+        {
+            return sql
+                .RegexReplace(@"--(.*)", @"/*$1*/") // --コメント を /*コメント*/ に変換
+                .RegexReplace(@"\s+", " "); // スペース、タブ、改行の連続を1つのスペースに置換
+        }
+    }
+    public class AppDbContext : DbContext
+    {
+        /// &lt;summary&gt;
+        /// トレース可能なDbConnection
+        /// &lt;/summary&gt;
+        /// &lt;remarks&gt;
+        /// MiniProfiler(ProfiledDbConnection)とEntity Frameworkの組み合わせにより、以前は正常に動作していたが、ProviderIncompatibleException により動作しない。
+        /// クエリトレース用DbConnectionを別途用意し、Dapperではそちらを使うようにする
+        /// &lt;/remarks&gt;
+        public DbConnection DbConnection { get; }
+
+        public AppDbContext()
+            : base("AppDbContext")
+        {
+            // トレース可能なDbConnection
+            DbConnection = new ProfiledDbConnection(
+                      Database.Connection,
+                      new TraceDbProfiler()
+                      );
+            // 自動遅延読み込みを有効にするか デフォルト:true 
+            // falseだと明示的にIncludeを記載する必要あり。trueだと意図しない読み込むことにより性能劣化が発生するリスクあり。
+            Configuration.LazyLoadingEnabled = false;
+            // NULL 可のカラムに対する条件で特に非効率なクエリを生成する（NULL だった場合の処理/IS NULLも行う）
+            // これにより、Table Scan になってしまい、性能が落ちる。
+            // UseDatabaseNullSemanticsのオプションをtrueにすると、NULL だった場合の処理は消え、性能は上がるが、nullはヒットしなくなる。
+            // NULLの検索は null をラムダ式で直接指定すると可能
+            // NULLでの検索は基本行わないので、UseDatabaseNullSemanticsのオプションはtrueにする。
+            Configuration.UseDatabaseNullSemantics = true;
+
+
+            // SQL のログトレースはログレベルTraceで出力する
+            Database.Log = x =&gt;
+            {
+                if (!string.IsNullOrWhiteSpace(x))
+                {
+                    FileLogger.Trace($"{"EF Executed.",LogSettings.TopMessagePadding}{x.MinifySql()}");
+                }
+            };
+
+        }
+

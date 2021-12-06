@@ -1,0 +1,31 @@
+
+using System.Configuration;
+using Microsoft.Azure.Storage;
+using Microsoft.Azure.Storage.Blob;
+
+// Web Appsの場合、接続文字列はApplication Settingsから取るのがおそらく一般的。
+string connectionstring = ConfigurationManager.AppSettings["connectionstring"];
+// blobが保存されるコンテナ名
+string containername = ConfigurationManager.AppSettings["containername"];
+// ダウンロードするファイル名
+string filename = HttpContext.Current.Request["filename"];
+if (filename != null)
+{
+    CloudStorageAccount storageAccount = CloudStorageAccount.Parse(connectionstring);
+    CloudBlobClient client = storageAccount.CreateCloudBlobClient();
+    CloudBlobContainer container = client.GetContainerReference(containername );
+    CloudBlockBlob blob = container.GetBlockBlobReference(fileName);
+
+    // 必要なbyte配列の長さを取得するためには、取得したblobの参照に対してFetchAttributesを行う必要がある
+    blob.FetchAttributes();
+    long fileByteLength = blob.Properties.Length;
+    byte[] filecontent = new byte[fileByteLength];
+    blob.DownloadToByteArray(filecontent, 0);
+    if (filecontent.Length != 0)
+    {
+        // ここでもちいてるcontextは利用しているクラス(HandlerとかPageとか)に応じて適当なものを利用してください
+        context.Response.BinaryWrite(filecontent);
+    }
+    context.Response.Flush();
+}
+

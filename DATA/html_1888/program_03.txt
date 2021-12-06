@@ -1,0 +1,129 @@
+
+public class SelectQueryExecuter
+{
+    private string table;
+    private IList&lt;string&gt; wheres = new List&lt;string&gt;();
+    private IList&lt;string&gt; orWheres = new List&lt;string&gt;();
+    private IDictionary&lt;string, object&gt; parameters = new Dictionary&lt;string, object&gt;();
+    public SelectQueryExecuter(string table)
+    {
+        this.table = table;
+    }
+    public SelectQueryExecuter(string table, string alias)
+    {
+        this.table = $"{table} {alias}";
+    }
+    public SelectQueryExecuter Where(string column, string operator_, object val)
+    {
+        int paramsCnt = parameters.Count;
+        parameters.Add($"param{paramsCnt}", val);
+        wheres.Add($"{column} {operator_} :param{paramsCnt}");
+        return this;
+    }
+    public SelectQueryExecuter WhereIn&lt;T&gt;(string column, IEnumerable&lt;T&gt; val)
+    {
+        int paramsCnt = parameters.Count;
+        parameters.Add($"param{paramsCnt}", val);
+        wheres.Add($"{column} IN :param{paramsCnt}");
+        return this;
+    }
+    public SelectQueryExecuter WhereNot(string column, object val)
+    {
+        if (val != null)
+        {
+            int paramsCnt = parameters.Count;
+            parameters.Add($"param{paramsCnt}", val);
+            wheres.Add($"{column} &lt;&gt; :param{paramsCnt}");
+        }
+        else
+        {
+            wheres.Add($"{column} IS NOT NULL");
+        }
+        return this;
+    }
+    public SelectQueryExecuter WhereBetween&lt;T&gt;(string column, IComparable&lt;T&gt; start, IComparable&lt;T&gt; end)
+    {
+        int paramsCnt = parameters.Count;
+        parameters.Add($"param{paramsCnt}", start);
+        parameters.Add($"param{paramsCnt + 1}", end);
+        wheres.Add($"{column} BETWEEN :param{paramsCnt} AND :param{paramsCnt + 1}");
+        return this;
+    }
+    public SelectQueryExecuter WhereId(long id)
+    {
+        return Where($"{table}.id", id);
+    }
+    public SelectQueryExecuter WhereIdIn(IEnumerable&lt;long&gt; ids)
+    {
+        return WhereIn($"{table}.id", ids);
+    }
+    public SelectQueryExecuter OrWhere(string column, object val)
+    {
+        if (val != null)
+        {
+            int paramsCnt = parameters.Count;
+            parameters.Add($"param{paramsCnt}", val);
+            orWheres.Add($"{column} = :param{paramsCnt}");
+        }
+        else
+        {
+            orWheres.Add($"{column} IS NULL");
+        }
+        return this;
+    }
+    // ...中略
+    public string ToQuery()
+    {
+        var sql = new StringBuilder($"SELECT * FROM {table} ");
+        // WHERE
+        for (int i = 0; i &lt; wheres.Count; i++)
+        {
+            if (i == 0) sql.Append($"WHERE {wheres[i]}"); // 最初
+            else sql.Append($" AND {wheres[i]} "); // それ以外
+        }
+        // OR WHERE
+        for (int i = 0; i &lt; orWheres.Count; i++)
+        {
+            if (i == 0) sql.Append($"WHERE {orWheres[i]}"); // 最初
+            else sql.Append($" OR {orWheres[i]} "); // それ以外
+        }
+        return sql.ToString();
+    }
+    public T GetOne&lt;T&gt;()
+    {
+        var query = ToQuery();
+        return DatabaseManager.ExcecuteQueryAndFetchSingleResult&lt;T&gt;(query, parameters);
+    }
+    public ICollection&lt;T&gt; Get&lt;T&gt;()
+    {
+        var query = ToQuery();
+        return DatabaseManager.ExcecuteQueryAndFetchResults&lt;T&gt;(query, parameters);
+    }
+}
+
+public class DatabaseManager{
+    // ...中略
+    public static Type ExcecuteQueryAndFetchSingleResult&lt;Type&gt;(string query, object param = null)
+    {
+        using (var ts = new TransactionScope())
+        using (var conn = GetConnection())
+        {
+            conn.Open();
+            List&lt;Type&gt; result = conn.Query&lt;Type&gt;(query, param).ToList();
+            if (result.Count == 0) return default;
+            return result[0];
+        }
+    }
+
+    public static ICollection&lt;Type&gt; ExcecuteQueryAndFetchResults&lt;Type&gt;(string query, object param = null)
+    {
+        using (var ts = new TransactionScope())
+        using (var conn = GetConnection())
+        {
+            conn.Open();
+            ICollection&lt;Type&gt; result = conn.Query&lt;Type&gt;(query, param).ToList();
+            return result;
+        }
+    }
+}
+

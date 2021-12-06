@@ -1,0 +1,102 @@
+using System;
+using System.Text;
+using System.Windows.Forms;
+using PCSC;
+using PCSC.Exceptions;
+using PCSC.Iso7816;
+using PCSC.Monitoring;
+
+namespace PasoriForm {
+    public partial class Form1 : Form {
+
+        // fields
+        private string readerName;
+        private ISCardContext context;
+        private ISCardMonitor monitor;
+
+        // constructor
+        public Form1() {
+            InitializeComponent();
+            InitializePasori();
+        }
+
+        // pasori init
+        private void InitializePasori() {
+            try {
+                // check connection
+                context = ContextFactory.Instance.Establish(SCardScope.System);
+                var readerNames = context.GetReaders();
+                if(readerNames.Length &lt; 1) {
+                    throw new NoServiceException(SCardError.NoReadersAvailable); // Cannot find a smart card reader.
+                }
+                readerName = readerNames[0];
+                // create monitor
+                monitor = MonitorFactory.Instance.Create(SCardScope.System);
+                monitor.CardInserted += Monitor_CardInserted;
+                monitor.Start(readerName);
+                textBoxLog.Text += "カードをかざしてください" + Environment.NewLine;
+            } catch(NoServiceException ex) {
+                textBoxLog.Text += ex.Message + Environment.NewLine;
+            }
+        }
+
+        // monitor event
+        private void Monitor_CardInserted(object sender, CardStatusEventArgs e) {
+            Invoke(new Action(() =&gt; {
+                ReadData();
+            }));
+        }
+
+        // read data
+        private void ReadData() {
+            // reader
+            using var reader = context.ConnectReader(readerName, SCardShareMode.Shared, SCardProtocol.Any);
+            var apdu = new CommandApdu(IsoCase.Case2Short, reader.Protocol){
+                CLA = 0xff,
+                Instruction = InstructionCode.GetData,
+                P1 = 0x00,
+                P2 = 0x00,
+                Le = 0
+            };
+            using (reader.Transaction(SCardReaderDisposition.Leave)) {
+                // param
+                var sendPci = SCardPCI.GetPci(reader.Protocol);
+                var receivePci = new SCardPCI();
+                var receiveBuffer = new Byte[256];
+                var command = apdu.ToArray();
+                // send
+                var bytesReceived = reader.Transmit(
+                    sendPci,
+                    command,
+                    command.Length,
+                    receivePci,
+                    receiveBuffer,
+                    receiveBuffer.Length);
+                // response
+                var responseApdu = new ResponseApdu(receiveBuffer, bytesReceived, IsoCase.Case2Short, reader.Protocol);
+                if (responseApdu.HasData) {
+                    textBoxReadData.Text = new StringBuilder(BitConverter.ToString(responseApdu.GetData())).ToString();
+                } else {
+                    textBoxReadData.Text = string.Empty;
+                }
+            }
+        }
+
+        // form event
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e) {
+            if(context != null) {
+                context.Dispose();
+            }
+            if(monitor != null) {
+                monitor.Dispose();
+            }
+        }
+
+        // 更新button event
+        private void ButtonReset_Click(object sender, EventArgs e) {
+            InitializePasori();
+        }
+    }
+}
+
+

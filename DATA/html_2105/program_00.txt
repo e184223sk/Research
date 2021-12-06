@@ -1,0 +1,137 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.AddressableAssets;
+using Sirenix.OdinInspector;
+using Object = UnityEngine.Object;
+
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Settings;
+#endif
+
+[CreateAssetMenu(menuName = "Sample/OdinWithAddressableAssetReference")]
+public sealed class OdinWithAddressableAssetReference : ScriptableObject
+{
+    [SerializeField, HideInInspector] AssetReferenceGameObject references;
+
+    public AssetReferenceGameObject References =&gt; references;
+
+    #region Inspector
+#if UNITY_EDITOR
+#pragma warning disable 0649
+    [SerializeField, ValueDropdown("ReferenceDropDownEditorOnly"), OnValueChanged("ReferenceValueChangedEditorOnly"), LabelText("References")] string referenceGuidEditorOnly;
+    [ShowInInspector, ReadOnly, InlineEditor(InlineEditorModes.LargePreview), ShowIf("ReferencePreviewShowIfEditorOnly")] GameObject PreviewOnEditor;
+    [SerializeField, ValueDropdown("AssetGroupDropDownEditorOnly", IsUniqueList = true), LabelText("Addressable Group Filter")] string[] targetAssetGroupGuidsEditorOnly;
+#pragma warning restore 0649
+
+    IEnumerable ReferenceDropDownEditorOnly()
+    {
+        return GetAllAssetEntrys(targetAssetGroupGuidsEditorOnly)
+                .Select(x =&gt; new ValueDropdownItem(x.AssetPath, x.guid));
+    }
+
+    IEnumerable AssetGroupDropDownEditorOnly()
+    {
+        return GetAllAssetGroups()
+                .Select(x =&gt; new ValueDropdownItem(x.Name, x.Guid));
+    }
+
+    void ReferenceValueChangedEditorOnly(string guid)
+    {
+        var entrys = GetAllAssetEntrys(targetAssetGroupGuidsEditorOnly);
+        var item = entrys.FirstOrDefault(x =&gt; x.guid == guid);
+
+        if (item != default)
+        {
+            references = new AssetReferenceGameObject(item.guid);
+            UpdatePreviewAssetEditorOnly();
+        }
+    }
+
+    bool ReferencePreviewShowIfEditorOnly()
+    {
+        if(PreviewOnEditor == default)
+        {
+            UpdatePreviewAssetEditorOnly();
+        }
+
+        return PreviewOnEditor != default;
+    }
+
+    void UpdatePreviewAssetEditorOnly()
+    {
+        PreviewOnEditor = default;
+
+        if(references.RuntimeKeyIsValid())
+        {
+            PreviewOnEditor = LoadAsset&lt;GameObject&gt;(references);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// アセットの取得
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;The asset.&lt;/returns&gt;
+    /// &lt;param name="reference"&gt;Reference.&lt;/param&gt;
+    /// &lt;typeparam name="T"&gt;The 1st type parameter.&lt;/typeparam&gt;
+    public static T LoadAsset&lt;T&gt;(AssetReference reference) where T : Object
+    {
+        return reference.RuntimeKeyIsValid()
+                      ? AssetDatabase.LoadAssetAtPath&lt;T&gt;(AssetDatabase.GUIDToAssetPath(reference.AssetGUID))
+                      : default;
+    }
+
+    /// &lt;summary&gt;
+    /// グループ一覧を取得
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;The asset groups.&lt;/returns&gt;
+    public static List&lt;AddressableAssetGroup&gt; GetAllAssetGroups()
+    {
+        var setting = AddressableAssetSettingsDefaultObject.GetSettings(false);
+        var gropus = new List&lt;AddressableAssetGroup&gt;();
+
+        if (setting != default)
+        {
+            gropus = setting.groups;
+        }
+
+        return gropus;
+    }
+
+    /// &lt;summary&gt;
+    /// 全エントリーを取得
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;The asset entrys editor only.&lt;/returns&gt;
+    /// &lt;param name="groupFilterGuids"&gt;Group filter.&lt;/param&gt;
+    public static List&lt;AddressableAssetEntry&gt; GetAllAssetEntrys(string[] groupFilterGuids = null)
+    {
+        var setting = AddressableAssetSettingsDefaultObject.GetSettings(false);
+        var entrys = new List&lt;AddressableAssetEntry&gt;();
+
+        if (setting != default)
+        {
+            foreach (var group in setting.groups)
+            {
+                if (groupFilterGuids != null
+                    &amp;&amp; groupFilterGuids.Length &gt; 0
+                    &amp;&amp; !groupFilterGuids.Any(guid =&gt; guid == group.Guid))
+                {
+                    continue;
+                }
+
+                var _entrys = new List&lt;AddressableAssetEntry&gt;();
+                group.GatherAllAssets(_entrys, false, true, false);
+                entrys.AddRange(_entrys);
+            }
+        }
+
+        return entrys;
+    }
+#endif
+    #endregion
+
+}
+

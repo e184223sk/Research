@@ -1,0 +1,58 @@
+
+private static void ParseConnectionString(string connectionString, out string endpoint, out string accessKey)
+{
+    var dict = connectionString.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(p =&gt; p.Split(new[] { '=' }, 2)).ToDictionary(p =&gt; p[0].Trim().ToLower(), p =&gt; p[1].Trim());
+    if (!dict.TryGetValue("endpoint", out endpoint)) throw new ArgumentException("Invalid connection string, missing endpoint.");
+    if (!dict.TryGetValue("accesskey", out accessKey)) throw new ArgumentException("Invalid connection string, missing access key.");
+}
+
+private string GenerateJwtBearer(string issuer, string audience, ClaimsIdentity subject, DateTime? expires, string signingKey)
+{
+    SigningCredentials credentials = null;
+    if (!string.IsNullOrEmpty(signingKey))
+    {
+        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey));
+        credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+    }
+
+    var token = jwtTokenHandler.CreateJwtSecurityToken(
+        issuer: issuer,
+        audience: audience,
+        subject: subject,
+        expires: expires,
+        signingCredentials: credentials);
+    return jwtTokenHandler.WriteToken(token);
+}
+
+private Task&lt;HttpResponseMessage&gt; PostJsonAsync(string url, object body, string bearer)
+{
+    var request = new HttpRequestMessage
+    {
+        Method = HttpMethod.Post,
+        RequestUri = new Uri(url)
+    };
+
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+    request.Headers.Accept.Clear();
+    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    request.Headers.AcceptCharset.Clear();
+    request.Headers.AcceptCharset.Add(new StringWithQualityHeaderValue("UTF-8"));
+
+    var content = JsonConvert.SerializeObject(body);
+    request.Content = new StringContent(content, Encoding.UTF8, "application/json");
+    return httpClient.SendAsync(request);
+}
+
+public async Task SendAsync(string hubName, string methodName, params object[] args)
+{
+    var payload = new PayloadMessage()
+    {
+        Target = methodName,
+        Arguments = args
+    };
+    var url = $"{endpoint}:5002/api/v1-preview/hub/{hubName}";
+    var bearer = GenerateJwtBearer(null, url, null, DateTime.UtcNow.AddMinutes(30), accessKey);
+    await PostJsonAsync(url, payload, bearer);
+}
+
+

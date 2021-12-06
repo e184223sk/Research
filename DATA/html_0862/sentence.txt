@@ -1,0 +1,79 @@
+More than 1 year has passed since last update.題記の通り、C#を使用した暗号化・復号化の実装。なるべく簡単に暗号化と復号化の機能を使いたいな、と思って実装してみた。参考にしたのはMSの以下のサイト。
+https://docs.microsoft.com/ja-jp/dotnet/standard/security/encrypting-data環境はVS2019で .NET Core 3.1を使用。イメージとしては、以下のようなやり取りを想定してコーディング。(1) サーバーが秘密鍵と公開鍵を発行する。
+(2) クライアントに文字列で公開鍵情報を渡す。
+(3) クライアントは公開鍵情報を使ってデータを暗号化、サーバーに送付。
+(4) サーバーは秘密鍵情報を使ってデータを復号。証明書とか使えばいいのかもしれないが、そこら辺の知識はあまりないのでコードだけですべてを完結させたかった････ソースは以下。(クリックするとソースが表示されます)
+
+namespace RsaConsole
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 暗号化したい文字列をバイト配列に変換
+            string encryptWord = "冷やし中華ｧァ～";
+            var encByte = Encoding.Unicode.GetBytes(encryptWord);
+
+            // 秘密鍵と公開鍵を生成
+            RSA rsa = RSA.Create();
+
+            // 鍵情報を保存
+            var publicKey = rsa.ToXmlString(false);
+            var privateKey = rsa.ToXmlString(true);
+
+            // 公開鍵情報の文字列からオブジェクトを復元
+            byte[] encryptedByte;
+            using (RSA encRsa = RSA.Create())
+            {
+                encRsa.FromXmlString(publicKey);
+                encryptedByte = encRsa.Encrypt(encByte, RSAEncryptionPadding.Pkcs1);
+            }
+
+            // 暗号化したバイトデータを16進数文字列に変換
+            var encByteToString = BitConverter.ToString(encryptedByte);
+            Console.WriteLine($"Encrypt: {encByteToString}");
+
+            // 
+            // 上記の方法で生成された16進数文字列を外部から受信したと仮定して、
+            // 秘密鍵を使って復元する
+            //
+
+            // 送信されてきた文字列をバイト配列に変換
+            var encStrToBytes = encByteToString.Split('-').Select(r =&gt; Convert.ToByte(r, 16)).ToArray();
+            byte[] decryptedByte;
+
+            // 秘密鍵情報の文字列からオブジェクトを復元し、復号
+            using (RSA decRsa = RSA.Create())
+            {
+                decRsa.FromXmlString(privateKey);
+                decryptedByte = decRsa.Decrypt(encStrToBytes, RSAEncryptionPadding.Pkcs1);
+            }
+
+            var decryptedString = Encoding.Unicode.GetString(decryptedByte);
+
+            Console.WriteLine($"Decrypt: {decryptedString}");
+
+            // 試しにテキトーな鍵で復号してみる
+            var invalidDec = string.Empty;
+            try
+            {
+                using (RSA invalidRsa = RSA.Create())
+                {
+                    decryptedByte = invalidRsa.Decrypt(encStrToBytes, RSAEncryptionPadding.Pkcs1);
+                }
+            }
+            catch
+            {
+                Console.WriteLine("Failed to decrypt.");
+            }
+
+            return;
+        }
+    }
+}
+
+
+出力はこんな感じ。ちゃんと復号できてるし、テキトーな鍵じゃ復号できてませんね(当たり前か)あとは、メッセージのハッシュ送付とかも一緒にやれば、通信相手の検証もまとめてできるということか～。
+そこまでやればまぁまぁ安全ですね～。以上！
+
+

@@ -1,0 +1,141 @@
+
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+
+public class AsmItemAnInstruction
+{
+
+    public long        Address{get;private set;}
+    public Instruction Inst{get;private set;}
+
+    public string      CachedDesc{get;private set;}
+    public long        CachedJumpDestAddr{get;private set;}
+
+    public AsmItemAnInstruction(long addr, Instruction inst)
+    {
+        Address = addr;
+        Inst    = inst;
+
+        CachedDesc         = inst.GetDescription();
+        CachedJumpDestAddr = inst.GetAbsoluteJumpDestinationIfJump(addr); // PC は instruction の addrそのもの
+    }
+}
+
+
+public class AsmListView : ListView
+{
+    // Currently Containing Parsed Data Information
+    public long StartAddr        {get; private set;}
+    public long BufferedProgSize {get; private set;} // in Bytes
+
+    public long EndAddrPlus1
+    {
+        get{return StartAddr + BufferedProgSize;}
+    }
+
+
+    public AsmListView()
+    {
+        StartAddr = 0;
+        BufferedProgSize = 0;
+
+        InitializeProperties();
+        InitializeColumns();
+    }
+
+    void InitializeProperties()
+    {
+        this.View = View.Details;
+        this.MultiSelect = false;
+        this.FullRowSelect = true;
+        this.HideSelection = false;
+        this.GridLines = true;
+        this.Font = new Font("ＭＳ ゴシック", 9);
+    }
+
+    void InitializeColumns()
+    {
+        this.Columns.Add("Address",      60, HorizontalAlignment.Left);
+        this.Columns.Add("[1]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[0]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[3]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[2]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[5]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[4]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[7]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("[6]",          60, HorizontalAlignment.Left);
+        this.Columns.Add("Instruction", 160, HorizontalAlignment.Left);
+        this.Columns.Add("Dest",         60, HorizontalAlignment.Left);
+    }
+
+    public void ReloadAsmView(byte[] a, long startAddr)
+    {
+        this.Items.Clear();
+
+        List&lt;Instruction&gt; insts = null;
+        if ( a != null ) {
+            insts = DisAssembler.ParseAsInstructions(startAddr, a, 0);
+        }
+
+        if (insts != null) {
+            long addr = startAddr;
+            int ofs = 0;
+
+            this.BeginUpdate();
+            try {
+                foreach ( Instruction inst in insts ) {
+                    var asmItem = new AsmItemAnInstruction(addr, inst);
+                    this.Items.Add(MakeAsmListViewItem(asmItem));
+
+                    addr += inst.Size;
+                    ofs  += inst.Size;
+                }
+            }
+            finally {
+                this.EndUpdate();
+            }
+
+            StartAddr = startAddr;
+            BufferedProgSize = ofs;
+        }
+    }
+
+    ListViewItem MakeAsmListViewItem(AsmItemAnInstruction asmItem)
+    {
+        string jumpAddrInStr = "";
+
+        if ( asmItem.Inst.HasJump &amp;&amp; asmItem.CachedJumpDestAddr &gt;= 0 ) {
+            jumpAddrInStr = asmItem.CachedJumpDestAddr.ToString("X08");
+        }
+
+        byte[] b = asmItem.Inst.Bytes;
+        if ( b == null ) { b = new byte[0]; }
+
+        var item = new ListViewItem(new string[]{
+            asmItem.Address.ToString("X8"),
+            b.Length&lt;2 ? "" : Convert.ToString(b[1], 2).PadLeft(8, '0'),
+            b.Length&lt;2 ? "" : Convert.ToString(b[0], 2).PadLeft(8, '0'),
+            b.Length&lt;4 ? "" : Convert.ToString(b[3], 2).PadLeft(8, '0'),
+            b.Length&lt;4 ? "" : Convert.ToString(b[2], 2).PadLeft(8, '0'),
+            b.Length&lt;6 ? "" : Convert.ToString(b[5], 2).PadLeft(8, '0'),
+            b.Length&lt;6 ? "" : Convert.ToString(b[4], 2).PadLeft(8, '0'),
+            b.Length&lt;8 ? "" : Convert.ToString(b[7], 2).PadLeft(8, '0'),
+            b.Length&lt;8 ? "" : Convert.ToString(b[6], 2).PadLeft(8, '0'),
+            asmItem.CachedDesc,
+            jumpAddrInStr,
+        });
+        item.Tag = asmItem;
+
+        return item;
+    }
+}
+
+

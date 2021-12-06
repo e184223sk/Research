@@ -1,0 +1,145 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Configuration;
+// 追加箇所 From-----------------------------------------------------------------
+using Newtonsoft.Json.Linq;
+// 追加箇所 To-------------------------------------------------------------------
+
+namespace FindSimilar
+{
+    public class FaceInfo
+    {
+        // 取得元： "base" or "target" (string)
+        public string faceDivision { get; set; }
+
+        // 取得元URL： "比較元URL" or "比較先URL" (string)
+        public string sourceUrl { get; set; }
+
+        // 検出した顔のID (string)
+        public string faceId { get; set; }
+
+        // 検出箇所の座標（x軸） (int)
+        public int recLeft { get; set; }
+
+        // 検出箇所の座標（y軸） (int)
+        public int recTop { get; set; }
+
+        // 検出箇所の座標（左上からの幅） (int)
+        public int recWidth { get; set; }
+
+        // 検出箇所の座標（左上からの高さ） (int)
+        public int recHeight { get; set; }
+    }
+
+    class FaceDetect
+    {
+        static public List&lt;FaceInfo&gt; Detect(Dictionary&lt;string, string&gt; imageUrls)
+        {
+            List&lt;FaceInfo&gt; faceInfoList = new List&lt;FaceInfo&gt;();
+
+            try
+            {
+                faceInfoList = ImageAnalysisRequest(imageUrls).Result;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("例外：" + e.Message);
+            }
+
+            return faceInfoList;
+        }
+
+        // Face API Detectを使用して画像分析を行う
+        static async Task&lt;List&lt;FaceInfo&gt;&gt; ImageAnalysisRequest(Dictionary&lt;string, string&gt; imageUrls)
+        {
+            List&lt;FaceInfo&gt; faceInfoList = new List&lt;FaceInfo&gt;();
+            HttpClient client = new HttpClient();
+
+            // リクエストヘッダー
+            client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", ConfigurationManager.AppSettings["subscriptionKey"]);
+
+            // リクエストパラメータ
+            string requestParameters = "returnFaceId=true&amp;returnFaceLandmarks=false";
+
+            string uri = ConfigurationManager.AppSettings["requestUrl"] + "detect" + "?" + requestParameters;
+
+            // 画像ファイルを一枚ずつ処理する
+            foreach (KeyValuePair&lt;string, string&gt; item in imageUrls)
+            {
+                string contentString = string.Empty;
+
+                byte[] byteData = GetImageAsByteArray(item.Value);
+
+                // 画像から顔を検出
+                using (ByteArrayContent content = new ByteArrayContent(byteData))
+                {
+                    // リクエストヘッダーの作成
+                    content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+                    // Face APIの呼び出し
+                    HttpResponseMessage response = await client.PostAsync(uri, content);
+
+                    // 実行結果からJSONの取得
+                    contentString = await response.Content.ReadAsStringAsync();
+                }
+
+                // 追加箇所 From-----------------------------------------------------------------
+                // 戻り値となるリストへ顔情報を追加していく
+                JArray jArray = JArray.Parse(contentString);
+                foreach (JObject jObj in jArray)
+                {
+                    // 顔情報をFaceInfoクラス型に整形する
+                    FaceInfo faceInfo = CreateFaceInfo(jObj, item);
+
+                    faceInfoList.Add(faceInfo);
+                }
+                // 追加箇所 To-------------------------------------------------------------------
+
+            }
+
+            return faceInfoList;
+        }
+
+        // 追加箇所 From-----------------------------------------------------------------
+        // FaceInfoクラス型のインスタンスを作成
+        static FaceInfo CreateFaceInfo(JObject jObj, KeyValuePair&lt;string, string&gt; keyValue)
+        {
+            JValue jValFaceId = (JValue)jObj["faceId"];
+            JValue jValRectLeft = (JValue)jObj["faceRectangle"]["left"];
+            JValue jValRectTop = (JValue)jObj["faceRectangle"]["top"];
+            JValue jValRectWidth = (JValue)jObj["faceRectangle"]["width"];
+            JValue jValRectHeight = (JValue)jObj["faceRectangle"]["height"];
+
+            FaceInfo faceInfo = new FaceInfo();
+            faceInfo.faceDivision = keyValue.Key;
+            faceInfo.sourceUrl = keyValue.Value;
+            faceInfo.faceId = jValFaceId.ToString();
+            faceInfo.recLeft = int.Parse(jValRectLeft.ToString());
+            faceInfo.recTop = int.Parse(jValRectTop.ToString());
+            faceInfo.recWidth = int.Parse(jValRectWidth.ToString());
+            faceInfo.recHeight = int.Parse(jValRectHeight.ToString());
+
+            return faceInfo;
+        }
+        // 追加箇所 To-------------------------------------------------------------------
+
+        // 画像をバイナリデータに変換
+        static byte[] GetImageAsByteArray(string imageFilePath)
+        {
+            using (FileStream fileStream =
+                new FileStream(imageFilePath, FileMode.Open, FileAccess.Read))
+            {
+                BinaryReader binaryReader = new BinaryReader(fileStream);
+                return binaryReader.ReadBytes((int)fileStream.Length);
+            }
+        }
+    }
+}
+

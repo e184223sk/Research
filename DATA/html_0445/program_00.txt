@@ -1,0 +1,128 @@
+        /// &lt;summary&gt;
+        /// ディレクトリ構成を含め、再帰的に対象ファイルをコピーする
+        /// &lt;/summary&gt;
+        /// &lt;param name="originDirectory"&gt;取得元フォルダ&lt;/param&gt;
+        /// &lt;param name="targetDirectory"&gt;保存先フォルダ&lt;/param&gt;
+        /// &lt;param name="targetDateFrom"&gt;取得ファイル更新日付（From）&lt;/param&gt;
+        /// &lt;param name="targetDateTo"&gt;取得ファイル更新日付（To）&lt;/param&gt;
+        private void CopyFileWithDirectory(string originDirectory
+                                            , string targetDirectory
+                                            , DateTime targetDateFrom
+                                            , DateTime targetDateTo)
+        {
+            // 保存先のディレクトリ名の末尾に"\"をつける
+            if (targetDirectory[targetDirectory.Length - 1] != Path.DirectorySeparatorChar)
+                targetDirectory = targetDirectory + Path.DirectorySeparatorChar;
+
+            try
+            {
+                // タスクのキャンセルがされていたら例外を投げる
+                _cancellationToken.ThrowIfCancellationRequested();
+
+                // 取得元ディレクトリ配下のファイルを検索し、条件に一致するファイルを取得する
+                string[] files = Directory.GetFiles(originDirectory);
+                foreach (string file in files)
+                {
+                    // 処理中のディレクトリを画面に表示
+                    Invoke(new Action&lt;string&gt;(SetExecuteMsg), file);
+
+                    if (!CheckTargetFile(file, targetDateFrom, targetDateTo))
+                        continue;
+
+                    // 保存先のディレクトリがないときは作る（属性もコピー）
+                    if (!Directory.Exists(targetDirectory))
+                    {
+                        Directory.CreateDirectory(targetDirectory);
+                        File.SetAttributes(targetDirectory, File.GetAttributes(originDirectory));
+                    }
+
+                    File.Copy(file, targetDirectory + Path.GetFileName(file), true);
+                }
+
+                // 取得元ディレクトリ配下のディレクトリについて、再帰的に呼び出す
+                string[] dirs = Directory.GetDirectories(originDirectory);
+                foreach (string dir in dirs)
+                {
+                    if (!CheckTargetFolder(dir))
+                        continue;
+
+                    CopyFileWithDirectory(dir
+                                            , targetDirectory + Path.GetFileName(dir)
+                                            , targetDateFrom
+                                            , targetDateTo);
+                }
+
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                string[] msg = ex.Message.Split('\'');
+
+                Invoke(new Action&lt;string&gt;(SetErrMsg), "権限エラー：" + msg[1]);
+            }
+            catch (OperationCanceledException)
+            {
+                // 処理なし
+                // 処理キャンセルのメッセージは呼び出し元でセットする
+            }
+            catch (Exception ex)
+            {
+                Invoke(new Action&lt;string&gt;(SetErrMsg), ex.Message);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// ファイルの取得判定
+        /// &lt;/summary&gt;
+        /// &lt;param name="file"&gt;&lt;/param&gt;
+        /// &lt;param name="targetDateFrom"&gt;取得ファイル更新日付（From）&lt;/param&gt;
+        /// &lt;param name="targetDateTo"&gt;取得ファイル更新日付（To）&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static bool CheckTargetFile(string file, DateTime targetDateFrom, DateTime targetDateTo)
+        {
+            // 存在チェック
+            if (!File.Exists(file))
+                return false;
+
+            // 属性チェック
+            // 非表示、システムファイルは除外
+            FileAttributes attributes = File.GetAttributes(file);
+            if ((attributes &amp; FileAttributes.System) == FileAttributes.System
+                || (attributes &amp; FileAttributes.Hidden) == FileAttributes.Hidden)
+                return false;
+
+            // 対象日付範囲チェック
+            DateTime lastWriteDateTime = File.GetLastWriteTime(file);
+            if (lastWriteDateTime.Date &lt; targetDateFrom.Date || targetDateTo.Date &lt; lastWriteDateTime.Date)
+                return false;
+
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// フォルダの対象判定
+        /// &lt;/summary&gt;
+        /// &lt;param name="dir"&gt;取得元フォルダ&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static bool CheckTargetFolder(string dir)
+        {
+            string[] arr = dir.Split('\\');
+            string strLastDir = arr[arr.Length - 1];
+
+            // 非表示、システムフォルダは除外
+            FileAttributes attributes = File.GetAttributes(dir);
+            if ((attributes &amp; FileAttributes.System) == FileAttributes.System
+                || (attributes &amp; FileAttributes.Hidden) == FileAttributes.Hidden)
+                return false;
+
+            // 特定フォルダ名は除外
+            if (strLastDir == "bin"
+                || strLastDir == "obj"
+                || strLastDir == "Program Files"
+                || strLastDir == "Program Files (x86)"
+                || strLastDir == "Windows")
+                return false;
+
+            return true;
+        }
+
+

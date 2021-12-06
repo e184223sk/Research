@@ -1,0 +1,88 @@
+
+using System;
+using System.Diagnostics;
+using System.IO;
+
+namespace OST_Host
+{
+    static class Program
+    {
+        [STAThread]
+        static void Main(string[] args)
+        {
+            // 受信文字列（￥が全て／になっている）
+            string inStr = NativeMessage.StringRead();
+            int index;
+            string[] prefixes = new string[2] {"file://", "file:"};
+
+            if (inStr == string.Empty)
+            {
+                NativeMessage.StringWrite("選択文字列が空です。");
+            }
+            else
+            {
+                // 不要な文字の削除
+                index = inStr.LastIndexOf("&lt;");
+                if (index &gt;= 0)
+                {
+                    inStr = inStr.Substring(index + 1);
+                }
+                index = inStr.IndexOf("&gt;");
+                if (index &gt;= 0)
+                {
+                    inStr = inStr.Substring(0, index);
+                }
+
+                // "file:"の削除（"FILE:"と書く方はまれだと思うが、一応は考慮）
+                for (index = 0; index &lt; prefixes.Length; index++)
+                {
+                    if (inStr.StartsWith(prefixes[index], StringComparison.OrdinalIgnoreCase))
+                    {
+                        inStr = inStr.Substring(prefixes[index].Length);
+                    }
+                }
+
+                // UNCパス先頭の"//"と、"file://"の"//"が合体していたケースの対処
+                if (!inStr.StartsWith("//") &amp;&amp; !inStr.Contains(":"))
+                {
+                    inStr = "//" + inStr;
+                }
+
+                // 通信～デシリアライズ前とは逆の変換
+                inStr = inStr.Replace("/", "\\");
+
+                if (Directory.Exists(inStr))
+                {
+                    try
+                    {
+                        Process.Start("explorer.exe", "/e, \"" + inStr + "\"");
+                        NativeMessage.StringWrite("OK");
+                    }
+                    catch (Exception)
+                    {
+                        NativeMessage.StringWrite("フォルダを開けません。");
+                    }
+                }
+                else if (File.Exists(inStr))
+                {
+                    try
+                    {
+                        ProcessStartInfo psi = new ProcessStartInfo(inStr);
+                        psi.WorkingDirectory = Directory.GetParent(inStr).FullName;
+                        Process.Start(psi);
+                        NativeMessage.StringWrite("OK");
+                    }
+                    catch (Exception)
+                    {
+                        NativeMessage.StringWrite("ファイルを開けません。");
+                    }
+                }
+                else
+                {
+                    NativeMessage.StringWrite("不正なパスです。");
+                }
+            }
+        }
+    }
+}
+

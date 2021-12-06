@@ -1,0 +1,87 @@
+
+public static class MergeImages
+{
+    [FunctionName("MergePowerAppsImages")]
+    public static async Task&lt;IActionResult&gt; Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+        ILogger log){
+
+        log.LogInformation("C# HTTP trigger function processed a request.");
+
+        //バリデーション
+        HttpRequestBody&lt;NurieImageEntity&gt; requestBody;
+        try {
+            requestBody = await req.GetBodyAsync&lt;NurieImageEntity&gt;();
+        }
+        catch (Exception e) {
+            return new BadRequestObjectResult(e.Message);
+        }
+
+        if (!requestBody.IsValid) {
+            return new BadRequestObjectResult(requestBody.ValidationResults.First().ErrorMessage);
+        }
+
+        NurieImageEntity entity = requestBody.Value;
+
+        //ビットマップへの変換
+        Bitmap fgBitmap, bgBitmap;
+        try {
+            fgBitmap = entity.image_fg_datauri.ReadAsBitmap();
+        }
+        catch (Exception) {
+            return new BadRequestObjectResult($"{nameof(entity.image_fg_datauri)}の変換に失敗しました。");
+        }
+
+        try {
+            bgBitmap = entity.image_bg_datauri.ReadAsBitmap();
+        }
+        catch (Exception) {
+            return new BadRequestObjectResult($"{nameof(entity.image_bg_datauri)}の変換に失敗しました。");
+        }
+        //ペン入力ツールバーのクロップ有無
+        var cropFgToolbar = false;
+        if (entity.image_fg_crop == "true") cropFgToolbar = true;
+
+
+        //画像の合成
+        var nurieBitmap = MergeTwoImages(fgBitmap, bgBitmap, cropFgToolbar);
+        var dataUri = new ImageDataUri(ImageFormat.Png, nurieBitmap);
+
+        object resultJson = new
+        {
+            data = dataUri.ToString()
+        };
+
+        return new JsonResult(resultJson);
+
+    }
+
+    /// &lt;summary&gt;
+    /// 背景画像に前景画像を描画してビットマップを返します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="fg"&gt;前景画像&lt;/param&gt;
+    /// &lt;param name="bg"&gt;背景画像&lt;/param&gt;
+    /// &lt;param name="cropToolbar"&gt;ツールバーの60pxを切り抜くかどうか&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    public static Bitmap MergeTwoImages(Bitmap fg, Bitmap bg, bool cropToolbar = false) {
+
+        var bitmapBase = new Bitmap(bg);
+
+        //ツールバーの60pxを切り抜き
+        Bitmap fgBitmap;
+        if (cropToolbar) {
+            fgBitmap = fg.Clone(new Rectangle(0, 0, fg.Width, fg.Height - 60), fg.PixelFormat);
+        }
+        else {
+            fgBitmap = fg;
+        }
+
+        //ビットマップに前景画像を描画
+        using (var g = Graphics.FromImage(bitmapBase)) {
+            g.DrawImage(fgBitmap, g.VisibleClipBounds);
+        }
+
+        return bitmapBase;
+    }
+
+

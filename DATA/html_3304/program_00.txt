@@ -1,0 +1,125 @@
+using OpenCvSharp;
+using OpenCvSharp.Tracking;
+
+namespace MyApp
+{
+    public class SmartTracker
+    {
+        private Tracker _tracker;
+        private bool _tarcking = false;
+        private Rect2d _boundingBox;
+        private Rect? _initRect;
+        private double _imageRatio = 1.0;
+        private const double _MAX_IMAGE_WIDTH = 640.0;
+
+        public SmartTracker()
+        {
+            _tracker = TrackerMedianFlow.Create();
+        }
+
+        public bool Init(Mat image, Rect target)
+        {
+            // トラッキングの処理効率を上げるために内部的には最大幅640pxのイメージとして処理する
+            // この時、内部の_initRect, _boundingBox等は縮小したイメージで処理されるので、
+            // publicメソッド内で復元して呼び出し元に返却する
+            if (image.Width &gt; _MAX_IMAGE_WIDTH)
+            {
+                _imageRatio = _MAX_IMAGE_WIDTH / image.Width;
+                image = image.Resize(new Size(image.Width * _imageRatio, image.Height * _imageRatio));
+                target = ConvertInternalSizeRect(target);
+            }
+            else
+            {
+                _imageRatio = 1.0;
+            }
+
+            _boundingBox = new Rect2d(target.X, target.Y, target.Width, target.Height);
+            _initRect = target;
+
+            try
+            {
+                _tarcking = _tracker.Init(image, _boundingBox);
+            }
+            catch
+            {
+                _tarcking = false;
+            }
+
+            return _tarcking;
+        }
+
+        public Rect? Update(Mat image, Rect? area = null)
+        {
+            if(_initRect == null)
+            {
+                return null;
+            }
+            if (image.Width &gt; _MAX_IMAGE_WIDTH)
+            {
+                _imageRatio = _MAX_IMAGE_WIDTH / image.Width;
+                image = image.Resize(new Size(image.Width * _imageRatio, image.Height * _imageRatio));
+                if (area.HasValue)
+                {
+                    area = ConvertInternalSizeRect((Rect)area);
+                }
+            }
+            else
+            {
+                _imageRatio = 1.0;
+            }
+
+            Rect retRect;
+            try
+            {
+                _tracker.Update(image, ref _boundingBox);
+                retRect = new Rect((int)(_boundingBox.X), (int)(_boundingBox.Y), (int)(_boundingBox.Width), (int)(_boundingBox.Height));
+
+                // 指定エリアの外になったら抜ける
+                if (area.HasValue)
+                {
+                    Rect a = (Rect)area;
+                    if (!a.Contains(retRect.TopLeft) || !a.Contains(retRect.BottomRight))
+                    {
+                        Reset();
+                        return null;
+                    }
+                }
+
+                return retRect;
+            }
+            catch
+            {
+                Reset();
+                return null;
+            }
+        }
+
+        public void Reset()
+        {
+            _initRect = null;
+            _tarcking = false;
+            if (!_tracker.IsDisposed)
+            {
+                _tracker.Dispose();
+            }
+            _tracker = TrackerMedianFlow.Create();
+        }
+
+        public bool IsTracking()
+        {
+            return (_initRect.HasValue) ? true : false;
+        }
+
+        private Rect ConvertOriginalSizeRect(Rect rect)
+        {
+            return new Rect((int)(rect.X / _imageRatio), (int)(rect.Y / _imageRatio), (int)(rect.Width / _imageRatio), (int)(rect.Height / _imageRatio));
+        }
+
+        private Rect ConvertInternalSizeRect(Rect rect)
+        {
+            return new Rect((int)(rect.X * _imageRatio), (int)(rect.Y * _imageRatio), (int)(rect.Width * _imageRatio), (int)(rect.Height * _imageRatio));
+        }
+    }
+}
+
+

@@ -1,0 +1,87 @@
+
+public class NavigateButtonBehaivior : Behavior&lt;ButtonBase&gt;
+{
+    public static readonly DependencyProperty NavigatePageProperty =
+        DependencyProperty.Register("NavigatePage", typeof(Uri), typeof(NavigateButtonBehaivior), new UIPropertyMetadata(null));
+
+    public static readonly DependencyProperty NavigateExtraDataProperty =
+        DependencyProperty.Register("NavigateExtraData", typeof(object), typeof(NavigateButtonBehaivior), new UIPropertyMetadata(null));
+
+    // 遷移先のページ
+    public Uri NavigatePage
+    {
+        get { return (Uri)GetValue(NavigatePageProperty); }
+
+        set {  SetValue(NavigatePageProperty, value); }
+    }
+
+    // 遷移先に渡すパラメータ
+    public object NavigateExtraData
+    {
+        get { return GetValue(NavigateExtraDataProperty); }
+
+        set { SetValue(NavigateExtraDataProperty, value); }
+    }
+
+    protected override void OnAttached()
+    {
+        base.OnAttached();
+
+        this.AssociatedObject.Click += this.AssociatedObjectClick;
+    }
+
+    protected override void OnDetaching()
+    {
+        this.AssociatedObject.Click -= this.AssociatedObjectClick;
+
+        base.OnDetaching();
+    }
+
+    // クリックされたときの処理
+    private void AssociatedObjectClick(object sender, RoutedEventArgs e)
+    {
+        if (this.NavigatePage == null)
+        {
+            return;
+        }
+
+        var button = (ButtonBase)sender;
+        var navigationService = GetNavigationService(button);
+        if (navigationService == null)
+        {
+            return;
+        }
+
+        // 現ページのパッケージURLを取得して相対パスを絶対パスに変換する。
+        // ※new Uri(((IUriContext)navigationWindow).BaseUri, this.NavigatePage) だと
+        // 　ナビゲーションウィンドウXAMLからの相対パスになるので、サブディレクトリとの間で遷移できない。
+        var baseUri = BaseUriHelper.GetBaseUri(button);
+        var uri = new Uri(baseUri, this.NavigatePage);
+
+        // ナビゲート
+        navigationService.Navigate(uri, this.NavigateExtraData);
+    }
+
+    protected virtual NavigationService GetNavigationService(DependencyObject element)
+    {
+        var window = Window.GetWindow(element);
+        if (window is NavigationWindow navigationWindow)
+        {
+            // NavigationWindow の場合
+            return navigationWindow.NavigationService;
+        }
+
+        var parent = element;
+        while ((parent = VisualTreeHelper.GetParent(parent)) != null)
+        {
+            if (parent is Frame frame)
+            {
+                // プレーンな（非 Navigation）Window で Frame を使用している場合
+                return frame.NavigationService;
+            }
+        }
+
+        return null;
+    }
+}
+

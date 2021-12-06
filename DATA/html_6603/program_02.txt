@@ -1,0 +1,133 @@
+
+public class CRC : HashAlgorithm {
+    public CRC(CRCpolynomial poly, CRCbitFeed feed = CRCbitFeed.Right) {
+        InitialMask = true;
+        FinalMask = true;
+        Polynomial = (uint)poly;
+        BitFeed = feed;
+
+        base.HashSizeValue = (int)Math.Floor(Math.Log(Polynomial) / Math.Log(2F) / 8 + 1) * 8;
+        CRCmask = (uint)Math.Pow(2, base.HashSizeValue) - 1;
+
+        CRCtable = new uint[256];
+
+        if(BitFeed == CRCbitFeed.Left) {
+            CRCpoly = Polynomial;
+            uint msb = (uint)(1 &lt;&lt; (base.HashSizeValue - 1));
+
+            for(uint i = 0; i &lt; 256; i++) {
+                uint c = i &lt;&lt; (base.HashSizeValue - 8);
+                for(int j = 0; j &lt; 8; j++)
+                    c = (uint)((c &lt;&lt; 1) ^ (((c &amp; msb) != 0) ? CRCpoly : 0));
+                CRCtable[i] = c &amp; CRCmask;
+            }
+        } else {
+            for(int i = 0; i &lt; base.HashSizeValue; i += 4)
+                CRCpoly = (CRCpoly &lt;&lt; 4) | Rtbl[(Polynomial &gt;&gt; i) &amp; 0xf];
+
+            for(uint i = 0; i &lt; 256; i++) {
+                uint c = i;
+                for(int j = 0; j &lt; 8; j++)
+                    c = (c &amp; 1) != 0 ? (CRCpoly ^ (c &gt;&gt; 1)) : (c &gt;&gt; 1);
+                CRCtable[i] = c;
+            }
+        }
+
+        Initialize();
+    }
+
+    uint[] Rtbl = { 0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf };
+
+    bool _InitialMask = false;
+    public bool InitialMask {
+        get {
+            return _InitialMask;
+        }
+        set {
+            _InitialMask = value;
+            Initialize();
+        }
+    }
+    public bool FinalMask { get; set; }
+    public uint Polynomial { get; private set; }
+    public CRCbitFeed BitFeed { get; private set; }
+
+    public int CRCsize {
+        get { return base.HashSizeValue / 8; }
+    }
+
+    byte[] CRCcrc;
+    uint LSTvalue;
+
+    uint CRCmask;
+    uint CRCvalue;
+    uint CRCpoly;
+    uint[] CRCtable;
+
+    protected override void HashCore(byte[] array, int ibStart, int cbSize) {
+        unchecked {
+            while(--cbSize &gt;= 0)
+                CRCvalue = CRCtable[(CRCvalue ^ array[ibStart++]) &amp; 0xff] ^ (CRCvalue &gt;&gt; 8);
+        }
+        LSTvalue = CRCvalue;
+    }
+
+    protected override byte[] HashFinal() {
+        HashValue = new byte[CRCsize];
+
+        for(uint i = (uint)HashValue.Length, temp = CRCvalue ^ (FinalMask ? CRCmask : 0); i &gt; 0; temp &gt;&gt;= 8)
+            HashValue[--i] = (byte)(temp &amp; 0xff);
+
+        return HashValue;
+    }
+
+    public override void Initialize() {
+        CRCvalue = InitialMask ? CRCmask : 0;
+    }
+
+    public bool ConsistencyCheck(byte[] crc, byte[] buffer) {
+        CRCcrc = crc.Reverse().ToArray();
+        uint CRCuint = 0;
+
+
+
+        CRCvalue = CRCmask;
+        ComputeHash(buffer);
+        CRCuint = LSTvalue;
+
+        CRCvalue = CRCuint;
+        HashCore(CRCcrc, 0, CRCcrc.Length);
+        if(CRCvalue == 0)
+            return true;
+
+        CRCcrc = CRCcrc.Select(e =&gt; (byte)(e ^ 0xff)).ToArray();
+
+        CRCvalue = CRCuint;
+        HashCore(CRCcrc, 0, CRCcrc.Length);
+        if(CRCvalue == 0)
+            return true;
+
+
+
+        CRCvalue = 0;
+        ComputeHash(buffer);
+        CRCuint = LSTvalue;
+
+        CRCvalue = CRCuint;
+        HashCore(CRCcrc, 0, CRCcrc.Length);
+        if(CRCvalue == 0)
+            return true;
+
+        CRCcrc = CRCcrc.Select(e =&gt; (byte)(e ^ 0xff)).ToArray();
+
+        CRCvalue = CRCuint;
+        HashCore(CRCcrc, 0, CRCcrc.Length);
+        if(CRCvalue == 0)
+            return true;
+
+
+
+        return false;
+    }
+}
+

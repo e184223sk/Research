@@ -1,0 +1,92 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine.SceneManagement;
+using System.Linq;
+using System;
+
+public class SoundController : MonoBehaviour {
+
+    /// &lt;summary&gt;
+    /// 使用するBGMリスト
+    /// &lt;/summary&gt;
+    public List&lt;BGMSelectItem&gt; BGMList = new List&lt;BGMSelectItem&gt;();
+    /// &lt;summary&gt;
+    /// オーディオソース。
+    /// &lt;/summary&gt;
+    public AudioSource source;
+    /// &lt;summary&gt;
+    /// BGMの設定ボリューム。自動的にこの値までフェードする
+    /// &lt;/summary&gt;
+    public float MasterVolume = 0.5f;
+
+    /// &lt;summary&gt;
+    /// シーンごとのBGMを取得する
+    /// &lt;/summary&gt;
+    /// &lt;param name="s"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private AudioClip this[string s]
+    {
+        get
+        {
+            return BGMList
+                .Where(a =&gt; a.key == s)
+                .Select(b=&gt;b.clip)
+                .FirstOrDefault();
+        }
+    }
+
+    void Awake()
+    {        
+        DontDestroyOnLoad(this);
+    }
+    /// &lt;summary&gt;
+    /// シーン切り替え時に呼ばれる。BGMをここで切り替える
+    /// &lt;/summary&gt;
+    /// &lt;param name="level"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    IEnumerator OnLevelWasLoaded(int level)
+    {
+        //フェードアウト
+        while (Fade(-0.2f*0.1f))
+        {
+            yield return new WaitForSeconds(0.1f);
+        }
+        yield return new WaitForSeconds(1);
+        source.clip = this[SceneManager.GetActiveScene().name];            
+        source.Play(1);
+        while (Fade(+0.2f * 0.1f))
+        {
+            yield return new WaitForSeconds(0.1f);
+        }
+
+        yield break;
+    }
+
+    /// &lt;summary&gt;
+    /// 自動的にマスタボリュームまでフェードイン／フェードアウトする
+    /// &lt;/summary&gt;
+    /// &lt;param name="gain"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private bool Fade(float gain)
+    {
+        if (this.source.volume + gain &lt;= 0 || this.MasterVolume &lt;= this.source.volume +gain)
+        {
+            return false;
+        }
+
+        this.source.volume += gain;
+        return true;
+    }
+
+}
+
+[Serializable]
+public struct BGMSelectItem
+{
+    public string key;
+    public AudioClip clip;
+}
+
+
+

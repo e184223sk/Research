@@ -1,0 +1,74 @@
+
+public static class WeakSubscriber
+{
+    private class WeakObserver&lt;T&gt; : IObserver&lt;T&gt;
+    {
+
+        private readonly WeakReference&lt;IObserver&lt;T&gt;&gt; _observer;
+        private IDisposable _disposable;
+        public WeakObserver(IObserver&lt;T&gt; observer)
+        {
+            if (observer == null) throw new ArgumentNullException(nameof(observer));
+            _observer = new WeakReference&lt;IObserver&lt;T&gt;&gt;(observer);
+        }
+
+        //This method is not protected from multi thread.
+        public void SetDisposable(IDisposable disposable)
+        {
+            if (disposable == null) throw new ArgumentNullException(nameof(disposable));
+            if(_disposable!=null) throw new InvalidOperationException();
+
+            _disposable = disposable;
+
+        }
+
+        public void OnNext(T value)
+        {
+            IObserver&lt;T&gt; obs;
+
+            if (_observer.TryGetTarget(out obs))
+            {
+                obs.OnNext(value);
+            }
+            else
+            {
+                Exchange(ref _disposable, null)?.Dispose();
+            }
+
+        }
+
+        public void OnError(Exception error)
+        {
+            if (error == null) throw new ArgumentNullException(nameof(error));
+
+
+            IObserver&lt;T&gt; obs;
+
+            if (_observer.TryGetTarget(out obs))
+            {
+                obs.OnError(error);
+            }
+            else
+            {
+                Exchange(ref _disposable, null)?.Dispose();
+            }
+
+        }
+
+        public void OnCompleted()
+        {
+            IObserver&lt;T&gt; obs;
+
+            if (_observer.TryGetTarget(out obs))
+            {
+                obs.OnCompleted();
+            }
+            else
+            {
+                Exchange(ref _disposable, null)?.Dispose();
+            }
+        }
+
+    }
+}
+

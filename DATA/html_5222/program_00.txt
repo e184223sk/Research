@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Speech.Recognition;
+
+namespace Speech
+{
+    public partial class Form1 : Form
+    {
+        // -------------------------------------------------------------------
+        // フィールド
+        // -------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// 音声認識エンジン
+        /// &lt;/summary&gt;
+        private SpeechRecognitionEngine Engine;
+
+
+        // -------------------------------------------------------------------
+        // コンストラクタ
+        // -------------------------------------------------------------------
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            // 音声認識の設定
+            StartRecognition();
+
+            // 音声入力のチェックボックス
+            this.checkBoxVoiceInput.Checked = true;
+        }
+
+
+        // -------------------------------------------------------------------
+        // イベントハンドラ
+        // -------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// 音声認識のイベントハンドラ。
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベントソース&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベントデータ&lt;/param&gt;
+        private void SpeechRecognized(object sender, SpeechRecognizedEventArgs e)
+        {
+            // 生データを表示
+            string recognitionWord = e.Result.Text;
+            this.label.Text = "認識結果：" + recognitionWord;
+
+            if (e.Result.Confidence &gt;= 0.5)
+            {
+                if (recognitionWord == "音声認識ON")
+                {
+                    this.checkBoxVoiceInput.Checked = true;
+                }
+                else if (recognitionWord == "音声認識OFF")
+                {
+                    this.checkBoxVoiceInput.Checked = false;
+                }
+                else
+                {
+                    if (this.checkBoxVoiceInput.Checked)
+                    {
+                        // 音声認識データをテキストボックスに反映
+                        this.textBox.Text += recognitionWord;
+                    }
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 保存ボタンのイベントハンドラ。
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベントソース&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベントデータ&lt;/param&gt;
+        private void buttonSave_Click(object sender, EventArgs e)
+        {
+            var dialog = new SaveFileDialog();
+            dialog.Filter = "すべてのファイル(*.*)|*.*";
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                CreateFile(dialog.FileName, this.textBox.Text, false);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// クリアボタンのイベントハンドラ。
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;イベントソース&lt;/param&gt;
+        /// &lt;param name="e"&gt;イベントデータ&lt;/param&gt;
+        private void buttonClear_Click(object sender, EventArgs e)
+        {
+            this.textBox.Text = null;
+        }
+
+
+        // -------------------------------------------------------------------
+        // メソッド
+        // -------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// 音声認識の設定
+        /// &lt;/summary&gt;
+        private void StartRecognition()
+        {
+            try
+            {
+                // 音声認識エンジンの設定
+                this.Engine = new SpeechRecognitionEngine(Application.CurrentCulture);
+
+                // 既存のオーディオデバイスをデフォルトの入力とする
+                this.Engine.SetInputToDefaultAudioDevice();
+
+                // イベント登録
+                this.Engine.SpeechRecognized += new EventHandler&lt;SpeechRecognizedEventArgs&gt;(SpeechRecognized);
+
+                string grammarPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "Grammar.txt");
+                if (File.Exists(grammarPath))
+                { // 文法ファイルが存在する場合
+                    var choices = new Choices();
+                    foreach (string line in ReadFile(grammarPath, "#"))
+                    {
+                        choices.Add(line);
+                    }
+                    var grammar = new Grammar(choices.ToGrammarBuilder());
+                    this.Engine.LoadGrammar(new Grammar(choices.ToGrammarBuilder()));
+                }
+                else
+                {
+                    this.Engine.LoadGrammarAsync(new DictationGrammar());
+                }
+
+                this.Engine.RecognizeAsync(RecognizeMode.Multiple);
+            }
+            catch (Exception)
+            {
+                // 音声認識の設定に失敗
+                MessageBox.Show("音声認識の設定に失敗しました。", "音声認識", MessageBoxButtons.OK,
+                    MessageBoxIcon.None, MessageBoxDefaultButton.Button1, MessageBoxOptions.DefaultDesktopOnly);
+
+                // チェックボックス(音声入力)を非活性
+                this.checkBoxVoiceInput.Enabled = false;
+
+                // 音声認識エンジンのオブジェクトを解放
+                this.Engine.Dispose();
+
+                // 音声認識エンジンを初期化
+                this.Engine = null;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// ファイル読込み。
+        /// &lt;/summary&gt;
+        /// &lt;param name="path"&gt;ファイルパス&lt;/param&gt;
+        /// &lt;param name="comment"&gt;コメント文字&lt;/param&gt;
+        /// &lt;returns&gt;読込み結果リスト&lt;/returns&gt;
+        public static List&lt;string&gt; ReadFile(string path, string comment)
+        {
+            //コメント以外の行を取得
+            var lines = File.ReadAllLines(path, Encoding.Default)
+                .Where(line =&gt; !line.StartsWith(comment)).ToList();
+
+            return lines;
+        }
+
+        /// &lt;summary&gt;
+        /// ファイル作成。
+        /// &lt;/summary&gt;
+        /// &lt;param name="path"&gt;ファイルパス&lt;/param&gt;
+        /// &lt;param name="data"&gt;書き込みデータ&lt;/param&gt;
+        /// &lt;param name="appendFlg"&gt;追記可否フラグ(true:追記,false:上書き)&lt;/param&gt;
+        public static void CreateFile(string path, string data, bool appendFlg)
+        {
+            // ファイルを作成するフォルダが存在するかチェック
+            // 存在しない場合は、フォルダを作成
+            string dirPath = Path.GetDirectoryName(path);
+            if (!Directory.Exists(dirPath))
+            {
+                Directory.CreateDirectory(dirPath);
+            }
+
+            //指定ファイルに内容を書き込む
+            if (appendFlg)
+            {
+                //ファイルの末尾に書き加える
+                File.AppendAllText(path, data, Encoding.Default);
+            }
+            else
+            {
+                //ファイルを上書きする
+                File.WriteAllText(path, data, Encoding.Default);
+            }
+
+            return;
+        }
+    }
+}
+

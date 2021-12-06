@@ -1,0 +1,33 @@
+//カードが接続されたら
+private async Task HandleCard(CardEventArgs args) {
+    try {
+        //(前のカードが残ってたら消しておく)
+        card?.Dispose();
+
+        //カードのインスタンス作って
+        card = args.SmartCard.CreateMiFareCard();
+        var localCard = card;
+
+        //カード情報引いたり
+        var cardIdentification = await localCard.GetCardInfo();
+        DisplayText("Connected to card\r\nPC/SC device class: " + cardIdentification.PcscDeviceClass.ToString() + "\r\nCard name: " + cardIdentification.PcscCardName.ToString());
+
+        // MiFareカードなら
+        if (cardIdentification.PcscDeviceClass == MiFare.PcSc.DeviceClass.StorageClass
+             &amp;&amp; (cardIdentification.PcscCardName == CardName.MifareStandard1K || cardIdentification.PcscCardName == CardName.MifareStandard4K)) {
+
+            // 2セクタ0ブロックを読み込み
+            var data = await localCard.GetData(2, 0, 48);
+            // ダンプしたり何なりする
+
+            // 2セクタ1ブロックを0フィル
+            await localCard.SetData(2,1, Enumerable.Range(0,16).Select&lt;byte&gt;(i=&gt;0x00).ToArray());
+
+            //更新を適用
+            await localCard.Flush();
+        }
+    } catch (Exception e) {
+        PopupMessage("HandleCard Exception: " + e.Message);
+    }
+}
+

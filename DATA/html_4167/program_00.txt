@@ -1,0 +1,91 @@
+using UnityEngine;
+using WebSocketSharp;
+using WebSocketSharp.Server;
+
+public class ActionRecognitionController : MonoBehaviour {
+
+    WebSocketServer server;
+
+    private Animator anim;// キャラにアタッチされるアニメーターへの参照
+
+  // パンチorキックへの遷移を管理するフラグ
+    private static bool isPunch = false;
+    private static bool isKick = false;
+
+    private AnimatorStateInfo currentBaseState;// base layerで使われるアニメーターの現在の状態
+
+    static int punchState = Animator.StringToHash ("Base Layer.Punch");
+    static int kickState = Animator.StringToHash ("Base Layer.Kick");
+
+    void Start ()
+    {
+        // Node.jsとWebSocket通信
+        server = new WebSocketServer(3000);
+        server.AddWebSocketService&lt;Echo&gt;("/");
+        server.Start();
+
+        anim = GetComponentInChildren&lt;Animator&gt; ();
+
+    }
+
+    void FixedUpdate()
+    {
+        currentBaseState = anim.GetCurrentAnimatorStateInfo (0);// 参照用のステート変数にBase Layer (0)の現在のステートを設定する
+
+        if (isPunch)
+        {
+            if (!anim.IsInTransition (0)) {
+                anim.SetBool ("Punch", true);
+            }
+        }
+        else if (isKick)
+        {
+            if (!anim.IsInTransition (0)) {
+                anim.SetBool ("Kick", true);
+            }
+        }
+        if (currentBaseState.fullPathHash == punchState) {
+            // ステートが遷移中でない場合、Punchフラグをリセットする（ループしないようにする）
+            if (!anim.IsInTransition (0)) {
+                anim.SetBool ("Punch", false);
+            }
+
+        }
+        else if (currentBaseState.fullPathHash == kickState) {
+            // ステートが遷移中でない場合、Kickフラグをリセットする（ループしないようにする）
+            if (!anim.IsInTransition (0)) {
+                anim.SetBool ("Kick", false);
+            }
+
+
+        }
+        isPunch = false;
+        isKick=false;
+
+    }
+
+    void OnDestroy()
+    {
+        server.Stop();
+        server = null;
+    }
+
+    public class Echo : WebSocketBehavior
+    {
+        protected override void OnMessage(MessageEventArgs e)
+        {
+            Debug.Log(e.Data);
+            if (e.Data == "Kick")
+            {
+                isKick=true;
+
+            }
+            else if (e.Data == "Punch")
+            {
+                isPunch = true;
+            }
+
+        }
+    }
+}
+

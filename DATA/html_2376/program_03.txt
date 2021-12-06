@@ -1,0 +1,98 @@
+
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Net;
+using System.Net.Http;
+using FirebaseAdmin;
+using FirebaseAdmin.Auth;
+using Google.Apis.Auth.OAuth2;
+using Newtonsoft.Json.Linq;
+
+namespace AuthService.logic {
+
+    public interface ISnsAuthLogic {
+        public Task&lt;ApiResponseCustomTokenData&gt; GetCustomAuthTokenForLine(string accessToken);
+    }
+
+    public class SnsAuthLogic : ISnsAuthLogic {
+
+        private readonly ILogger&lt;SnsAuthLogic&gt; m_Logger = null;
+        private readonly AppSettings m_AppSettings = null;
+        private static FirebaseApp _firebaseApp;
+        private static readonly HttpClient _httpClient;
+
+        public SnsAuthLogic(IServiceProvider provider) {
+            m_Logger = provider.GetRequiredService&lt;ILogger&lt;SnsAuthLogic&gt;&gt;();
+            m_AppSettings = provider.GetRequiredService&lt;IOptions&lt;AppSettings&gt;&gt;().Value;
+        }
+
+        static SnsAuthLogic() {
+            _httpClient = new HttpClient();
+        }
+
+        /// &lt;summary&gt;
+        /// カスタムトークン取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;ApiResponseCustomTokenData&gt; GetCustomAuthTokenForLine(string accessToken) {
+
+            string verifyUrl        = $"https://api.line.me/oauth2/v2.1/verify?access_token={accessToken}";
+            string profileUrl       = "https://api.line.me/v2/profile";
+
+            var veryfyRequest   = new HttpRequestMessage(HttpMethod.Get, verifyUrl);
+            var profileRequest  = new HttpRequestMessage(HttpMethod.Get, profileUrl);
+
+            //response
+            ApiResponseCustomTokenData data = new ApiResponseCustomTokenData() {
+                Status      = 0,
+                CustomToken = null
+            };
+
+            //accessToken検証
+            var verifyResponse  = await _httpClient.SendAsync(veryfyRequest);
+            data.Status         = (int)verifyResponse.StatusCode;
+
+            if(verifyResponse.StatusCode == HttpStatusCode.OK) {
+
+                //channelId抽出
+                var verifyBody  = await verifyResponse.Content.ReadAsStringAsync();
+                JObject verify  = JObject.Parse(verifyBody);
+                var clientId    = verify["client_id"].ToString();
+
+                //profile取得
+                if(clientId == m_AppSettings.SnsAuthentication.Line.ClientId) {
+                    profileRequest.Headers.Add("Authorization", "Bearer " + accessToken);
+                    var profileResponse = await _httpClient.SendAsync(profileRequest);
+                    var profileBody     = await profileResponse.Content.ReadAsStringAsync();
+                    JObject profile     = JObject.Parse(profileBody);
+                    var userId          = profile["userId"].ToString();
+
+                    //Firebase初期化
+                    if(_firebaseApp == null) {
+                        _firebaseApp = FirebaseApp.Create(new AppOptions() {
+                            Credential = GoogleCredential.FromFile(m_AppSettings.SnsAuthentication.FirebaseCredentialsFile),
+                        });
+                    }
+
+                    data.CustomToken = await FirebaseAuth.DefaultInstance.CreateCustomTokenAsync(userId);
+
+                } else { 
+                    data.Status = (int)HttpStatusCode.Unauthorized;
+                    m_Logger.LogError("channel error");
+                }
+
+            } else { 
+                m_Logger.LogError("status error");
+            }
+
+            return data;
+        }
+    }
+}
+
+
+
+

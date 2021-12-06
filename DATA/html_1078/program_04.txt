@@ -1,0 +1,110 @@
+
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Collections.Generic;
+using Unity;
+using Unity.Interception;
+using Unity.Interception.ContainerIntegration;
+using Unity.Interception.InterceptionBehaviors;
+using Unity.Interception.Interceptors.InstanceInterceptors.InterfaceInterception;
+using Unity.Interception.PolicyInjection.Pipeline;
+using Unity.Lifetime;
+using Unity.Microsoft.DependencyInjection;
+
+namespace UnityLab
+{
+    public interface IMyService
+    {
+        void Greet();
+    }
+
+    public class MyService : IMyService
+    {
+        private readonly IMessagePrinter _messagePrinter;
+        private readonly IMessageGenerator _messageGenerator;
+
+        public MyService(IMessagePrinter messagePrinter, 
+            IMessageGenerator messageGenerator)
+        {
+            _messagePrinter = messagePrinter;
+            _messageGenerator = messageGenerator;
+        }
+        public void Greet() =&gt; _messagePrinter.Print(_messageGenerator.Generate());
+    }
+
+    public interface IMessagePrinter
+    {
+        void Print(string message);
+    }
+
+    public class ConsoleMessagePrinter : IMessagePrinter
+    {
+        public void Print(string message) =&gt; Console.WriteLine(message);
+    }
+
+    public interface IMessageGenerator
+    {
+        string Generate();
+    }
+
+    public class MyMessageGenerator : IMessageGenerator
+    {
+        public string Generate() =&gt; "Hello world";
+    }
+
+
+    public class LogBehavior : IInterceptionBehavior
+    {
+        private readonly IMessagePrinter _messagePrinter;
+
+        public bool WillExecute =&gt; true;
+
+        public LogBehavior(IMessagePrinter messagePrinter)
+        {
+            _messagePrinter = messagePrinter;
+        }
+
+        public IEnumerable&lt;Type&gt; GetRequiredInterfaces() =&gt; Type.EmptyTypes;
+
+        public IMethodReturn Invoke(IMethodInvocation input, GetNextInterceptionBehaviorDelegate getNext)
+        {
+            _messagePrinter.Print($"Begin: {input.MethodBase.Name}");
+            try
+            {
+                var result = getNext()(input, getNext);
+                _messagePrinter.Print($"End: {input.MethodBase.Name}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _messagePrinter.Print($"Exception: {input.MethodBase.Name}, {ex}");
+                throw;
+            }
+        }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 型の登録
+            var services = new ServiceCollection();
+            services.AddSingleton&lt;IMessagePrinter, ConsoleMessagePrinter&gt;();
+            services.AddSingleton&lt;IMessageGenerator, MyMessageGenerator&gt;();
+
+            // Unity のコンテナに登録してログ機能も追加
+            var container = new UnityContainer()
+                .AddNewExtension&lt;Interception&gt;();
+            container.RegisterType&lt;IMyService, MyService&gt;(
+                new SingletonLifetimeManager(),
+                new Interceptor&lt;InterfaceInterceptor&gt;(),
+                new InterceptionBehavior&lt;LogBehavior&gt;());
+
+            // インスタンスを提供してくれる人を作る
+            var provider = services.BuildServiceProvider(container);
+            var s = provider.GetService&lt;IMyService&gt;();
+            s.Greet();
+        }
+    }
+}
+

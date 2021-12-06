@@ -1,0 +1,68 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+
+public class ShiftBullet : Item {
+
+
+    public float LIFESPAN;
+    public float BULLETSPEED;
+
+    public GameObject DieEffect;
+
+
+    private SOType[] DontDieTypes = new SOType[]{SOType.ReflectionWall,SOType.TeleportWall};
+
+    protected override void Init(){
+        base.Init ();
+        StartCoroutine (DieCoroutine());
+        sotype = SOType.ShiftBullet;
+    }
+
+    void Update(){
+        //when out of camera
+        Vector3 vpos = Camera.main.WorldToViewportPoint (transform.position);
+        Vector3 limitpos = new Vector3 (0f, 0f, 0f);
+        if (vpos.x &lt; limitpos.x || 1 - limitpos.x &lt; vpos.x || vpos.y &lt; limitpos.y || 1 - limitpos.y &lt; vpos.y) {
+            Destroy(gameObject);
+        }
+    }
+
+
+    //colliderがぶつかった時の処理
+    void OnCollisionEnter2D(Collision2D coll){
+        //入れ替われる相手とぶつかったら何かします
+        if (coll.gameObject.tag == "ShiftableEnemy" || coll.gameObject.tag == "ShiftableItem") {
+            cmpPlayer.Shift (coll.gameObject);
+        } else {
+            //入れ替われない相手とぶつかったら何かします（ただし、isTriggerがfalseの奴とはぶつかれないのでそっちでやって
+            //SE
+            SEPlayer.PlaySE("disapear");
+        }
+
+        //当たっても消えないやつ
+        if ( 0 &lt;= Array.IndexOf(DontDieTypes, coll.gameObject.GetComponent&lt;StageObject&gt; ().GetSOType ()))
+            return;
+
+        Die ();
+    }
+
+    //発射します
+    public void Fire(Vector2 velocity){
+        gameObject.GetComponent&lt;Rigidbody2D&gt; ().velocity = velocity * BULLETSPEED;
+    }
+
+    IEnumerator DieCoroutine(){
+        yield return new WaitForSeconds (LIFESPAN);
+        Destroy (gameObject);
+    }
+
+    public override void Die ()
+    {
+        Instantiate (DieEffect, transform.position, Quaternion.identity);
+        base.Die ();
+    }
+}
+

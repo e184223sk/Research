@@ -1,0 +1,22 @@
+
+static IList&lt;ChannelReader&lt;T&gt;&gt; Split&lt;T&gt;(ChannelReader&lt;T&gt; ch, int n)
+{
+    var outputs = new Channel&lt;T&gt;[n];
+    for (int i = 0; i &lt; n; i++)
+        outputs[i] = Channel.CreateUnbounded&lt;T&gt;();
+
+    Task.Run(async () =&gt;
+    {
+        var index = 0;
+        await foreach (var item in ch.ReadAllAsync())
+        {
+            await outputs[index].Writer.WriteAsync(item);
+            index = (index + 1) % n;
+        }
+
+        foreach (var ch in outputs)
+            ch.Writer.Complete();
+    });
+    return outputs.Select(ch =&gt; ch.Reader).ToArray();
+}
+

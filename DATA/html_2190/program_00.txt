@@ -1,0 +1,80 @@
+using NBitcoin;
+using NBitcoin.Altcoins; //予測変換にMonacoinが出るようになります。
+
+    private string unSignTxHex;  //取得した未署名Txを入れる
+    private string signedTxHex;  //署名済みTxを入れる
+
+    //Jsonの組み立て
+    [Serializable]
+    class MonapaApi
+    {
+        public Params1 @params;
+        public int id = 0;
+        public string jsonrpc = "2.0";
+        public string method = "proxy_to_counterpartyd";
+    }
+
+    [Serializable]
+    public class Params1
+    {
+        public string method = "create_send";
+        public Params2 @params;
+    }
+
+    [Serializable]
+    public class Params2
+    {
+        public bool allow_unconfirmed_inputs = false;
+        public bool use_enhanced_send = true;
+        public string encoding = "auto";
+        public string pubkey = "公開鍵";
+        public string source = "送り先";
+        public string destination = "自分のアドレス";
+        public string asset = "トークン名";
+        public string memo = "メモ"
+        public string memo_is_hex = "メモの16進数"
+        public int quantity = 数量;
+        public int fee_per_kb = 手数料;
+        //public bool extended_tx_info = true; //何故かエラーになります
+    }
+
+    // 未署名Txの格納
+    public class UnSignTxData
+    {
+        public string result;
+    } 
+
+    //未署名Txのリクエスト
+    private void GetUnSignTxHex()
+    {
+        string url = "リクエスト先APIサーバー";
+
+        MonapaApi monapaApi = new MonapaApi();
+        string monapaJson = JsonUtility.ToJson(monapaApi);
+
+        StartCoroutine(ReqUnSignTxHex(url , monapaJson));
+
+        IEnumerator ReqUnSignTxHex(string url, string bodyJsonString)
+        {
+            UnityWebRequest postRequest = new UnityWebRequest(url, "POST");
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(bodyJsonString);
+            postRequest.uploadHandler = (UploadHandler)new UploadHandlerRaw(bodyRaw);
+            postRequest.downloadHandler = (DownloadHandler)new DownloadHandlerBuffer();
+            postRequest.SetRequestHeader("Content-Type", "application/json");
+
+            yield return postRequest.SendWebRequest();
+
+            UnSignTxData unSignTxData = new UnSignTxData();
+            unSignTxData = JsonUtility.FromJson&lt;UnSignTxData&gt;(postRequest.downloadHandler.text);
+            unSignTxHex = unSignTxData.result;
+
+            if (postRequest.isHttpError || postRequest.isNetworkError)
+            {
+                Debug.Log(postRequest.error);
+            }
+            else
+            {
+                Debug.Log(postRequest.downloadHandler.text);
+            }
+    }
+

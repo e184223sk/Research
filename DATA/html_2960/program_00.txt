@@ -1,0 +1,155 @@
+// 以下のcodeは抜粋で、このままでは動作しません
+
+public partial class LoadDialog : Form
+{
+    public Inventor.ApplicationAddInSite inventor;
+    private AppDomain appDomain;
+    private Proxy proxy;
+
+    public LoadDialog()
+    {
+        InitializeComponent();
+        //
+        UpdateControlState();
+    }
+
+    public void UpdateControlState()
+    {
+        if (appDomain == null)
+        {
+            LoadButton.Enabled = File.Exists(DllPathTextBox.Text);
+            UnloadButton.Enabled = false;
+        }
+        else
+        {
+            LoadButton.Enabled = false;
+            UnloadButton.Enabled = true;
+        }
+    }
+
+    private void ShowErrorDialog(string message, Exception exception = null)
+    {
+        if (exception != null)
+        {
+            message += Environment.NewLine + exception.ToString();
+        }
+        MessageBox.Show(message, "AddIn Hot Loader", MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    public void UnloadAppDomain()
+    {
+        if (appDomain != null)
+        {
+            if (proxy != null &amp;&amp; proxy.Activated)
+            {
+                try
+                {
+                    proxy.Deactivate();
+                }
+                catch (Exception ex)
+                {
+                    ShowErrorDialog("Deactive()で例外が送出されました。", ex);
+                }
+            }
+            try
+            {
+                AppDomain.Unload(appDomain);
+                appDomain = null;
+                proxy = null;
+            }
+            catch (Exception ex)
+            {
+                ShowErrorDialog("AppDomainの解放に失敗しました。", ex);
+            }
+        }
+    }
+
+    private void LoadButton_Click(object sender, EventArgs e)
+    {
+        bool isError = false;
+        try
+        {
+            appDomain = AppDomain.CreateDomain("InventorAddInHotLoaderDomain");
+
+            proxy = (Proxy)appDomain.CreateInstanceAndUnwrap(Assembly.GetExecutingAssembly().FullName, typeof(Proxy).FullName);
+        }
+        catch (Exception ex)
+        {
+            ShowErrorDialog("Proxyの作成に失敗しました。", ex);
+            isError = true;
+        }
+        if (!isError)
+        {
+            try
+            {
+                proxy.Initialize(DllPathTextBox.Text, NameSpaceTextBox.Text, ClassNameTextBox.Text);
+            }
+            catch (Exception ex)
+            {
+                ShowErrorDialog("Proxyの初期化に失敗しました。", ex);
+                isError = true;
+            }
+        }
+        if (!isError)
+        {
+            try
+            {
+                proxy.Activate(inventor, true);
+            }
+            catch (Exception ex)
+            {
+                ShowErrorDialog("Activate()で例外が送出されました。", ex);
+                isError = true;
+            }
+        }
+        if (isError)
+        {
+            UnloadAppDomain();
+        }
+        UpdateControlState();
+    }
+
+    private void UnloadButton_Click(object sender, EventArgs e)
+    {
+        UnloadAppDomain();
+        UpdateControlState();
+    }
+
+    private void DllSelectButton_Click(object sender, EventArgs e)
+    {
+        using (var fileDialog = new OpenFileDialog())
+        {
+            try
+            {
+                fileDialog.InitialDirectory = Path.GetDirectoryName(DllPathTextBox.Text);
+                fileDialog.FileName = Path.GetFileName(DllPathTextBox.Text);
+            }
+            catch
+            {
+                var dirInfo = Directory.GetParent(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                try
+                {
+                    dirInfo = dirInfo.Parent;
+                }
+                catch { }
+                fileDialog.InitialDirectory = dirInfo.FullName;
+                fileDialog.FileName = string.Empty;
+            }
+            fileDialog.Filter = "AddIn DLL Files (*.dll)|*.dll";
+            fileDialog.Title = "AddInを選択";
+
+            var result = fileDialog.ShowDialog();
+
+            if (result == DialogResult.OK)
+            {
+                DllPathTextBox.Text = fileDialog.FileName;
+            }
+        }
+    }
+
+    private void DllPathTextBox_TextChanged(object sender, EventArgs e)
+    {
+        UpdateControlState();
+    }
+}
+

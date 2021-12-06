@@ -1,0 +1,34 @@
+
+        private void StartFFmpeg()
+        {
+            //ポートの設定
+            Exec("adb forward tcp:8080 tcp:8080");
+
+            var inputArgs = "-framerate 60  -analyzeduration 100 -i tcp://127.0.0.1:8080";
+            var outputArgs = "-f rawvideo -pix_fmt bgr24 -r 60 -flags +global_header - ";
+            Process process = new Process
+            {
+                StartInfo =
+                 {
+                    FileName = "ffmpeg.exe",
+                    Arguments = $"{inputArgs} {outputArgs}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    RedirectStandardError = true,//stderrを読めるようにする
+                    RedirectStandardOutput=true//stdoutを読めるようにする
+                 },
+                EnableRaisingEvents = true
+            };
+            process.ErrorDataReceived += Process_ErrorDataReceived;//stderrからはログが流れてくるので別途処理する
+            process.Start();
+            rawStream = process.StandardOutput.BaseStream;//stdoutからはデータが流れてくるのでストリームを取得しておく
+            process.BeginErrorReadLine();
+            running = true;
+            Task.Run(() =&gt;
+            {
+                //別スレッドで読み取り開始
+                ReadRawData();
+            });
+        }
+

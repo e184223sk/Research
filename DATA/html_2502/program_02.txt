@@ -1,0 +1,58 @@
+
+private void buttonRead_Click(object sender, EventArgs e) {
+    var readerName = comboBoxDevice.Text;  // 選択中のカードリーダ名を得る
+
+    using (var context = ContextFactory.Instance.Establish(SCardScope.System)) {
+        try {
+            using (var rfidReader = context.ConnectReader(readerName, SCardShareMode.Shared, SCardProtocol.Any)) {
+                // APDUコマンドの作成
+                var apdu = new CommandApdu(IsoCase.Case2Short, rfidReader.Protocol) {
+                    CLA = 0xFF,
+                    Instruction = InstructionCode.GetData,
+                    P1 = 0x00,
+                    P2 = 0x00,
+                    Le = 0 // We don't know the ID tag size
+                };
+                // 読み取りコマンド送信
+                using (rfidReader.Transaction(SCardReaderDisposition.Leave)) {
+                    var sendPci = SCardPCI.GetPci(rfidReader.Protocol);
+                    var receivePci = new SCardPCI(); // IO returned protocol control information.
+
+                    var receiveBuffer = new byte[256];
+                    var command = apdu.ToArray();
+
+                    var bytesReceived = rfidReader.Transmit(
+                        sendPci, // Protocol Control Information (T0, T1 or Raw)
+                        command, // command APDU
+                        command.Length,
+                        receivePci, // returning Protocol Control Information
+                        receiveBuffer,
+                        receiveBuffer.Length); // data buffer
+
+                    var responseApdu = new ResponseApdu(receiveBuffer, bytesReceived, IsoCase.Case2Short, rfidReader.Protocol);
+                    if (responseApdu.HasData) {
+                        // バイナリ文字列の整形
+                        StringBuilder id = new StringBuilder(BitConverter.ToString(responseApdu.GetData()));
+                        if (radioButtonNone.Checked) {
+                            id.Replace("-", string.Empty);
+                        } else if (radioButtonSpace.Checked) {
+                            id.Replace("-", " ");
+                        }
+                        // データグリッドビューに結果を追加し、連番をカウントアップする
+                        int seq = (int)numericUpDown.Value;
+                        DateTime dt = DateTime.Now;
+                        dataGridView.Rows.Add(seq, dt.ToString("yyyy/MM/dd HH:mm:ss"), id.ToString());
+                        numericUpDown.Value = ++seq;
+                    } else {
+                        MessageBox.Show("このカードではIDを取得できません", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+            }
+        } catch (RemovedCardException) {
+            MessageBox.Show("スマートカードが取り外されたため、通信できません", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+        } catch (PCSCException ex) {
+            MessageBox.Show(ex.Message, "スマートカードエラー", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+        }
+    }
+}
+

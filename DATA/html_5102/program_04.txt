@@ -1,0 +1,150 @@
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.IO;
+using System.Drawing;
+using System.Threading;
+using System.ComponentModel;
+using System.Windows.Forms;
+using FNF.Utility;
+using FNF.Controls;
+using FNF.XmlSerializerSetting;
+using FNF.BouyomiChanApp;
+
+namespace Plugin_BymChnWebSocket {
+    public class Plugin_BymChnWebSocket : IPlugin
+    {
+        /// &lt;summary&gt;
+        /// 名前(IPlugin必須)
+        /// &lt;/summary&gt;
+        string IPlugin.Name =&gt; "棒読みちゃんWebSocket";
+
+        /// &lt;summary&gt;
+        /// バージョン(IPlugin必須)
+        /// &lt;/summary&gt;
+        string IPlugin.Version =&gt; "1.0.0.0";
+
+        /// &lt;summary&gt;
+        /// キャプション(IPlugin必須)
+        /// &lt;/summary&gt;
+        string IPlugin.Caption =&gt; "棒読みちゃんWebSocket";
+
+        /// &lt;summary&gt;
+        /// 設定フォームデータ(IPlugin必須)
+        /// &lt;/summary&gt;
+        ISettingFormData IPlugin.SettingFormData =&gt; null;
+
+        /// &lt;summary&gt;
+        /// WebSocketサーバー
+        /// &lt;/summary&gt;
+        WebSocketServer server;
+
+        /// &lt;summary&gt;
+        /// プラグインが開始された(IPlugin必須)
+        /// &lt;/summary&gt;
+        void IPlugin.Begin()
+        {
+            StartServer();
+        }
+
+        /// &lt;summary&gt;
+        /// プラグインが終了された(IPlugin必須)
+        /// &lt;/summary&gt;
+        void IPlugin.End()
+        {
+            StopServer();
+        }
+
+
+        /// &lt;summary&gt;
+        /// WebSocketサーバーを開始する
+        /// &lt;/summary&gt;
+        public void StartServer()
+        {
+            server = new WebSocketServer();
+            server.Port = 50002;
+            server.Path = "/ws/";
+            server.OnConnected += Server_OnConnected;
+            server.OnDisconnected += Server_OnDisconnected;
+            server.OnDataReceived += Server_OnDataReceived;
+            server.Start();
+        }
+
+        /// &lt;summary&gt;
+        /// WebSocketサーバーを終了する
+        /// &lt;/summary&gt;
+        public void StopServer()
+        {
+            server.Stop();
+        }
+
+        /// &lt;summary&gt;
+        /// WebSocketが接続された
+        /// &lt;/summary&gt;
+        /// &lt;param name="client"&gt;&lt;/param&gt;
+        private void Server_OnConnected(System.Net.Sockets.TcpClient client)
+        {
+            System.Diagnostics.Debug.WriteLine("Server_OnConnected");
+        }
+
+        /// &lt;summary&gt;
+        /// WebSocketが切断された
+        /// &lt;/summary&gt;
+        /// &lt;param name="client"&gt;&lt;/param&gt;
+        private void Server_OnDisconnected(System.Net.Sockets.TcpClient client)
+        {
+            System.Diagnostics.Debug.WriteLine("Server_OnDisconnected");
+        }
+
+        /// &lt;summary&gt;
+        /// データを受信した
+        /// &lt;/summary&gt;
+        /// &lt;param name="client"&gt;&lt;/param&gt;
+        /// &lt;param name="data"&gt;&lt;/param&gt;
+        private void Server_OnDataReceived(System.Net.Sockets.TcpClient client, byte[] data)
+        {
+            System.Diagnostics.Debug.WriteLine("Server_OnDataReceived {data.Length:{0}", data.Length.ToString());
+
+            short command; //[0-1]  (16Bit) コマンド          （ 0:メッセージ読み上げ）
+            short speed; //[2-3]  (16Bit) 速度              （-1:棒読みちゃん画面上の設定）
+            short tone; //[4-5]  (16Bit) 音程              （-1:棒読みちゃん画面上の設定）
+            short volume; //[6-7]  (16Bit) 音量              （-1:棒読みちゃん画面上の設定）
+            short voice; //[8-9]  (16Bit) 声質              （ 0:棒読みちゃん画面上の設定、1:女性1、2:女性2、3:男性1、4:男性2、5:中性、6:ロボット、7:機械1、8:機械2、10001～:SAPI5）
+            byte code; //[10]   ( 8Bit) 文字列の文字コード（ 0:UTF-8, 1:Unicode, 2:Shift-JIS）
+            long len; //[11-14](32Bit) 文字列の長さ
+            byte[] buf; // 文字列
+
+            int pos = 0;
+            command = (short)(data[pos++] + (data[pos++] &lt;&lt; 8));
+            speed = (short)(data[pos++] + (data[pos++] &lt;&lt; 8));
+            tone = (short)(data[pos++] + (data[pos++] &lt;&lt; 8));
+            volume = (short)(data[pos++] + (data[pos++] &lt;&lt; 8));
+            voice = (short)(data[pos++] + (data[pos++] &lt;&lt; 8));
+            code = data[pos++];
+            len = data[pos++] + (data[pos++] &lt;&lt; 8) +
+                      (data[pos++] &lt;&lt; 16) + (data[pos++] &lt;&lt; 24);
+            buf = new byte[len];
+            for (int i = 0; i &lt; len; i++)
+            {
+                buf[i] = data[pos++];
+            }
+            var text = Encoding.UTF8.GetString(buf);
+
+            System.Diagnostics.Debug.WriteLine("command = {0}", command.ToString());
+            System.Diagnostics.Debug.WriteLine("speed = {0}", speed.ToString());
+            System.Diagnostics.Debug.WriteLine("tone = {0}", tone.ToString());
+            System.Diagnostics.Debug.WriteLine("volume = {0}", volume.ToString());
+            System.Diagnostics.Debug.WriteLine("voice = {0}", voice.ToString());
+            System.Diagnostics.Debug.WriteLine("code = {0}", code.ToString());
+            System.Diagnostics.Debug.WriteLine("len = {0}", len.ToString());
+            System.Diagnostics.Debug.WriteLine("text = " + text);
+
+            Pub.AddTalkTask(text, speed, tone, volume, (VoiceType)voice);
+
+            client.Close();
+        }
+    }
+}
+

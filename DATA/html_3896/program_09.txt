@@ -1,0 +1,36 @@
+
+private IEnumerable&lt;ConfiguredTaskAwaitable&lt;IEnumerable&lt;string&gt;&gt;&gt; GetAllFilesAsync(string folderPath)
+{
+    var directories = Enumerable.Empty&lt;string&gt;();
+
+    try
+    {
+        directories = Directory.EnumerateDirectories(folderPath)
+            .AsParallel()
+            .Where(x =&gt; _exceptFolder.All(y =&gt; !x.StartsWith(y, StringComparison.CurrentCultureIgnoreCase)));
+    }
+    catch
+    {
+        //ディレクトリにアクセスできないならファイルはない
+        yield break;
+    }
+
+    //同階層にフォルダが存在しなければ同階層のファイルを取得するタスクを返す
+    if (!directories.Any())
+    {
+        yield return Task.FromResult(Directory.EnumerateFiles(folderPath)).ConfigureAwait(false);
+        yield break;
+    }
+
+    //再帰的にフォルダを探し続ける
+    foreach (var task in directories.Select(GetAllFilesAsync).SelectMany(t =&gt; t))
+    {
+        yield return task;
+    }
+
+    //タスクを作成
+    var tcs = new TaskCompletionSource&lt;IEnumerable&lt;string&gt;&gt;();
+    tcs.SetResult(Directory.EnumerateFiles(folderPath));
+    yield return tcs.Task.ConfigureAwait(false);
+}
+

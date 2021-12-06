@@ -1,0 +1,67 @@
+using DryIoc;
+using DryIoc.Microsoft.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NLog.Extensions.Logging;
+using System;
+using System.CommandLine;
+using System.CommandLine.Invocation;
+using System.IO;
+using System.Threading.Tasks;
+
+    class Program
+    {
+        static IServiceProvider serviceProvider;
+        static async Task&lt;int&gt; Main(string[] args)
+        {
+            serviceProvider = BuildServiceProvider(BuildConfiguration());
+
+            var rootCommand = BuildCommand();
+            return await rootCommand.InvokeAsync(args);
+        }
+        static IConfigurationRoot BuildConfiguration()
+        {
+            return new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile(path: "appsettings.json")
+                .Build();
+        }
+
+        static IServiceProvider BuildServiceProvider(IConfigurationRoot configuration)
+        {
+            var services = new ServiceCollection();
+            services.Configure&lt;SampleSettings&gt;(configuration.GetSection("SampleSettings"));
+            services.AddLogging(loggingBuilder =&gt;
+            {
+                loggingBuilder.ClearProviders();
+                loggingBuilder.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Trace);
+                loggingBuilder.AddNLog();
+            });
+
+            var container = new DryIoc.Container(rules =&gt; rules.With()).WithDependencyInjectionAdapter(services);
+            container.Register&lt;ISampleService, SampleService&gt;(reuse: Reuse.Scoped);
+            return container.BuildServiceProvider();
+        }
+        static RootCommand BuildCommand()
+        {
+            var rootCommand = new RootCommand();
+            rootCommand.Description = "console app sample";
+            rootCommand.AddOption(new Option&lt;string&gt;(aliases: new string[] { "--name", "-n" }));
+            rootCommand.AddOption(new Option&lt;string&gt;(aliases: new string[] { "--value", "-v" }));
+
+            rootCommand.Handler = CommandHandler.Create&lt;ConsoleAppOptions&gt;(options =&gt; { ExecuteCommand(options); });
+
+            return rootCommand;
+        }
+        static void ExecuteCommand(ConsoleAppOptions options)
+        {
+            using(var scope = serviceProvider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService&lt;ISampleService&gt;();
+                service.DoSomething(options);
+            }
+        }
+
+    }
+

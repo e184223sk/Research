@@ -1,0 +1,57 @@
+
+static async ChaosTask&lt;string&gt; StartEchoServer()
+{
+    Console.WriteLine("Start echo server.");
+    Console.WriteLine("if you want to exit, Type 'end'.");
+    // 値型はタスクごとにコピーが作られるので参照型でラップする
+    var finished = ChaosBox.Create(false);
+    var message = string.Empty;
+    // 並行タスク開始
+    var isParent = await ChaosTask.Concurrent&lt;string&gt;();
+
+    // 親はメッセージを受け付ける
+    if (isParent)
+    {
+        while (!finished.Value)
+        {
+            // 他のタスクが待機状態になるまで待つ
+            await ChaosTask.WaitNext&lt;string&gt;();
+            if (!string.IsNullOrEmpty(message))
+            {
+                if (message == "end")
+                {
+                    Console.WriteLine("byebye");
+                    finished.Value = true;
+                }
+                else
+                {
+                    Console.WriteLine($"your message:{message}");
+                }
+            }
+        }
+
+        // 他のタスクの終了を待つ
+        await ChaosTask.Yield&lt;string&gt;();
+        return message;
+    }
+    // 子はメッセージを送る
+    else
+    {
+        while (!finished.Value)
+        {
+            async ChaosTask&lt;ChaosUnit&gt; sendMessage()
+            {
+                await Task.Run(() =&gt;
+                {
+                    message = Console.ReadLine();
+                });
+                return default(ChaosUnit);
+            }
+
+            // タスクの実行が終わってから並行処理を再開する
+            await ChaosTask.WaitTask&lt;string&gt;(sendMessage());
+        }
+        return string.Empty;
+    }
+}
+

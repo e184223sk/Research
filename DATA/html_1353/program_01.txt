@@ -1,0 +1,116 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using YamlDotNet.Serialization;
+
+namespace precure_initial
+{
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// rubicure/config のパス
+        /// &lt;/summary&gt;
+        static readonly string rubicureConfigPath = "../../rubicure/config/";
+
+        class Series
+        {
+            // 省略
+        }
+
+        /// &lt;summary&gt;
+        /// プリキュアデータ.
+        /// &lt;/summary&gt;
+        class Precure
+        {
+            /// &lt;summary&gt;
+            /// プリキュア英語名.
+            /// &lt;/summary&gt;
+            public string GirlName { get; set; }
+
+            /// &lt;summary&gt;
+            /// プリキュア日本語名.
+            /// &lt;/summary&gt;
+            public string PrecureName { get; set; }
+
+            /// &lt;summary&gt;
+            /// イニシャル.
+            /// &lt;/summary&gt;
+            public string Initial { get; set; }
+        }
+
+        static void Main(string[] args)
+        {
+            Dictionary&lt;string, Series&gt; seriesList = LoadSeries();
+            Dictionary&lt;string, Precure&gt; precureList = LoadPrecures();
+            foreach (var precure in precureList)
+            {
+                Console.WriteLine($"プリキュアキー：{precure.Key}");
+                Console.WriteLine($"プリキュア名：{precure.Value.PrecureName} / {precure.Value.GirlName}");
+                Console.WriteLine($"頭文字：{precure.Value.Initial}");
+                Console.WriteLine();
+            }
+        }
+
+        static Dictionary&lt;string, Series&gt; LoadSeries()
+        {
+            // 省略
+        }
+
+        /// &lt;summary&gt;
+        /// 全てのプリキュアのデータを読み込む.
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;プリキュアキーをキーとする&lt;code&gt;Dictionary&lt;/code&gt;.&lt;/returns&gt;
+        static Dictionary&lt;string, Precure&gt; LoadPrecures()
+        {
+            Dictionary&lt;string, Precure&gt; precures = new Dictionary&lt;string, Precure&gt;();
+            var rootPath = rubicureConfigPath + "girls/";
+            string[] files = Directory.GetFiles(rootPath, "*.yml", SearchOption.TopDirectoryOnly);
+            foreach (string file in files)
+            {
+                var input = new StreamReader(file, Encoding.UTF8);
+                var deserializer = new Deserializer();
+                Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt; girls_tmp = deserializer.Deserialize&lt;Dictionary&lt;string, Dictionary&lt;string, object&gt;&gt;&gt;(input);
+                foreach (var girl in girls_tmp)
+                {
+                    if (girl.Value.Count == 1)
+                    {
+                        // エイリアスは飛ばす
+                        continue;
+                    }
+                    string girlName = girl.Key, precureName = null;
+                    if (girl.Value.TryGetValue("precure_name", out object precureNameObj))
+                    {
+                        precureName = (string)precureNameObj;
+                    }
+                    girlName = ToPascal(girlName);
+                    string initial = girlName.Replace("Cure ", "").Substring(0, 1);
+                    precures.Add(girl.Key, new Precure {
+                        GirlName = girlName,
+                        PrecureName = precureName,
+                        Initial = initial
+                    });
+                }
+            }
+            return precures;
+        }
+
+        /// &lt;summary&gt;
+        /// cure_black =&gt; Cure Blackのような変換
+        /// ref. https://increment-i.hateblo.jp/entry/csharp/regularexpression/pascal
+        /// &lt;/summary&gt;
+        /// &lt;param name="text"&gt;変換元&lt;/param&gt;
+        /// &lt;returns&gt;変換結果&lt;/returns&gt;
+        private static string ToPascal(string text)
+        {
+            return Regex.Replace(
+                text.Replace("_", " "),
+                @"\b[a-z]",
+                match =&gt; match.Value.ToUpper());
+        }
+    }
+}
+
+

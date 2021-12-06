@@ -144,7 +144,7 @@ namespace WebScraping
                 var match = regex.Match(CsharpCode);
                 var group = match.Groups["Code"];
                 string tmp_s = IsProgram(group.Value) ? group.Value : "";
-                Codes += AllTagsDelete(tmp_s) + "," + System.Environment.NewLine;
+                Codes += AllTagsDelete(tmp_s) + ",,," + System.Environment.NewLine;
 
                 //ループ条件　タグがまだあるか
                 pattern = ContainTarget(html);

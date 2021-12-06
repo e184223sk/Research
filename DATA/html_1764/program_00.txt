@@ -1,0 +1,41 @@
+public GameObject imageobj = null;
+public Texture AddTexture = null;
+public Material mat = null;
+private RectTransform trfTarget = null;
+private RectTransform rectCanvas = null;
+private Vector2 ressize = new Vector2(0f,0f);
+private Vector2 piv = new Vector2(0f,0f);
+private Vector4 rct;
+
+void OnValidate(){
+    if(imageobj != null){
+        AddTexture = imageobj.GetComponent&lt;Image&gt;().sprite.texture;
+        trfTarget = imageobj.GetComponent&lt;RectTransform&gt;();
+        var top = imageobj.GetComponent&lt;RectTransform&gt;().root;
+        rectCanvas = top.GetComponent&lt;RectTransform&gt;();
+        ressize = new Vector2(rectCanvas.rect.width,rectCanvas.rect.height);
+        piv = rectCanvas.pivot;
+    }
+}
+
+private void OnRenderImage(RenderTexture source, RenderTexture dest){
+    mat.SetTexture("_AddTex", AddTexture);
+    mat.SetVector("_Rect", rct);
+    Graphics.Blit(source, dest, mat);
+}
+
+private void Update(){
+    //World座標をUI座標へ変換
+    Vector2 spos = RectTransformUtility.WorldToScreenPoint(Camera.main, trfTarget.position);
+    Vector2 pos;
+    RectTransformUtility.ScreenPointToLocalPointInRectangle(rectCanvas, spos, Camera.main, out pos);
+    //左下を計算上のpivotにする
+    var imgsize = new Vector2(trfTarget.rect.width * trfTarget.localScale.x,trfTarget.rect.height * trfTarget.localScale.y);
+    var imgpiv = trfTarget.pivot;
+    var imgpos = new Vector2(pos.x - (imgsize.x * imgpiv.x),pos.y - (imgsize.y * imgpiv.y));
+    //CanvasのRectTransformから解像度とピボットを取り、左下0にする
+    var resetpos = new Vector2(imgpos.x + (ressize.x * piv.x),imgpos.y + (ressize.y * piv.y));
+    //リニア化　(minx,miny,解像度xに対する横の割合,解像度yに対する高さの割合)
+    rct = new Vector4(resetpos.x / ressize.x, resetpos.y / ressize.y, imgsize.x / ressize.x, imgsize.y / ressize.y);
+}
+

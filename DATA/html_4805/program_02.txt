@@ -1,0 +1,134 @@
+
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Table;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace ConsoleApp1
+{
+    class Program
+    {
+
+        static void Main(string[] args)
+        {
+            var r = new DurableFunctionsHubInstancesRepository("接続文字列");
+            var results = r.GetAllAsync(new OrchestrationInstanceStatusQueryCondition
+            {
+                RuntimeStatus = "Completed",
+                CreatedTime = new DateTimePeriod(new DateTime(2018, 7, 30, 0, 0, 0, DateTimeKind.Utc), new DateTime(2018, 7, 30, 23, 59, 59, DateTimeKind.Utc)),
+            }).Result;
+
+            Console.WriteLine(JsonConvert.SerializeObject(results));
+            Console.ReadLine();
+        }
+    }
+
+    public class OrchestrationInstanceStatus : TableEntity
+    {
+        public string ExecutionId { get; set; }
+        public string Name { get; set; }
+        public string Version { get; set; }
+        public string Input { get; set; }
+        public string InputBlobName { get; set; }
+        public string Output { get; set; }
+        public string OutputBlobName { get; set; }
+        public string CustomStatus { get; set; }
+        public DateTime CreatedTime { get; set; }
+        public DateTime LastUpdatedTime { get; set; }
+        public string RuntimeStatus { get; set; }
+    }
+
+    public interface IDurableFunctionsHubInstancesRepository
+    {
+        Task&lt;IEnumerable&lt;OrchestrationInstanceStatus&gt;&gt; GetAllAsync(OrchestrationInstanceStatusQueryCondition condition);
+    }
+
+    public class DurableFunctionsHubInstancesRepository : IDurableFunctionsHubInstancesRepository
+    {
+        private string TableStorageConnectionString { get; }
+
+        private Lazy&lt;CloudTable&gt; CloudTable { get; }
+
+        public DurableFunctionsHubInstancesRepository(string tableStorageConnectionString)
+        {
+            TableStorageConnectionString = tableStorageConnectionString;
+            CloudTable = new Lazy&lt;CloudTable&gt;(() =&gt;
+            {
+                var storageAccount = CloudStorageAccount.Parse(TableStorageConnectionString);
+                var client = storageAccount.CreateCloudTableClient();
+                return client.GetTableReference("DurableFunctionsHubInstances");
+            });
+        }
+
+        public async Task&lt;IEnumerable&lt;OrchestrationInstanceStatus&gt;&gt; GetAllAsync(OrchestrationInstanceStatusQueryCondition condition)
+        {
+            var instanceTable = CloudTable.Value;
+            TableContinuationToken continuationToken = null;
+            var result = new List&lt;OrchestrationInstanceStatus&gt;();
+            do
+            {
+                var request = await instanceTable.ExecuteQuerySegmentedAsync(condition?.ToTableQuery() ?? new TableQuery&lt;OrchestrationInstanceStatus&gt;(), continuationToken);
+                result.AddRange(request);
+                continuationToken = request.ContinuationToken;
+            } while (continuationToken != null);
+            return result;
+        }
+    }
+
+    public class DateTimePeriod
+    {
+        public DateTime From { get; }
+        public DateTime To { get; }
+        public DateTimePeriod(DateTime from, DateTime to)
+        {
+            From = from;
+            To = to;
+        }
+    }
+
+    public class OrchestrationInstanceStatusQueryCondition
+    {
+        public string RuntimeStatus { get; set; }
+        public DateTimePeriod CreatedTime { get; set; }
+        public DateTimePeriod LastUpdatedTime { get; set; }
+
+        public TableQuery&lt;OrchestrationInstanceStatus&gt; ToTableQuery() =&gt; new TableQuery&lt;OrchestrationInstanceStatus&gt;()
+            .Where(GetConditions());
+
+        private string GetConditions()
+        {
+            var conditions = new List&lt;string&gt;();
+
+            if (this.CreatedTime != null)
+            {
+                conditions.Add(TableQuery.GenerateFilterConditionForDate("CreatedTime", QueryComparisons.GreaterThanOrEqual, new DateTimeOffset(this.CreatedTime.From)));
+                conditions.Add(TableQuery.GenerateFilterConditionForDate("CreatedTime", QueryComparisons.LessThanOrEqual, new DateTimeOffset(this.CreatedTime.To)));
+            }
+
+            if (this.LastUpdatedTime != null)
+            {
+                conditions.Add(TableQuery.GenerateFilterConditionForDate("LastUpdatedTime", QueryComparisons.GreaterThanOrEqual, new DateTimeOffset(this.LastUpdatedTime.From)));
+                conditions.Add(TableQuery.GenerateFilterConditionForDate("LastUpdatedTime", QueryComparisons.LessThanOrEqual, new DateTimeOffset(this.LastUpdatedTime.To)));
+            }
+
+            if (!string.IsNullOrEmpty(this.RuntimeStatus))
+            {
+                conditions.Add(TableQuery.GenerateFilterCondition("RuntimeStatus", QueryComparisons.Equal, this.RuntimeStatus));
+            }
+
+            if (conditions.Count == 1)
+            {
+                return conditions[0];
+            }
+            else
+            {
+                return conditions.Aggregate((a, b) =&gt; TableQuery.CombineFilters(a, TableOperators.And, b));
+            }
+        }
+    }
+
+}
+

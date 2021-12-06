@@ -1,0 +1,65 @@
+
+using System.IO;
+using MessagePack;
+using UnityEngine;
+
+[MessagePackObject]
+public class UserData
+{
+    [Key(0)]
+    public string userId;
+    [Key(1)]
+    public string password;
+}
+
+public class LoginTest : MonoBehaviour
+{
+    async void Start()
+    {
+        // ネットワークマネージャ取得
+        var network = GetComponent&lt;NetworkManager&gt;();
+
+        // 保存してあるユーザーデータ情報を読み込み
+        UserData userData = null;
+        try
+        {
+            userData = MessagePackSerializer.Deserialize&lt;UserData&gt;(File.ReadAllBytes(Application.persistentDataPath + "/userData.dat"));
+        }
+        catch { }
+
+        // ユーザーデータが存在しなかったらアカウント作成
+        if (userData == null)
+        {
+            Debug.Log("アカウント作成開始");
+            var res = await network.CreateAccount();
+            if (res.userId == null || res.password == null)
+            {
+                // TODO: アカウント作成失敗時の処理
+                Debug.LogWarning("アカウント作成失敗。。。");
+                return;
+            }
+            userData = new UserData();
+            userData.userId = res.userId;
+            userData.password = res.password;
+
+            // ユーザー情報保存(※本来は暗号化等する事！)
+            var data = MessagePackSerializer.Serialize(userData);
+            File.WriteAllBytes(Application.persistentDataPath + "/userData.dat", data);
+            Debug.Log("アカウント作成成功");
+        }
+
+        // ログイン
+        Debug.Log("ログイン中...");
+        var loginResult = await network.Login(userData.userId, userData.password);
+        if (!loginResult)
+        {
+            // TODO: ログイン失敗時の処理
+            Debug.LogWarning("ログイン失敗。。。");
+            return;
+        }
+
+        // TODO: ログインが通った後の処理
+        Debug.Log("ログイン成功！");
+    }
+}
+

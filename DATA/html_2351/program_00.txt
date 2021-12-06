@@ -1,0 +1,62 @@
+    public static class BlobEncryptionCopy
+    {
+        [FunctionName("BlobEncryptionCopy")]
+        public static void Run([QueueTrigger("copyenc")] string blobPath,
+            [Blob("input/{queueTrigger}", FileAccess.Read, Connection = "AzureWebJobsInputStorage")] Stream inputBlobStream,
+            [Blob("output/{queueTrigger}", FileAccess.Write, Connection = "AzureWebJobsOutputStorage")] Stream outputBlobStream,
+            ILogger log)
+        {
+            log.LogInformation($"Start C# Queue trigger function processed: {blobPath}");
+            var encryptionKey = Convert.FromBase64String(Environment.GetEnvironmentVariable("AesKeyBase64String"));
+            EncryptStream(inputBlobStream, outputBlobStream, encryptionKey);
+            log.LogInformation($"End C# Queue trigger function processed: {blobPath}");
+        }
+
+        private const int AesBlockByteSize = 16;
+        private const int AesBlockBitSize = 128;
+        private const int BufferSize = 4194304;
+
+        private static void EncryptStream(Stream inputStream, Stream outputStream, byte[] encryptKey)
+        {
+            if (encryptKey == null)
+                throw new ArgumentNullException(nameof(encryptKey));
+            if (encryptKey.Length &lt; AesBlockByteSize)
+                throw new ArgumentException("AES 128bit encryption key is too short.", nameof(encryptKey));
+
+            // AES暗号化キーの長さを強制的に16バイトで切る
+            Array.Resize&lt;byte&gt;(ref encryptKey, AesBlockByteSize);
+
+            using (var aes = new AesManaged())
+            {
+                // AES暗号化の設定
+                aes.BlockSize = AesBlockBitSize;
+                aes.KeySize = AesBlockBitSize;
+                aes.Mode = CipherMode.CBC;
+                aes.Padding = PaddingMode.PKCS7;
+                aes.Key = encryptKey;
+
+                // ランダムなIVを生成
+                var iv = new byte[AesBlockByteSize];
+                using (var rng = new RNGCryptoServiceProvider())
+                {
+                    rng.GetNonZeroBytes(iv);
+                    aes.IV = iv;
+                }
+
+                using (var encryptor = aes.CreateEncryptor())
+                using (var cs = new CryptoStream(outputStream, encryptor, CryptoStreamMode.Write))
+                {
+                    // 復号用にIVの値をファイル先頭に出力する
+                    outputStream.Write(iv, 0, AesBlockByteSize);
+
+                    int len;
+                    var buffer = new byte[BufferSize];
+                    while ((len = inputStream.Read(buffer, 0, BufferSize)) &gt; 0)
+                    {
+                        cs.Write(buffer, 0, len);
+                    }
+                    cs.FlushFinalBlock();
+                }
+            }
+        }
+

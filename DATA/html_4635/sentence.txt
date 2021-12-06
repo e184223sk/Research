@@ -1,0 +1,47 @@
+More than 1 year has passed since last update.Unityでasync/awaitを利用した非同期処理を触り、色々と学びがあったため記載できればと思います。
+内容は今後後付けすると思いますが、まずはこういう風に触ったらこういう挙動になるという書きやすいところから書いてみたいと思います。Unity2018.2.4導入として、以下のような実行に１秒間かかる重いメソッドHeavyMethodがあると考えます。
+（今回はThread.Sleep(1000)で代用）このHeavyMethod関数をメインスレッドで実行すれば１秒間アプリが止まることになるため、ワーカースレッドでの実行を行う必要があります。
+また、マルチスレッド化にあたって、以下の出力を順番を変えずに移植を行う必要があります。[Before] 1.620573
+Complete
+[After] 2.62794これをC#で実現するためのいくつかの方法を書いてみます。直接スレッドを生成する場合です。new Thread()を行って新しくスレッドを生成して、別スレッドで重い処理を実行しています。
+スレッドの終了をIsAliveをメインスレッドでポーリングして検知するようにしています。
+また、スレッドは値を返却できないため、メインスレッドで受け渡し用の変数outputを作っています。スレッドプールを利用する場合です。ThreadPool.QueueUserWorkItem()でスレッドプールに重い処理を投げています。
+スレッドと同じく、スレッドプールも値を返却できないため、メインスレッドで受け渡し用の変数outputを作っています。
+また、スレッドプールには終了を検知する仕組みもないため、isCompleteというフラグを作成してメインスレッドでポーリングできるようにしています。デリゲートを利用する場合です。BeginInvoke()でスレッドプールに重い処理を投げています。
+IAsyncResultのIsCompletedをメインスレッドで終了をポーリングしています。
+また、EndInvoke()でデリゲートを介して、スレッドから値を受け取っています。Taskを利用した場合です。Task.Runでスレッドプールに重い処理を投げています。
+IsCompletedフラグを使ってメインスレッドで処理の完了を待機しています。
+Resultを使ってスレッドから値を受け取っています。Taskとasync/awaitを組み合わせて利用した場合です。Task.Runでスレッドプールに重い処理を投げています。
+async/await構文を使ってメインスレッドで処理の完了待機と値の受け取りを行っています。
+その他の書き方と違い、コルーチンを使ったポーリングの必要がありません。async/await構文の書き方は以下などに詳しく載っていますので、リンクだけ貼ります。Async および Await を使用した非同期プログラミング (C#)
+https://docs.microsoft.com/ja-jp/dotnet/csharp/programming-guide/concepts/async/async (C# リファレンス)
+https://docs.microsoft.com/ja-jp/dotnet/csharp/language-reference/keywords/asyncawait (C# リファレンス)
+https://docs.microsoft.com/ja-jp/dotnet/csharp/language-reference/keywords/awaitasync/awaitのスレッドの切り替わりをログを出力することで確認します。
+今のコードがどのスレッドで実行されているかはThread.CurrentThread.ManagedThreadIdAPIを使うことで知ることができます。[1] ThreadID : 1
+[2] ThreadID : 245
+[3] ThreadID : 245
+[4] ThreadID : 1上のように、Task.Runの内部に入ったときにThreadIDが1から245になり、スレッドの切り替えが行われていることが分かります。
+その後、メインスレッドに戻ったときに再度245から1に戻っていることも分かります。TaskにはConfigureAwaitというタスクが終了するときに、呼び出し元のスレッドに戻って後続の処理を行うか、現在のスレッドで後続の処理を行うかを選択できるAPIが用意されています。
+こちらはデフォルトではTrueになっており、呼び出し元のスレッドに戻るようになっています。
+こちらをFalseにして実行してみたいと思います。[1] ThreadID : 1
+[2] ThreadID : 255
+[3] ThreadID : 255
+[4] ThreadID : 255呼び出し元のStartの[4]のログ出力がワーカースレッドで行われる挙動になっています。
+ConfigureAwait(false)を設定するメリット、デメリットを述べたいと思います。.NETで非同期ライブラリを正しく実装する
+https://www.infoq.com/jp/articles/Async-API-Design
+あるデモでLucianはデフォルトのConfigureAwait(true)を使うと、ConfigureAwait(false)を使う場合より14倍遅いことを示しています。
+1回の呼び出しの時間はわずかですが、ループの中で何千回も呼び出された場合、その時間が積み重なってしまいます。Taskの終了を待つAPIとして、Task.Wait()というタスクが完了するまで現在のスレッドを停止させるAPIが用意されています。
+これを以下のコードのように叩いた場合、タスクのawait後に戻るスレッドが停止しているためにデッドロックが発生し、フリーズします。これを避けるためにはコードを以下のように修正します。sample10.csのポイントでスレッドIDを出力すると以下のようになります。[1] ThreadID : 1
+[2] ThreadID : 1
+[3] ThreadID : 187
+[4] ThreadID : 1[3]の部分では前述した通り、ワーカースレッドでプログラムは動作しています。
+ここで以下のようにUnityAPIをコールしてみたときの出力は以下のようになります。[1] ThreadID : 1
+[2] ThreadID : 1
+[3] ThreadID : 200
+get_gameObject can only be called from the main thread.
+UnityException: get_gameObject can only be called from the main thread.UnityAPIはメインスレッド以外で普通に使うと上のような例外が発生するので注意が必要です。最後にUnityAPIをワーカースレッドで利用する方法を記載したいと思います。
+以下のようなワーカースレッドでUnityAPIを叩くコードは前述した通り、エラーになります。このコードを以下のように修正します。SynchronizationContext context = SynchronizationContext.Current;をメインスレッドで行い、コンテキストを保持しておきます。
+このコンテキストを使って、ワーカースレッドでメインスレッドに向けてUnityAPIをPostします。
+この手順を踏むことでワーカースレッドのブロックの中でUnityAPIを呼ぶことができます。
+
+

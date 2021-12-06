@@ -1,0 +1,83 @@
+using FluentNHibernate.Cfg;
+using FluentNHibernate.Cfg.Db;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.PlatformAbstractions;
+using NHibernate;
+using NHibernate.Cfg;
+using NHibernate.Tool.hbm2ddl;
+using System;
+using System.Linq;
+using System.Reflection;
+using Xunit;
+using Xunit.Abstractions;
+
+public class SQLiteInMemoryDatabaseFixture: IDisposable
+{
+    private static ISessionFactory sessionFactory;
+    private static Configuration configuration;
+    public static ISessionFactory SessionFactory {
+        get
+        {
+            if (sessionFactory == null)
+            {
+                sessionFactory = Fluently.Configure()
+                    .Database(
+                        SQLiteConfiguration.Standard
+                            .InMemory()
+                            .ShowSql()
+                        )
+                    .Mappings(m =&gt;
+                    {
+                        m.FluentMappings.AddFromAssembly(Assembly.GetExecutingAssembly());
+                    })
+                    .ExposeConfiguration(cfg =&gt; {
+                        configuration = cfg;
+                    })
+                    .BuildSessionFactory();
+            }
+            return sessionFactory;
+        }
+    }
+
+    public ISession GetSession()
+    {
+        ISession session = SessionFactory.OpenSession();
+
+        var export = new SchemaExport(configuration);
+        export.Execute(true, true, false, session.Connection, null);
+
+        return session;
+    }
+
+
+    #region IDisposable Support
+    private bool disposedValue = false; // 重複するDispose()呼び出しを検出する
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                if (sessionFactory != null)
+                    sessionFactory.Dispose();
+            }
+
+            sessionFactory = null;
+            configuration = null;
+
+            disposedValue = true;
+        }
+    }
+
+    //IDisposableを実装しておくと、xUnitがテスト終了時に呼び出してくれる
+    // https://xunit.github.io/docs/shared-context.html#class-fixture
+    public void Dispose()
+    {
+        Dispose(true);
+    }
+    #endregion
+
+}
+
+

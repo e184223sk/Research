@@ -1,0 +1,41 @@
+
+        // ValueTaskの生成
+        public ValueTask&lt;int&gt; Enqueue()
+        {
+            if (_Worker.IsCompleted || _Worker.IsCanceled)
+            {
+                throw new Exception("thread already stopped");
+            }
+            var vts = _Pool.Get();
+            vts.SetPool(_Pool);
+            vts.Reset();
+            // System.Threading.ChannelsにIValueTaskSourceのインスタンスを渡す
+            if (!_Channel.Writer.TryWrite(vts))
+            {
+                throw new Exception("failed to write to channel");
+            }
+            return new ValueTask&lt;int&gt;(vts, vts.Version);
+        }
+        // ワーカースレッド
+        async ValueTask Worker()
+        {
+            try
+            {
+                while (!_Cts.IsCancellationRequested)
+                {
+                    if (!await _Channel.Reader.WaitToReadAsync().ConfigureAwait(false))
+                    {
+                        break;
+                    }
+                    while (!_Cts.IsCancellationRequested &amp;&amp; _Channel.Reader.TryRead(out var item))
+                    {
+                        item.SetResult(1);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+

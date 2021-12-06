@@ -1,0 +1,96 @@
+
+public class ShellViewModel : BindableBase
+{
+    public ReactiveProperty&lt;string&gt; LeftInputPattern { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;string&gt; LeftFinishedPattern { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;string&gt; LeftOutput { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;bool&gt; IsLeftChecked { get; private set; } = new ReactiveProperty&lt;bool&gt;(true);
+
+    public ReactiveProperty&lt;string&gt; RightInputPattern { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;string&gt; RightFinishedPattern { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;string&gt; RightOutput { get; private set; } = new ReactiveProperty&lt;string&gt;("");
+    public ReactiveProperty&lt;bool&gt; IsRightChecked { get; private set; } = new ReactiveProperty&lt;bool&gt;(false);
+
+    public ReactiveProperty&lt;bool&gt; IsStarted { get; private set; } = new ReactiveProperty&lt;bool&gt;(false);
+    public ReactiveProperty&lt;int&gt; StreamCount { get; private set; } = new ReactiveProperty&lt;int&gt;();
+    public ReactiveProperty&lt;string&gt; ResultText { get; private set; } = new ReactiveProperty&lt;string&gt;();
+    public ReactiveProperty&lt;string&gt; StartStopButtonText { get; private set; } = new ReactiveProperty&lt;string&gt;("Start");
+
+    public InteractionRequest&lt;Notification&gt; Notification { get; } = new InteractionRequest&lt;Notification&gt;();
+
+    public ReactiveCommand StreamStartCommand { get; private set; } = new ReactiveCommand();
+
+    private CancellationTokenSource cancellationTokenSource;
+
+    public ShellViewModel()
+    {
+        StreamStartCommand.Subscribe(async () =&gt;
+        {
+            if (!this.IsStarted.Value)
+            {
+                if (this.IsLeftChecked.Value) await this.StreamStart(this.LeftInputPattern.Value, this.LeftFinishedPattern.Value, this.LeftOutput.Value);
+                else if (this.IsRightChecked.Value) await this.StreamStart(this.RightInputPattern.Value, this.RightFinishedPattern.Value, this.RightOutput.Value);
+            }
+            else this.StreamStop();
+        });
+    }
+
+    /// &lt;summary&gt;
+    /// Streamを開始する
+    /// &lt;/summary&gt;
+    /// &lt;param name="input"&gt;&lt;/param&gt;
+    /// &lt;param name="finished"&gt;&lt;/param&gt;
+    /// &lt;param name="output"&gt;&lt;/param&gt;
+    private async Task StreamStart(string input, string finished, string output)
+    {
+        if (this.IsStarted.Value) return;
+        if (string.IsNullOrWhiteSpace(input) || string.IsNullOrWhiteSpace(finished)) return;
+
+        var inputPattern = input.Split(',');
+        var finishedPattern = finished.Split(',');
+        //パターンが一致可能か確認
+        if (finishedPattern.Except(inputPattern).Any())
+        {
+            this.Notification.RaiseEx("エラー", "完成パターン内に、入力パターンに存在しないものがあります。");
+            return;
+        }
+        //初期化
+        this.StartStopButtonText.Value = "Stop";
+        this.IsStarted.Value = true;
+        this.StreamCount.Value = 0;
+        this.ResultText.Value = "";
+        this.cancellationTokenSource = new CancellationTokenSource();
+
+        //Streamを非同期で生成
+        var res = await Task.Run(async () =&gt;
+        {
+            foreach (var item in StreamCreater.Create(inputPattern, finishedPattern))
+            {
+                if (cancellationTokenSource.IsCancellationRequested) return false;
+                this.ResultText.Value += item + ',';
+                this.StreamCount.Value++;
+                await Task.Delay(1);
+            }
+            this.ResultText.Value += output;
+            this.IsStarted.Value = false;
+            return true;
+        }, this.cancellationTokenSource.Token);
+        //キャンセルされなければダイアログ表示
+        if (res)
+        {
+            this.Notification.RaiseEx("パターン一致", $"{finished},{output}\r\n{this.StreamCount.Value}回で完成パターンと一致しました。");
+            this.StartStopButtonText.Value = "Start";
+        }
+    }
+    /// &lt;summary&gt;
+    /// 動作中のStreamを停止する
+    /// &lt;/summary&gt;
+    private void StreamStop()
+    {
+        if (!this.IsStarted.Value) return;
+        this.StartStopButtonText.Value = "Start";
+        this.IsStarted.Value = false;
+        this.cancellationTokenSource.Cancel();
+    }
+}
+

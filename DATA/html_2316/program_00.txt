@@ -1,0 +1,75 @@
+using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+
+
+
+ private static string AnalizeHtml(int DataCount,string HTMLtext)
+        {
+　　　　　　　//インスタンス作成
+            HtmlParser parser = new HtmlParser();
+　　　　　　　//HTMLの文字列を分解します。
+            IHtmlDocument doc = parser.ParseDocument(HTMLtext);
+　　　　　　 //HTML内の&lt;div class="articles"&gt;抜き出したいところ&lt;/div&gt;
+　　　　　　 //divは入れ子になっており同名のタグが大量にありますがインデントを目安にすると
+            //抜き取りたいデータが上記タグ内にすべて収まっていることが分かります。
+            var Nodes = doc.GetElementsByClassName("articles");
+
+            //ここから分岐してdateNodes,bodyNodesにはそれぞれ違う絞り込みをかけます。
+　　　　　　 //今回のHTMLにarticleクラスは1つしか存在しないためNodesの先頭Nodes[0]を参照します。
+            //(取り出した要素が1つでもコレクションになるため必ず[index]が必要です)
+            var dateNodes = Nodes[0].GetElementsByClassName("date");
+            var bodyNodes = Nodes[0].GetElementsByClassName("body");
+
+　　　　　　 //これはのちのuser（ログインしているユーザー名）を探しています。
+            string username = Nodes[0].GetElementsByClassName("user")[0].TextContent.Trim('『').Trim('』');
+
+            //dateNodesの中身抜出し（TextContentはstring型の戻り値なのでTrimが使える）
+            var datelist = new List&lt;string&gt;();
+            foreach (var d in dateNodes)
+                datelist.Add(d.TextContent.Trim());
+
+　　　　　　 //bodyNodesの中身抜出し＆正規表現で『』や()の間の文字列を取り出す。
+            int Counter = 0;
+            var bodylist = new List&lt;string&gt;();
+            foreach (var b in bodyNodes)
+            {
+                var Points = new Regex(@"\((.+?)\)").Matches(b.TextContent);
+                var Names = new Regex(@"『(.+?)』").Matches(b.TextContent);
+                var mylist = new List&lt;string&gt;();
+
+                //ソートディクショナリを宣言して名前順（Key順）にソート
+                var dic = new SortedDictionary&lt;string, string&gt;();
+                for (int p = 0; p &lt; Names.Count; p++)
+                {
+                    var Name = Names[p].Value.Trim('『').Trim('』');
+                    var Point = Points[p].Value.Trim('(').Trim(')');
+                    Point = Point.Trim('+');
+                    dic.Add(Name, Point);
+                }
+
+                //先頭にユーザーネームとデータを挿入。
+                mylist.Add(username + "," + dic[username]);
+                //ユーザー以外は名前順で並び替えて挿入。
+                foreach (var t in dic)
+                {
+                    if (t.Key != username)
+                        mylist.Add(t.Key + "," + t.Value);
+                }
+
+                //並び替え後のリスト作成
+                bodylist.Add(datelist[Counter] + "," + string.Join(",", mylist));
+
+                Counter++;
+
+                //Counterが指定のデータ数に到達したらループを抜ける
+                if (DataCount &lt; Counter)
+                    break;
+            }
+
+            return string.Join("," + "\n", bodylist);
+        }
+

@@ -1,0 +1,39 @@
+
+static void CombineCopyParallelFix( string srcPath, string dstPath )
+{
+    // Lisをスレッドセーフなコレクションに変える
+    ConcurrentBag&lt;Index&gt; indexList = new ConcurrentBag&lt;Index&gt;();
+    // コピー元ファイルの一覧（FileInfoの配列）を作る
+    System.IO.DirectoryInfo dir = new System.IO.DirectoryInfo( srcPath );
+    System.IO.FileInfo[] files =
+        dir.GetFiles( "*", System.IO.SearchOption.AllDirectories );
+
+    // 並列処理でファイルを読み込む
+    Parallel.ForEach( files, file =&gt;
+    {
+        using( var reader = new System.IO.FileStream( file.FullName, System.IO.FileMode.Open ) )
+        {
+            var indexItem = new Index();
+            indexItem.body = new byte[reader.Length];
+            // ファイル本体を読み込む
+            reader.Read( indexItem.body, 0, indexItem.body.Length );
+            // ファイル名
+            indexItem.name = file.Name;
+            indexList.Add( indexItem );
+        }
+    } );
+
+    // 連結ファイル書き出し。ここからは普通のと同じ。
+    using( var writer = new System.IO.FileStream( dstPath+"\\CombineCopy.bin", System.IO.FileMode.Create ) )
+    using( var indexWriter = new System.IO.StreamWriter( dstPath+"\\index.txt", false ) )
+    {
+        foreach( var index in indexList )
+        {
+            // ファイルのデータを連結
+            writer.Write( index.body, 0, index.body.Length );
+            // 目次ファイルを書き出す
+            indexWriter.WriteLine( $"{index.name} {index.body.Length}" );
+        }
+    }
+}
+

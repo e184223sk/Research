@@ -1,0 +1,81 @@
+private void Batch_Act(string fileName)
+        {
+
+            // 入力値が正常かチェック
+            if (FileName_IsError(fileName) == 1) return;
+
+            string filePath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+                            + "\\" + this.textBox1.Text;
+
+            // 読み込むファイルの存在確認
+            if (!File.Exists(filePath))
+            {
+                textBox1.BackColor = Color.LemonChiffon;
+                return;
+            }
+
+            List&lt;string&gt; outputData = new List&lt;string&gt;();
+
+            // ファイル読み込み
+            using (StreamReader sr = new StreamReader(filePath, Encoding.GetEncoding("UTF-8")))
+            {
+
+                string readText = sr.ReadToEnd();
+                string[] splitReadText = readText.Split(new string[] { "\r\n" }, StringSplitOptions.None);
+                List&lt;string&gt; logData = new List&lt;string&gt;(splitReadText);
+                logData.RemoveRange(0,3);
+
+                // データをロック・アンロックでわける
+                List&lt;string&gt; lockData = new List&lt;string&gt;();
+                List&lt;string&gt; unlockData = new List&lt;string&gt;();
+                foreach (string dataLine in logData)
+                {
+
+                    if (dataLine.EndsWith("4800"))
+                    {
+                        lockData.Add(dataLine);
+                    }
+                    if (dataLine.EndsWith("4801"))
+                    {
+                        unlockData.Add(dataLine);
+                    }
+                }
+
+                // 組み合わせのロック開始～アンロックの時間を算出
+                int dataCount = Math.Min(lockData.Count(), unlockData.Count());
+                for (int i = 0; i &lt; dataCount; i++)
+                {
+
+                    string[] splitLockData = lockData[i].Split(' ');
+                    string[] splitUnockData = unlockData[i].Split(' ');
+
+                    TimeSpan processTime = Convert.ToDateTime(splitUnockData[1])
+                                            - Convert.ToDateTime(splitLockData[1]);
+                    string[] hhmmss = processTime.ToString().Split(':');
+
+                    outputData.Add(string.Concat(splitLockData[0], " ",
+                                                    splitLockData[1], " から\t"
+                                                    , hhmmss[0], " 時間 "
+                                                    , hhmmss[1], " 分 "
+                                                    , hhmmss[2], " 秒"));
+                }
+            }
+
+            // 保持したデータを画面に出力
+            foreach(string data in outputData)
+            {
+                if (data == string.Empty) continue;
+                this.textBox2.Text += string.Concat(data, "\r\n");
+            }
+
+            this.textBox2.Text += "-----------------------------------------------\r\n";
+
+        }
+
+        private int FileName_IsError(string fileName)
+        {
+            if (!fileName.EndsWith(".txt")) return 1;
+            if (fileName == ".txt") return 1;
+            return 0;
+        }
+

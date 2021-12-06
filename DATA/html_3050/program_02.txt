@@ -1,0 +1,64 @@
+
+using Photon.Pun;
+using UnityEngine;
+
+public class Paint : MonoBehaviourPun
+{
+    [SerializeField] private GameObject _inkPrefab;
+    [SerializeField] private Transform _inkParent;
+
+    /// &lt;summary&gt;
+    /// 原点を定めるコンポーネント
+    /// &lt;/summary&gt;
+    private OriginDecideFromImageMaker _originDecideFromImageMaker;
+
+    private void Start()
+    {
+        _originDecideFromImageMaker = FindObjectOfType&lt;OriginDecideFromImageMaker&gt;();
+    }
+
+    private void Update()
+    {
+        if (!photonView.IsMine) return;
+
+        if (0 &lt; Input.touchCount)
+        {
+            var touch = Input.GetTouch(0);
+            var inputPosition = Input.GetTouch(0).position;
+            var paintPosZ = 0.5f;
+            var tmpTouchPos = new Vector3(inputPosition.x, inputPosition.y, paintPosZ);
+            var touchWorldPos = _originDecideFromImageMaker.WorldToOriginLocal(Camera.main.ScreenToWorldPoint(tmpTouchPos));
+
+            if (touch.phase == TouchPhase.Began)
+            {
+                photonView.RPC(nameof(PaintStartRPC), RpcTarget.All, touchWorldPos);
+            }
+            else if (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary)
+            {
+                photonView.RPC(nameof(PaintingRPC), RpcTarget.All, touchWorldPos);
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// RPCで生成
+    /// &lt;/summary&gt;
+    [PunRPC]
+    private void PaintStartRPC(Vector3 inkPosition)
+    {
+        Instantiate(_inkPrefab, inkPosition, Quaternion.identity, _inkParent);
+    }
+
+    /// &lt;summary&gt;
+    /// RPCで動かす
+    /// &lt;/summary&gt;
+    [PunRPC]
+    private void PaintingRPC(Vector3 inkPosition)
+    {
+        if (_inkParent.childCount &gt; 0)
+        {
+            _inkParent.transform.GetChild(_inkParent.childCount - 1).transform.position = inkPosition;
+        }
+    }
+} 
+

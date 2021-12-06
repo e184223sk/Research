@@ -1,0 +1,89 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+
+
+class IeSample
+{
+    const int READYSTATE_COMPLETE = 4;
+
+    static void GoogleSearchWithIE(string keyword)
+    {
+        Type comType = Type.GetTypeFromProgID("InternetExplorer.Application");
+        dynamic ie = Activator.CreateInstance(comType);
+
+        try {
+            ie.Navigate("https://www.google.com/");
+
+            while ( ie.Busy || ie.ReadyState &lt; READYSTATE_COMPLETE ) {
+                Thread.Sleep(50);
+            }
+
+            ie.Visible = true;
+
+            dynamic html = ie.Document;
+
+            dynamic t = html.getElementsByTagName("input");
+
+            try {
+                // Dump(t);
+
+                if ( t["q"] == null ) {
+                    Console.WriteLine("cannot find target element.");
+                }
+                else {
+                    t["q"].Value = keyword;
+
+                    dynamic form = html.forms("tsf");
+                    if ( form == null ) {
+                        Console.WriteLine("cannot find target form.");
+                    }
+                    else {
+                        try {
+                            form.submit();
+                        }
+                        finally {
+                            Marshal.ReleaseComObject(form);
+                        }
+                    }
+                }
+            }
+            finally {
+                Marshal.ReleaseComObject(t);
+            }
+        }
+        finally {
+            Marshal.ReleaseComObject(ie);
+        }
+    }
+
+    static void Dump(dynamic t)
+    {
+        for ( int i=0 ; i&lt;t.Length ; i++ ) {
+            Console.WriteLine("----");
+            Console.WriteLine(t[i].Name??"");
+            Console.WriteLine(t[i].Type??"");
+            Console.WriteLine(t[i].Value??"");
+        }
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        GoogleSearchWithIE("qiita");
+    }
+}
+
+

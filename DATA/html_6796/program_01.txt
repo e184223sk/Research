@@ -1,0 +1,148 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using static System.Console;
+
+class Sample
+{
+    string _ImportPath;
+    byte[] _GetBinData;
+    List&lt;byte[]&gt; _ByteList;
+    List&lt;string&gt; _ConvertToStringByteList;
+
+    /// &lt;summary&gt;
+    /// CSVファイルをバイナリデータで取り込みしてリスト化
+    /// &lt;/summary&gt;
+    /// &lt;param name="path"&gt;CSVのパス&lt;/param&gt;
+    public void ImportCSVGetBin(string path)
+    {
+        _ImportPath = path;
+
+        _GetBinData = null;
+        System.IO.FileStream FileStream = null;
+        System.IO.BinaryReader BinaryReader = null;
+
+        try
+        {
+            // フォルダパスのファイルを開くオブジェクト
+            FileStream = new System.IO.FileStream(_ImportPath, System.IO.FileMode.Open);
+            // FileStreamの内容をバイナリーデータで読み取るオブジェクト
+            BinaryReader = new System.IO.BinaryReader(FileStream);
+
+            // ファイルの最後までをinteger型で取り込む
+            int Length = System.Convert.ToInt32(FileStream.Length);
+
+            // ファイルの最後までをバイナリ型で読み込み、変数にいれる
+            _GetBinData = BinaryReader.ReadBytes(Length);
+
+            FileStream.Close();
+        }
+        catch (Exception ex)
+        {
+            throw ex;
+        }
+
+        int StartPoint = 0;  // 開始位置
+        int EndPoint = 0;    // 終了位置
+        int LengthValue = 0; // 一行の配列の長さ 
+        _ByteList = new List&lt;byte[]&gt;();
+
+        while (EndPoint &gt;= 0)
+        {
+            EndPoint = SearchCRLF(StartPoint);
+
+            if (EndPoint &lt; 0)
+            {
+                LengthValue = _GetBinData.Length - StartPoint;
+
+                if (LengthValue &lt;= 0)
+                    break;
+            }
+            else
+                // CRLF分減らす
+                LengthValue = EndPoint - StartPoint + 1 - 2;
+
+            // 行データ取得
+            byte[] LineVal = GetByteFromByte(_GetBinData, StartPoint, LengthValue);
+
+            _ByteList.Add(LineVal);
+
+            StartPoint = EndPoint + 1;
+        }
+
+        // 取込データ出力
+        int count = 0;
+        foreach (var item in _ByteList)
+        {
+            string s = System.Text.Encoding.Default.GetString(_ByteList[count]);
+            count++;
+
+
+            string[] Values = s.Split(',');
+            _ConvertToStringByteList = new List&lt;string&gt;();
+            _ConvertToStringByteList.AddRange(Values);
+
+            foreach (var item2 in _ConvertToStringByteList)
+            {
+                WriteLine(item2);
+            }
+
+            WriteLine("----------------------");
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// CRLF探索  読み込みデータからのCRLFの位置を返す
+    /// &lt;/summary&gt;
+    /// &lt;param name="StartPoint"&gt;開始位置&lt;/param&gt;
+    /// &lt;returns&gt;CRLFの位置&lt;/returns&gt;
+    protected int SearchCRLF(int StartPoint)
+    {
+        int ResultCRLF = -1;
+
+        for (int i = StartPoint; i &lt;= _GetBinData.Length - 2; i++)
+        {
+            // &amp;HD:13　キャリッジリターン　&amp;HA:10  ラインフィード
+            if (_GetBinData[i] == 0xD &amp; _GetBinData[i + 1] == 0xA)
+            {
+                ResultCRLF = i + 1;
+                break;
+            }
+        }
+
+        return ResultCRLF;
+    }
+
+    /// &lt;summary&gt;
+    /// Byte配列から位置、長さでByteを取得する
+    /// &lt;/summary&gt;
+    /// &lt;param name="InByte"&gt;バイト配列&lt;/param&gt;
+    /// &lt;param name="StartPoint"&gt;開始位置&lt;/param&gt;
+    /// &lt;param name="LengthValue"&gt;配列の長さ&lt;/param&gt;
+    /// &lt;returns&gt;１行分のバイト配列&lt;/returns&gt;
+    protected byte[] GetByteFromByte(byte[] InByte, int StartPoint, int LengthValue)
+    {
+        byte[] OutByte;
+
+        if (LengthValue == 0)
+            LengthValue = InByte.Length - StartPoint;
+
+        if (LengthValue &lt; 1)
+        {
+            OutByte = new byte[0] { };
+            return OutByte;
+        }
+
+        OutByte = new byte[LengthValue - 1 + 1];
+
+        for (int i = 0; i &lt;= LengthValue - 1; i++)
+        {
+            if (StartPoint + i &lt; InByte.Length)
+                OutByte[i] = InByte[StartPoint + i];
+        }
+
+        return OutByte;
+    }
+}
+

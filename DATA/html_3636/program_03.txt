@@ -1,0 +1,208 @@
+
+private readonly TaskObserver TaskObserver = new TaskObserver();
+private IDisposable? TaskListenerUnregister;
+
+/// &lt;summary&gt;
+/// TaskObserver に関する初期処理
+/// &lt;/summary&gt;
+private void InitializeTaskObserver()
+{
+    TaskListenerUnregister = TaskObserver.RegisterListener(OnStart, OnCompleted, OnFailed);
+}
+
+/// &lt;summary&gt;
+/// タスクが開始されるときの処理を行います。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+private void OnStart(TaskID taskId)
+{
+    Debug.WriteLine($"Start the task. ID:{taskId}");
+}
+
+/// &lt;summary&gt;
+/// タスクが完了したときの処理を行います。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+private void OnCompleted(TaskID taskId)
+{
+    Debug.WriteLine($"The task is complete. ID:{taskId}");
+}
+
+/// &lt;summary&gt;
+/// タスクが失敗したときの処理を行います。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;param name="exception"&gt;&lt;/param&gt;
+private void OnFailed(TaskID taskId, Exception? exception)
+{
+    Debug.WriteLine($"The task is failed. {exception?.Message} ID:{taskId}");
+}
+
+
+/// &lt;summary&gt;
+/// 明示的に生成されたキャンセルトークンを使用して非同期処理を実行します。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task ExecuteActionWithCancellationToken(Guid taskId, CancellationTokenSource cancellation)
+{
+    return TaskObserver.Run(
+        taskId
+        , ExecuteActionAsync
+        , cancellation
+        , disposableCancellation: false
+        );
+}
+
+/// &lt;summary&gt;
+/// 暗黙的に生成されるキャンセルトークンを使用して非同期処理を実行します。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task ExecuteActionWithImplicitCancellationToken(Guid taskId)
+{
+    return TaskObserver.RunWithCancellation(
+        taskId
+        , ExecuteActionAsync
+        );
+}
+
+/// &lt;summary&gt;
+/// 明示的に生成されたキャンセルトークンを使用して非同期処理を実行します。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;int&gt; ExecuteFunctionWithCancellationToken(Guid taskId, CancellationTokenSource cancellation)
+{
+    return TaskObserver.Run(
+        taskId
+        , ExecuteFunctionAsync
+        , cancellation
+        , disposableCancellation: false
+        );
+}
+
+/// &lt;summary&gt;
+/// 暗黙的に生成されるキャンセルトークンを使用して非同期処理を実行します。
+/// &lt;/summary&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;int&gt; ExecuteFunctionWithImplicitCancellationToken(Guid taskId)
+{
+    return TaskObserver.RunWithCancellation(
+        taskId
+        , ExecuteFunctionAsync
+        );
+}
+
+/// &lt;summary&gt;
+/// 明示的に生成されたキャンセルトークンによって制御されるタスクを監視します。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task ObserveActionWithCancellationToken(Guid taskId, CancellationTokenSource cancellation)
+{
+    return TaskObserver.Observe(
+        taskId
+        , ExecuteActionAsync(cancellation.Token)
+        , cancellation
+        , disposableCancellation: false
+        );
+}
+
+/// &lt;summary&gt;
+/// 暗黙的に生成されるキャンセルトークンによって制御されるタスクを監視します。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task ObserveActionWithImplicitCancellationToken(Guid taskId)
+{
+    var cancellation = new CancellationTokenSource();
+
+    return TaskObserver.Observe(
+        taskId
+        , ExecuteActionAsync(cancellation.Token)
+        , cancellation
+        , disposableCancellation: true
+        );
+}
+
+/// &lt;summary&gt;
+/// 明示的に生成されたキャンセルトークンによって制御されるタスクを監視します。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;int&gt; ObserveFunctionWithCancellationToken(Guid taskId, CancellationTokenSource cancellation)
+{
+    return TaskObserver.Observe(
+        taskId
+        , ExecuteFunctionAsync(cancellation.Token)
+        , cancellation
+        , disposableCancellation: false
+        );
+}
+
+/// &lt;summary&gt;
+/// 暗黙的に生成されるキャンセルトークンによって制御されるタスクを監視します。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;int&gt; ObserveFunctionWithImplicitCancellationToken(Guid taskId)
+{
+    var cancellation = new CancellationTokenSource();
+
+    return TaskObserver.Observe(
+        taskId
+        , ExecuteFunctionAsync(cancellation.Token)
+        , cancellation
+        , disposableCancellation: true
+        );
+}
+
+/// &lt;summary&gt;
+/// 指定されたタスクをキャンセルします。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+private void Cancel(Guid taskId)
+{
+    TaskObserver.RequestCancel(taskId);
+}
+
+/// &lt;summary&gt;
+/// 全てのタスクをキャンセルします。
+/// &lt;/summary&gt;
+private void CancelAll()
+{
+    TaskObserver.RequestCancelAll();
+}
+
+/// &lt;summary&gt;
+/// 指定されたタスクが実行中かどうかを取得します。
+/// &lt;/summary&gt;
+/// &lt;param name="taskId"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private bool IsRunning(Guid taskId)
+{
+    return TaskObserver.IsRunning(taskId);
+}
+
+/// &lt;summary&gt;
+/// 非同期処理のサンプル
+/// &lt;/summary&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task ExecuteActionAsync(CancellationToken cancellation = default)
+{
+    return Task.Delay(1000);
+}
+
+/// &lt;summary&gt;
+/// 戻り値を返す非同期処理のサンプル
+/// &lt;/summary&gt;
+/// &lt;param name="cancellation"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;int&gt; ExecuteFunctionAsync(CancellationToken cancellation = default)
+{
+    return Task.Delay(1000).ContinueWith(t =&gt; 10);
+}
+

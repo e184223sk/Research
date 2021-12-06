@@ -1,0 +1,140 @@
+
+using System;
+using System.Drawing;
+//using System.Collections.Generic;
+//using System.Reflection;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+using Outlook = Microsoft.Office.Interop.Outlook;
+
+
+class OutlookMailFinder : Form
+{
+    TextBox txtSenderMailAddress;
+    Button btnStartTryGet;
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void LaunchSendMail()
+    {
+        Outlook.Application oOutlookApp = null;
+        try {
+            oOutlookApp = (Outlook.Application)Marshal.GetActiveObject("Outlook.Application");
+        }
+        catch ( COMException ) { // COMException封殺するのはあまりお勧めしない・・
+            Console.WriteLine("Cannot found active Outlook application");
+            //oOutlookApp = new Outlook.Application();
+            return;
+        }
+
+        var mailItem = (Outlook.MailItem)oOutlookApp.CreateItem(Outlook.OlItemType.olMailItem);
+        if (mailItem != null)
+        {                
+            Outlook.Recipient to = mailItem.Recipients.Add("XXX@XXX.co.jp");
+            to.Type = (int)Outlook.OlMailRecipientType.olTo;
+
+            Outlook.Recipient cc;
+            cc = mailItem.Recipients.Add("YYY@YYY.co.jp");
+            cc.Type = (int)Outlook.OlMailRecipientType.olCC;
+
+            cc = mailItem.Recipients.Add("ZZZ@ZZZ.co.jp");
+            cc.Type = (int)Outlook.OlMailRecipientType.olCC;
+
+            // アドレス帳の表示名で表示できる
+            mailItem.Recipients.ResolveAll();
+
+            mailItem.Subject = "件名";
+            mailItem.Body = "本文";
+    ​
+            // 表示(Displayメソッド引数のtrue/falseでモーダル/モードレスウィンドウを指定して表示できる)
+            mailItem.Display(false);
+        }
+    }
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void GetMails()
+    {
+        Outlook.Application oOutlookApp = null;
+        try {
+            oOutlookApp = (Outlook.Application)Marshal.GetActiveObject("Outlook.Application");
+        }
+        catch ( COMException ) { // COMException封殺するのはあまりお勧めしない・・
+            Console.WriteLine("Cannot found active Outlook application");
+            //oOutlookApp = new Outlook.Application();
+            return;
+        }
+
+        var folder = oOutlookApp.Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox);
+//      var mapiFolders = oOutlookApp.Session.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderInbox).Folders;
+
+//      foreach(Outlook.Folder folder in mapiFolders)
+        {
+            Console.WriteLine(folder.Name);
+
+
+            foreach(Outlook.MailItem mail in folder.Items)
+            {
+                //ヘッダー・送信者アドレス・題名・本文を取得
+                //Console.WriteLine(mail.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x007D001E"));
+                Console.WriteLine(mail.SenderEmailAddress);
+                Console.WriteLine(mail.Subject);
+                // Console.WriteLine(mail.Body);
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                // GC入れないと下記で落ちる場合がある
+                //System.Runtime.InteropServices.COMException (0x9077000E): メモリまたはシステム リソースが不足しています。いくつかのウィンドウまたはプログラムを終了してから、再度実行してください。
+                //   場所 Microsoft.Office.Interop.Outlook._MailItem.get_SenderEmailAddress()
+            }
+        }
+    }
+
+    OutlookMailFinder()
+    {
+
+        Controls.Add(txtSenderMailAddress = new TextBox(){
+            Location = new Point(0,0),
+            Width = 150
+        });
+
+
+        Controls.Add(btnStartTryGet = new Button(){
+            Text = "Get",
+            Location = new Point(180, 0),
+            Width = 100
+        });
+        btnStartTryGet.Click += (s,e)=&gt;{
+            // GetMails();
+            LaunchSendMail();
+        };
+
+
+        Load      += (s,e)=&gt;{MyResize();};
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+
+    }
+
+    void MyResize()
+    {
+        /*
+        int w = ClientSize.Width;
+        int h = ClientSize.Height;// - txtContent.Top;
+        if(w&lt;50){w=50;}
+        if(h&lt;50){h=50;}
+        txtContent.Size = new Size(w,h);
+        */
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new OutlookMailFinder());
+    }
+}
+
+

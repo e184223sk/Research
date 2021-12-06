@@ -1,0 +1,90 @@
+
+using AOT;
+using System;
+using System.Runtime.InteropServices;
+using UnityEngine;
+
+class hoge : MonoBehaviour {
+
+    [DllImport("__Internal")]
+    static extern IntPtr Init(
+        Action&lt;int, string&gt; funcA,
+        Action&lt;string, IntPtr, int, float&gt; funcB,
+        dlgFuncC funcC
+    );
+
+    [DllImport("__Internal")]
+    static extern void Fuga();
+
+    [MonoPInvokeCallback(typeof(Action&lt;IntPtr, int&gt;))]
+    static void FuncA(int intNum, string str1)
+    {
+        Debug.Log("Called FuncA");
+        Debug.Log(intNum); // 999888;
+        Debug.Log(str1); // HogeFugaPiyo
+    }
+
+    [MonoPInvokeCallback(typeof(Action&lt;IntPtr, int&gt;))]
+    static void FuncB(string str2, IntPtr floatArrPtr, int floatArrLen, float floatNum)
+    {
+        // Marshal.Copy()で配列の要素取得
+        var floatArr = new float[floatArrLen];
+        Marshal.Copy(floatArrPtr, floatArr, 0, floatArrLen);
+        Debug.Log("Called FuncB");
+        Debug.Log("floatAttrLen:" + floatArrLen);
+        Debug.Log(str2);
+        Debugger.Array(floatArr);
+        Debug.Log(floatNum);
+    }
+
+    // Actionは引数が4つまでしか定義できないため、4つ以上の場合はdelegateを定義する
+    delegate int dlgFuncC(
+        int intNum,
+        string str1,
+        IntPtr floatArr,
+        int floatArrayLen,
+        float floatNum, 
+        string str2, 
+        IntPtr intArr, 
+        int intArrayLen
+    );
+    [MonoPInvokeCallback(typeof(dlgFuncC))]
+    static int FuncC(
+        int intNum, 
+        string str1, 
+        IntPtr floatArrPtr, 
+        int floatArrLen, 
+        float floatNum, 
+        string str2, 
+        IntPtr intArrPtr, 
+        int intArrLen
+    )
+    {
+        Debug.Log("Called FuncC");
+        // Marshal.Copy()で配列の要素取得
+        var floatArr = new float[floatArrLen];
+        Marshal.Copy(floatArrPtr, floatArr, 0, floatArrLen);
+        var intArr = new int[intArrLen];
+        Marshal.Copy(intArrPtr, intArr, 0, intArrLen);
+
+        Debug.Log(intNum);
+        Debug.Log(str1);
+        Debug.Log(floatNum);
+        Debugger.Array(floatArr);
+        Debug.Log(str2);
+        Debugger.Array(intArr);
+
+        return 10;
+    }
+
+    private void Awake()
+    {
+        Init(FuncA, FuncB, FuncC);
+    }
+
+    void Start()
+    {
+        Fuga();
+    }
+}
+

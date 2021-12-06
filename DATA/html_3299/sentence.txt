@@ -1,0 +1,14 @@
+More than 1 year has passed since last update.DrawingDocumentのBrowserNodeには、難があります。
+これらNodeをmouseで選択した時、SelectSetに入るObjectの型はunknownなのです。
+突然で「何を言っているんだ・・・」と思うかもしれませんが、DrawingView内の要素(線)をいじろうとすると、すぐにわかります。
+手作業ではBrowserNode単位で選択 → 線種変更できるのですが、現状のAPIで自動化しようとすると、全DrawingCurveについて1つずつ処理しないといけないので、ものすごく遅くなります。「線種変更は手作業で右クリック→プロパティーするから、せめて条件に当てはまる項目を自動選択出来れば・・・」というのが、発端です。普通に考えれば、すれば良いだけの話です。でも、このcollectionに入れる要素の型が公開されていないので、この方法では選択できません。SelectSetに頼らない、もう1つの選択方法があります。それは、DoSelect()です。
+BrowserNodesを辿り、目的のBrowserNodeを見つけてnode.DoSelect()すれば、選択できます。
+しかし、この方法では、前回選択した内容がクリアされる == 常に最後の1つしか選択されないという欠点があります。しかし、私は発見しました。keyboard(そう、物理キーボードです)のControl keyを押しっぱなしにしながら、DoSelect()を複数回呼び出すと、全てのObjectが選択されるのです。
+これは、DoSelect()がまさにmouseの左クリックをエミュレートしているからです。(というか、実際は逆で、OnMouseClickがDoSelect()を呼んでいるのでしょう)ここまで来れば、やることは1つです。あたかもControl keyが押されているかのごとく、振舞えば良いのです。SendMessage, PostMessage, WH_KEYBOARD_LLなどと遠回りをしましたが、最終的にはGetKeyboardStateとSetKeyboardStateを使って、Control keyを押している振りをさせることに成功しました。実行時にユーザーがControl Keyを押している可能性も考慮して、変更前の状態を保管しておいて、作業終了後に元に戻しています。
+まずはこの実装で問題ないと思いますが、などの場合は、書き戻す前にもう一度GetkeyboardState()した方が良いかもしれません。
+その場合、物理Control keyの状態が変化した場合はどうするんだ、と言われるとその通りで、厳密にはGetAsyncKeyState(VK_CONTROL)で状態を確認した方が良いのでしょう。
+(GetAsyncKeyState()は、SetKeyboardState()の影響を受けないようです)また別の問題として、DoSelect()するループ中に、物理Control keyをdown→upされると、状態が解除されてしまいます。これらの問題を避けるには、DoSelect()の直前/直後で、Control keyを設定/解除すれば良いと思いますが、そこまでするかどうかは皆様の判断にお任せします。DrawingDocumentを開きたての状態で下層のnodeをDoSelect()しても、選択されないことがあります。遅延バインディングをしているのか、nodeを開かないと選択できないようです。一旦開けば、後は閉じても選択できます。
+とりあえず、以下のような回避方法を考えました。選択した後にnodeが(厳密には親nodeが)開きっぱなしになるのですが、私は自分用AddInなので、別に良しとしています。parentNode.Expanded = falseしても、親の親は閉じません。
+なので、厳密に実行前の状況を保管したいのなら、親を再帰的に辿りながら、nodeがkeyでnode.ExpandedがvalueのDictionaryを作り、最後にforeachで復帰すると良いでしょう。Autodesk Inventor API Hacking (概略)
+
+

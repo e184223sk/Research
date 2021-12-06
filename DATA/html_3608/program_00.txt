@@ -1,0 +1,100 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+[RequireComponent(typeof(Camera))]
+[ExecuteInEditMode]
+public class InterlaceCamera : MonoBehaviour {
+    [SerializeField]
+    Material _mtlInterlace;
+    [SerializeField]
+    RawImage _rawImage;
+    [SerializeField]
+    bool _useInterlace = true;
+
+    Camera _cam;
+    bool _isOdd = false;
+    RenderTexture[] _twoRT;
+    RenderTexture _rtToRawImage;
+
+    private void Awake()
+    {
+        _cam = GetComponent&lt;Camera&gt;();
+        _twoRT = new RenderTexture[2];
+        int texWidth = Screen.width;
+        int texHeight = Screen.height / 2;
+        for (int i = 0; i &lt; _twoRT.Length; ++i)
+        {
+            RenderTexture rt = new RenderTexture(texWidth, texHeight, 24);
+            rt.antiAliasing = 1;
+            _twoRT[i] = rt;
+        }
+        _rtToRawImage = new RenderTexture(texWidth, texHeight * 2,24);
+        _rtToRawImage.antiAliasing = 1;
+        _rawImage.texture = _rtToRawImage;
+    }
+
+    private void OnDestroy()
+    {
+        if (_cam != null)
+        {
+            _cam.targetTexture = null;
+            _cam.ResetProjectionMatrix();
+        }
+        if (_rawImage!=null)
+        {
+            _rawImage.texture = null;
+        }
+        for (int i = 0; i &lt; _twoRT.Length; ++i)
+        {
+            if (_twoRT[i] != null)
+            {
+                DestroyImmediate(_twoRT[i]);
+            }
+        }
+        if (_rtToRawImage != null)
+        {
+            DestroyImmediate(_rtToRawImage);
+        }
+    }
+
+    void Update () {
+        if (_useInterlace)
+        {
+            _cam.targetTexture = _isOdd ? _twoRT[0] : _twoRT[1];
+
+            RenderTexture rt = _cam.targetTexture;
+            float halfPixel = 0.25f / (float)rt.height;
+            Matrix4x4 mat = Matrix4x4.Translate(new Vector3(0f, _isOdd ? -halfPixel : halfPixel, 0f));
+            mat.m00 *= 2f;
+
+            _cam.ResetProjectionMatrix();
+            Matrix4x4 matProj = _cam.projectionMatrix;
+            matProj = mat * matProj;
+            _cam.projectionMatrix = matProj;
+
+            _isOdd = !_isOdd;
+        }
+        else
+        {
+            _cam.targetTexture = _rtToRawImage;
+            _cam.ResetProjectionMatrix();
+            _cam.ResetWorldToCameraMatrix();
+        }
+    }
+
+    private void OnPostRender()
+    {
+        if (_useInterlace)
+        {
+            _mtlInterlace.SetTexture("_OddTex", _twoRT[0]);
+            _mtlInterlace.SetTexture("_EvenTex", _twoRT[1]);
+            _mtlInterlace.SetPass(0);
+            RenderTexture prev = RenderTexture.active;
+            Graphics.Blit(null, _rtToRawImage, _mtlInterlace);
+            RenderTexture.active = prev;
+        }
+    }
+}
+

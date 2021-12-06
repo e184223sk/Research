@@ -1,0 +1,106 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Data;
+using System.Data.SqlClient;
+
+namespace mssqlSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            string cnnString = @"Data Source=.\SQLEXPRESS;Initial Catalog=test;User ID=sa;Password=sa";
+            using (var conn = new SqlConnection(cnnString))
+            {
+                conn.Open();
+                using (var cmd = new SqlCommand("truncate table test_tbl", conn))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+                using (var cmd = new SqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn))
+                {
+                    cmd.Parameters.AddWithValue("@user", "明日のジョー");
+                    cmd.Parameters.AddWithValue("@age", 17);
+                    cmd.ExecuteNonQuery();
+
+                }
+                using (var cmd = new SqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（ロールバック）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    // Perform database operations
+                    using (var cmd = new SqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn, tran))
+                    {
+                        cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                        cmd.Parameters.AddWithValue("@age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Rollback();
+                }
+                using (var cmd = new SqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（コミット）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    // Perform database operations
+                    using (var cmd = new SqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn, tran))
+                    {
+                        cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                        cmd.Parameters.AddWithValue("@age", 43);
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Commit();
+                }
+                using (var cmd = new SqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+                Console.WriteLine("=================================================");
+                Console.WriteLine("ストアド");
+                using (var cmd = new SqlCommand("EXEC test_sp @from, @to", conn))
+                {
+                    cmd.Parameters.AddWithValue("@from", 10);
+                    cmd.Parameters.AddWithValue("@to", 19);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                        }
+                    }
+
+                }
+                conn.Close();
+            }
+            Console.ReadLine();
+        }
+    }
+}
+
+

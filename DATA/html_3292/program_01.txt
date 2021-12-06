@@ -1,0 +1,190 @@
+
+using Inventor;
+using System;
+
+namespace InvAddIn
+{
+    /// &lt;summary&gt;
+    /// InventorのTransactionをラップするclassです。
+    /// Dispose()でAbort()します。
+    /// &lt;/summary&gt;
+    internal class TinyTransaction : IDisposable
+    {
+        /// &lt;summary&gt;
+        /// Inventorのトランザクションオブジェクトです。
+        /// &lt;/summary&gt;
+        Transaction transaction;
+        /// &lt;summary&gt;
+        /// Inventorのアプリケーションオブジェクトです。
+        /// &lt;/summary&gt;
+        readonly Application application;
+        /// &lt;summary&gt;
+        /// トランザクションオブジェクトの生成に必要なdocumentです。
+        /// &lt;/summary&gt;
+        readonly Document document;
+        /// &lt;summary&gt;
+        /// トランザクション名です。
+        /// &lt;/summary&gt;
+        readonly string transactionName;
+        /// &lt;summary&gt;
+        /// Dispose()が実行されるとtrueになります。
+        /// &lt;/summary&gt;
+        bool disposed = false;
+
+        /// &lt;summary&gt;
+        /// TinyTransactionのコンストラクターです。
+        /// &lt;/summary&gt;
+        /// &lt;param name="inventor"&gt;Inventorのアプリケーションオブジェクトです。&lt;/param&gt;
+        /// &lt;param name="_document"&gt;トランザクションオブジェクトの生成に必要なdocumentです。&lt;/param&gt;
+        /// &lt;param name="name"&gt;トランザクション名です。&lt;/param&gt;
+        /// &lt;param name="deferredStart"&gt;直ぐにトランザクションを開始しない場合はtrueに設定します。標準値はfalseです。&lt;/param&gt;
+        public TinyTransaction(Application inventor, Document _document, string name, bool deferredStart = false)
+        {
+            application = inventor;
+            document = _document;
+            transactionName = name;
+            if (deferredStart == false)
+            {
+                Start();
+            }
+            else
+            {
+                transaction = null;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// デストラクターです。トランザクションが実行中であればAbort()してリソースを破棄します。
+        /// &lt;/summary&gt;
+        ~TinyTransaction()
+        {
+            Dispose(false);
+        }
+
+        /// &lt;summary&gt;
+        /// Application引数を省略したコンストラクターです。
+        /// Applicationのオブジェクトは、documentから得ます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="_document"&gt;トランザクションオブジェクトの生成に必要なdocumentです。&lt;/param&gt;
+        /// &lt;param name="name"&gt;トランザクション名です。&lt;/param&gt;
+        /// &lt;param name="deferredStart"&gt;直ぐにトランザクションを開始しない場合はtrueに設定します。標準値はfalseです。&lt;/param&gt;
+        public TinyTransaction(Document document, string name, bool deferredStart = false) : this((Inventor.Application)document.DocumentEvents.Application, document, name, deferredStart)
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// Application引数を省略したコンストラクターです。
+        /// Applicationのオブジェクトは、partDocumentから得ます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="partDocument"&gt;トランザクションオブジェクトの生成に必要なdocumentです。&lt;/param&gt;
+        /// &lt;param name="name"&gt;トランザクション名です。&lt;/param&gt;
+        /// &lt;param name="deferredStart"&gt;直ぐにトランザクションを開始しない場合はtrueに設定します。標準値はfalseです。&lt;/param&gt;
+        public TinyTransaction(PartDocument partDocument, string name, bool deferredStart = false) : this((Document)partDocument, name, deferredStart)
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// Application引数を省略したコンストラクターです。
+        /// Applicationのオブジェクトは、assemblyDocumentから得ます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="assemblyDocument"&gt;トランザクションオブジェクトの生成に必要なdocumentです。&lt;/param&gt;
+        /// &lt;param name="name"&gt;トランザクション名です。&lt;/param&gt;
+        /// &lt;param name="deferredStart"&gt;直ぐにトランザクションを開始しない場合はtrueに設定します。標準値はfalseです。&lt;/param&gt;
+        public TinyTransaction(AssemblyDocument assemblyDocument, string name, bool deferredStart = false) : this((Document)assemblyDocument, name, deferredStart)
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// Application引数を省略したコンストラクターです。
+        /// Applicationのオブジェクトは、drawingDocumentから得ます。
+        /// &lt;/summary&gt;
+        /// &lt;param name="drawingDocument"&gt;トランザクションオブジェクトの生成に必要なdocumentです。&lt;/param&gt;
+        /// &lt;param name="name"&gt;トランザクション名です。&lt;/param&gt;
+        /// &lt;param name="deferredStart"&gt;直ぐにトランザクションを開始しない場合はtrueに設定します。標準値はfalseです。&lt;/param&gt;
+        public TinyTransaction(DrawingDocument drawingDocument, string name, bool deferredStart = false) : this((Document)drawingDocument, name, deferredStart)
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを開始します。
+        /// &lt;/summary&gt;
+        public void Start()
+        {
+            if (disposed)
+            {
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+            if (transaction != null)
+            {
+                throw new InvalidOperationException();
+            }
+            transaction = application.TransactionManager.StartTransaction((_Document)document, transactionName);
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションが実行中であれば、tureを返します。
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;実行中であればtrue。&lt;/returns&gt;
+        public bool IsRunning()
+        {
+            if (disposed)
+            {
+                throw new ObjectDisposedException(GetType().FullName);
+            }
+            return transaction != null;
+        }
+
+        /// &lt;summary&gt;
+        /// リソースを破棄します。
+        /// トランザクションが実行中であれば、Abort()します。
+        /// &lt;/summary&gt;
+        public void Dispose()
+        {
+            if (!disposed)
+            {
+                Dispose(true);
+                GC.SuppressFinalize(this);
+                disposed = true;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// リソース破棄の内部処理です。
+        /// &lt;/summary&gt;
+        /// &lt;param name="disposing"&gt;Dispose()から呼ぶ場合は、True。デストラクターから呼ぶ場合はfalse。&lt;/param&gt;
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // managedリソースの破棄
+            }
+            // unmanagedリソースの破棄
+            Abort();
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを中止します。
+        /// &lt;/summary&gt;
+        public void Abort()
+        {
+            if (transaction != null)
+            {
+                transaction.Abort();
+                transaction = null;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// トランザクションを終了します。
+        /// &lt;/summary&gt;
+        public void End()
+        {
+            if (transaction != null)
+            {
+                transaction.End();
+                transaction = null;
+            }
+        }
+    }
+}
+

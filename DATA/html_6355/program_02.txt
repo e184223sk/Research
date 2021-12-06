@@ -1,0 +1,49 @@
+
+// Copyright(c) 2017 Takahiro Miyaura
+// Released under the MIT license
+// http://opensource.org/licenses/mit-license.php
+
+/// &lt;summary&gt;
+///     Read sampling Data from Microphone.
+/// &lt;/summary&gt;
+/// &lt;param name="buffer"&gt;Sampling Data.&lt;/param&gt;
+/// &lt;param name="numChannels"&gt;number of audio channels.&lt;/param&gt;
+private void OnAudioFilterRead(float[] buffer, int numChannels)
+{
+    if (!_isStart) return;
+    lock (this)
+    {
+        Debug.Log("samplingDataSize:" + buffer.Length);
+        lock (lockObject)
+        {
+            // Resampling datas from microphone(ex:48000hz) to 16000hz.
+            var reduction = MicSampleRate / toSampleRate * numChannels;
+
+            var convBufSize = buffer.Length / reduction;
+            if (buffer.Length % reduction &gt; 0) convBufSize++;
+            var convBuf = new short[convBufSize];
+            var count = 0;
+            float ave = 0;
+            while (count &lt; convBufSize - 1)
+            {
+                ave = 0;
+                for (var j = 0; j &lt; reduction; j++)
+                    ave += buffer[count * reduction + j];
+                ave = ave / reduction * 20f;
+                convBuf[count] = FloatToInt16(ave);
+                count++;
+            }
+            ave = 0;
+            for (var j = count * reduction; j &lt; buffer.Length; j++)
+                ave += buffer[j];
+            ave = ave / (buffer.Length + count * reduction + 1);
+            convBuf[count] = FloatToInt16(ave);
+
+            //Write send datas to Translator Speech API.
+
+            convBuf = null;
+        }
+    }
+}
+
+

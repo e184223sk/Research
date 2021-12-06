@@ -1,0 +1,144 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Lcm_Gcv
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var nums = args.Select(v =&gt; int.Parse(v)).ToArray();
+
+            if (nums.Length &lt; 2) { throw new Exception("要素数が2以上の条件に反しています。"); }
+            if (nums.Any(n =&gt; n &lt; 1)) { throw new Exception("自然数(1以上)でない値が含まれています。"); }
+            if (nums.Length != nums.Distinct().Count()) { throw new Exception("要素内に重複する値が含まれています。"); }
+
+            //１．各要素の値ごとに、素因数分解
+            var primeFactorizes = nums.Select(n =&gt; PrimeFactorize(n));
+
+            #region ★debug
+            Enumerable.Range(0, nums.Length).ToList().ForEach(n =&gt;
+            {
+                var pf = primeFactorizes.ElementAt(n);
+                var list = new List&lt;string&gt;();
+                pf.ToList().ForEach(kvp =&gt; list.Add($"{kvp.Key}^{kvp.Value}"));
+                Console.WriteLine($"{nums[n],2} = {string.Join(" × ", list)}");
+            });
+            #endregion
+
+            //２．素数リストの各値について、素因数分解した結果から指数を並べる
+            var dic = LineUpPowerIndex(primeFactorizes);
+
+            #region ★debug
+            dic.ToList().ForEach(kvp =&gt; Console.WriteLine($"{kvp.Key,2}の指数→{string.Join(",", kvp.Value)}"));
+            #endregion
+
+            //３．最小公倍数・最大公約数の計算
+            var result = Calc(dic);
+
+            #region ★debug
+            var lcmExpList = new List&lt;string&gt;();
+            var gcdExpList = new List&lt;string&gt;();
+            foreach (var kvp in dic)
+            {
+                lcmExpList.Add($"{kvp.Key,2}^{kvp.Value.Max()}");
+                gcdExpList.Add($"{kvp.Key,2}^{kvp.Value.Min()}");
+            }
+            Console.WriteLine($"最小公倍数の計算式 {string.Join(" × ", lcmExpList)}");
+            Console.WriteLine($"最大公約数の計算式 {string.Join(" × ", gcdExpList)}"); 
+            #endregion
+
+
+            Console.WriteLine($"{string.Join(",", nums)}の最小公倍数は{result.Item1}");
+            Console.WriteLine($"{string.Join(",", nums)}の最大公約数は{result.Item2}");
+
+            Console.ReadLine();
+        }
+
+        /// &lt;summary&gt;
+        /// 素因数分解
+        /// &lt;/summary&gt;
+        /// &lt;param name="num"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static Dictionary&lt;int, int&gt; PrimeFactorize(int num)
+        {
+            var primeDic = new Dictionary&lt;int, int&gt;();
+            var tmp = num;
+
+            for (int n = 2; n &lt;= num; n++)
+            {
+                //除算の結果が1になったら終了
+                if (tmp == 1) { break; }
+
+                //指数の初期化
+                var i = 0;
+                while (tmp % n == 0)
+                {
+                    //割ったら余りが0の時、指数を+1し、除算
+                    i++;
+                    tmp = tmp / n;
+                }
+                //指数決定
+                if (i &gt; 0) { primeDic.Add(n, i); }
+            }
+            return primeDic;
+        }
+
+        /// &lt;summary&gt;
+        /// 各値の素因数と指数を並べる
+        /// &lt;/summary&gt;
+        /// &lt;param name="primeFactorizes"&gt;配列各要素の素因数分解結果&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static SortedDictionary&lt;int, int[]&gt; LineUpPowerIndex(IEnumerable&lt;Dictionary&lt;int, int&gt;&gt; primeFactorizes)
+        {
+            var dic = new SortedDictionary&lt;int, int[]&gt;();
+
+            //素因数のリスト作成
+            var plist = new List&lt;int&gt;();
+            primeFactorizes.ToList().ForEach(pf =&gt; plist.AddRange(pf.Keys));
+            var primes = plist.Distinct();
+
+            //素因数のリストと、それに対応する指数の配列作成(初期値0)
+            primes.ToList().ForEach(p =&gt; dic.Add(p, Enumerable.Repeat&lt;int&gt;(0, primeFactorizes.Count()).ToArray()));
+
+            //素因数分解の結果を反映
+            var idx = 0;
+            foreach (var pf in primeFactorizes)
+            {
+                foreach (var kvp in pf)
+                {
+                    dic[kvp.Key][idx] = kvp.Value;
+                }
+                idx++;
+            }
+            return dic;
+        }
+
+        /// &lt;summary&gt;
+        /// 最大公約数、最小公倍数の計算
+        /// &lt;/summary&gt;
+        /// &lt;param name="dic"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static Tuple&lt;int, int&gt; Calc(SortedDictionary&lt;int, int[]&gt; dic)
+        {
+            var greatestCommonDivisor = 1;
+            var leastCommonMultiple = 1;
+            foreach (var kv in dic)
+            {
+                //素因数の指数乗を計算
+                var ar = kv.Value.Select(v =&gt; (int)Math.Pow(kv.Key, v)).ToArray();
+
+                //最大値の積→最小公倍数
+                leastCommonMultiple = leastCommonMultiple * (ar.Max());
+
+                //最小値の積→最大公約数
+                greatestCommonDivisor = greatestCommonDivisor * (ar.Min());
+            }
+
+            //結果をタプルで返す
+            return new Tuple&lt;int, int&gt;(leastCommonMultiple, greatestCommonDivisor);
+        }
+    }
+}
+

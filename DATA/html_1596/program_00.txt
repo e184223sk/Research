@@ -1,0 +1,80 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+
+namespace FormsAppSoketUdpQiita
+{
+    public partial class Form1 : Form
+    {
+        //Formアプリ側
+        static string localIpString = "127.0.0.10";
+        static int localPort = 8887;
+        static IPAddress localAddress = IPAddress.Parse(localIpString);
+        static IPEndPoint localEP = new IPEndPoint(localAddress, localPort);
+        static UdpClient udp = new UdpClient(localEP);
+        //Unity側
+        static int unityPort = 8888;
+        static IPEndPoint unityEP = new IPEndPoint(localAddress, unityPort);
+        //受信用Thread
+        static bool isReceiving;
+        static string RxDatatext, TxDatatext;
+        Thread thread;
+        public Form1()
+        {
+            InitializeComponent();
+            udp.Client.ReceiveTimeout = 1000;
+            udp.Connect(unityEP);
+            isReceiving = true;
+            thread = new Thread(new ThreadStart(ThreadMethod));
+            thread.Start();
+            TxDatatext = "labelDataFromUnity";
+            RxDatatext = "labelDataToUnity";
+        }
+
+        private void buttonDataToUnity_Click(object sender, EventArgs e)
+        {
+            if (TxData[0] &lt; 100) TxData[0]++;
+            else TxData[0] = 0;
+            TxDatatext = TxData[0].ToString() + "," + TxData[1].ToString();
+            udp.Send(TxData, 2);
+        }
+        private static void ThreadMethod()
+        {
+            while (isReceiving)
+            {
+                try
+                {
+                    IPEndPoint remoteEP = null;
+                    byte[] data = udp.Receive(ref remoteEP);
+                    RxDatatext = data[0].ToString() + " , " + data[1].ToString();
+                }
+                catch (System.Exception e)
+                {
+                }
+            }
+        }
+        public static byte[] TxData = {0 ,0};
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (thread != null) thread.Abort();
+            if (udp != null) udp.Close();
+        }
+
+        private void timer1_Tick(object sender, EventArgs e)
+        {
+            labelDataToUnity.Text = TxDatatext;
+            labelDataFromUnity.Text = RxDatatext;
+        }
+    }
+}
+

@@ -1,0 +1,120 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Threading;
+using CoreTweet;
+using Newtonsoft.Json.Linq;
+
+namespace ByeByeTweet
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // カレントカルチャを英語にする(Twitter データの曜日が英語なので)
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+
+            // なぜか残ってる
+            Console.WriteLine("Hello World!");
+            // Twitter アプリのコンシューマーキーとシークレット
+            var session = OAuth.Authorize("hogehoge", "piyopiyo");
+            // アプリ認証用URLを表示させる
+            Console.WriteLine("Access to {0}, and get PIN code.", session.AuthorizeUri.AbsoluteUri);
+            Console.Write("PIN code:");
+            var pin = Console.ReadLine();
+
+            // 認証させる
+            var token = OAuth.GetTokens(session, pin);
+
+            Console.WriteLine("ツイートをどこまでけすか入力。例:Fri May 12 12:00:00 +0000 2018");
+            var date = Console.ReadLine();
+
+            // どこまで消すかのDateTime構造体を取得しておく
+            var dateTime = GetDate(date);
+
+            Console.WriteLine("ここまで消します:{0}", dateTime.ToString());
+
+            Console.Write("tweet.jsのパス:");
+
+            var path = Console.ReadLine();
+
+            var file = System.IO.File.ReadAllText(path);
+
+            // tweet.jsの冒頭にある文字を消してプレーンなjsonにするために、最初にくる[までなかったことにする。
+            file = file.Substring(file.IndexOf("[") - 1);
+
+            // パースしてあげる。
+            var json = JArray.Parse(file);
+
+            // すべてのツイートを必要な情報だけList&lt;Tweet&gt;にいれておく
+            var list = new List&lt;Tweet&gt;();
+
+            for (int i = 0; i &lt; json.Count; i++)
+            {
+                var tweet = new Tweet();
+                tweet.ID = (string)json[i]["id"];
+                tweet.Date = (string)json[i]["created_at"];
+                tweet.Text = (string)json[i]["full_text"];
+                list.Add(tweet);
+            }
+
+            // 削除対象のList&lt;Tweet&gt;。処理の簡単のために別のListに。
+            var deleteList = new List&lt;Tweet&gt;();
+
+            foreach (var item in list)
+            {
+                // ツイートの時刻からDateTime構造体を取得して、先ほど指定した時刻より小さかったら？古かったら削除対象リストに入れる。
+                var thisDate = GetDate(item.Date);
+                if (thisDate &lt; dateTime)
+                {
+                    deleteList.Add(item);
+                }
+            }
+
+            // わざわざ言ってくれるの親切。
+            Console.WriteLine("実際に消していきます。");
+
+            foreach (var item in deleteList)
+            {
+                // キタ！ついに例外処理を始めたぞ！！！
+                try
+                {
+                    // 削除APIを叩く。long型なので変換してやってね
+                    token.Statuses.Destroy(Convert.ToInt64(item.ID));
+                    // 削除できたっぽいので教えてあげる。
+                    Console.WriteLine("削除しました: {0} / {1} / {2}", item.ID, item.Date, item.Text);
+                }
+                catch (CoreTweet.TwitterException)
+                {
+                    // よくわかんないけど、ツイートがすでに存在しなかったらこの例外が投げられるのでcatch。
+                    // ざんねん！見つからなかったと教えてあげよう。
+                    Console.WriteLine("見つかりませんでした: {0} / {1} / {2}", item.ID, item.Date, item.Text);
+                }
+                // 1秒間に何度も叩かれるとTwitterさんが困っちゃうと思うので、1000ミリ秒お休みしてもらう
+                Thread.Sleep(1000);
+            }
+
+            // 入力待ちでポーズ。
+            Console.ReadLine();
+
+        }
+
+        private static DateTime GetDate(string date)
+        {
+            // Twitter データのフォーマットがこれなので、これでDateTime構造体に変換してあげる。
+            var format = "ddd MMM dd HH:mm:ss K yyyy";
+            // 普通のDateTime.Parseじゃあ多分例外吐く。
+            var dateTime = DateTime.ParseExact(date, format, null);
+            return dateTime;
+        }
+
+        // IDと時間を保持しておくクラス。内容は表示用のおまけ。
+        public class Tweet
+        {
+            public string ID;
+            public string Date;
+            public string Text;
+        }
+    }
+}
+

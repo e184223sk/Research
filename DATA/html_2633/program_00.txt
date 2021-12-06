@@ -1,0 +1,519 @@
+
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+// ProcessCmdKey では拾えない key が存在しているよう。KeyHook使うしかなさそう。。？
+
+public class KeyPiece
+{
+    int _xUnit; // 左からの位置
+    int _yUnit; // 上からの位置
+    int _wUnit; // 幅
+    string _tagName;  // 内部データ用。ASCII から 制御コードと 0x20=' ' と 0x5b='[' と 0x5d=']' を除外した文字からなる。
+                      // (マルチバイト文字は文字幅と文字数が合わなくなって面倒なので除外している。)
+    string _dispName; // 表示用
+    ushort _scanCode;
+    ushort _scanCodeFn;
+
+    public int XUnit {get{return _xUnit;}}
+    public int YUnit {get{return _yUnit;}}
+    public int WUnit {get{return _wUnit;}}
+    public string TagName {get{return _tagName;}}
+    public string DispName {get{return _dispName;}}
+    public ushort ScanCode {get{return _scanCode;}}
+    public ushort ScanCodeFn {get{return _scanCodeFn;}}
+    public bool IsEmptyScanCode {get{return _scanCode == DefaultOfScanCode;}}
+    public bool IsEmptyScanCodeFn {get{return _scanCodeFn == DefaultOfScanCode;}}
+
+    const ushort DefaultOfScanCode = 0xFFFF;
+
+    public void SetScanCode(ushort scanCode, bool fnPressed)
+    {
+        if ( fnPressed ) {
+            _scanCodeFn = scanCode;
+        }
+        else {
+            _scanCode = scanCode;
+        }
+    }
+
+    public void ClearScanCode(bool fnPressed)
+    {
+        SetScanCode(DefaultOfScanCode, fnPressed);
+    }
+
+    private KeyPiece(int line, int pos, int w, string tag, string disp)
+    {
+        _yUnit = line;
+        _xUnit = pos;
+        _wUnit = w;
+        _tagName = tag;
+        _dispName = disp;
+        _scanCode = DefaultOfScanCode;
+        _scanCodeFn = DefaultOfScanCode;
+    }
+
+
+    public static List&lt;KeyPiece&gt; Parse(string[] lines)
+    {
+        var a = new List&lt;KeyPiece&gt;();
+        if ( lines == null ) {
+            return a;
+        }
+
+        var renameDict = new Dictionary&lt;string,string&gt;();
+
+
+        Regex rPiece  = new Regex(@"\[( *[\x21-\x5a\x5c\x5e-\x7e]+ *)\]");
+        Regex rRename = new Regex(@"^ *([\x21-\x5a\x5c\x5e-\x7e]+) +to +([^ ].*)$");
+        int lineNo = 0;
+
+        while ( lineNo &lt; lines.Length ) {
+            string s = lines[lineNo];
+            lineNo++;
+            if ( s.TrimEnd() == "@BeginRename" ) {
+                break;
+            }
+        }
+        while ( lineNo &lt; lines.Length ) {
+            string s = lines[lineNo];
+            lineNo++;
+            if ( s.TrimEnd() == "@EndRename" ) {
+                break;
+            }
+            Match m = rRename.Match(s);
+            if ( m.Success ) {
+                string labelTag = m.Groups[1].Value;
+                string labelDisp = m.Groups[2].Value.Trim();
+                renameDict.Add(labelTag, labelDisp);
+            }
+        }
+
+
+        while ( lineNo &lt; lines.Length ) {
+            string s = lines[lineNo];
+            lineNo++;
+            if ( s.TrimEnd() == "@BeginLayout" ) {
+                break;
+            }
+        }
+        int yLine = 0;
+        while ( lineNo &lt; lines.Length ) {
+            string s = lines[lineNo];
+            lineNo++;
+            if ( s.TrimEnd() == "@EndLayout" ) {
+                break;
+            }
+            MatchCollection matches = rPiece.Matches(s);
+            foreach ( Match m in matches ) {
+                Group group = m.Groups[1];
+                int charPos = group.Captures[0].Index;
+                string label = group.Value; // Trim()処理前
+                int w = label.Length + 2; // +2 は '[' と ']' の分
+                string tag = label.Trim();
+                string disp = renameDict.ContainsKey(tag) ? renameDict[tag] : tag;
+                a.Add(new KeyPiece(yLine, charPos, w, tag, disp));
+                //Console.WriteLine(charPos);
+            }
+            yLine++;
+        }
+
+        return a;
+    }
+}
+
+
+class KeyLayoutForm : Form
+{
+    private const int WM_KEYDOWN = 0x100;
+    private const int WM_KEYUP   = 0x101;
+    private const int WM_SYSKEYDOWN = 0x104;
+    private const int WM_SYSKEYUP = 0x105;
+
+
+    const string keyLayoutFileNameUTF8 = @"KeyLayoutUTF8.txt";
+    const string keyLayoutFileNameSJIS = @"KeyLayoutSJIS.txt"; // 未テスト
+
+    const string keyMapOutputFileName = @"KeyMap.txt";
+
+
+    const int XScale = 9;
+    const int YScale = 40;
+    const int XOffset = 1;
+    const int YOffset = 5;
+    const int WMargin = 2;
+    const int HMargin = 4;
+
+    PictureBox pct;
+    List&lt;KeyPiece&gt; keyPieces;
+    bool dealAsFnPressed;
+    bool _keyMapModified;
+    bool keyMapModified {
+        get{return _keyMapModified;}
+        set{
+            _keyMapModified = value;
+            Text = "KeyLayoutView"+((value)?" *":"");
+        }
+    }
+
+    int currentPieceIndex; // 負にしないこと!
+
+    KeyLayoutForm()
+    {
+        keyMapModified = false;
+        ClientSize = new Size(650, 300);
+
+        //Button btnSave = new Button();
+        //btnSave.Text = "SaveMap";
+        //btnSave.Click += (sender,e)=&gt;{BtnSave_Click();};
+        //Controls.Add(btnSave);
+
+        pct = new PictureBox();
+        pct.Top = 0;// 30;
+        pct.MouseDown += Pct_MouseDown;
+        Controls.Add(pct);
+
+        string[] lines = ReadKeyLayoutFile();
+        keyPieces = KeyPiece.Parse(lines);
+        LoadKeyMapFile();
+
+        Load      += (sender,e)=&gt;{MyResize();};
+        Resize    += (sender,e)=&gt;{MyResize();};
+        ResizeEnd += (sender,e)=&gt;{MyResize();};
+
+        FormClosing += MyFormClosing;
+    }
+
+    void MyResize()
+    {
+        int h = ClientSize.Height - pct.Top;
+        pct.Size = new Size(ClientSize.Width, (h&lt;10)?10:h);
+        DrawKeyLayoout();
+    }
+
+    private void MyFormClosing(object sender, FormClosingEventArgs e)
+    {
+        if ( keyMapModified ) {
+            SaveKeyMapFile();
+            /*
+            DialogResult result = MessageBox.Show(
+                "Are you sure to close without save map data?",
+                "Caution",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Exclamation,
+                MessageBoxDefaultButton.Button2
+            );
+
+            if ( result == DialogResult.Cancel ) {
+                e.Cancel = true;
+            }
+            */
+        }
+    }
+
+    void BtnSave_Click()
+    {
+        SaveKeyMapFile();
+    }
+
+
+    Rectangle GetRectangle(KeyPiece piece)
+    {
+        int x = piece.XUnit * XScale + XOffset;
+        int w = piece.WUnit * XScale - WMargin;
+        int y = piece.YUnit * YScale + YOffset;
+        int h = YScale - HMargin;
+        return new Rectangle(x,y,w,h);
+    }
+
+    void MySetScanCode(int index, ushort scanCode, bool fn)
+    {
+        keyMapModified = true;
+        keyPieces[index].SetScanCode(scanCode, fn);
+    }
+
+    void MyClearScanCode(int index, bool fn)
+    {
+        keyMapModified = true;
+        keyPieces[index].ClearScanCode(fn);
+    }
+
+    protected override void WndProc(ref Message msg)
+    {
+        if ( currentPieceIndex &lt; keyPieces.Count ) {
+            if ( msg.Msg == WM_KEYDOWN || msg.Msg == WM_SYSKEYDOWN ) {
+                // https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-keydown
+                // ScanCode は lParam の 16～23 bit
+                // Extended flag は lParam の 24 bit
+                uint lparam = (uint)msg.LParam;
+                ushort scanCode = (ushort)((((lparam&gt;&gt;24)&amp;1)*0xE000) | ((lparam&gt;&gt;16) &amp; 0x00FF));
+                Console.WriteLine("0x"+scanCode.ToString("X4"));
+                MySetScanCode(currentPieceIndex, scanCode, dealAsFnPressed);
+
+                DrawKeyLayoout();
+                return;
+            }
+            else if ( msg.Msg == WM_KEYUP || msg.Msg == WM_SYSKEYUP ) {
+                IncrementCurrentKey();
+                DrawKeyLayoout();
+                return;
+            }
+        }
+        base.WndProc(ref msg);
+    }
+
+    bool IsFnKey(int index)
+    {
+        if ( index &lt; 0 || index &gt;= keyPieces.Count ) {
+            return false;
+        }
+        return keyPieces[index].DispName == "Fn";
+    }
+
+    void IncrementCurrentKey()
+    {
+        if ( currentPieceIndex &lt; keyPieces.Count ) {
+            currentPieceIndex++;
+            if ( currentPieceIndex &lt; keyPieces.Count ) {
+                if ( IsFnKey(currentPieceIndex) ) {
+                    // skip "Fn" key
+                    currentPieceIndex++;
+                }
+            }
+        }
+    }
+
+    void DrawKeyLayoout()
+    {
+        pct.Image = new Bitmap(pct.Width, pct.Height);
+        Graphics g = Graphics.FromImage(pct.Image);
+        Pen penCurrent = new Pen(Color.Blue, 3.0f);
+
+        for ( int i=0 ; i&lt;keyPieces.Count ; i++ ) {
+            KeyPiece piece = keyPieces[i];
+            Rectangle rect = GetRectangle(piece);
+
+            if ( IsFnKey(i) ) {
+                g.FillRectangle(dealAsFnPressed ? Brushes.Red:Brushes.LightGray, rect);
+                g.DrawRectangle(Pens.Black, rect);
+                g.DrawString(piece.DispName, this.Font, Brushes.Black, rect.X+1, rect.Y+2);
+            }
+            else {
+                g.FillRectangle((i==currentPieceIndex)?Brushes.Yellow:Brushes.White, rect);
+                g.DrawRectangle((i==currentPieceIndex)?penCurrent:Pens.Black, rect);
+                g.DrawString(piece.DispName, this.Font, Brushes.Black, rect.X+1, rect.Y+2);
+                if ( !piece.IsEmptyScanCode ) {
+                    g.DrawString(piece.ScanCode.ToString("X2"), this.Font, Brushes.Blue, rect.X+3, rect.Y+12);
+                }
+                if ( !piece.IsEmptyScanCodeFn &amp;&amp; piece.ScanCode != piece.ScanCodeFn ) {
+                    g.DrawString(piece.ScanCodeFn.ToString("X2"), this.Font, Brushes.Red, rect.X+3, rect.Y+22);
+                }
+            }
+        }
+        g.Dispose();
+    }
+
+    int HitTest(Point p)
+    {
+        for ( int i=0 ; i&lt;keyPieces.Count ; i++ ) {
+            KeyPiece piece = keyPieces[i];
+            Rectangle rect = GetRectangle(piece);
+            if ( rect.Contains(p) ) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    void Pct_MouseDown(object sender, MouseEventArgs e)
+    {
+        if ( e.Button == MouseButtons.Left ) {
+            int index = HitTest(e.Location);
+            if ( index &gt;= 0 ) {
+                if ( IsFnKey(index) ) {
+                    dealAsFnPressed = !dealAsFnPressed;
+                }
+                else {
+                    currentPieceIndex = index;
+                }
+            }
+            else {
+                currentPieceIndex = keyPieces.Count; // 範囲外を設定する
+            }
+            DrawKeyLayoout();
+        }
+        else if ( e.Button == MouseButtons.Right ) {
+            int index = HitTest(e.Location);
+            if ( index &gt;= 0 ) {
+                if ( IsFnKey(index) ) {
+                    dealAsFnPressed = !dealAsFnPressed;
+                }
+                else {
+                    MyClearScanCode(index, dealAsFnPressed);
+                    currentPieceIndex = index;
+                }
+            }
+            else {
+                currentPieceIndex = keyPieces.Count; // 範囲外を設定する
+            }
+            DrawKeyLayoout();
+        }
+    }
+
+
+    string[] ReadKeyLayoutFile()
+    {
+        string[] lines = null;
+
+        {
+            // 雑だが例外処理でファイル有無も併せて判定していく
+            try {
+                lines = File.ReadAllLines(keyLayoutFileNameUTF8);
+            }
+            catch ( FileNotFoundException ) {
+            }
+            catch ( IOException e ) {
+                MessageBox.Show(e.ToString());
+                return null;
+            }
+        }
+
+        if ( lines == null ) {
+            try {
+                lines = File.ReadAllLines(keyLayoutFileNameSJIS, System.Text.Encoding.GetEncoding("Shift_JIS"));
+            }
+            catch ( FileNotFoundException ) {
+                MessageBox.Show("Cannot find " + keyLayoutFileNameUTF8 + " or " + keyLayoutFileNameSJIS);
+                return null;
+            }
+            catch ( IOException e ) {
+                MessageBox.Show(e.ToString());
+                return null;
+            }
+        }
+
+        if ( lines == null ) {
+            MessageBox.Show("Unexpected error occured.");
+            return null;
+        }
+        return lines;
+    }
+
+
+    bool SaveKeyMapFile()
+    {
+        StringBuilder sb = new StringBuilder();
+
+        for ( int i = 0 ; i&lt;keyPieces.Count ; i++ ) {
+            KeyPiece piece = keyPieces[i];
+            sb.Append(i.ToString());
+            sb.Append(" ");
+            if ( piece.IsEmptyScanCode ) {
+                sb.Append("undefi");
+            }
+            else {
+                sb.Append("0x"+piece.ScanCode.ToString("X4"));
+            }
+            sb.Append(" ");
+            if ( piece.IsEmptyScanCodeFn ) {
+                sb.Append("undefi");
+            }
+            else {
+                sb.Append("0x"+piece.ScanCodeFn.ToString("X4"));
+            }
+            sb.Append(" ");
+            sb.Append(piece.TagName);
+            sb.Append("\r\n");
+        }
+
+        try {
+            File.WriteAllText(keyMapOutputFileName, sb.ToString());
+            keyMapModified = false;
+            return true;
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+    }
+
+    bool LoadKeyMapFile()
+    {
+        string[] lines = null;
+
+        try {
+            lines = File.ReadAllLines(keyMapOutputFileName);
+        }
+        catch ( FileNotFoundException ) {
+            return false;
+        }
+        catch ( IOException e ) {
+            MessageBox.Show(e.ToString());
+            return false;
+        }
+
+        if ( lines == null ) {
+            MessageBox.Show("Unexpected error occured.");
+            return false;
+        }
+
+        // 長さのガードを入れるべきだが面倒なのでそのまま
+        Regex r = new Regex(@"^([0-9]+) (undefi|0x[0-9A-Fa-f]+) (undefi|0x[0-9A-Fa-f]+) ([\x21-\x5a\x5c\x5e-\x7e]+)$");
+        foreach ( string s in lines ) {
+            if ( s.Trim() == String.Empty ) {
+                continue;
+            }
+
+            Match m = r.Match(s);
+            if ( m.Success ) {
+                int index = Convert.ToInt32(m.Groups[1].Value);
+                string tmpScanCode   = m.Groups[2].Value;
+                string tmpScanCodeFn = m.Groups[3].Value;
+                string tagName       = m.Groups[4].Value;
+
+                if ( index &gt;= keyPieces.Count ) {
+                    return false;
+                }
+                if ( keyPieces[index].TagName != tagName ) {
+                    return false;
+                }
+
+                if ( tmpScanCode.StartsWith("0x") ) {
+                    ushort scanCode = (ushort)Convert.ToInt32(tmpScanCode, 16);
+                    keyPieces[index].SetScanCode(scanCode, false);
+                }
+                else {
+                    keyPieces[index].ClearScanCode(false);
+                }
+
+                if ( tmpScanCodeFn.StartsWith("0x") ) {
+                    ushort scanCodeFn = (ushort)Convert.ToInt32(tmpScanCodeFn, 16);
+                    keyPieces[index].SetScanCode(scanCodeFn, true);
+                }
+                else {
+                    keyPieces[index].ClearScanCode(true);
+                }
+            }
+            else{
+                Console.WriteLine("unmatch \""+s+"\"");
+                //return false;
+            }
+        }
+        keyMapModified = false;
+        return true;
+    }
+
+
+    [STAThread]
+    static void Main()
+    {
+        Application.Run(new KeyLayoutForm());
+    }
+}
+

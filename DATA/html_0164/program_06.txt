@@ -1,0 +1,313 @@
+
+/// &lt;summary&gt;
+/// Kafka からのメッセージを監視します。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TKey"&gt;メッセージのキーの型&lt;/typeparam&gt;
+/// &lt;typeparam name="TMessage"&gt;メッセージの型&lt;/typeparam&gt;
+public class MessageSubscriber&lt;TKey, TMessage&gt; : System.Reactive.ObservableBase&lt;TMessage&gt;
+{
+    /// &lt;summary&gt;
+    /// インスタンスを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="keyDeserializer"&gt;キーに対するデシリアライザ&lt;/param&gt;
+    /// &lt;param name="messageDeserializer"&gt;メッセージに対するデシリアライザ&lt;/param&gt;
+    /// &lt;param name="subscriberSetting"&gt;動作設定&lt;/param&gt;
+    /// &lt;param name="topic"&gt;トピック&lt;/param&gt;
+    /// &lt;param name="logger"&gt;ロガー&lt;/param&gt;
+    public MessageSubscriber(IDeserializer&lt;TKey&gt; keyDeserializer, IDeserializer&lt;TMessage&gt; messageDeserializer, MessageSubscriberSetting subscriberSetting, string topic, ILogger logger) : base()
+    {
+        KeyDeserializer = keyDeserializer;
+        MessageDeserializer = messageDeserializer;
+        SubscriberSetting = subscriberSetting;
+        Topic = topic;
+        Logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+    }
+
+    /// &lt;summary&gt;
+    /// ロガーを取得します。
+    /// &lt;/summary&gt;
+    private ILogger Logger { get; }
+
+    /// &lt;summary&gt;
+    /// 動作設定を取得します。
+    /// &lt;/summary&gt;
+    private MessageSubscriberSetting SubscriberSetting { get; }
+
+    /// &lt;summary&gt;
+    /// トピックを取得します。
+    /// &lt;/summary&gt;
+    private string Topic { get; }
+
+    #region 受信
+
+    /// &lt;summary&gt;
+    /// キーに対するデシリアライザを取得します。
+    /// &lt;/summary&gt;
+    private IDeserializer&lt;TKey&gt; KeyDeserializer { get; }
+
+    /// &lt;summary&gt;
+    /// メッセージに対するデシリアライザを取得します。
+    /// &lt;/summary&gt;
+    private IDeserializer&lt;TMessage&gt; MessageDeserializer { get; }
+
+    /// &lt;summary&gt;
+    /// メッセージ受信を開始します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="cancellation"&gt;キャンセルトークン&lt;/param&gt;
+    public Task SubscribeAsync(CancellationToken cancellation)
+    {
+        Task.Yield();
+
+        TimeSpan interval = SubscriberSetting.ConsumeInterval;
+
+        using var consumer = BuildConsumer(GetConsumerConfig(SubscriberSetting));
+        consumer.Subscribe(Topic);
+
+        while (true)
+        {
+            if (cancellation.IsCancellationRequested) { break; }
+            try
+            {
+                if (m_Observers.Count == 0) { continue; }
+
+                ConsumeResult&lt;TKey, TMessage&gt; result = consumer.Consume(interval);
+
+                if (result == null) { continue; }
+                // TODO: 今回の確認では IsPartitionEOF を発生させることができなかった。
+                if (result.IsPartitionEOF) { continue; }
+
+                WriteLog(LogLevel.Debug, () =&gt; BuildLogMessage(result));
+                NotifyMessage(result.Message.Value);
+
+                consumer.Commit(result);
+            }
+            catch (Exception ex)
+            {
+                OnException(consumer, ex);
+                break;
+            }
+        }
+
+        NotifyComplated();
+
+        return Task.CompletedTask;
+    }
+
+    /// &lt;summary&gt;
+    /// コンシューマーを生成します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="config"&gt;動作設定&lt;/param&gt;
+    /// &lt;returns&gt;コンシューマー&lt;/returns&gt;
+    protected IConsumer&lt;TKey, TMessage&gt; BuildConsumer(IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; config)
+    {
+        var consumerBuilder = new ConsumerBuilder&lt;TKey, TMessage&gt;(config)
+            .SetKeyDeserializer(KeyDeserializer)
+            .SetValueDeserializer(MessageDeserializer)
+            .SetErrorHandler(OnError)
+            .SetLogHandler(OnLogging)
+            ;
+
+        return consumerBuilder.Build();
+    }
+
+    /// &lt;summary&gt;
+    /// コンシューマーの動作設定を取得します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="consumerSetting"&gt;コンシューマーの動作設定&lt;/param&gt;
+    /// &lt;returns&gt;動作設定のキーと値の組み合わせ&lt;/returns&gt;
+    protected IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; GetConsumerConfig(MessageSubscriberSetting consumerSetting)
+    {
+        if (consumerSetting.BootstrapServers == null || consumerSetting.BootstrapServers == "")
+        {
+            throw new NullReferenceException("ブートストラップサーバーが設定されていません。");
+        }
+
+        if (consumerSetting.ConsumerGroupID == null || consumerSetting.ConsumerGroupID == "")
+        {
+            throw new NullReferenceException("コンシューマーグループIDが設定されていません。");
+        }
+
+        return new ConsumerConfig()
+        {
+            BootstrapServers = consumerSetting.BootstrapServers,
+            GroupId = consumerSetting.ConsumerGroupID,
+            EnableAutoCommit = false,
+            AutoOffsetReset = AutoOffsetReset.Earliest
+        };
+    }
+
+    /// &lt;summary&gt;
+    /// ログを出力します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="consumer"&gt;&lt;/param&gt;
+    /// &lt;param name="log"&gt;&lt;/param&gt;
+    private void OnLogging(IConsumer&lt;TKey, TMessage&gt; consumer, LogMessage log)
+    {
+        LogLevel logLevel = log.Level.ToLogLevel();
+        WriteLog(logLevel, () =&gt; BuildLogMessage(log));
+    }
+
+    /// &lt;summary&gt;
+    /// エラーが発生したときの処理を行います。
+    /// &lt;/summary&gt;
+    /// &lt;param name="consumer"&gt;&lt;/param&gt;
+    /// &lt;param name="error"&gt;&lt;/param&gt;
+    private void OnError(IConsumer&lt;TKey, TMessage&gt; consumer, Error error)
+    {
+        WriteLog(LogLevel.Error, () =&gt; BuildLogMessage(error));
+        NotifyError(new Exception(error.Reason));
+    }
+
+    /// &lt;summary&gt;
+    /// 例外が発生したときの処理を行います。
+    /// &lt;/summary&gt;
+    /// &lt;param name="consumer"&gt;&lt;/param&gt;
+    /// &lt;param name="exception"&gt;&lt;/param&gt;
+    private void OnException(IConsumer&lt;TKey, TMessage&gt; consumer, Exception exception)
+    {
+        WriteLog(LogLevel.Critical, () =&gt; BuildLogMessage(exception), exception);
+        NotifyError(exception);
+    }
+
+    #endregion
+
+    #region 通知
+
+    /// &lt;summary&gt;
+    /// 指定されたメッセージを通知します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="message"&gt;メッセージ&lt;/param&gt;
+    private void NotifyMessage(TMessage message)
+    {
+        if (m_Observers.Count == 0) { return; }
+        lock (m_Observers)
+        {
+            for (int i = 0; i &lt; m_Observers.Count; ++i)
+            {
+                m_Observers[i].OnNext(message);
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 指定されたメッセージを通知します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="exception"&gt;例外&lt;/param&gt;
+    private void NotifyError(Exception exception)
+    {
+        if (m_Observers.Count == 0) { return; }
+        lock (m_Observers)
+        {
+            for (int i = 0; i &lt; m_Observers.Count; ++i)
+            {
+                m_Observers[i].OnError(exception);
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 完了を通知します。
+    /// &lt;/summary&gt;
+    private void NotifyComplated()
+    {
+        if (m_Observers.Count == 0) { return; }
+        lock (m_Observers)
+        {
+            for (int i = 0; i &lt; m_Observers.Count; ++i)
+            {
+                m_Observers[i].OnCompleted();
+            }
+        }
+    }
+
+    #endregion
+
+    #region オブザーバー
+
+    /// &lt;summary&gt;
+    /// 指定されたオブザーバーによる購読を開始します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="observer"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    protected override IDisposable SubscribeCore(IObserver&lt;TMessage&gt; observer)
+    {
+        AddObserver(observer);
+        return System.Reactive.Disposables.Disposable.Create(() =&gt; RemoveObserver(observer));
+    }
+
+    private readonly List&lt;IObserver&lt;TMessage&gt;&gt; m_Observers = new List&lt;IObserver&lt;TMessage&gt;&gt;();
+
+    /// &lt;summary&gt;
+    /// 指定されたオブザーバーを追加します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="observer"&gt;&lt;/param&gt;
+    private void AddObserver(IObserver&lt;TMessage&gt; observer)
+    {
+        lock (m_Observers)
+        {
+            m_Observers.Add(observer);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 指定されたオブザーバーを削除します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="observer"&gt;&lt;/param&gt;
+    private void RemoveObserver(IObserver&lt;TMessage&gt; observer)
+    {
+        if (m_Observers.Contains(observer))
+        {
+            lock (m_Observers)
+            {
+                m_Observers.Remove(observer);
+            }
+        }
+    }
+
+    #endregion
+
+    #region ロギング
+
+    /// &lt;summary&gt;
+    /// 指定されたログを出力します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="level"&gt;ログレベル&lt;/param&gt;
+    /// &lt;param name="messageBuilder"&gt;ログメッセージを生成するメソッド&lt;/param&gt;
+    /// &lt;param name="exception"&gt;例外&lt;/param&gt;
+    private void WriteLog(LogLevel level, Func&lt;string&gt; messageBuilder, Exception? exception = null)
+    {
+        if (!Logger.IsEnabled(level)) { return; }
+
+        if (exception == null)
+        {
+            Logger.Log(level, messageBuilder());
+        }
+        else
+        {
+            Logger.Log(level, exception, messageBuilder());
+        }
+    }
+
+    private string BuildLogMessage(ConsumeResult&lt;TKey, TMessage&gt; result)
+    {
+        return $"メッセージを受け取りました。[{result.Topic}:{result.Offset}] {result.Message.Value}";
+    }
+
+    private string BuildLogMessage(LogMessage log)
+    {
+        return log.Message;
+    }
+
+    private string BuildLogMessage(Error error)
+    {
+        return error.Reason;
+    }
+
+    private string BuildLogMessage(Exception exception)
+    {
+        return exception.Message;
+    }
+
+    #endregion
+}
+

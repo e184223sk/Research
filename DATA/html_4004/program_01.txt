@@ -1,0 +1,82 @@
+
+using System;
+using System.IO;
+using System.Media;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+namespace GenerateWave
+{
+    [StructLayout(LayoutKind.Sequential)]
+    class WaveFileHeader
+    {
+        public uint riff_ckid = 0x46464952;    // "RIFF"
+        public uint riff_cksize;
+        public uint fccType = 0x45564157;      // "WAVE"
+        public uint fmt_ckid = 0x20746d66;     // "fmt "
+        public uint fmt_cksize = 16;
+        public ushort wFormatTag = 0x0001;     // WAVE_FORMAT_PCM
+        public ushort nChannels;
+        public uint nSamplesPerSec;
+        public uint nAvgBytesPerSec;
+        public ushort nBlockAlign;
+        public ushort wBitsPerSample;
+        public uint data_ckid = 0x61746164;    // "data"
+        public uint data_cksize;
+    }
+
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            const uint sampleRate = 48000;  // サンプリング周波数
+
+            // 波形データの生成
+            uint wavelen = sampleRate / 2;
+            byte[] wave = new byte[wavelen];
+
+            double t = 0;
+            for (uint i = 0; i &lt; wavelen; i++)
+            {
+                double freq = (i &lt; wavelen / 2) ? 2000 : 1000;
+                t = (t + freq / sampleRate) % 1;
+                wave[i] = (byte)(128 + (t &lt; 0.5 ? 1 : -1) * 10);
+            }
+
+            // WAVEファイルヘッダ
+            var wfh = new WaveFileHeader();
+
+            wfh.nChannels = 1;
+            wfh.nSamplesPerSec = sampleRate;
+            wfh.nAvgBytesPerSec = sampleRate;
+            wfh.nBlockAlign = 1;
+            wfh.wBitsPerSample = 8;
+
+            wfh.riff_cksize = 36 + wavelen;
+            wfh.data_cksize = wavelen;
+
+            //using (FileStream stream = new FileStream(@"c:\tmp\hoge.wav", FileMode.Create))
+            using (MemoryStream stream = new MemoryStream())
+            {
+                FieldInfo[] infos = typeof(WaveFileHeader).GetFields();
+                foreach (FieldInfo info in infos)
+                {
+                    byte[] ba = BitConverter.GetBytes(Convert.ToUInt32(info.GetValue(wfh)));
+                    stream.Write(ba, 0, Marshal.SizeOf(info.FieldType));
+                }
+                stream.Write(wave, 0, wave.Length);
+
+                stream.Seek(0, SeekOrigin.Begin);
+                var player = new SoundPlayer(stream);
+                player.Play();
+            }
+        }
+    }
+}
+

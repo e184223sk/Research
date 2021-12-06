@@ -1,0 +1,336 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows.Forms;
+
+
+class MainForm:Form
+{
+    ToolTip toolTip;
+    SplitContainer spl;
+    PictureBox pct;
+    NumericUpDown nudZoom;
+    TrackBar barBackColorWhiteness;
+    Bitmap bmpOrg;
+
+    const int THRESH = 10;
+    const byte FILLED = 1; // 塗りつぶし済みマーク用の値
+
+    // ToDo: RBGより他の色体系を使った方が画像が綺麗にできそう
+
+    // thre &gt;= 0
+    static bool IsToBeFilled(Color tgt, Color c, int thre)
+    {
+        int dr = (int)tgt.R - (int)c.R;
+        int dg = (int)tgt.G - (int)c.G;
+        int db = (int)tgt.B - (int)c.B;
+
+        return ( -thre &lt;= dr &amp;&amp; dr &lt;= thre &amp;&amp;
+                 -thre &lt;= dg &amp;&amp; dg &lt;= thre &amp;&amp;
+                 -thre &lt;= db &amp;&amp; db &lt;= thre ) ;
+    }
+
+    // 次にscanすべき線分を探して登録する
+    unsafe static void ScanLine( Stack&lt;Point&gt; stack, byte* ptr, int lx, int rx, int y, Color tgtColor, int thre)
+    {
+        bool continuousPixel = false;
+        for ( int x=lx ; x&lt;=rx ; x++ ) {
+            Color curColor = GetColor32bit(ptr + 4*x);
+            if ( IsToBeFilled(tgtColor, curColor, thre) ) {
+                if (!continuousPixel) {
+                    stack.Push(new Point(x,y));
+                    continuousPixel = true;
+                }
+            }
+            else {
+                continuousPixel = false;
+            }
+        }
+    }
+
+    unsafe static Color GetColor32bit(byte* ptr)
+    {
+        return Color.FromArgb(ptr[3],ptr[2],ptr[1],ptr[0]);
+    }
+
+    static Bitmap Fill32bppBitmapToData(Bitmap bmp, Point startPoint, int thre)
+    {
+        if ( startPoint.X&lt;0 || startPoint.X&gt;=bmp.Width ||
+             startPoint.Y&lt;0 || startPoint.Y&gt;=bmp.Height ) {
+            return bmp;
+        }
+
+        var stack = new Stack&lt;Point&gt;();
+        byte[,] fillMark = new byte[bmp.Width, bmp.Height];
+
+        BitmapData bdSrc  = bmp.LockBits(new Rectangle(0,0,bmp.Width,bmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        Bitmap bmpDest = null;
+
+        try {
+            bmpDest = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppArgb); // PixelFormat.Format32bppArgbのbitmapを作るため
+            BitmapData bdDest = bmpDest.LockBits(new Rectangle(0,0,bmpDest.Width,bmpDest.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            try {
+                unsafe {
+                    byte* ptr = (byte*)bdSrc.Scan0;
+                    Color targetColor = GetColor32bit( ptr + startPoint.Y*bdSrc.Stride + 4*startPoint.X );
+
+                    stack.Push(startPoint);
+
+                    while ( stack.Count &gt; 0 ) {
+                        Point curP = stack.Pop();
+                        if ( fillMark[curP.X, curP.Y] == FILLED ) {continue;}
+
+                        int lx = curP.X;
+                        int rx = curP.X;
+
+                        for (int x = curP.X+1; x&lt;bmp.Width; x++) {
+                            Color curColor = GetColor32bit(ptr + curP.Y*bdSrc.Stride + 4*x);
+
+                            if ( IsToBeFilled(targetColor, curColor, thre) ) {
+                                fillMark[x, curP.Y] = FILLED;
+                            }
+                            else{
+                                break;
+                            }
+                            rx = x;
+                        }
+                        for (int x = curP.X; x&gt;=0; x--) {
+                            Color curColor = GetColor32bit(ptr + curP.Y*bdSrc.Stride + 4*x);
+
+                            if ( IsToBeFilled(targetColor, curColor, thre) ) {
+                                fillMark[x, curP.Y] = FILLED;
+                            }
+                            else{
+                                break;
+                            }
+                            lx = x;
+                        }
+
+                        if ( curP.Y &gt; 0 ) {
+                            ScanLine( stack, ptr + (curP.Y-1) * bdSrc.Stride, lx, rx, curP.Y-1, targetColor, thre);
+                        }
+                        if ( curP.Y &lt; bmp.Height - 1 ) {
+                            ScanLine( stack, ptr + (curP.Y+1) * bdSrc.Stride, lx, rx, curP.Y+1, targetColor, thre);
+                        }
+                    }
+
+
+                    // 書き込み
+                    byte* ptrDest = (byte*)bdDest.Scan0;
+                    for ( int y=0 ; y&lt;bmp.Height ; y++ ) {
+                        for ( int x=0 ; x&lt;bmp.Width ; x++ ) {
+                            ptrDest[y*bdDest.Stride + 4*x    ] = ptr[y*bdSrc.Stride + 4*x    ];
+                            ptrDest[y*bdDest.Stride + 4*x + 1] = ptr[y*bdSrc.Stride + 4*x + 1];
+                            ptrDest[y*bdDest.Stride + 4*x + 2] = ptr[y*bdSrc.Stride + 4*x + 2];
+                            if ( fillMark[x,y] == FILLED ) {
+                                ptrDest[y*bdDest.Stride + 4*x + 3] = 0;// alpha = 0 (透過)
+                            }
+                            else {
+                                ptrDest[y*bdDest.Stride + 4*x + 3] = ptr[y*bdSrc.Stride + 4*x + 3];
+                            }
+                        }
+                    }
+                }
+            }
+            finally {
+                bmpDest.UnlockBits(bdDest);
+            }
+        }
+        finally {
+            bmp.UnlockBits(bdSrc);
+        }
+
+        // for debug
+        // bmpDest.Save("test.png", System.Drawing.Imaging.ImageFormat.Png);
+
+        return bmpDest;
+    }
+
+
+    MainForm(string file)
+    {
+        toolTip = new ToolTip();
+        var menu = new MenuStrip();
+
+        var menuItemFile = new ToolStripMenuItem("&amp;File");
+        menu.Items.Add(menuItemFile);
+        var menuItemFileOpen = new ToolStripMenuItem("Open ...", null, (sender,e)=&gt;FileOpen(), "FileOpen");
+        menuItemFile.DropDownItems.Add(menuItemFileOpen);
+        var menuItemFileSaveAs = new ToolStripMenuItem("SaveAs ...", null, (sender,e)=&gt;FileSaveAs(), "FileSaveAs");
+        menuItemFile.DropDownItems.Add(menuItemFileSaveAs);
+
+        var menuItemEdit = new ToolStripMenuItem("&amp;Edit");
+        menu.Items.Add(menuItemEdit);
+        var menuItemEditPaste = new ToolStripMenuItem("Paste from clipboard", null, (sender,e)=&gt;PasteFromClipboard(), "EditPaste");
+        menuItemEdit.DropDownItems.Add(menuItemEditPaste);
+        var menuItemEditCopy = new ToolStripMenuItem("Copy to clipboard", null, (sender,e)=&gt;CopyToClipboard(), "EditCopy");
+        menuItemEdit.DropDownItems.Add(menuItemEditCopy);
+
+        Controls.Add(menu);
+
+
+        spl = new SplitContainer();
+        spl.Location = new Point(0, 30);
+//        spl.Dock = DockStyle.Fill;
+        spl.Orientation = Orientation.Horizontal;
+        Controls.Add(spl);
+
+
+        nudZoom = new NumericUpDown();
+        nudZoom.Maximum = 10;
+        nudZoom.Value   = 2;
+        nudZoom.Minimum = 1;
+        nudZoom.ValueChanged += (sender,e)=&gt;{RedrawPct();};
+        nudZoom.Width = 50;
+        toolTip.SetToolTip(nudZoom, "Zoom");
+        spl.Panel1.Controls.Add(nudZoom);
+
+        barBackColorWhiteness = new TrackBar();
+        barBackColorWhiteness.Location = new Point(60,0);
+        barBackColorWhiteness.Maximum = 255;
+        barBackColorWhiteness.Value   = 255;
+        barBackColorWhiteness.Minimum = 0;
+        barBackColorWhiteness.TickFrequency = 51;
+        barBackColorWhiteness.ValueChanged += (sender,e)=&gt;{RedrawPct();};
+        toolTip.SetToolTip(barBackColorWhiteness, "Background Color Whiteness");
+        spl.Panel1.Controls.Add(barBackColorWhiteness);
+
+
+        bmpOrg = new Bitmap(10,10,PixelFormat.Format32bppArgb); // dummy to avoid null
+        try {
+            bmpOrg = (Bitmap)Bitmap.FromFile(file);
+        }
+        catch (IOException){
+        }
+
+        pct = new PictureBox();
+        pct.Dock = DockStyle.Fill;
+        spl.Panel2.Controls.Add(pct);
+
+        spl.IsSplitterFixed = true;
+
+        RedrawPct();
+
+        pct.MouseDown += Pct_MouseDown;
+        Resize += Form_Resize;
+        ResizeEnd += Form_Resize;
+        Load += Form_Resize;
+    }
+
+
+
+    void Form_Resize(object sender, EventArgs e)
+    {
+        int h = ClientSize.Height - spl.Top;
+        spl.Size = new System.Drawing.Size(ClientSize.Width, (h&gt;1)?h:1);
+        spl.SplitterDistance = barBackColorWhiteness.Bottom;
+    }
+
+    void Pct_MouseDown(object sender, MouseEventArgs e)
+    {
+        int zoom = (int)nudZoom.Value;
+        Point p = new Point(e.X/zoom, e.Y/zoom);
+        bmpOrg = Fill32bppBitmapToData(bmpOrg, p, 10);
+        RedrawPct();
+    }
+
+    void RedrawPct()
+    {
+        int zoom = (int)nudZoom.Value;
+        int bgc = (int)barBackColorWhiteness.Value;
+        Bitmap bmp = new Bitmap(bmpOrg.Width*zoom, bmpOrg.Height*zoom, PixelFormat.Format32bppArgb);
+        Graphics g = Graphics.FromImage(bmp);
+        g.Clear(Color.FromArgb(bgc,bgc,bgc));
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+        g.DrawImage(bmpOrg, 0, 0, bmp.Width, bmp.Height);
+        pct.Image = bmp;
+    }
+
+
+
+    void FileOpen()
+    {
+        var dlg = new OpenFileDialog();
+        // dlg.FileName = "xxx.png";
+        // dlg.InitialDirectory = @"C:\";
+        dlg.Filter = "Image file(*.png;*.bmp)|*.png;*.bmp|All file(*.*)|*.*";
+        dlg.FilterIndex = 1;
+        dlg.Title = "Select file to open";
+        dlg.RestoreDirectory = true;
+        // dlg.CheckFileExists = true;
+        // dlg.CheckPathExists = true;
+
+        if ( dlg.ShowDialog() == DialogResult.OK ) {
+            Bitmap tmp = null;
+            try {
+                tmp = (Bitmap)Bitmap.FromFile(dlg.FileName);
+            }
+            catch (OutOfMemoryException e) {  MessageBox.Show(e.ToString()); }
+            catch (FileNotFoundException e) { MessageBox.Show(e.ToString()); }
+            catch (InvalidCastException e) {  MessageBox.Show(e.ToString()); }
+
+            if ( tmp != null ) {
+                bmpOrg = tmp;
+                RedrawPct();
+            }
+        }
+    }
+    void FileSaveAs()
+    {
+        SaveFileDialog dlg = new SaveFileDialog();
+
+        dlg.FileName = "test.png";
+        //dlg.InitialDirectory = @"C:\";
+        dlg.Filter = "PNG file(*.png)|*.png";
+        dlg.FilterIndex = 1;
+        dlg.Title = "Select file name to save";
+        dlg.RestoreDirectory = true;
+        //dlg.OverwritePrompt = true;
+        //dlg.CheckPathExists = true;
+
+        if ( dlg.ShowDialog() == DialogResult.OK ) {
+            bmpOrg.Save(dlg.FileName, System.Drawing.Imaging.ImageFormat.Png);
+        }
+    }
+    void CopyToClipboard()
+    {
+        Clipboard.SetImage(bmpOrg);
+    }
+    void PasteFromClipboard()
+    {
+        Bitmap tmp = null;
+        try {
+            tmp = (Bitmap)(Image)Clipboard.GetData(DataFormats.Bitmap);
+        }
+        catch (Exception e) {
+            MessageBox.Show(e.ToString());
+        }
+
+        if ( tmp != null ) {
+            bmpOrg = tmp;
+            RedrawPct();
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new MainForm("testin.bmp"));
+    }
+}
+
+

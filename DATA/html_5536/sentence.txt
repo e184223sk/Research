@@ -1,0 +1,16 @@
+More than 3 years have passed since last update.シリアル通信中、相手がいつ送信してくるかわからない場合、受信処理は一定時間で終了してほしい。
+しかし、UWPのシリアル通信に用意されているメソッドをそのまま使用するとそれがかなわない。
+この問題の回避策を述べる。この問題はRaspberry Pi 3 + Windows IoTの環境でおきた。
+環境が異なると状況も違うかもしれない。SerialDeviceクラスを使用してデータを受信する場合、このオブジェクトのInputStreamプロパティを使用して、Windows.Storage.Streams.DataReaderオブジェクトを生成する。
+その後、DataReaderオブジェクトのLoadAsyncメソッドを呼び出すことになるのだが、このメソッドが返すTaskオブジェクトは、実際にデータの受信がおこなわれるまで終了しない。
+たとえ、したとしても。以下がタイムアウトが働かないコード。このLoadAsyncはデータを1バイト以上受信するまで、いつまでたっても終わらない。そこで、CancellationTokenSourceを使用して、LoadAsyncのタスクを中断するようにする。これで受信できなかった場合はタイムアウトするようになる。
+CancellationTokenSourceに与える時間が、SerialDevice.ReadTimeoutよりも大きいことに注意してほしい。DataReader.LoadAsync(uint)は、という動作をする。ReadTimeoutはタイムアウトというよりも受信固定時間なのだ。そのため、CancellationTokenSourceを使用してLoadAsyncのタスクを終了させる場合、データを受信しつつあるLoadAsyncを中断してしまわないよう、SerialDevice.ReadTimeoutよりも長い時間で中断するようにしたほうがよい。ここで説明した方法では例外を使用することになる。
+ご存知のとおり、例外というものは時間的コストがかかる、非常に重い処理のうちの一つである。として実行したところ、何も受信しなかった場合、受信処理に200msから350msを要した。
+(何か受信できる場合は、10msで処理が終了する)
+単純に考えて、受信開始から例外発生までの60msを除いた140msから290msが例外を処理している時間になる。常に相手側からの送信を待ちうけてこちらからはその返信しかしない場合を除けば、受信から送信まで100msや200ms程度のレスポンスを保つことは不可能ということになる。
+他にタイムアウトを適用した受信を可能とする方法があるのであれば話は変わるのだが。SerialDevice.ReadTimeout not working
+https://social.msdn.microsoft.com/Forums/en-US/7b9fa7b5-55a8-490d-ab71-ea3bcf047826/serialdevicereadtimeout-not-working?forum=WindowsIoT
+Unable to use SerialDevice.ReadTimeout in Windows 10 IoT
+https://stackoverflow.com/questions/32157918/unable-to-use-serialdevice-readtimeout-in-windows-10-iot
+
+

@@ -1,0 +1,37 @@
+static async Task Main(string[] args)
+{
+    IServiceCollection services = new ServiceCollection();
+    services.AddLogging(builder =&gt;
+    {
+        // ログのフィルタを構成
+        builder.AddFilter&lt;Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider&gt;("", LogLevel.Information);
+    });
+    services.AddApplicationInsightsTelemetryWorkerService("&lt;Replace with your instrumentation key&gt;");
+
+    // テレメトリチャネルをInMemoryChannelに設定
+    services.Configure&lt;TelemetryConfiguration&gt;(
+        (config) =&gt; { config.TelemetryChannel = new InMemoryChannel(); });
+
+    // サービスプロバイダーを構築
+    IServiceProvider serviceProvider = services.BuildServiceProvider();
+    // Loggerを取得
+    ILogger&lt;Program&gt; logger = serviceProvider.GetRequiredService&lt;ILogger&lt;Program&gt;&gt;();
+    // テレメトリクライアントを取得
+    var telemetryClient = serviceProvider.GetRequiredService&lt;TelemetryClient&gt;();
+
+    try
+    {
+        logger.LogInformation("Program start.");
+        await DoWork();
+        logger.LogInformation("Program end.");
+    }
+    catch (Exception e)
+    {
+        logger.LogError(e, "Program error!");
+    }
+    finally
+    {
+        telemetryClient.Flush();
+    }
+}
+

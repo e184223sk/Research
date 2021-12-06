@@ -1,0 +1,533 @@
+
+using NUnit.Framework;
+
+using System;
+using System.IO;
+using System.Collections.Immutable;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+using GenSyntaxTestHelpers;
+using SemSymbols;
+
+namespace GenTypeInitializationTests
+{
+    public class GenTypeInitializationTest {
+        [SetUp]
+        public void Setup()
+        {
+        }
+
+        private static readonly string IntfSource1 = @"
+        namespace SemModels {
+            public interface IColorDao1 {
+                ColorData? FindById(int id);
+            }
+        }            
+        ";
+        private static readonly string EntitySource1 = @"
+        namespace SemModels {
+            public readonly struct ColorData {
+                public int Id { get; }
+                public string Name { get; }
+                public int Red { get; }
+                public int Green { get; }
+                public int Blue { get; }
+
+                public ColorData(int id, string name, int red = default, int green = default, int blue = default) =&gt; 
+                    (Id, Name, Red, Green, Blue) = (id, name, red, green, blue);
+            }    
+        }    
+        ";
+
+        private static readonly string IntfSource2 = @"
+        namespace SemModels {
+            public interface IColorDao2 {
+                ColorDataMut FindById(int id);
+            }
+        }            
+        ";
+        private static readonly string EntitySource2 = @"
+        namespace SemModels {
+            public struct ColorDataMut {
+                public int Id { get; set; }
+                public int Code { get =&gt; this.Id; }
+                public string Name { get; set; }
+                public int Red { get; set; }
+                public int Green { get; set; }
+                public int Blue { get; set; }
+            }    
+        }    
+        ";
+
+        private static readonly string IntfSource3 = @"
+        using System.Collections.Generic;
+
+        namespace SemModels {
+            public interface IColorDao3 {
+                IEnumerable&lt;ColorDataMut2&gt; FindAll();
+            }
+        }            
+        ";
+
+        private static readonly string EntitySource3 = @"
+        namespace SemModels {
+            public struct ColorDataMut2 {
+                public int id;
+                public string name;
+                public int red;
+                public int green;
+                public int blue;
+            }    
+        }    
+        ";
+
+        [Test]
+        public void _メソッドの実装_Nullableな戻り値_コンストラクタが適用される場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource1);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource1);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var implTree = SyntaxFactory.ParseSyntaxTree(@"
+            namespace SemModelsImpl {
+                public class ColorDaoImpl: IColorDao1 {
+
+                }
+            }   
+            ");
+
+            var classTree = 
+                implTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;ClassDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var method = intfTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;MethodDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(method.ReturnType);  
+            SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx);
+
+            var parameters = ctx.Constructors[0].Symbols;
+            var arg = method.ParameterList.Parameters[0].Identifier.Text;
+
+            var implMethod = 
+                method
+                .WithSemicolonToken(default)
+                .WithLeadingTrivia(SyntaxFactory.Space)
+                .WithModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword).AsTokens())
+                .WithBody(
+                    SyntaxFactory.Block(
+                        SyntaxFactory.ReturnStatement(
+                                SyntaxFactory.ObjectCreationExpression(
+                                    SyntaxFactory.IdentifierName(ctx.NamedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)).WithLeadingTrivia(SyntaxFactory.Space),
+                                    SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList&lt;ArgumentSyntax&gt;(new[] {
+                                        SyntaxFactory.Argument(
+                                            SyntaxFactory.NameColon(parameters[0].Name), SyntaxFactory.Token(default), 
+                                            SyntaxFactory.IdentifierName(arg)
+                                        ),
+                                        SyntaxFactory.Argument(
+                                            SyntaxFactory.NameColon(parameters[1].Name), SyntaxFactory.Token(default), 
+                                            SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("cyan"))
+                                        ),
+                                        SyntaxFactory.Argument(
+                                            SyntaxFactory.NameColon(parameters[2].Name), SyntaxFactory.Token(default), 
+                                            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0))
+                                        ),
+                                        SyntaxFactory.Argument(
+                                            SyntaxFactory.NameColon(parameters[3].Name), SyntaxFactory.Token(default), 
+                                            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                        ),
+                                        SyntaxFactory.Argument(
+                                            SyntaxFactory.NameColon(parameters[4].Name), SyntaxFactory.Token(default), 
+                                            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                        ),
+                                    })),
+                                    null
+
+                                )
+                                .WithLeadingTrivia(SyntaxFactory.Space)
+                        )
+                    )
+                )
+            ;
+
+            classTree = classTree.AddMembers(new[] { implMethod });
+
+            var ns = (NamespaceDeclarationSyntax)implTree.GetCompilationUnitRoot().Members[0];
+            var usings = new[] {
+                "SemModels"
+            };
+
+            var newUnit = 
+                SyntaxFactory.CompilationUnit().AddMembers(ns.WithLeadingTrivia(null).WithMembers(classTree.AsMemberDecls()))
+                .WithUsings(usings.Select(SyntaxGeneratorHelper.ToUsingDirective).ToSyntaxList())
+            ;
+
+            var emitResult = this.EmitGenUnit("ConstructorEntityDao", newUnit, asm =&gt; {
+                Assert.That(asm.GetTypes().Length, Is.EqualTo(1), "生成されたクラス数");
+
+                var typeNames = asm.GetTypes().Select(t =&gt; t.FullName).ToArray();
+
+                Assert.That(typeNames, Does.Contain("SemModelsImpl.ColorDaoImpl"), "生成された型名"); 
+
+                var instance = (SemModels.IColorDao1)asm.CreateInstance("SemModelsImpl.ColorDaoImpl");
+
+                var data = instance.FindById(4);
+
+                Assert.That(data, Is.InstanceOf&lt;System.Nullable&lt;SemModels.ColorData&gt;&gt;(), "目的の値が生成されていること");
+                Assert.That(data.HasValue, Is.True, "内包する型のインスタンスが生成されていること"); 
+                Assert.That(data.Value.Id, Is.EqualTo(4), "渡したIdと一致していること");
+                Assert.That(data.Value.Name, Is.EqualTo("cyan"), "色名");
+                Assert.That(data.Value.Red, Is.EqualTo(0), "赤成分");
+                Assert.That(data.Value.Green, Is.EqualTo(255), "緑成分");
+                Assert.That(data.Value.Blue, Is.EqualTo(255), "青成分");
+            });
+
+            foreach (var d in emitResult.Diagnostics) {
+                TestContext.Progress.WriteLine(d);
+            }
+            Assert.That(emitResult.Success, Is.True, "コンパイル結果");
+        }
+
+        [Test]
+        public void _メソッドの実装_Nullableな戻り値_コプロパティによる初期化が適用される場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource2);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource2);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var implTree = SyntaxFactory.ParseSyntaxTree(@"
+            namespace SemModelsImpl {
+                public class ColorDaoImpl2: IColorDao2 {
+
+                }
+            }   
+            ");
+
+            var classTree = 
+                implTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;ClassDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var method = intfTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;MethodDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(method.ReturnType);  
+            SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx);
+
+            var props = ctx.PropertyTypeVars.Symbols;
+            var arg = method.ParameterList.Parameters[0].Identifier.Text;
+
+            var implMethod =
+                method
+                .WithSemicolonToken(default)
+                .WithLeadingTrivia(SyntaxFactory.Space)
+                .WithModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword).AsTokens())
+                .WithBody(
+                    SyntaxFactory.Block(
+                            SyntaxFactory.ReturnStatement(
+                                SyntaxFactory.ObjectCreationExpression(
+                                    SyntaxFactory.IdentifierName(ctx.NamedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)).WithLeadingTrivia(SyntaxFactory.Space),
+                                    SyntaxFactory.ArgumentList(),
+                                    SyntaxFactory.InitializerExpression(SyntaxKind.ObjectInitializerExpression,
+                                        SyntaxFactory.SeparatedList&lt;ExpressionSyntax&gt;(new[] {
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(props[0].Name),
+                                                SyntaxFactory.IdentifierName(arg)
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(props[1].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("magenta"))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(props[2].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(props[3].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(props[4].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                            )
+                                        })
+                                    )
+                                )
+                                .WithLeadingTrivia(SyntaxFactory.Space)
+                            )
+                    )
+                )
+            ;
+
+
+            classTree = classTree.AddMembers(new[] { implMethod });
+
+            var ns = (NamespaceDeclarationSyntax)implTree.GetCompilationUnitRoot().Members[0];
+            var usings = new[] {
+                "SemModels"
+            };
+
+            var newUnit = 
+                SyntaxFactory.CompilationUnit().AddMembers(ns.WithLeadingTrivia(null).WithMembers(classTree.AsMemberDecls()))
+                .WithUsings(usings.Select(SyntaxGeneratorHelper.ToUsingDirective).ToSyntaxList())
+            ;
+
+            var emitResult = this.EmitGenUnit("PropertyEntityDao", newUnit, asm =&gt; {
+                Assert.That(asm.GetTypes().Length, Is.EqualTo(1), "生成されたクラス数");
+
+                var typeNames = asm.GetTypes().Select(t =&gt; t.FullName).ToArray();
+
+                Assert.That(typeNames, Does.Contain("SemModelsImpl.ColorDaoImpl2"), "生成された型名"); 
+
+                var instance = (SemModels.IColorDao2)asm.CreateInstance("SemModelsImpl.ColorDaoImpl2");
+
+                var data = instance.FindById(5);
+
+                Assert.That(data, Is.InstanceOf&lt;SemModels.ColorDataMut&gt;(), "目的の値が生成されていること");
+                Assert.That(data.Id, Is.EqualTo(5), "渡したIdと一致していること");
+                Assert.That(data.Name, Is.EqualTo("magenta"), "色名");
+                Assert.That(data.Red, Is.EqualTo(255), "赤成分");
+                Assert.That(data.Green, Is.EqualTo(0), "緑成分");
+                Assert.That(data.Blue, Is.EqualTo(255), "青成分");            
+            });
+
+            foreach (var d in emitResult.Diagnostics) {
+                TestContext.Progress.WriteLine(d);
+            }
+            Assert.That(emitResult.Success, Is.True, "コンパイル結果");
+        }
+
+
+        [Test]
+        public void _メソッドの実装_Nullableな戻り値_公開フィールドによる初期化が適用される場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource3);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource3);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var implTree = SyntaxFactory.ParseSyntaxTree(@"
+            namespace SemModelsImpl {
+                public class ColorDaoImpl3: IColorDao3 {
+
+                }
+            }   
+            ");
+
+            var classTree = 
+                implTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;ClassDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var method = intfTree.GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType&lt;MethodDeclarationSyntax&gt;()
+                .First()
+            ;
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(method.ReturnType);  
+            SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx);
+
+            var fields = ctx.FieldTypeVars.Symbols;
+
+            var implMethod =
+                method
+                .WithSemicolonToken(default)
+                .WithLeadingTrivia(SyntaxFactory.Space)
+                .WithModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword).AsTokens())
+                .WithBody(
+                    SyntaxFactory.Block(
+                            SyntaxFactory.YieldStatement(
+                                SyntaxKind.YieldReturnStatement,
+                                SyntaxFactory.Token(SyntaxKind.YieldKeyword),
+                                SyntaxFactory.Token(SyntaxKind.ReturnKeyword).WithLeadingTrivia(SyntaxFactory.Space),                                
+                                SyntaxFactory.ObjectCreationExpression(
+                                    SyntaxFactory.IdentifierName(ctx.NamedType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat)).WithLeadingTrivia(SyntaxFactory.Space),
+                                    SyntaxFactory.ArgumentList(),
+                                    SyntaxFactory.InitializerExpression(SyntaxKind.ObjectInitializerExpression,
+                                        SyntaxFactory.SeparatedList&lt;ExpressionSyntax&gt;(new[] {
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(fields[0].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(5))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(fields[1].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("yellow"))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(fields[2].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(fields[3].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(255))
+                                            ),
+                                            SyntaxFactory.AssignmentExpression(
+                                                SyntaxKind.SimpleAssignmentExpression, 
+                                                SyntaxFactory.IdentifierName(fields[4].Name),
+                                                SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0))
+                                            )
+                                        })
+                                    )
+                                )
+                                .WithLeadingTrivia(SyntaxFactory.Space),
+                                SyntaxFactory.Token(SyntaxKind.SemicolonToken)
+                            )
+                    )
+                )
+            ;
+
+            classTree = classTree.AddMembers(new[] { implMethod });
+
+            var ns = (NamespaceDeclarationSyntax)implTree.GetCompilationUnitRoot().Members[0];
+            var usings = new[] {
+                "System.Collections.Generic",
+                "SemModels"
+            };
+
+            var newUnit = 
+                SyntaxFactory.CompilationUnit().AddMembers(ns.WithLeadingTrivia(null).WithMembers(classTree.AsMemberDecls()))
+                .WithUsings(usings.Select(SyntaxGeneratorHelper.ToUsingDirective).ToSyntaxList())
+            ;
+
+            var emitResult = this.EmitGenUnit("FieldEntityDao", newUnit, asm =&gt; {
+                Assert.That(asm.GetTypes().Length, Is.EqualTo(2), "生成されたクラス数(自動生成されたIteratorを含むため)");
+
+                var typeNames = asm.GetTypes().Select(t =&gt; t.FullName).ToArray();
+
+                Assert.That(typeNames, Does.Contain("SemModelsImpl.ColorDaoImpl3"), "生成された型名"); 
+
+                var instance = (SemModels.IColorDao3)asm.CreateInstance("SemModelsImpl.ColorDaoImpl3");
+
+                var seq = instance.FindAll();
+
+                Assert.That(seq, Is.InstanceOf&lt;IEnumerable&lt;SemModels.ColorDataMut2&gt;&gt;(), "目的の値が生成されていること");
+                Assert.That(seq.Any(), Is.True, "内包する型のインスタンスが生成されていること");
+                Assert.That(seq.Count(), Is.EqualTo(1), "要素数");
+
+                var data = seq.First();
+
+                Assert.That(data.id, Is.EqualTo(5), "渡したIdと一致していること");
+                Assert.That(data.name, Is.EqualTo("yellow"), "色名");
+                Assert.That(data.red, Is.EqualTo(255), "赤成分");
+                Assert.That(data.green, Is.EqualTo(255), "緑成分");
+                Assert.That(data.blue, Is.EqualTo(0), "青成分");            
+            });
+
+            foreach (var d in emitResult.Diagnostics) {
+                TestContext.Progress.WriteLine(d);
+            }
+            Assert.That(emitResult.Success, Is.True, "コンパイル結果");
+        }
+
+        private EmitResult EmitGenUnit(string inAsmName, CompilationUnitSyntax inGenTree, Action&lt;Assembly&gt; inCallback) {
+            using(var stream = new MemoryStream()) {
+                var dotnetCoreDirectory = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+
+                var opts = new CSharpCompilationOptions(
+                    outputKind: OutputKind.DynamicallyLinkedLibrary
+                );
+
+                var newCompilation = CSharpCompilation.Create(inAsmName, 
+                    syntaxTrees: new[] { SyntaxFactory.SyntaxTree(inGenTree) },
+                    references: new[] {
+                        AssemblyMetadata.CreateFromFile(typeof(object).Assembly.Location).GetReference(),
+                        MetadataReference.CreateFromFile(Path.Combine(dotnetCoreDirectory, "netstandard.dll")),
+                        MetadataReference.CreateFromFile(Path.Combine(dotnetCoreDirectory, "System.Runtime.dll")),
+                        AssemblyMetadata.CreateFromFile(this.GetType().Assembly.Location).GetReference(),
+                    },
+                    options: opts
+                );
+
+                var emitResult = newCompilation.Emit(stream);
+
+                if (emitResult.Success) {
+                    Assert.That(inCallback, Is.Not.Null);
+
+                    stream.Position = 0;
+                    var buf = new byte[stream.Length];
+                    stream.Read(buf, 0, buf.Length);
+
+                    var asm = Assembly.Load(buf);
+
+                    inCallback(asm);
+                }
+
+                return emitResult;
+            }
+        }
+    }
+}
+
+namespace SemModels {
+    public readonly struct ColorData {
+        public int Id { get; }
+        public string Name { get; }
+        public int Red { get; }
+        public int Green { get; }
+        public int Blue { get; }
+
+        public ColorData(int id, string name, int red = default, int green = default, int blue = default) =&gt; 
+            (Id, Name, Red, Green, Blue) = (id, name, red, green, blue);
+    }    
+
+    public interface IColorDao1 {
+        ColorData? FindById(int id);
+    }
+
+    public struct ColorDataMut {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public int Red { get; set; }
+        public int Green { get; set; }
+        public int Blue { get; set; }
+    }    
+
+    public interface IColorDao2 {
+        ColorDataMut FindById(int id);
+    }
+
+    public struct ColorDataMut2 {
+        public int id;
+        public string name;
+        public int red;
+        public int green;
+        public int blue;
+    }    
+
+    public interface IColorDao3 {
+        IEnumerable&lt;ColorDataMut2&gt; FindAll();
+    }
+}
+

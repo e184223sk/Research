@@ -1,0 +1,58 @@
+using System.Linq;
+using System.Collections.Generic;
+using System.Diagnostics;
+using NUnit.Framework;
+using UnityEngine;
+
+namespace MackySoft.Choice.Tests {
+    public class WeightedSelectMethodSpeedTests {
+
+        static readonly int[] k_Iterations = new int[] { 1, 10, 100, 1000, 10000 };
+
+        [Test]
+        public void CompareSpeedAllMethods ([Values(1,10,100,1000,10000)] int count) {
+            // 重みの配列を[1, 10, 100, 1000, 10000]、いずれかの長さで用意。
+            var source = ItemEnumerableGenerator.GenerateEnumerable(count).ToArray();
+
+            // 選択に使用する[0.0f~1.0f]の値を用意する。
+            float[] values = new float[k_Iterations.Max()];
+            for (int i = 0;values.Length &gt; i;i++) {
+                values[i] = Random.value;
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            foreach (IWeightedSelectMethod method in AllWeightedSelectMethods()) {
+
+                // [1, 10, 100, 1000, 10000]、5通りの反復回数を試みる。
+                for (int i = 0;k_Iterations.Length &gt; i;i++) {
+                    int iteration = k_Iterations[i];
+
+                    stopwatch.Start();
+
+                    // セットアップ
+                    var weightedSelector = source.ToWeightedSelector(x =&gt; x.item,x =&gt; x.weight,method);
+
+                    // WeightedSelectorからアイテムを選択する。
+                    for (int k = 0;iteration &gt; k;k++) {
+                        weightedSelector.SelectItem(values[k]);
+                    }
+
+                    stopwatch.Stop();
+
+                    UnityEngine.Debug.Log($"{method.GetType()}: Count {count}, Iteration {iteration}, Speed {stopwatch.Elapsed.TotalMilliseconds}ms");
+                    stopwatch.Reset();
+                }
+            }
+
+            Assert.Pass();
+        }
+
+        static IEnumerable&lt;IWeightedSelectMethod&gt; AllWeightedSelectMethods () {
+            yield return WeightedSelectMethod.Linear;
+            yield return WeightedSelectMethod.Binary;
+            yield return WeightedSelectMethod.Alias;
+        }
+
+    }
+}
+

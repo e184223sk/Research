@@ -1,0 +1,90 @@
+
+using System;
+using FourierTransform;
+namespace FourierTransform {
+
+    // 高速で離散フーリエ変換を行うための構造体
+    public struct FastFourierTransform {
+
+        // 波サンプルデータの長さ
+        int Samples;
+
+        // 回転因子
+        double[,] Twiddle;
+
+        // ビット逆順
+        int[] Bitreverse;
+
+        // コンストラクタ
+        public FastFourierTransform(int Samples) {
+
+            // 引数の値が2の自然数乗でなければ例外を投げる
+            for(int i = 2; i &lt;= Samples; i *= 2)
+                if(Samples % i != 0 || Samples &lt;= 0) throw new DomainException();
+
+            // 波サンプルデータの長さを格納
+            this.Samples = Samples;
+
+            // 回転因子を格納する
+            Twiddle = new double[2, Samples / 2];
+            for(int i = 0; i &lt; Samples / 2; i++) {
+                double arg = -2.0 * Math.PI / Samples * i;
+                Twiddle[0, i] = Math.Cos(arg);
+                Twiddle[1, i] = Math.Sin(arg);
+            }
+
+            // ビット逆順を格納する
+            Bitreverse = new int[Samples];
+            for(int i = 0; i &lt; Samples; i++) {
+                int Order = i, Reverse = 0;
+                for(int j = Samples / 2; j &gt;= 1; j /= 2) {
+                    Reverse += (Order % 2) * j;
+                    Order /= 2;
+                }
+                Bitreverse[i] = Reverse;
+            }
+        }
+
+        // 周波数成分を取得するメソッド
+        // 引数 Function には自作した窓関数を指定することができる
+        public double[] GetSpectrum(double[] WaveSamples, WindowFunction Window) {
+
+            // 引数となる配列の長さが Samples に等しくなければ例外を投げる
+            if(WaveSamples.Length != Samples) throw new SampleDataLengthException();
+
+            // 引数の波形データは予め虚数部に代入する
+            double[] Wave_Re = new double[Samples], Wave_Im = WaveSamples;
+
+            // ビット逆順をかけた波形データを実数部に入れ替える
+            // 入れ替えたデータはその都度クリアしていく
+            // ついでに窓関数をかけておく
+            for(int i = 0; i &lt; Samples; i++) {
+                Wave_Re[i] = Wave_Im[Bitreverse[i]] * Window((double)Bitreverse[i] / Samples);
+                Wave_Im[Bitreverse[i]] = 0.0;
+            }
+
+            // バタフライ演算をする
+            for(int i = 1; i &lt; Samples; i *= 2)
+                for(int j = 0; j &lt; Samples; j += i * 2)
+                    for(int k = 0; k &lt; i; k++) {
+                        int a = j + k;
+                        int b = a + i;
+                        int w = Samples / (2 * i) * k;
+                        double
+                        ar = Wave_Re[a] + Wave_Re[b] * Twiddle[0, w] - Wave_Im[b] * Twiddle[1, w],
+                        ai = Wave_Im[a] + Wave_Re[b] * Twiddle[1, w] + Wave_Im[b] * Twiddle[0, w],
+                        br = Wave_Re[a] - Wave_Re[b] * Twiddle[0, w] + Wave_Im[b] * Twiddle[1, w],
+                        bi = Wave_Im[a] - Wave_Re[b] * Twiddle[1, w] - Wave_Im[b] * Twiddle[0, w];
+                        Wave_Re[a] = ar;
+                        Wave_Im[a] = ai;
+                        Wave_Re[b] = br;
+                        Wave_Im[b] = bi;
+                    }
+
+            // 複素数形式の波形データの絶対値を返す
+            for(int i = 0; i &lt; Samples; i++) Wave_Re[i] = Math.Sqrt(Wave_Re[i] * Wave_Re[i] + Wave_Im[i] * Wave_Im[i]);
+            return Wave_Re;
+        }
+    }
+}
+

@@ -1,0 +1,78 @@
+
+using Reactive.Bindings.Notifiers;
+using System;
+using System.Reactive.Linq;
+using System.Threading.Tasks;
+
+public class MyClass
+{
+    public int MyProperty { get; set; }
+
+    public override string ToString()
+    {
+        return "MP:" + MyProperty;
+    }
+}
+class Program
+{
+    static void RunMessageBroker()
+    {
+        // global scope pub-sub messaging
+        MessageBroker.Default.Subscribe&lt;MyClass&gt;(x =&gt;
+        {
+            Console.WriteLine("A:" + x);
+        });
+
+        var d = MessageBroker.Default.Subscribe&lt;MyClass&gt;(x =&gt;
+        {
+            Console.WriteLine("B:" + x);
+        });
+
+        // support convert to IObservable&lt;T&gt;
+        MessageBroker.Default.ToObservable&lt;MyClass&gt;().Subscribe(x =&gt;
+        {
+            Console.WriteLine("C:" + x);
+        });
+
+        MessageBroker.Default.Publish(new MyClass { MyProperty = 100 });
+        MessageBroker.Default.Publish(new MyClass { MyProperty = 200 });
+        MessageBroker.Default.Publish(new MyClass { MyProperty = 300 });
+
+        d.Dispose(); // unsubscribe
+        MessageBroker.Default.Publish(new MyClass { MyProperty = 400 });
+    }
+
+    static async Task RunAsyncMessageBroker()
+    {
+        // asynchronous message pub-sub
+        AsyncMessageBroker.Default.Subscribe&lt;MyClass&gt;(async x =&gt;
+        {
+            Console.WriteLine($"{DateTime.Now} A:" + x);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        });
+
+        var d = AsyncMessageBroker.Default.Subscribe&lt;MyClass&gt;(async x =&gt;
+        {
+            Console.WriteLine($"{DateTime.Now} B:" + x);
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        });
+
+        // await all subscriber complete
+        await AsyncMessageBroker.Default.PublishAsync(new MyClass { MyProperty = 100 });
+        await AsyncMessageBroker.Default.PublishAsync(new MyClass { MyProperty = 200 });
+        await AsyncMessageBroker.Default.PublishAsync(new MyClass { MyProperty = 300 });
+
+        d.Dispose(); // unsubscribe
+        await AsyncMessageBroker.Default.PublishAsync(new MyClass { MyProperty = 400 });
+    }
+
+    static void Main(string[] args)
+    {
+        Console.WriteLine("MessageBroker");
+        RunMessageBroker();
+
+        Console.WriteLine("AsyncMessageBroker");
+        RunAsyncMessageBroker().Wait();
+    }
+}
+

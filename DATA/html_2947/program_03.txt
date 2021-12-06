@@ -1,0 +1,49 @@
+
+using Google.Apis.Fitness.v1;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace GoogleFitClient.Import
+{
+  /// &lt;summary&gt;
+  /// GoogleFit歩数クエリクラス
+  /// &lt;/summary&gt;
+  class StepQuery : FitnessQuery
+  {
+    private const string DataSource = "derived:com.google.step_count.delta:com.google.android.gms:merge_step_deltas";
+    private const string DataType = "com.google.step_count.delta";
+
+    public StepQuery(FitnessService service) :
+      base(service, DataSource, DataType)
+    {
+  }
+
+  /// &lt;summary&gt;
+  /// 歩数データのクエリ
+  /// &lt;/summary&gt;
+  public IList&lt;StepDataPoint&gt; QueryStep(DateTime start, DateTime end)
+  {
+    var request = CreateRequest(start, end);
+    var response = ExecuteRequest(request);
+
+    return response
+      .Bucket
+      .SelectMany(b =&gt; b.Dataset)
+      .Where(d =&gt; d.Point != null)
+      .SelectMany(d =&gt; d.Point)
+      .Where(p =&gt; p.Value != null)
+      .SelectMany(p =&gt;
+      {
+        return p.Value.Select(v =&gt;
+          new StepDataPoint
+          {
+            Step = v.IntVal.GetValueOrDefault(),
+            Stamp = GoogleTime.FromNanoseconds(p.StartTimeNanos).ToDateTime()
+          });
+        })
+        .ToList();
+      }
+  }
+}
+

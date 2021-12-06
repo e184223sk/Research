@@ -1,0 +1,118 @@
+
+using System;
+using System.Diagnostics;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace JsonNetTest2_2
+{
+    // 親の抽象クラス
+    [JsonConverter(typeof(ParentConverter))]
+    public abstract class Parent
+    {
+        public string Prop0;
+    }
+
+    // 子クラス(具象クラス) 対応するカスタムコンバータを指定している
+    [JsonConverter(typeof(Child1Converter))]
+    public class Child1 : Parent
+    {
+        public int Prop1;
+    }
+
+    [JsonConverter(typeof(Child2Converter))]
+    public class Child2 : Parent
+    {
+        public double Prop2;
+    }
+
+
+    class Child1Converter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Child1);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            return new Child1() { Prop0 = (string)jobject["Prop0"], Prop1 = (int)jobject["Prop1"] };
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            var child1Value = (Child1)value;
+
+            writer.WriteStartObject();
+            writer.WritePropertyName("ChildType");
+            writer.WriteValue(1);
+            writer.WritePropertyName("Prop0");
+            writer.WriteValue(child1Value.Prop0);
+            writer.WritePropertyName("Prop1");
+            writer.WriteValue(child1Value.Prop1);
+            writer.WriteEndObject();
+        }
+    }
+
+    class Child2Converter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Child2);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            return new Child2() { Prop0 = (string)jobject["Prop0"], Prop2 = (double)jobject["Prop2"] };
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            var child1Value = (Child2)value;
+
+            writer.WriteStartObject();
+            writer.WritePropertyName("ChildType");
+            writer.WriteValue(2);
+            writer.WritePropertyName("Prop0");
+            writer.WriteValue(child1Value.Prop0);
+            writer.WritePropertyName("Prop2");
+            writer.WriteValue(child1Value.Prop2);
+            writer.WriteEndObject();
+        }
+    }
+
+    class ParentConverter : JsonConverter
+    {
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Parent);
+        }
+        public override bool CanWrite =&gt; false;
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            JObject jobject = JObject.Load(reader);
+            JsonConverter converter;
+            switch ((int)jobject["ChildType"])
+            {
+                case 1:
+                    converter = new Child1Converter();
+                    break;
+                case 2:
+                    converter = new Child2Converter();
+                    break;
+                default:
+                    throw new JsonReaderException();
+            }
+            var newReader = jobject.CreateReader(); //As JsonReader cannot be used twice, create new one and pass it.
+            return converter.ReadJson(newReader, objectType, existingValue, serializer);
+        }
+    }
+}
+

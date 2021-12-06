@@ -1,0 +1,74 @@
+
+public static T Bind&lt;T&gt;(Dictionary&lt;string, int&gt; headerMap, string[] values)
+    where T : class, new()
+{
+    var result = new T();
+    foreach (var p in typeof(T).GetProperties())
+    {
+        if (!headerMap.ContainsKey(p.Name)) continue;
+        var value = values[headerMap[p.Name]];
+
+        var type = Nullable.GetUnderlyingType(p.PropertyType);
+        if (type == null)
+        {
+            type = p.PropertyType;
+        }
+        else
+        {
+            if (value == "")
+            {
+                p.SetValue(result, null);
+                continue;
+            }
+        }
+
+        if (type == typeof(int))
+        {
+            p.SetValue(result, int.Parse(value));
+        }
+        else if (type == typeof(bool))
+        {
+            p.SetValue(result, bool.Parse(value));
+        }
+        else if (type == typeof(string))
+        {
+            p.SetValue(result, value);
+        }
+        else if (type == typeof(DateTime))
+        {
+            if (!DateTime.TryParseExact(value, "o", null, DateTimeStyles.RoundtripKind, out var _))
+            {
+                value = DateTime.Parse(value).ToString("o");
+            }
+            p.SetValue(result, DateTime.ParseExact(value, "o", null, DateTimeStyles.RoundtripKind));
+        }
+        else
+        {
+            throw new ApplicationException($"Unsupported type: {typeof(T).Name}");
+        }
+    }
+    return result;
+}
+
+public static IEnumerable&lt;T&gt; Load&lt;T&gt;(Stream stream, Encoding encoding = null)
+    where T : class, new()
+{
+    if (encoding == null) encoding = Encoding.UTF8;
+    using (var reader = new StreamReader(stream, encoding))
+    {
+        var header = reader.ReadLine().Split(",");
+        var headerMap = new Dictionary&lt;string, int&gt;();
+        for (var i = 0; i &lt; header.Length; i++)
+        {
+            headerMap[header[i]] = i;
+        }
+
+        while (true)
+        {
+            var line = reader.ReadLine();
+            if (line == null) break;
+            yield return Bind&lt;T&gt;(headerMap, line.Split(","));
+        }
+    }
+}
+

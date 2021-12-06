@@ -1,0 +1,186 @@
+More than 1 year has passed since last update.Windowsを使っていると、時々USBデバイスを外した時の音が聞こえるようになりました。（ポロン↓、ポンポロロン↑）
+接続の音も聞こえているため、おそらくは接続が一瞬切れているのだと思います。
+すぐ接続されるため作業に大きな支障はないのですが、音が何度も聞こえるのは不快で仕方がないです。
+ですが、普段からいくつものデバイス（WiFi、マウス、キーボード、ゲームパッドなど）を付けており、いつ発生するかも分からない現象を一つ一つチェックするのは困難でした。
+イベントビューアから探すも、他サイトに書かれたイベント情報には載っておらず・・・もういっそ自分で作ってみようと思い、デバイス情報の監視プログラム（C#）を作ってみました。
+（C#である理由は普段使う言語だからであり、機能上の理由はないです）作成したプログラムを実行した結果がこちらです。
+・最初の1,2行 キーボードを手動で付け外しした時
+・3,4,5,6行　　散々悩まされた接続音が鳴った時
+・7,8行　　　 手動でWiFiを外した時
+の表示です。
+Del：デバイスを外した時の表示
+Add：デバイスを付けた時の表示
+これにより、WiFi周りの端子が原因だと判明しました。試しにWiFiを他のUSB端子に接続すると音がならなくなり、ゲームパッドを問題のUSBにつなげると
+今度はゲームパッドのIDで音が鳴り始めたので、USB端子側が壊れていることが確定しました。
+（今のところ１端子が使えなくても何とかなるので、直すのは放置）ちなみに今回作成したプログラムは、デバイスの接続状況が変わった時だけ動くように作っているので、起動したまま放置してても特に処理は食わないと思います。あと、私の環境では問題なかったのですが、もしかしたら管理者権限での実行が必要かもしれません。
+（どこかのサイトでWindowsメッセージの処理をするには管理者権限が必要、というのを見た気がするので）今回は「Windowsフォームアプリケーション」で作成しました。
+構成は初期フォーム(Form1)上に全ての処理を実装する、シンプルなものです。
+フォームデザインも、処理結果を表示するtextBoxを一つ配置するだけです。
+（textBoxの設定：Multiline：True、ScrollBar：Vertical）
+※プログラムは最後に全文を載せてますので、直接見た方が早いという方はそちらをどうぞ参考サイト　コードログ　c＃ – 接続されたUSBデバイスのリストを取得する
+（今回使用するのはIDだけなので、参考サイトで取得しているPNPDeviceIDなどは削除。
+　種類など詳しく表示したい場合は、コードログさんのサイトの参考記事などをたどればありそう）前回のIDと今回のIDを比較し、差があれば表示しています。参考サイト　ohyajapanの日記 C#でリムーバブルメディアの着脱を検知する方法 その1
+Windowsメッセージを検出する関数をオーバーライドし、検出したメッセージがデバイス変化の値の時、２で作成したデバイスチェック関数をTask(非同期処理)を使って呼び出します。
+Taskを利用するのは、デバイスチェックに処理時間がかかり、メッセージの検出が漏れるのを防止するためです。
+※なお、今回は実装を簡易にするためにこのような作りとなっていますが、下記サイトにあるように、Taskの戻り値も使わない投げっぱなし処理は推奨されてないようです。
+参考サイト　Taskを極めろ！async/await完全攻略あと、起動時にデバイスリストを取得するため、form1関数にも追加します。CheckDevice関数で使っているAddMessage関数ですが、これはWindowsフォームのTextBoxへの出力処理です。
+CheckDevice関数はTask（非同期処理）で呼び出しているため、メインスレッドで動いているTextBoxへの直接操作ができません。（textBox_Msg.AppendText()関数など）
+そのため、invoke処理を使ってtextBoxの処理ができるようにしています。
+参考サイト　C#のWindowsフォームアプリケーションでメインスレッドのGUIを更新する方法以上、全関数の説明でした。今回のプログラムに必要な下記の処理はC#で実装したのは初めてだったので、良い勉強になりました。
+・ThreadではなくTaskを使用
+・Windowsイベントの検出
+・Windowsの管理情報の取得なにか、同じように困っている方の問題解決に繋がればと思います。
+また、至らない点や気になる点などありましたら、コメントいただければ幸いです。課題点としては、現状だとデバイスIDしか表示されないので、IDが分かった後で、他の端子を抜き差しして同じIDを探さないといけないので、少々手間です。もう少し、接続しているデバイスの種類などを表示できると、分かりやすいツールになりそうですね。
+その辺はWin32_USBHubあたりを調べると色々出てきそうですが、なかなか骨が折れそうです(笑)また、今回はUSB端子が原因とみて実装しましたが、内部HDDなどはこれでは検出できないかもしれません。そのときはWindowsメッセージを処理する関数をいじって、音がなった時間にどんなメッセージが検出されるかを見ていけば、糸口がつかめそうです。以上、ここまで読んでくださりありがとうございました。
+（下にform1.csの全文を載せてます） メインコード（展開）
+
+
+Form1.cs
+using System;
+using System.Collections.Generic;
+using System.Windows.Forms;
+using System.Management;
+using System.Threading.Tasks;
+
+namespace WindowsDeviceEventMonitor
+{
+    public partial class Form1 : Form
+    {
+        public const int WM_DEVICECHANGE = 0x00000219;  //デバイス変化のWindowsイベントの値
+        List&lt;USBDeviceInfo&gt; usbDevicesBefore = new List&lt;USBDeviceInfo&gt;();
+        int numBeforeDevices = 0;
+
+        public Form1()
+        {
+            InitializeComponent();
+            Task.Run(() =&gt; CheckDevice());  //起動時に現在接続済みのデバイスを検出。追加。
+        }
+
+        /// &lt;summary&gt;
+        /// 接続デバイスを取得。前回の取得内容と異なる場合、リストを更新してMessgaeBoxに表示。
+        /// Add：新しく検出されたデバイス　Del：検出されなくなったデバイス
+        /// &lt;/summary&gt;
+        private void CheckDevice()
+        {
+            var usbDevices = GetUSBDevices();                       // デバイスを取得
+            string nowTime = DateTime.Now.ToString("HH:mm:ss.ff "); // 取得時刻設定
+
+            if (usbDevices.Count &gt; numBeforeDevices)    //デバイス数が増加（接続）
+            {
+                foreach (var usbDevice in usbDevices)
+                {
+                    // 取得したデバイスの中で、前回の一覧に無いものを検出し、画面出力
+                    bool bExistDevice = false;
+                    foreach (var usbDeviceBefore in usbDevicesBefore)
+                    {
+                        if(usbDevice.DeviceID == usbDeviceBefore.DeviceID)
+                        {
+                            bExistDevice = true;
+                            break;
+                        }
+                    }
+                    if (!bExistDevice) {
+                        // デバイスIDを出力
+                        string sTemp = string.Format("Add Device ID: {0}", usbDevice.DeviceID);
+                        AddMessage(nowTime + sTemp + Environment.NewLine);
+                    }
+                }
+            }
+            else if (usbDevices.Count &lt; numBeforeDevices)   //デバイス数が減少（取り外し）
+            {
+                foreach (var usbDeviceBefore in usbDevicesBefore)
+                {
+                    // 前回のデバイスの中で、今回取得した一覧に無いものを検出し、画面出力
+                    bool bExistDevice = false;
+                    foreach (var usbDevice in usbDevices)
+                    {
+                        if (usbDevice.DeviceID == usbDeviceBefore.DeviceID)
+                        {
+                            bExistDevice = true;
+                            break;
+                        }
+                    }
+                    if (!bExistDevice)
+                    {
+                        string sTemp = string.Format("Del Device ID: {0}", usbDeviceBefore.DeviceID);
+                        AddMessage(nowTime + sTemp + Environment.NewLine);
+                    }
+                }
+            }
+
+            AddMessage(Environment.NewLine);        //可読性のため空行追加
+            usbDevicesBefore = usbDevices;          //デバイス一覧を更新
+            numBeforeDevices = usbDevices.Count;
+
+        }
+
+        /// &lt;summary&gt;
+        /// 接続されているデバイスを取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;デバイス情報のリスト&lt;/returns&gt;
+        static List&lt;USBDeviceInfo&gt; GetUSBDevices()
+        {
+            List&lt;USBDeviceInfo&gt; devices = new List&lt;USBDeviceInfo&gt;();
+
+            ManagementObjectCollection collection;
+            // WMIライブラリのWin32_USBHubクラスを使用して管理情報を取得
+            using (var searcher = new ManagementObjectSearcher(@"Select * From Win32_USBHub"))
+                collection = searcher.Get();
+
+            // 取得したUSBHub情報から、ID情報を取り出し、デバイスリストに追加
+            foreach (var device in collection)
+            {
+                devices.Add(new USBDeviceInfo( (string)device.GetPropertyValue("DeviceID") ));
+            }
+
+            collection.Dispose();
+            return devices;
+        }
+
+        /// &lt;summary&gt;
+        /// Windows メッセージを処理する関数（オーバーライド）
+        /// &lt;/summary&gt;
+        /// &lt;param name="m"&gt;&lt;/param&gt;
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            switch (m.Msg)
+            {
+                case WM_DEVICECHANGE:   //デバイス状況の変化イベント
+                    // AddMessage(m.ToString() + Environment.NewLine);
+                    Task.Run(() =&gt; CheckDevice());      //デバイスをチェック
+                    break;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Task、Thread側からフォームのTextBoxにテキストを追加する処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="str"&gt;textBoxへ追加する文字列&lt;/param&gt;
+        public void AddMessage(string str)
+        {
+            if (this.InvokeRequired)
+                this.Invoke(new Action&lt;string&gt;(AddMessage), str);
+            else
+                this.textBox_Msg.AppendText(str);
+        }
+    }
+    /// &lt;summary&gt;
+    /// デバイス情報を格納するクラス
+    /// &lt;/summary&gt;
+    class USBDeviceInfo
+    {
+        public USBDeviceInfo(string deviceID)
+        {
+            this.DeviceID = deviceID;
+        }
+        public string DeviceID { get; private set; }
+    }
+
+}
+
+
+
+
+
+

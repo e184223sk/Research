@@ -1,0 +1,203 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
+
+namespace Zuishin
+{
+    public class Memoization
+    {
+        private static Dictionary&lt;Type, Type&gt; typeDictionary = new Dictionary&lt;Type, Type&gt;();
+
+        public static T Create&lt;T&gt;(params object[] parameters)
+        {
+            if (!typeDictionary.TryGetValue(typeof(T), out Type type))
+            {
+                string name = "Memoization_" + Guid.NewGuid().ToString("N");
+                var assemblyName = new AssemblyName(name);
+                var assemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(
+                    assemblyName,
+                    AssemblyBuilderAccess.RunAndCollect);
+                var moduleBuilder = assemblyBuilder.DefineDynamicModule(name);
+                var typeBuilder = moduleBuilder.DefineType(name, TypeAttributes.Class, typeof(T));
+                var dictionaryType = typeof(Dictionary&lt;Param, T&gt;);
+                var dictionaryConstructor = dictionaryType.GetConstructor(Type.EmptyTypes);
+                var dictionaryField = typeBuilder.DefineField(
+                    "Field_" + Guid.NewGuid().ToString("N"),
+                    dictionaryType,
+                    FieldAttributes.Private | FieldAttributes.InitOnly);
+                var tryGetValue = dictionaryType.GetMethod("TryGetValue");
+                var setItem = dictionaryType.GetMethod("set_Item");
+                var paramConstructor = typeof(Param).GetConstructors()[0];
+                var methods = typeof(T)
+                    .GetMethods(BindingFlags.NonPublic
+                        | BindingFlags.Public
+                        | BindingFlags.Instance)
+                    .Where(a =&gt; a.IsVirtual &amp;&amp; !a.IsFinal)
+                    .Where(a =&gt; a.ReturnParameter.ParameterType != typeof(void))
+                    .Where(a =&gt; a.GetParameters().Length &gt; 0)
+                    .Where(a =&gt; a.GetCustomAttribute&lt;MemoizationAttribute&gt;() != null);
+                foreach (var method in methods)
+                {
+                    var parameterTypes = method
+                        .GetParameters()
+                        .Select(a =&gt; a.ParameterType)
+                        .ToArray();
+                    var methodAttributes = method.IsAbstract
+                        ? MethodAttributes.Public | MethodAttributes.Virtual
+                        : method.Attributes;
+                    var methodBuilder = typeBuilder.DefineMethod(
+                        method.Name,
+                        methodAttributes,
+                        method.CallingConvention,
+                        method.ReturnParameter.ParameterType,
+                        parameterTypes);
+                    var il = methodBuilder.GetILGenerator();
+
+                    // ローカル変数の宣言
+                    il.DeclareLocal(typeof(Param));
+                    il.DeclareLocal(method.ReturnParameter.ParameterType); // result
+                    il.DeclareLocal(typeof(bool));
+                    il.DeclareLocal(typeof(bool));
+
+                    // ラベルの宣言
+                    var label1 = il.DefineLabel();
+                    var label2 = il.DefineLabel();
+                    var label3 = il.DefineLabel();
+
+                    // dictionaryField の値をスタックに積む
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, dictionaryField);
+
+                    // null をスタックに積む
+                    il.Emit(OpCodes.Ldnull);
+
+                    // スタックに積まれた dictionaryFiled の値と null が等しければ true を等しくなければ false を boolVariable1 に代入
+                    il.Emit(OpCodes.Ceq);
+                    il.Emit(OpCodes.Stloc_2);
+
+                    // boolVariable1 が false なら label1 にジャンプ
+                    il.Emit(OpCodes.Ldloc_2);
+                    il.Emit(OpCodes.Brfalse_S, label1);
+
+                    // dictionaryField に Dictionary&lt;Param, T&gt; を代入
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Newobj, dictionaryConstructor);
+                    il.Emit(OpCodes.Stfld, dictionaryField);
+
+                    // label1
+                    il.MarkLabel(label1);
+
+                    // object[] を用意
+                    il.Emit(OpCodes.Ldc_I4, parameterTypes.Length);
+                    il.Emit(OpCodes.Newarr, typeof(object));
+
+                    // object[] に引数をセット
+                    for (int i = 0; i &lt; parameterTypes.Length; i++)
+                    {
+                        il.Emit(OpCodes.Dup);
+                        il.Emit(OpCodes.Ldc_I4, i);
+                        il.Emit(OpCodes.Ldarg, i + 1);
+                        if (parameterTypes[i].IsValueType)
+                        {
+                            il.Emit(OpCodes.Box, parameterTypes[i]);
+                        }
+                        il.Emit(OpCodes.Stelem_Ref);
+                    }
+
+                    // Param を作成してローカル変数 0 に保存
+                    il.Emit(OpCodes.Newobj, paramConstructor);
+                    il.Emit(OpCodes.Stloc, 0);
+
+                    // dictionary.TryGetValue(param, out result)
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, dictionaryField);
+                    il.Emit(OpCodes.Ldloc_0);
+                    il.Emit(OpCodes.Ldloca_S, 1);
+                    il.Emit(OpCodes.Callvirt, tryGetValue);
+                    il.Emit(OpCodes.Stloc_3);
+
+                    // TryGetValue の結果が false なら label2 へ
+                    il.Emit(OpCodes.Ldloc_3);
+                    il.Emit(OpCodes.Brfalse_S, label2);
+
+                    // リターン位置へジャンプ
+                    il.Emit(OpCodes.Br_S, label3);
+
+                    il.MarkLabel(label2);
+
+                    // 継承したメソッドの実行
+                    for (int i = 0; i &lt; parameterTypes.Length + 1; i++)
+                    {
+                        il.Emit(OpCodes.Ldarg, i);
+                    }
+                    il.Emit(OpCodes.Call, method);
+                    il.Emit(OpCodes.Stloc_1);
+
+                    // メモ
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, dictionaryField);
+                    il.Emit(OpCodes.Ldloc_0);
+                    il.Emit(OpCodes.Ldloc_1);
+                    il.Emit(OpCodes.Callvirt, setItem);
+
+                    il.MarkLabel(label3);
+
+                    il.Emit(OpCodes.Ldloc_1);
+                    il.Emit(OpCodes.Ret);
+                    typeBuilder.DefineMethodOverride(methodBuilder, method);
+                }
+                type = typeBuilder.CreateType();
+                typeDictionary[typeof(T)] = type;
+            }
+            return (T)Activator.CreateInstance(type, parameters);
+        }
+
+        public class Param : IEnumerable&lt;object&gt;
+        {
+            private object[] items;
+            private int hashCode = 0;
+
+            public Param(params object[] items)
+            {
+                this.items = items;
+                hashCode = items
+                    .Select(a =&gt; a == null ? 0 : a.GetHashCode())
+                    .Aggregate((a, b) =&gt; a ^ b);
+            }
+
+            public int Count { get =&gt; items.Length; }
+
+            public IEnumerator&lt;object&gt; GetEnumerator()
+            {
+                foreach (var item in items) yield return item;
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return items.GetEnumerator();
+            }
+
+            public override bool Equals(object obj)
+            {
+                var param = obj as Param;
+                if (param == null) return false;
+                if (hashCode != param.hashCode) return false;
+                if (Count != param.Count) return false;
+                var result = this.Zip(param, (a, b) =&gt; Equals(a, b)).All(a =&gt; a);
+                return result;
+            }
+
+            public override int GetHashCode()
+            {
+                return hashCode;
+            }
+        }
+    }
+
+    public class MemoizationAttribute : Attribute { }
+}
+

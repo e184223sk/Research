@@ -1,0 +1,117 @@
+using System.Collections.Generic;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.Build;
+using UnityEngine;
+
+namespace Nekomimi.Daimao
+{
+    /// &lt;summary&gt;
+    /// Switch #define.
+    /// rewrite &lt;see cref="Define"/&gt; and &lt;seealso cref="DefineMenuPath"/&gt;
+    /// &lt;/summary&gt;
+    public class DefineSwitcher : IActiveBuildTargetChanged
+    {
+        #region Define
+
+        private const string Define = "UNITY_OVR";
+        private const char Separator = ';';
+
+        private static void SetDefine(bool on)
+        {
+            if (on == IsDefined())
+            {
+                return;
+            }
+
+            var current = new HashSet&lt;string&gt;(CurrentDefines());
+
+            if (on)
+            {
+                current.Add(Define);
+            }
+            else
+            {
+                current.Remove(Define);
+            }
+
+            PlayerSettings.SetScriptingDefineSymbolsForGroup(
+                EditorUserBuildSettings.selectedBuildTargetGroup, string.Join(Separator.ToString(), current)
+            );
+        }
+
+        private static IEnumerable&lt;string&gt; CurrentDefines()
+        {
+            return PlayerSettings.GetScriptingDefineSymbolsForGroup(EditorUserBuildSettings.selectedBuildTargetGroup).Split(Separator);
+        }
+
+        private static bool IsDefined()
+        {
+            return CurrentDefines().Contains(Define);
+        }
+
+        #endregion
+
+
+        #region EditorMenu
+
+        private const string DefineMenuPath = "Oculus/" + Define;
+
+        [MenuItem(DefineMenuPath, priority = -1)]
+        private static void SwitchDefine()
+        {
+            var current = IsDefined();
+            SetDefine(!current);
+            SetCheckState(!current);
+        }
+
+        private static void SetCheckState(bool state)
+        {
+            var check = Menu.GetChecked(DefineMenuPath);
+            if (state == check)
+            {
+                return;
+            }
+
+            Menu.SetChecked(DefineMenuPath, !check);
+        }
+
+        #endregion
+
+
+        #region IActiveBuildTargetChanged
+
+        public int callbackOrder { get; } = 0;
+
+        public void OnActiveBuildTargetChanged(BuildTarget previousTarget, BuildTarget newTarget)
+        {
+            SetCheckState(IsDefined());
+        }
+
+        #endregion
+
+        #region InitializeOnLoadMethod
+
+        private class FirstLoad : ScriptableSingleton&lt;FirstLoad&gt;
+        {
+            [SerializeField]
+            public bool AlreadyLoaded = false;
+        }
+
+        [InitializeOnLoadMethod]
+        private static void CheckOnLaunch()
+        {
+            if (FirstLoad.instance.AlreadyLoaded)
+            {
+                return;
+            }
+
+            FirstLoad.instance.AlreadyLoaded = true;
+            SetCheckState(IsDefined());
+        }
+
+        #endregion
+    }
+}
+
+

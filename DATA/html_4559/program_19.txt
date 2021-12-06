@@ -1,0 +1,35 @@
+
+public static class ResponseExtensions {
+  private static readonly ConcurrentDictionary&lt;Type, Dictionary&lt;object, ErrorMessageAttribute&gt;&gt; cache = new ConcurrentDictionary&lt;Type, Dictionary&lt;object, ErrorMessageAttribute&gt;&gt;();
+
+  public static string ToErrorMessage&lt;TErrorCode&gt;(this Response&lt;TErrorCode&gt; response) { // ← this が追加されました
+    if (!response.HasError()) {
+      return "";
+    }
+
+    var messages = response.Errors
+      .Select(x =&gt; x.ErrorCode)
+      .Select(getMessage);
+
+    return messages.ToString();
+  }
+
+  private static string getMessage&lt;TErrorCode&gt;(TErrorCode code) {
+    var errorMessageAttributes = cache.GetOrAdd(code.GetType(), type =&gt; {
+      var lookup = type.GetFields()
+        .Where(x =&gt; x.FieldType == type)
+        .SelectMany(x =&gt; x.GetCustomAttributes(false), (x, attribute) =&gt; new {code = x.GetValue(null), attribute})
+        .ToLookup(x =&gt; x.attribute.GetType());
+
+      var dictionary = lookup[typeof(ErrorMessageAttribute)].ToDictionary(x =&gt; x.code, x =&gt; (ErrorMessageAttribute) x.attribute);
+      return dictionary;
+    });
+
+    if (errorMessageAttributes.TryGetValue(code, out var errorMessageAttribute)) {
+      return errorMessageAttribute.Message;
+    } else {
+      return "";
+    }
+  }
+}
+

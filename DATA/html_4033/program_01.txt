@@ -1,0 +1,83 @@
+
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Text;
+
+public static class Ini
+{
+
+    /// &lt;summary&gt;
+    /// INIファイルからキーの値を取得します
+    /// &lt;para&gt;戻り値は, 取得が成功したかどうかを示します&lt;/para&gt;
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;データ取得する型&lt;/typeparam&gt;
+    /// &lt;param name="filePath"&gt;ファイルパス&lt;/param&gt;
+    /// &lt;param name="sectionName"&gt;セクション名&lt;/param&gt;
+    /// &lt;param name="keyName"&gt;キー名&lt;/param&gt;
+    /// &lt;param name="defaultValue"&gt;初期値&lt;/param&gt;
+    /// &lt;param name="outputValue"&gt;出力値&lt;/param&gt;
+    /// &lt;returns&gt;取得の成功有無&lt;/returns&gt;
+    public static bool TryGetValueOrDefault&lt;T&gt;(string filePath, string sectionName, string keyName, T defaultValue, out T outputValue)
+    {
+
+        outputValue = defaultValue;
+
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            return false;
+
+        var sb = new StringBuilder(1024);
+        var ret = NativeMethods.GetPrivateProfileString(sectionName, keyName, string.Empty, sb, Convert.ToUInt32(sb.Capacity), filePath);
+        if (ret == 0 || string.IsNullOrEmpty(sb.ToString()))
+            return false;
+
+        var conv = TypeDescriptor.GetConverter(typeof(T));
+        if (conv == null)
+            return false;
+
+        try
+        {
+            outputValue = (T)conv.ConvertFromString(sb.ToString());
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        return true;
+
+    }
+
+    /// &lt;summary&gt;
+    /// INIファイルからキーの値を取得します
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="T"&gt;データ取得する型&lt;/typeparam&gt;
+    /// &lt;param name="filePath"&gt;ファイルパス&lt;/param&gt;
+    /// &lt;param name="sectionName"&gt;セクション名&lt;/param&gt;
+    /// &lt;param name="keyName"&gt;キー名&lt;/param&gt;
+    /// &lt;param name="defaultValue"&gt;初期値&lt;/param&gt;
+    /// &lt;returns&gt;キー値&lt;/returns&gt;
+    public static T GetValueOrDefault&lt;T&gt;(string filePath, string sectionName, string keyName, T defaultValue)
+    {
+        T ret = defaultValue;
+        TryGetValueOrDefault(filePath, sectionName, keyName, defaultValue, out ret);
+        return ret;
+    }
+
+    /// &lt;summary&gt;
+    /// INIファイルにデータを書き込みます
+    /// &lt;/summary&gt;
+    /// &lt;param name="filePath"&gt;ファイルパス&lt;/param&gt;
+    /// &lt;param name="sectionName"&gt;セクション名&lt;/param&gt;
+    /// &lt;param name="keyName"&gt;キー名&lt;/param&gt;
+    /// &lt;param name="outputValue"&gt;出力値&lt;/param&gt;
+    public static void SetValue(string filePath, string sectionName, string keyName, string outputValue) =&gt;
+        NativeMethods.WritePrivateProfileString(sectionName, keyName, outputValue, filePath);
+
+
+}
+

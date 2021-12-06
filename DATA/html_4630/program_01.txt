@@ -1,0 +1,85 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Data;
+using Npgsql;
+
+namespace DateTimeOffsetTestNpgsql
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            DateTime dateTimeLocal       = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Local      );
+            DateTime dateTimeUtc         = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Utc        );
+            DateTime dateTimeUnspecified = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+
+            NpgsqlConnection conn = new NpgsqlConnection("Server=xxx.xxx.xxx.xxx;User Id=xxxx;Password=xxxx;Database=xxxx;Pooling=false;");
+            NpgsqlDataAdapter da = new NpgsqlDataAdapter();
+            da.SelectCommand = new NpgsqlCommand("SELECT id, datetime_tz, datetime FROM table1 ORDER BY id", conn);
+            da.InsertCommand = new NpgsqlCommand("INSERT INTO table1 (id, datetime_tz, datetime) VALUES (:id, :datetime_tz, :datetime)", conn);
+            da.InsertCommand.Parameters.Add(new NpgsqlParameter("id"         , NpgsqlTypes.NpgsqlDbType.Integer    , 0, "id"         ));
+            da.InsertCommand.Parameters.Add(new NpgsqlParameter("datetime_tz", NpgsqlTypes.NpgsqlDbType.TimestampTz, 0, "datetime_tz"));
+            da.InsertCommand.Parameters.Add(new NpgsqlParameter("datetime"   , NpgsqlTypes.NpgsqlDbType.Timestamp  , 0, "datetime"   ));
+
+            DataTable table1 = new DataTable();
+            table1.Columns.Add(new DataColumn("id"         , typeof(int)     ));
+            table1.Columns.Add(new DataColumn("datetime_tz", typeof(DateTime)));
+            table1.Columns.Add(new DataColumn("datetime"   , typeof(DateTime)));
+            DataRow row1 = table1.NewRow();
+            row1["id"         ] = 1;
+            row1["datetime_tz"] = dateTimeLocal;
+            row1["datetime"   ] = dateTimeLocal;
+            table1.Rows.Add(row1);
+            DataRow row2 = table1.NewRow();
+            row2["id"         ] = 2;
+            row2["datetime_tz"] = dateTimeUtc;
+            row2["datetime"   ] = dateTimeUtc;
+            table1.Rows.Add(row2);
+            DataRow row3 = table1.NewRow();
+            row3["id"         ] = 3;
+            row3["datetime_tz"] = dateTimeUnspecified;
+            row3["datetime"   ] = dateTimeUnspecified;
+            table1.Rows.Add(row3);
+            Console.WriteLine("row1[id         ]=" + ((int)row1["id"]).ToString());
+            Console.WriteLine("row1[datetime_tz]=" + ((DateTime)row1["datetime_tz"]).ToString() + " Kind=" + ((DateTime)row1["datetime_tz"]).Kind.ToString());
+            Console.WriteLine("row1[datetime   ]=" + ((DateTime)row1["datetime"   ]).ToString() + " Kind=" + ((DateTime)row1["datetime"   ]).Kind.ToString());
+            Console.WriteLine("row2[id         ]=" + ((int)row2["id"]).ToString());
+            Console.WriteLine("row2[datetime_tz]=" + ((DateTime)row2["datetime_tz"]).ToString() + " Kind=" + ((DateTime)row2["datetime_tz"]).Kind.ToString());
+            Console.WriteLine("row2[datetime   ]=" + ((DateTime)row2["datetime"   ]).ToString() + " Kind=" + ((DateTime)row2["datetime"   ]).Kind.ToString());
+            Console.WriteLine("row3[id         ]=" + ((int)row3["id"]).ToString());
+            Console.WriteLine("row3[datetime_tz]=" + ((DateTime)row3["datetime_tz"]).ToString() + " Kind=" + ((DateTime)row3["datetime_tz"]).Kind.ToString());
+            Console.WriteLine("row3[datetime   ]=" + ((DateTime)row3["datetime"   ]).ToString() + " Kind=" + ((DateTime)row3["datetime"   ]).Kind.ToString());
+            Console.WriteLine();
+
+            conn.Open();
+
+            using (NpgsqlCommand cmd = new NpgsqlCommand("DELETE FROM table1", conn))
+            {
+                cmd.ExecuteNonQuery();
+            }
+
+            da.Update(table1);
+
+            DataTable table2 = table1.Clone();
+            da.Fill(table2);
+            foreach (DataRow row in table2.Rows)
+            {
+                var id          = row["id"         ];
+                var datetime_tz = row["datetime_tz"];
+                var datetime    = row["datetime"   ];
+                Console.WriteLine("id="          + id.ToString());
+                Console.WriteLine("datetime_tz=" + datetime_tz.ToString() + " Kind=" + ((DateTime)datetime_tz).Kind.ToString());
+                Console.WriteLine("datetime   =" + datetime   .ToString() + " Kind=" + ((DateTime)datetime   ).Kind.ToString());
+                Console.WriteLine();
+            }
+            conn.Close();
+
+            Console.ReadKey();
+        }
+    }
+}
+

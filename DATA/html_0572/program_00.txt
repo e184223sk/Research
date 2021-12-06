@@ -1,0 +1,298 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+
+
+internal class DataBlocks
+{
+    // Key: address
+    public SortedList&lt;long, DataBlock&gt; Blocks{get;private set;}
+
+    DataBlock _lastAdded;
+    public bool ConsistencyPassed{get;private set;}
+
+    public DataBlocks()
+    {
+        Blocks = new SortedList&lt;long, DataBlock&gt;();
+        _lastAdded = null;
+        ConsistencyPassed = false;
+    }
+
+    // エラー(重複検出時)は return false
+    public bool Append(DataBlock b)
+    {
+        if ( b.Size == 0 ) {
+            return true; // 長さがないデータは無視する(正常扱い)
+        }
+
+        if ( _lastAdded == null ) { // まだデータがない
+            Blocks.Add(b.Address, b);
+            _lastAdded = b;
+            return true;
+        }
+
+        ConsistencyPassed = false;
+
+        if ( Blocks.ContainsKey(b.Address) ) {
+            // overlap
+            return false;
+        }
+
+        if ( _lastAdded.TryAppendBlock(b) ) {
+            // 最終要素に連結できた。
+            // nothing to do.
+            return true;
+        }
+        else {
+            Blocks.Add(b.Address, b);
+            _lastAdded = b;
+            return true;
+        }
+    }
+
+    // overlapがないかチェック。
+    // (memo: 連結できれば連結するようにしたい TryToConcatAndCheckNoOverlap ... これは未実装)
+    public bool CheckNoOverlap()
+    {
+        DataBlock prevBlock = null;
+
+        foreach ( var b in Blocks.Values ) {
+            if ( prevBlock != null ){
+                if ( b.IsOverlap(prevBlock) ) {
+                    return false;
+                }
+                //else if ( prevBlock.EndAddress+1 == b.Address ) {  // 連結可能
+                    //  ただ、foreach内でこれをやると不整合が起きそう
+                    // 未実装
+                //}
+            }
+            prevBlock = b;
+        }
+        ConsistencyPassed = true;
+        return true;
+    }
+
+
+    public static DataBlocks FromMotFile(string fileName)
+    {
+        var res = new DataBlocks();
+
+        string[] ss = File.ReadAllLines(fileName);
+        int lineNo = 0;
+
+        foreach ( string s in ss ) {
+            lineNo++;
+            if (String.IsNullOrWhiteSpace(s)) {
+                continue;
+            }
+
+            var oneRecord = OneRecord.FromString(s);
+            if ( oneRecord == null ) {
+                Console.WriteLine("Warning: Line " + lineNo.ToString() + " is ignored.");
+            }
+            else {
+                if ( !res.Append(DataBlock.FromOneRecord(oneRecord)) ) {
+                    // conflicted(overlapp)
+                    Console.WriteLine("Warning: Line " + lineNo.ToString() + " is ignored (start address conflicted).");
+                }
+            }
+        }
+        return res;
+    }
+} 
+
+internal class DataBlock
+{
+    public long Address{get;private set;}
+    public long EndAddress{get{return Address + Size - 1;}}
+    public long Size{get;private set;} // 有効データ部分のサイズ
+    long InternalSize{get{return Data.Length;}}
+
+    // Array.Resize が ref を使っており、実体をフィールド宣言せざるをえない。
+    // (プロパティはref/outで参照できない。)
+    byte[] _data;
+    public byte[] Data{get{return _data;}private set{_data=value;}} // バッファとして確保しているサイズを含む
+
+    public DataBlock(long addr, byte[] data)
+    {
+        Address = addr;
+        Size = data.Length;
+        Data = new byte[data.Length];
+        Array.Copy(data,0,Data,0,Size);
+    }
+
+    public static DataBlock FromOneRecord(OneRecord record)
+    {
+        return new DataBlock(record.Address, record.DataBytes);
+    }
+
+    // 有効データが入っている部分のデータを返す
+    public byte[] GetActualDataBytes()
+    {
+        if ( Size == InternalSize ) {
+            return Data;
+        }
+        else {
+            byte[] t = new byte[Size];
+            Array.Copy(Data, 0, t, 0, Size);
+            return t;
+        }
+    }
+
+    public void SaveAsBinaryFile(string destPath)
+    {
+        File.WriteAllBytes(destPath, GetActualDataBytes());
+    }
+
+    // アドレスが後ろ側につながっていれば連結する。
+    // 結合できる(＝できた)場合は true を返す。
+    public bool TryAppendBlock(DataBlock b)
+    {
+        if (EndAddress+1 == b.Address) {
+            if ( InternalSize &lt; Size + b.Size ) { // サイズが足りない。
+                int newInternalSize;
+                checked {
+                    // リサイズする
+                    newInternalSize = (int)(Size + b.Size);
+                    if ( newInternalSize &lt; (int)(2*Size) ) {
+                        // リサイズが必要となる頻度を抑制するため、大きめに確保しておく
+                        newInternalSize = (int)(2*Size);
+                    }
+                }
+                Array.Resize(ref _data, newInternalSize);
+            }
+            Array.Copy(b.Data, 0, Data, Size, b.Size); // bの有効データを、thisの有効データの末尾(位置=Size)以降にコピーする
+            Size += b.Size;
+            return true;
+        }
+        return false;
+    }
+
+    public bool IsOverlap(DataBlock b)
+    {
+        return !IsExclusive(b);
+    }
+
+    bool IsExclusive(DataBlock b)
+    {
+        if ( EndAddress &lt; b.Address ){ return true; }
+        if ( b.EndAddress &lt; Address ){ return true; }
+        return false;
+    }
+} 
+
+
+// S-Record 1行分のデータを扱う
+class OneRecord
+{
+    // This program ignores S5, S7, S8, S9.
+    static Regex rSn = new Regex(@"^S([01235789])");
+    static Regex rS0 = new Regex(@"^S(0)([0-9A-Fa-f]{2})((?:[0-9A-Fa-f]{2})*)([0-9A-Fa-f]{2})$");
+    static Regex rS1 = new Regex(@"^S(1)([0-9A-Fa-f]{2})([0-9A-Fa-f]{4})((?:[0-9A-Fa-f]{2})+)([0-9A-Fa-f]{2})$");
+    static Regex rS2 = new Regex(@"^S(2)([0-9A-Fa-f]{2})([0-9A-Fa-f]{6})((?:[0-9A-Fa-f]{2})+)([0-9A-Fa-f]{2})$");
+    static Regex rS3 = new Regex(@"^S(3)([0-9A-Fa-f]{2})([0-9A-Fa-f]{8})((?:[0-9A-Fa-f]{2})+)([0-9A-Fa-f]{2})$");
+
+    public int    RecordType{get;private set;}
+    public int    RecordLength{get;private set;}
+    public long   Address{get;private set;}
+    public byte[] DataBytes{get;private set;}
+    public byte   CheckSum{get;private set;}
+
+    public int    DataLength{get{return DataBytes.Length;}}
+    public long   EndAddress{get{return Address + DataBytes.Length -1;}}
+
+    public bool IsValidSum{get{return CalcCheckSum()==CheckSum;}}
+
+    byte CalcCheckSum()
+    {
+        int sum=0;
+        sum +=  RecordLength;
+        sum += (byte)(Address&gt;&gt;24);
+        sum += (byte)(Address&gt;&gt;16);
+        sum += (byte)(Address&gt;&gt; 8);
+        sum += (byte) Address;
+        foreach(byte b in DataBytes) {
+            sum += b;
+        }
+        return (byte)(~sum);
+    }
+
+
+    OneRecord()
+    {
+    }
+
+    public static OneRecord FromString(string s, bool checkFormat = true)
+    {
+        Match m;
+        m = rSn.Match(s);
+        if ( !m.Success ) {
+            return null;
+        }
+        m = rS1.Match(s);
+        if ( !m.Success ) { m = rS2.Match(s); }
+        if ( !m.Success ) { m = rS3.Match(s); }
+        if ( !m.Success ) { return null; }
+
+        var ret = new OneRecord();
+
+        ret.RecordType   = Convert.ToInt32(m.Groups[1].Value);
+        ret.RecordLength = Convert.ToInt32(m.Groups[2].Value, 16);
+        ret.Address      = Convert.ToInt64(m.Groups[3].Value, 16);
+        ret.DataBytes    = HexStrToByteArray(m.Groups[4].Value);
+        ret.CheckSum     = Convert.ToByte(m.Groups[5].Value, 16);
+
+        if ( checkFormat ) {
+            if ( ret.RecordLength*2 != s.Length - 4) {
+                Console.WriteLine("LengthError");
+                return null;
+            }
+            if ( !ret.IsValidSum ){
+                Console.WriteLine("ChkSumError");
+                return null;
+            }
+        }
+        return ret;
+    }
+
+    static int HexCharToInt(char c)
+    {
+        if('0'&lt;=c&amp;&amp;c&lt;='9'){return  c-'0';}
+        if('A'&lt;=c&amp;&amp;c&lt;='F'){return (c-'A')+10;}
+        if('a'&lt;=c&amp;&amp;c&lt;='f'){return (c-'a')+10;}
+        return -1;
+    }
+
+    static byte[] HexStrToByteArray(string s)
+    {
+        // length of the argument `s` must be even value. 
+        byte[] a = new byte[s.Length/2];
+        for (int pos=0 ; pos+1&lt;s.Length ; pos+=2) {
+            a[pos/2] = (byte)( (HexCharToInt(s[pos])&lt;&lt;4) | HexCharToInt(s[pos+1]) );
+        }
+        return a;
+    }
+}
+
+class MotFileTest
+{
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if ( args.Length != 1 ) { return; }
+
+        var dataBlocks = DataBlocks.FromMotFile(args[0]);
+        if ( dataBlocks.CheckNoOverlap() ) {
+            foreach( var block in dataBlocks.Blocks.Values ) {
+                string fileName = Path.GetFullPath("_"+block.Address.ToString("X08")+"_"+block.EndAddress.ToString("X08")+".bin");
+                Console.WriteLine(fileName);
+                block.SaveAsBinaryFile(fileName);
+            }
+        }
+    }
+}
+

@@ -1,0 +1,139 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TaskAndThread
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Parts p = new Parts();
+
+            p.RunHeavyMethodSync();
+
+            p.RunHeavyMethodAsync1();  // 警告出るけどシカトでok
+
+            p.RunHeavyMethodAsync2();
+
+            p.RunHeavyMethodParallel1();
+
+            p.RunHeavyMethodParallel2();            // waitなし
+            //p.RunHeavyMethodParallel2().Wait();   // waitあり 両者で比較してみてください。
+
+            p.KusoMethod();
+
+
+            Console.WriteLine("Press any key to quit. (うそです) ");    // 先に出る
+
+            System.Threading.Thread.Sleep(8000);                        // Mainスレッドにsleepをかけている       
+            Console.WriteLine("Press any key to quit. (本当だよ) ");    // ↑のsleepをコメントにすると、当然この行も先に出る
+
+            Console.Read();
+        }
+    }
+
+
+    class Parts
+    {
+        // 現実のプログラミングではここが重い処理になる。今回はsleepで代用
+        private void HeavyMethod(int x, string refMethod)
+        {
+            Thread.Sleep(5 * (100 - x)); // てきとーに時間を潰す
+            Console.WriteLine(refMethod + " : " + x);
+        }
+
+
+        // 比較のため、ただの同期メソッド
+        public void RunHeavyMethodSync() 
+        {
+            for (var i = 0; i &lt; 10; i++)
+            {
+                var x = i;
+                HeavyMethod(x, "HM ");
+            }
+        }
+        // -------------------------------------
+
+
+        // 「HeavyMethodを実行する」というタスクを開始し、完了するまで待機を
+        //  10回繰り返すというタスクを表すので、これは順次動作であり、並列ではない。
+        public async Task RunHeavyMethodAsync1()
+        {
+            for (var i = 0; i &lt; 10; i++)
+            {
+                var x = i;
+                await Task.Run(() =&gt; HeavyMethod(x, "HM1")); 
+            }                                               
+        }
+        // -------------------------------------
+
+
+        // 動作はRunHeavyMethodAsync1と同じだけど、
+        // HeavyMethodの実行がいつ完了するのか知ることができない。つらい。
+        //
+        public async void RunHeavyMethodAsync2() // RunHeavyMethodAsync1の戻り値がvoidになっただけ
+        {
+            for (var i = 0; i &lt; 10; i++)
+            {
+                var x = i;
+                await Task.Run(() =&gt; HeavyMethod(x, "HM2"));
+            }
+        }
+        // -------------------------------------
+
+
+        // HeavyMethodを開始せよという命令を、10回繰り返すだけなので、
+        // これは並列動作になる。Task.Runが投げっぱなしなので、HeavyMethodの状態がわからなくてつらい。
+        //
+        public void RunHeavyMethodParallel1() // asyncじゃない
+        {
+            for (var i = 0; i &lt; 10; i++)
+            {
+                var x = i;
+                Task.Run(() =&gt; HeavyMethod(x, "HP1"));
+            }
+        }
+        // -------------------------------------
+
+
+
+        // 全てのTaskが完了した時に完了扱いになるたった一つのTaskを作成
+        // 非同期メソッドではないが、戻り値がTaskなのでこのメソッドは一つのタスクを表しているといえる。
+        //
+        public Task RunHeavyMethodParallel2()                      // asyncじゃないけど、戻り値がTask
+        {
+            var tasks = new List&lt;Task&gt;();                          // TaskをまとめるListを作成
+            for (var i = 0; i &lt; 10; i++)
+            {
+                var x = i;
+                var task = Task.Run(() =&gt; HeavyMethod(x, "HP2"));  // HeavyMethodを開始するというTask
+                tasks.Add(task);                                   // を、Listにまとめる
+            }
+            return Task.WhenAll(tasks);
+        }
+        // -------------------------------------
+
+
+
+        // デッドロックを回避するサンプル  ------
+        public void KusoMethod()
+        {
+            NiceAsyncMethod().Wait(); // Waitしてもデッドロックしない！
+            Console.WriteLine("I am KusoMethod()");
+        }
+
+
+        private async Task NiceAsyncMethod()
+        {
+            await Task.Delay(1000).ConfigureAwait(false);  // ←重要
+        }
+        // -------------------------------------
+
+
+    }
+}
+

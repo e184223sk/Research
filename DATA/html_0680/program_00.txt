@@ -1,0 +1,65 @@
+
+using System.IO;
+using Azure.Storage;
+using Azure.Storage.Files.Shares;
+
+public class SampleClass
+{
+    public void Upload()
+    {
+        ///Azureのストレージアカウントから情報を取得して設定
+        string accountName = "{Azureのポータルサイトからアカウント名を取得する。}";
+        string accessKey   = "{Azureのポータルサイトからアクセスキーを取得する。}";
+        Uri    serverurl   = new Uri(@"{AzureのポータルサイトからURLを取得する。}") ;
+
+        ///アップロード先(azure側)
+        string azureDirectoryPath = @"{保存先(azure側)のディレクトリを指定}" ;
+        string azureFileName      =  "{保存するファイル名称を指定}";
+
+        ///アップロード対象(Local側)
+        string localDirectoryPath = @"{アップロード対象(Local側)のディレクトリを指定}";
+        string localFileName      =  "{アップロード対象(Local側)のファイル名を指定}";
+
+        //SSL通信の許可設定
+        //これをやっとかないと、SSL(https)通信でエラーが発生する。
+        System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls12;
+
+
+         try
+         {
+            //Azureへ接続準備：接続情報の設定
+            StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accessKey);
+
+            //Azureへ接続
+            ShareClient share = new ShareClient(serverurl ,  credential);
+
+            ShareDirectoryClient directory = share.GetDirectoryClient(azureDirectoryPath);
+
+            //Upload先(azure側)にフォルダがなければ作成。
+            directory.CreateIfNotExists();
+
+            //Upload先(azure側)にファイルインスタンスを作成。
+            ShareFileClient file = directory.GetFileClient(azureFileName);
+
+            //同名のファイルがあったら削除
+            file.DeleteIfExists();
+
+            //Upload対象のLocalファイルを開く。FileStream型で開くとバイナリ情報の取得が楽。
+            FileStream stream = File.OpenRead( Path.Combine(localDirectoryPath , localFileName ) );
+
+            //Upload先(azure側)にファイルインスタンスにバイナリ情報を注入
+            file.Create(stream.Length);
+            file.UploadRange(new Azure.HttpRange(0, stream.Length),stream);
+
+            //ローカルファイルの開放
+            stream.Dispose();
+        }
+        catch(Exception ex)
+        {
+            System.Console.WriteLine(ex.Message);
+            return;
+        }
+    }
+}
+
+

@@ -1,0 +1,115 @@
+
+// 以下を参照
+//C:\Program Files (x86)\MySQL\MySQL Installer for Windows\MySql.Data.dll
+using MySql.Data.MySqlClient;
+using System;
+
+namespace mysqlSample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // https://dev.mysql.com/doc/connector-net/en/connector-net-installation-binary-mysql-installer.html
+            // https://dev.mysql.com/doc/connector-net/en/connector-net-tutorials-connection.html
+            string connStr = "server=192.168.80.131;user=root;database=test;port=3306;password=root";
+            using (var conn = new MySqlConnection(connStr))
+            {
+                try
+                {
+                    Console.WriteLine("Connecting to MySQL...");
+                    conn.Open();
+
+                    using (var cmd = new MySqlCommand("truncate table test_tbl", conn))
+                    {
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (var cmd = new MySqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@user", "明日のジョー");
+                        cmd.Parameters.AddWithValue("@age", 17);
+                        cmd.ExecuteNonQuery();
+
+                    }
+                    using (var cmd = new MySqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                        }
+                    }
+
+                    // トランザクション
+                    Console.WriteLine("=================================================");
+                    Console.WriteLine("トランザクション（ロールバック）");
+                    using (var tran = conn.BeginTransaction())
+                    {
+                        // Perform database operations
+                        using (var cmd = new MySqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                            cmd.Parameters.AddWithValue("@age", 43);
+                            cmd.ExecuteNonQuery();
+                        }
+                        tran.Rollback();
+                    }
+                    using (var cmd = new MySqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                        }
+                    }
+                    Console.WriteLine("=================================================");
+                    Console.WriteLine("トランザクション（コミット）");
+                    using (var tran = conn.BeginTransaction())
+                    {
+                        // Perform database operations
+                        using (var cmd = new MySqlCommand("INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@user", "丹下さくら");
+                            cmd.Parameters.AddWithValue("@age", 43);
+                            cmd.ExecuteNonQuery();
+                        }
+                        tran.Commit();
+                    }
+                    using (var cmd = new MySqlCommand("SELECT user_name, age FROM test_tbl", conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                        }
+                    }
+
+                    Console.WriteLine("=================================================");
+                    Console.WriteLine("ストアド");
+                    using (var cmd = new MySqlCommand("call test_sp(@from, @to)", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@from", 10);
+                        cmd.Parameters.AddWithValue("@to", 19);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                            }
+                        }
+                    }
+                    conn.Close();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                }
+            }
+            Console.WriteLine("Done.");
+            Console.ReadLine();
+        }
+    }
+}
+
+

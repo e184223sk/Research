@@ -1,0 +1,147 @@
+using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace ConsoleApp9
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // "あいうえお"を暗号化
+            AesEncrypter.WriteAesEncryptedBytesToFile("あいうえお", @"C:\work\test.bin");
+
+            // 暗号化したデータを読み出し復号化する
+            var d = AesEncrypter.ReadAesEncryptedBytesFromFile(@"C:\work\test.bin");
+
+            Console.WriteLine(d);
+            Console.ReadLine();
+        }
+    }
+
+    public class AesEncrypter
+    {
+        ///IV 半角16文字のランダムな文字列
+        private static readonly string AesIV = @"xxxxxxxxxxxxxxxx";
+
+        // キー 半角32文字のランダムな文字列
+        // (1文字あたり8bit→8*32=256bit→キーサイズ)
+        private static readonly string AesKey = @"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+        // キーサイズ(bit)
+        private static readonly int KeySize = 256;
+
+        // ブロックサイズ
+        private static readonly int BlockSize = 128;
+
+        // 暗号化
+        public static byte[] Encrypt(string value)
+        {
+            // AESオブジェクトを取得
+            var aes = GetAesCng();
+
+            // 対象の文字列をバイトデータに変換
+            var byteValue = Encoding.UTF8.GetBytes(value);
+
+            // バイトデータの長さを取得
+            var byteLength = byteValue.Length;
+
+            // 暗号化オブジェクトを取得
+            var encryptor = aes.CreateEncryptor();
+
+            // 暗号化
+            return encryptor.TransformFinalBlock(byteValue, 0, byteLength);
+        }
+
+        // 復号化
+        public static string Decrypt(byte[] encryptValue)
+        {
+            // AESオブジェクトを取得
+            var aes = GetAesCng();
+
+            // 復号化オブジェクトを取得
+            var decryptor = aes.CreateDecryptor();
+
+            // 復号化
+            var decryptValue = decryptor.TransformFinalBlock(encryptValue, 0, encryptValue.Length);
+
+            // 復号化されたバイトデータを文字列に変換
+            var stringValue = Encoding.UTF8.GetString(decryptValue);
+
+            return stringValue;
+        }
+
+        // AESオブジェクトを取得
+        private static AesCng GetAesCng()
+        {
+            // AESオブジェクトを生成し、パラメータを設定します。
+            var aes = new AesCng();
+            aes.KeySize = KeySize;
+            aes.BlockSize = BlockSize;
+            aes.Mode = CipherMode.CBC;
+            aes.IV = Encoding.UTF8.GetBytes(AesIV);
+            aes.Key = Encoding.UTF8.GetBytes(AesKey);
+            aes.Padding = PaddingMode.PKCS7;
+
+            return aes;
+        }
+
+        // 文字列を暗号化してファイルに書き出す
+        // targetString 暗号化したい文字列
+        // keyFilePath 暗号化した文字列を書き込むファイル
+        public static void WriteAesEncryptedBytesToFile(string targetString, string keyFilePath)
+        {
+            byte[] encrypted;
+
+            try
+            {
+                encrypted = Encrypt(targetString);
+
+                string folderPath = Path.GetDirectoryName(keyFilePath);
+                if (!Directory.Exists(folderPath))
+                {
+                    Directory.CreateDirectory(folderPath);
+                }
+
+                using (var fs = new FileStream(keyFilePath, FileMode.Create))
+                using (var bw = new BinaryWriter(fs))
+                {
+                    bw.Write(encrypted);
+                }
+            }
+            catch
+            {
+                throw;
+            }
+        }
+
+        // 暗号化されたファイルからキーを読を復号して返す
+        // keyFilePath キーファイルパス
+        // return ： 復号化された文字列
+        public static string ReadAesEncryptedBytesFromFile(string keyFilePath)
+        {
+            string roundtrip;
+
+            try
+            {
+                using (var fs = new FileStream(keyFilePath, FileMode.Open))
+                using (var br = new BinaryReader(fs))
+                {
+                    var encrypted = new byte[fs.Length];
+                    br.Read(encrypted, 0, (int)fs.Length);
+
+                    roundtrip = Decrypt(encrypted);
+                }
+            }
+            catch
+            {
+                throw;
+            }
+
+            return roundtrip;
+        }
+    }
+}
+
+

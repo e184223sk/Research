@@ -1,0 +1,115 @@
+using System;
+using System.Data.SQLite;
+
+namespace sqliteSample
+{
+    class Program
+    {
+        // https://www.ivankristianto.com/howto-make-user-defined-function-in-sqlite-ado-net-with-csharp/
+        [SQLiteFunction(Name = "ToUpper", Arguments = 1, FuncType = FunctionType.Scalar)]
+        public class ToUpper : SQLiteFunction
+        {
+            public override object Invoke(object[] args)
+            {
+                return args[0].ToString().ToUpper();
+            }
+        }
+
+        static void Main(string[] args)
+        {
+            if (System.IO.File.Exists("database.db"))
+            {
+                System.IO.File.Delete("database.db");
+            }
+            using (var conn = new SQLiteConnection("Data Source=database.db; Version = 3; New = True; Compress = True; "))
+            {
+                conn.Open();
+
+                using (var cmd = new SQLiteCommand("CREATE TABLE test_tbl(user_name varchar(50), age integer)", conn))
+                {
+                    cmd.ExecuteNonQuery();
+                }
+
+                using (var cmd = new SQLiteCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                    cmd.Parameters.Add(new SQLiteParameter("@user", "aa明日のジョー"));
+                    cmd.Parameters.Add(new SQLiteParameter("@age", 17));
+                    cmd.ExecuteNonQuery();
+                }
+                using (var cmd = new SQLiteCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                // トランザクション
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（ロールバック）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new SQLiteCommand())
+                    {
+                        cmd.Connection = conn;
+                        cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                        cmd.Parameters.Add(new SQLiteParameter("@user", "bb丹下さくら"));
+                        cmd.Parameters.Add(new SQLiteParameter("@age", 43));
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Rollback();
+
+                }
+                using (var cmd = new SQLiteCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+                Console.WriteLine("=================================================");
+                Console.WriteLine("トランザクション（コミット）");
+                using (var tran = conn.BeginTransaction())
+                {
+                    using (var cmd = new SQLiteCommand())
+                    {
+                        cmd.Connection = conn;
+                        cmd.CommandText = "INSERT INTO test_tbl (user_name, age) VALUES (@user, @age)";
+                        cmd.Parameters.Add(new SQLiteParameter("@user", "bb丹下さくら"));
+                        cmd.Parameters.Add(new SQLiteParameter("@age", 43));
+                        cmd.ExecuteNonQuery();
+                    }
+                    tran.Commit();
+
+                }
+                using (var cmd = new SQLiteCommand("SELECT user_name, age FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0} {1}", reader.GetString(0), reader.GetInt32(1).ToString());
+                    }
+                }
+
+
+                Console.WriteLine("=================================================");
+                Console.WriteLine("ユーザ定義関数");
+                using (var cmd = new SQLiteCommand("SELECT ToUpper(user_name) FROM test_tbl", conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Console.WriteLine("{0}", reader.GetString(0));
+                    }
+                }
+                conn.Close();
+            }
+            Console.ReadLine();
+        }
+    }
+}
+
+

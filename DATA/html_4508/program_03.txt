@@ -1,0 +1,62 @@
+
+using EventStore.Client;
+
+/// &lt;summary&gt;
+/// 指定されたコマンドをイベントソースに書き込みます。
+/// &lt;/summary&gt;
+/// &lt;param name="command"&gt;コマンド&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+private Task&lt;IWriteResult&gt; WriteCommandAsync(SampleEventCommand command)
+{
+    // TODO: コマンドの型からイベントタイプとストリーム名を特定できるようにするのが望ましい
+    return WriteCommandAsync("sampleEvent", "sampleStream", command);
+}
+
+/// &lt;summary&gt;
+/// 指定されたコマンドをイベントソースに書き込みます。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TCommand"&gt;コマンドの型&lt;/typeparam&gt;
+/// &lt;param name="eventType"&gt;イベントタイプ&lt;/param&gt;
+/// &lt;param name="streamName"&gt;ストリーム名&lt;/param&gt;
+/// &lt;param name="command"&gt;コマンド&lt;/param&gt;
+/// &lt;returns&gt;書き込み結果&lt;/returns&gt;
+private Task&lt;IWriteResult&gt; WriteCommandAsync&lt;TCommand&gt;(string eventType, string streamName, TCommand command)
+    where TCommand : IEventCommand
+{
+    return WriteCommandsAsync(eventType, streamName, new[] { command });
+}
+
+/// &lt;summary&gt;
+/// 指定されたコマンドをイベントソースに書き込みます。
+/// &lt;/summary&gt;
+/// &lt;typeparam name="TCommand"&gt;コマンドの型&lt;/typeparam&gt;
+/// &lt;param name="eventType"&gt;イベントタイプ&lt;/param&gt;
+/// &lt;param name="streamName"&gt;ストリーム名&lt;/param&gt;
+/// &lt;param name="commands"&gt;コマンド&lt;/param&gt;
+/// &lt;returns&gt;書き込み結果&lt;/returns&gt;
+private async Task&lt;IWriteResult&gt; WriteCommandsAsync&lt;TCommand&gt;(string eventType, string streamName, IEnumerable&lt;TCommand&gt; commands)
+    where TCommand : IEventCommand
+{
+    // コマンドを格納したイベントデータを列挙するメソッド
+    static IEnumerable&lt;EventData&gt; ToEventData(string eventType, IEnumerable&lt;TCommand&gt; commands)
+    {
+        foreach (var obj in commands)
+        {
+            yield return new EventData(
+                Uuid.NewUuid()
+                , eventType
+                , m_Serializer.Serialize(obj)
+                );
+        }
+    }
+
+    // 頻繁に書き込みを行うアプリケーションの場合、クライアントの生成と破棄を繰り返さないほうがよいと思われる
+    await using EventStoreClient client = CreateEventStoreClient();
+
+    return await client.AppendToStreamAsync(
+        streamName
+        , StreamState.Any
+        , ToEventData(eventType, commands)
+        ).ConfigureAwait(false);
+}
+

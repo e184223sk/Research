@@ -1,0 +1,32 @@
+/// &lt;summary&gt;
+/// 指定されたオブジェクトを含む親コレクションとインデックスを返す
+/// &lt;/summary&gt;
+private static (IList, int) GetParentListAndIndex(DependencyObject elementInItem)
+{
+    DependencyObject parent = elementInItem;
+    var parentTree = new List&lt;DependencyObject&gt; { parent };
+
+    //指定されたオブジェクトのVisualTree上の親を順番に探索し、ItemsControlを探す。
+    //ただし、DataGridは中間にいるDataGridCellsPresenterは無視する
+    while (parent != null &amp;&amp; !(parent is ItemsControl) || parent is DataGridCellsPresenter)
+    {
+        parent = VisualTreeHelper.GetParent(parent);
+        parentTree.Add(parent);
+    }
+    if (!(parent is ItemsControl itemsControl))
+        return (null, -1);
+
+    //ItemsControlの行にあたるオブジェクトを探索履歴の後ろから検索
+    var item = parentTree
+        .LastOrDefault(x =&gt; itemsControl.IsItemItsOwnContainer(x));
+
+    //削除するIndexを取得
+    int removeIndex = itemsControl.ItemContainerGenerator?.IndexFromContainer(item)
+        ?? -1;
+
+    //Bindingしていた場合はItemsSource、違うならItemsから削除する
+    IList targetList = ((itemsControl.ItemsSource as IList) ?? itemsControl.Items);
+
+    return (targetList, removeIndex);
+}
+

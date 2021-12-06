@@ -1,0 +1,116 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Timers;
+
+namespace TimerSample
+{
+    /// &lt;summary&gt;
+    /// &lt;see cref="System.Timers.Timer"/&gt;のインターバル時間の経過イベントを待機できるタスクを提供します。
+    /// &lt;/summary&gt;
+    public class AwaitableTimer : System.Timers.Timer
+    {
+        #region field
+
+        private TaskCompletionSource&lt;DateTime&gt; _tcs;
+
+        #endregion
+
+        #region constructor
+
+        /// &lt;summary&gt;
+        /// デフォルトコンストラクタ
+        /// &lt;/summary&gt;
+        public AwaitableTimer() : base()
+        {
+            Elapsed += OnElapsed;
+        }
+
+        /// &lt;summary&gt;
+        /// インターバル時間、およびインターバル経過イベントを繰り返し発生させるかどうかを指定してタイマーを作成します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="interval"&gt;&lt;/param&gt;
+        /// &lt;param name="autoReset"&gt;&lt;/param&gt;
+        public AwaitableTimer(TimeSpan interval, bool autoReset) : base(interval.TotalMilliseconds)
+        {
+            AutoReset = autoReset;
+            Elapsed += OnElapsed;
+        }
+
+        /// &lt;summary&gt;
+        /// インターバル時間を指定して初期化
+        /// &lt;/summary&gt;
+        /// &lt;param name="interval"&gt;&lt;/param&gt;
+        public AwaitableTimer(TimeSpan interval) : base(interval.TotalMilliseconds)
+        {
+            Elapsed += OnElapsed;
+        }
+
+        #endregion
+
+        private void OnElapsed(object sender, ElapsedEventArgs e)
+        {
+            if (_tcs != null)
+            {
+                _tcs.TrySetResult(e.SignalTime);
+                _tcs = null;
+            }
+        }
+
+        private void OnTaskCanceled()
+        {
+            if (_tcs != null)
+            {
+                _tcs.TrySetException(new TaskCanceledException(_tcs.Task));
+                _tcs = null;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// インターバル時間とインターバル経過イベントを繰り返し発生させるかどうかを指定して、タイマーを開始します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="interval"&gt;&lt;/param&gt;
+        /// &lt;param name="autoReset"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static AwaitableTimer StartNew(TimeSpan interval, bool autoReset)
+        {
+            var timer = new AwaitableTimer(interval, autoReset);
+            timer.Start();
+            return timer;
+        }
+
+        /// &lt;summary&gt;
+        /// タイマーの経過時間をリセットして再開します
+        /// &lt;/summary&gt;
+        public void Restart()
+        {
+            Stop();
+            Start();
+        }
+
+        /// &lt;summary&gt;
+        /// インターバル経過イベントを待機するタスク。タイマーが止まっている場合は、即時に&lt;see cref="DateTime.Now"/&gt;を返します。
+        /// &lt;/summary&gt;
+        /// &lt;param name="token"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;DateTime&gt; WaitElapsedAsync(CancellationToken token = default)
+        {
+            if (Enabled)
+            {
+                _tcs = new TaskCompletionSource&lt;DateTime&gt;(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                var register = token.Register(OnTaskCanceled);
+
+                using (register)
+                {
+                    return await _tcs.Task;
+                }
+            }
+            else
+            {
+                return DateTime.Now;
+            }
+        }
+    }
+}
+

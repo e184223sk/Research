@@ -1,0 +1,67 @@
+
+[SerializeField] private RawImage RGB_Image;
+[SerializeField] private RawImage HumanStencil_Image;
+[SerializeField] private RawImage Inpaint_Image;
+
+private int width = 640, height = 480;
+private CancellationTokenSource tokenSource;
+
+private void Start()
+{
+    tokenSource = new CancellationTokenSource();
+    var cancelToken = tokenSource.Token;
+    _ = CaptureLoop(cancelToken);
+}
+
+private async Task CaptureLoop(CancellationToken cancelToken)
+{
+    byte[] dilateArray =
+        {   1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, };
+
+    Texture2D stencilViewTexture = new Texture2D(width,height);
+    Texture2D rgbViewTexture = new Texture2D(width, height);
+    Texture2D inpaintViewTexture = new Texture2D(width, height);
+
+    HumanStencil_Image.texture = stencilViewTexture;
+    RGB_Image.texture = rgbViewTexture;
+    Inpaint_Image.texture = inpaintViewTexture;
+
+    while (!cancelToken.IsCancellationRequested)
+    {
+        await Task.Delay(20);
+
+        if (RGB_Texture == null || Stencil_Texture == null) continue;
+
+        using (Mat stencilMat = OpenCvSharp.Unity.TextureToMat(Stencil_Texture))
+        using (Mat rgbMat = OpenCvSharp.Unity.TextureToMat(RGB_Texture))
+        using (Mat inpaintMat = new Mat())
+        {
+            #region stencil texture
+            Cv2.CvtColor(stencilMat, stencilMat, ColorConversionCodes.BGR2GRAY);
+            Cv2.Dilate(stencilMat, stencilMat, InputArray.Create(dilateArray));
+            Cv2.Resize(stencilMat, stencilMat, new OpenCvSharp.Size(width, height));
+            stencilViewTexture = OpenCvSharp.Unity.MatToTexture(stencilMat, stencilViewTexture);
+            #endregion
+
+            #region rgb texture
+            Cv2.Resize(rgbMat, rgbMat, new OpenCvSharp.Size(width, height));
+            Cv2.Flip(rgbMat, rgbMat, FlipMode.Y);
+            rgbViewTexture = OpenCvSharp.Unity.MatToTexture(rgbMat, rgbViewTexture);
+            #endregion
+
+            #region inpaint
+            Cv2.Inpaint(rgbMat, stencilMat, inpaintMat, 3, InpaintMethod.NS);
+            inpaintViewTexture = OpenCvSharp.Unity.MatToTexture(inpaintMat, inpaintViewTexture);
+            #endregion
+
+            stencilMat.Dispose();
+            rgbMat.Dispose();
+            inpaintMat.Dispose();
+        }
+    }
+}
+

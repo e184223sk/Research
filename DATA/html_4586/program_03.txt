@@ -1,0 +1,87 @@
+
+[UpdateAfter(typeof(DecidePositionHashCodeSystem))]
+[UpdateBefore(typeof(BombRenderSystem))]
+public sealed class BombHitCheckSystem : ComponentSystem
+{
+    private readonly float rangeSquared;
+    private readonly NativeMultiHashMap&lt;int, DecidePositionHashCodeSystem.Tuple&gt; enemyHashCodes;
+    private readonly Entity player;
+    private ComponentGroup g;
+    private EntityArchetype deadMan;
+    private readonly (int, int)[] diff;
+    private readonly HashSet&lt;Entity&gt; toDestroy = new HashSet&lt;Entity&gt;();
+
+    public BombHitCheckSystem(Entity player, float radius, NativeMultiHashMap&lt;int, DecidePositionHashCodeSystem.Tuple&gt; enemyHashCodes)
+    {
+        this.player = player;
+        this.rangeSquared = radius * radius;
+        this.enemyHashCodes = enemyHashCodes;
+        var ls = new List&lt;(int, int)&gt;((int)rangeSquared);
+        for (int i = 0, r = (int)radius, r2 = r * r; i &lt;= r; i++)
+        {
+            for (int j = 0, end = (int)Math.Sqrt(r2 - i * i); j &lt;= end; j++)
+            {
+                ls.Add((i, j));
+                if (i != 0)
+                    ls.Add((-i, j));
+                if (j != 0)
+                    ls.Add((i, -j));
+                if (i != 0 &amp;&amp; j != 0)
+                    ls.Add((-i, -j));
+            }
+        }
+        this.diff = ls.ToArray();
+    }
+
+    protected override void OnCreateManager(int capacity)
+    {
+        g = GetComponentGroup(ComponentType.ReadOnly&lt;Position2D&gt;(), ComponentType.ReadOnly&lt;BombEffect&gt;());
+        deadMan = EntityManager.CreateArchetype(ComponentType.Create&lt;DeadMan&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var positions = g.GetComponentDataArray&lt;Position2D&gt;();
+        var manager = EntityManager;
+        var buf = PostUpdateCommands;
+        var playerPos = manager.GetComponentData&lt;Position&gt;(player).Value;
+        var deltaTime = Time.deltaTime;
+        toDestroy.Clear();
+        for (int consumed = 0, length = positions.Length; consumed &lt; length;)
+        {
+            var posChunk = positions.GetChunkArray(consumed, length - consumed);
+            for (int i = 0; i &lt; posChunk.Length; i++)
+            {
+                var x = (int)posChunk[i].Value.x;
+                var y = (int)posChunk[i].Value.y;
+                float plDistanceSquared;
+                {
+                    var diffX = playerPos.x - posChunk[i].Value.x;
+                    var diffY = playerPos.z - posChunk[i].Value.y;
+                    plDistanceSquared = diffX * diffX + diffY * diffY;
+                }
+                if (plDistanceSquared &lt;= rangeSquared)
+                {
+                    var setting = manager.GetComponentData&lt;PlayerSettings&gt;(player);
+                    setting.Temperature += 300f / plDistanceSquared * deltaTime;
+                    manager.SetComponentData(player, setting);
+                }
+                for (int j = 0; j &lt; diff.Length; j++)
+                {
+                    if (!enemyHashCodes.TryGetFirstValue(((diff[j].Item1 + x) &lt;&lt; 16) | (diff[j].Item2 + y), out var item, out var it))
+                        continue;
+                    toDestroy.Add(item.Entity);
+                    while (enemyHashCodes.TryGetNextValue(out item, ref it))
+                        toDestroy.Add(item.Entity);
+                    manager.CreateEntity(deadMan);
+                    break;
+                }
+            }
+            foreach (var item in toDestroy)
+                if (manager.Exists(item))
+                    manager.DestroyEntity(item);
+            consumed += posChunk.Length;
+        }
+    }
+}
+

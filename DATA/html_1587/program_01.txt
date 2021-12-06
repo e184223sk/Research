@@ -1,0 +1,168 @@
+
+class ControllerMapper
+{
+    private const string CONTENT_TYPE_JSON = "application/json";
+    private static Logger log = Logger.GetInstance();
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    public ControllerMapper()
+    {
+    }
+
+    /// &lt;summary&gt;
+    /// 実行する
+    /// &lt;/summary&gt;
+    /// &lt;param name="req"&gt;リクエスト情報&lt;/param&gt;
+    /// &lt;param name="res"&gt;レスポンス情報&lt;/param&gt;
+    public void Execute(HttpListenerRequest req, HttpListenerResponse res)
+    {
+        StreamReader reader = null;
+        StreamWriter writer = null;
+        string reqBody = null;
+        string resBoby = null;
+
+        try
+        {
+            res.StatusCode = (int)HttpStatusCode.OK;
+            res.ContentType = CONTENT_TYPE_JSON;
+            res.ContentEncoding = Encoding.UTF8;
+
+            reader = new StreamReader(req.InputStream);
+            writer = new StreamWriter(res.OutputStream);
+            reqBody = reader.ReadToEnd();
+
+            LogStart(req, reqBody);
+            resBoby = ExecuteController(req, res, reqBody);
+        }
+        catch (Exception ex)
+        {
+            /* ～エラー処理～ */
+        }
+        finally
+        {
+            try
+            {
+                writer.Write(resBoby);
+                writer.Flush();
+
+                if (null != reader)
+                {
+                    reader.Close();
+                }
+                if (null != writer)
+                {
+                    writer.Close();
+                }
+                LogEnd(res, resBoby);
+            }
+            catch (Exception clsEx)
+            {
+                log.Error(clsEx.ToString());
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// リクエストログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="req"&gt;リクエスト情報&lt;/param&gt;
+    /// &lt;param name="body"&gt;リクエストボディ文字列&lt;/param&gt;
+    private void LogStart(HttpListenerRequest req, string body)
+    {
+        log.Info("########## Request [start] ##########");
+        log.Info(String.Format("&gt;&gt; {0} {1}", req.HttpMethod, GetApiPath(req.RawUrl)));
+        log.Info("&gt;&gt; IP: " + req.UserHostAddress);
+        log.Info("&gt;&gt; UserAgent: " + req.UserAgent);
+        log.Info("&gt;&gt; Header: " + ToNameValueString(req.Headers));
+        if ("GET".Equals(req.HttpMethod))
+        {
+            if (0 &lt; req.QueryString.Count)
+            {
+                log.Info("&gt;&gt; Query: " + ToNameValueString(req.QueryString));
+
+            }
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(body))
+            {
+                log.Info("&gt;&gt; Body: " + body);
+            }
+        }
+        log.Info("########## Request [end] ##########");
+    }
+
+    /// &lt;summary&gt;
+    /// レスポンスログを出力する
+    /// &lt;/summary&gt;
+    /// &lt;param name="res"&gt;レスポンス情報&lt;/param&gt;
+    /// &lt;param name="body"&gt;レスポンスボディ文字列&lt;/param&gt;
+    private void LogEnd(HttpListenerResponse res, string body)
+    {
+        log.Info("########## Response [start] ##########");
+        log.Info("&gt;&gt; HTTP Status: " + res.StatusCode);
+        log.Info("&gt;&gt; Header: " + ToNameValueString(res.Headers));
+        if (!string.IsNullOrEmpty(body))
+        {
+            log.Info("&gt;&gt; Body: " + body);
+        }
+        log.Info("########## Response [end] ##########");
+    }
+
+    /// &lt;summary&gt;
+    /// Name-Value文字列を取得する
+    /// &lt;/summary&gt;
+    /// &lt;param name="nvc"&gt;nvc&lt;/param&gt;
+    /// &lt;returns&gt;文字列&lt;/returns&gt;
+    private string ToNameValueString(NameValueCollection nvc)
+    {
+        return String.Join(", ", Array.ConvertAll(nvc.AllKeys, key =&gt; String.Format("{0}:{1}", key, nvc[key])));
+    }
+
+    /// &lt;summary&gt;
+    /// APIパスを取得する
+    /// &lt;/summary&gt;
+    /// &lt;param name="srcPath"&gt;URLパス&lt;/param&gt;
+    /// &lt;returns&gt;APIパス&lt;/returns&gt;
+    private string GetApiPath(string srcPath)
+    {
+        string[] path = srcPath.Split('?');
+        string condition = String.Format(@"^/{0}", Settings.Default.API_PATH);
+        return Regex.Replace(path[0], condition, "");
+    }
+
+    /// &lt;summary&gt;
+    /// APIコントローラを実行する
+    /// &lt;/summary&gt;
+    /// &lt;param name="req"&gt;リクエスト情報&lt;/param&gt;
+    /// &lt;param name="res"&gt;レスポンス情報&lt;/param&gt;
+    /// &lt;param name="reqBody"&gt;リクエストボディ&lt;/param&gt;
+    /// &lt;returns&gt;レスポンス文字列&lt;/returns&gt;
+    private string ExecuteController(HttpListenerRequest req, HttpListenerResponse res, string reqBody)
+    {
+        string path = GetApiPath(req.RawUrl);
+
+        if ("/user/".Equals(path))
+        {
+            switch (req.HttpMethod)
+            {
+                case "GET":
+                    return (new ReadUserController(req, res, reqBody)).Execute();
+                case "POST":
+                    return (new CreateUserController(req, res, reqBody)).Execute();
+                case "PUT":
+                    return (new UpdateUserController(req, res, reqBody)).Execute();
+                case "DELETE":
+                    return (new DeleteUserController(req, res, reqBody)).Execute();
+            }
+        }
+        if ("/users/".Equals(path) &amp;&amp; "GET".Equals("GET"))
+        {
+            return (new ReadUsersController(req, res, reqBody)).Execute();
+        }
+        return "";
+    }
+}
+

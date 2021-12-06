@@ -1,0 +1,314 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Calculator
+{
+    // 計算機
+    class Calculator
+    {
+        // バージョン情報
+        static public readonly Version version = new Version(1, 2, 2);
+        // 製作者名
+        static public readonly string maker = "HitsujiRere";
+
+        // 接頭辞と初期値のディクショナリ
+        static public Dictionary&lt;char, bool&gt; prefixs = new Dictionary&lt;char, bool&gt;()
+        {
+            ['&amp;'] = true,
+            ['@'] = false,
+        };
+
+        // 演算子と計算のディクショナリ
+        static public Dictionary&lt;string, Func&lt;double, string[], double&gt;&gt; operatorsOf1 =
+            new Dictionary&lt;string, Func&lt;double, string[], double&gt;&gt;()
+            {
+                ["=%"] = (a, _) =&gt; a * 0.01,
+                ["-%"] = (a, _) =&gt; a * 100.0,
+                ["++"] = (a, _) =&gt; a + 1.0,
+                ["--"] = (a, _) =&gt; a - 1.0,
+                ["*-"] = (a, _) =&gt; a * -1.0,
+                ["sq"] = (a, _) =&gt; a * a,
+                ["sqrt"] = (a, _) =&gt; Math.Sqrt(a),
+                ["bx"] = (a, _) =&gt; a * a * a,
+                ["bxrt"] = (a, _) =&gt; Math.Pow(a, 1.0 / 3.0),
+            };
+        static public Dictionary&lt;string, Func&lt;double, double, string[], double&gt;&gt; operatorsOf2 =
+            new Dictionary&lt;string, Func&lt;double, double, string[], double&gt;&gt;()
+            {
+                ["+"] = (a, b, _) =&gt; a + b,
+                ["-"] = (a, b, _) =&gt; a - b,
+                ["*"] = (a, b, _) =&gt; a * b,
+                ["/"] = (a, b, _) =&gt; a / b,
+                ["%"] = (a, b, _) =&gt; a % b,
+                ["mod"] = (a, b, _) =&gt; a % b,
+                ["div"] = (a, b, _) =&gt; (a - (a % b)) / b,
+                ["^"] = (a, b, _) =&gt; Math.Pow(a, b),
+            };
+        static public Dictionary&lt;string, Func&lt;double[], string[], double&gt;&gt; operatorsAll =
+            new Dictionary&lt;string, Func&lt;double[], string[], double&gt;&gt;()
+            {
+                ["cnt"] = (a, _) =&gt; a.Count(),
+                ["sum"] = (a, _) =&gt; a.Sum(),
+                ["ave"] = (a, _) =&gt; a.Average(),
+            };
+
+        // 命令と計算のディクショナリ
+        static public Dictionary&lt;string, Action&lt;Calculator, string[]&gt;&gt; instructions =
+            new Dictionary&lt;string, Action&lt;Calculator, string[]&gt;&gt;()
+            {
+                ["sort"] = (calc, _) =&gt;
+                {
+                    calc.numStack = new Stack&lt;double&gt;(calc.numStack.OrderBy(x =&gt; x));
+                },
+                ["rev"] = (calc, _) =&gt;
+                {
+                    calc.numStack = new Stack&lt;double&gt;(calc.numStack);
+                },
+                ["clr"] = (calc, _) =&gt; { calc.numStack.Clear(); },
+                ["help"] = (calc, _) =&gt;
+                {
+                    Console.WriteLine("特殊な接頭辞");
+                    Prints(prefixs.Select(x =&gt; x.Key.ToString()));
+
+                    Console.WriteLine("1項演算子");
+                    Prints(operatorsOf1.Select(x =&gt; x.Key));
+
+                    Console.WriteLine("2項演算子");
+                    Prints(operatorsOf2.Select(x =&gt; x.Key));
+
+                    Console.WriteLine("全てへの演算子");
+                    Prints(operatorsAll.Select(x =&gt; x.Key));
+
+                    Console.WriteLine("命令");
+                    Prints(instructions.Select(x =&gt; x.Key));
+
+                    void Prints(IEnumerable&lt;string&gt; a)
+                    {
+                        foreach (var item in a)
+                        {
+                            Console.WriteLine("{0,6} = {1}", item,
+                                comments.ContainsKey(item) ? comments[item] : "not found");
+                        }
+                        Console.WriteLine();
+                    }
+                },
+                ["xvar"] = (calc, names) =&gt;
+                {
+                    foreach (var name in names)
+                    {
+                        if (!calc.variables.ContainsKey(name))
+                        {
+                            calc.variables[name] = 0.0;
+                        }
+                    }
+                },
+                ["xin"] = (calc, names) =&gt;
+                {
+                    foreach (var name in names)
+                    {
+                        if (calc.numStack.Count &gt;= 1)
+                        {
+                            calc.variables[name] = calc.numStack.Pop();
+                        }
+                    }
+                },
+                ["xout"] = (calc, names) =&gt;
+                {
+                    foreach (var name in names)
+                    {
+                        if (calc.variables.ContainsKey(name))
+                        {
+                            calc.numStack.Push(calc.variables[name]);
+                        }
+                    }
+                },
+                ["xcout"] = (calc, _) =&gt;
+                {
+                    foreach (var item in calc.variables)
+                    {
+                        Console.WriteLine("{0,6} = {1}", item.Key, item.Value);
+                    }
+                    Console.WriteLine();
+                },
+            };
+
+        // 接頭辞,演算子,命令についての説明
+        static public Dictionary&lt;string, string&gt; comments =
+            new Dictionary&lt;string, string&gt;()
+            {
+                ["&amp;"] = "計算のために取得した数字を削除しない",
+                ["@"] = "全ての数に対して演算を行う（実装中）",
+                ["=%"] = "前の数値を、パーセント数値にする（*100する）",
+                ["-%"] = "前のパーセント数値を、数値にする（*0.01する）",
+                ["++"] = "前の数字を、+1する",
+                ["--"] = "前の数字を、-1する",
+                ["*-"] = "前の数字を、*(-1)する",
+                ["sq"] = "前の数字を、平方する",
+                ["sqrt"] = "前の数字を、平方根にする",
+                ["bx"] = "前の数字を、立方する",
+                ["bxrt"] = "前の数字を、立方根にする",
+                ["+"] = "前の数字2つを、足し算する",
+                ["-"] = "前の数字2つを、引き算する",
+                ["*"] = "前の数字2つを、掛け算する",
+                ["/"] = "前の数字2つを、割り算する",
+                ["%"] = "前の数字2つを、割り算し、その余りをとる",
+                ["mod"] = "前の数字2つを、割り算し、その余りをとる",
+                ["div"] = "前の数字2つを、割り算し、その商をとる",
+                ["^"] = "前の数字2つを、累乗する",
+                ["cnt"] = "前の数字全てを、計数する",
+                ["sum"] = "前の数字全てを、合計する",
+                ["ave"] = "前の数字全てを、平均する",
+                ["sort"] = "数値スタックを、昇順にソートする",
+                ["rev"] = "数値スタックを、順序逆転する",
+                ["clr"] = "数値スタックを、全て消去する",
+                ["help"] = "演算子,命令の一覧,説明を、出力する",
+                ["xvar"] = "変数を登録する",
+                ["xin"] = "前の数字を、変数に入れる",
+                ["xout"] = "変数を数値Stackに入れる",
+                ["xcout"] = "全ての変数とその値を出力する",
+            };
+
+        // 数値を入れておくスタック
+        public Stack&lt;double&gt; numStack = new Stack&lt;double&gt;();
+
+        // 変数のディクショナリ
+        public Dictionary&lt;string, double&gt; variables =
+            new Dictionary&lt;string, double&gt;();
+
+
+        // 計算もしくは数字を追加する
+        public bool PassString(string[] txts)
+        {
+            var main = txts[0];
+            var options = txts.Skip(1).ToArray();
+
+            // 演算子が有効かどうか
+            var havePrefixs = new Dictionary&lt;char, bool&gt;(prefixs);
+
+            // 先頭に接頭辞が見つからなくなるまで繰り返す
+            var isContain = true;
+            while (isContain)
+            {
+                if (havePrefixs.ContainsKey(main[0]))
+                {
+                    havePrefixs[main[0]] ^= true;
+                    main = main.Substring(1);
+                    isContain = true;
+                }
+                else
+                {
+                    isContain = false;
+                }
+            }
+
+            if (numStack.Count &gt;= 1 &amp;&amp; operatorsOf1.ContainsKey(main))
+            {
+                var num = havePrefixs['&amp;'] ? numStack.Pop() : numStack.Peek();
+                numStack.Push(operatorsOf1[main](num, options));
+
+                return true;
+            }
+            else if (numStack.Count &gt;= 2 &amp;&amp; operatorsOf2.ContainsKey(main))
+            {
+                var num1 = havePrefixs['&amp;'] ? numStack.Pop() : numStack.Peek();
+                var num2 = havePrefixs['&amp;'] ? numStack.Pop() : numStack.Peek();
+                numStack.Push(operatorsOf2[main](num2, num1, options));
+
+                return true;
+            }
+            else if (operatorsAll.ContainsKey(main))
+            {
+                var nums = numStack.ToArray();
+                if (havePrefixs['&amp;'])
+                    numStack.Clear();
+                numStack.Push(operatorsAll[main](nums, options));
+
+                return true;
+            }
+            else if (instructions.ContainsKey(txts[0]))
+            {
+                instructions[main](this, options);
+
+                return true;
+            }
+            else if (double.TryParse(main, out var num))
+            {
+                numStack.Push(num);
+
+                return true;
+            }
+            else if (variables.ContainsKey(main))
+            {
+                numStack.Push(variables[main]);
+
+                return true;
+            }
+
+            return false;
+        }
+        public bool PassString(string word)
+        {
+            var elements = word.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+
+            return PassString(elements);
+        }
+
+        // txtsを順に計算もしくは数字を追加する
+        public double[] PassStrings(string[] words, bool debug = false)
+        {
+            bool existNotFound = false;
+
+            foreach (var word in words)
+            {
+                if (PassString(word.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries)))
+                {
+                    if (debug)
+                    {
+                        Console.Write("= ");
+                        if (numStack.Count &gt; 0)
+                        {
+                            foreach (var num in numStack.Reverse())
+                            {
+                                Console.Write("{0}, ", num);
+                            }
+                            Console.Write('\n');
+                        }
+                        else
+                        {
+                            Console.WriteLine("nothing");
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("{0} is not found", word);
+                    existNotFound = true;
+                }
+            }
+            if (debug || existNotFound)
+            {
+                Console.WriteLine();
+            }
+
+            return numStack.Reverse()
+                           .ToArray();
+        }
+
+        // txtの命令を実行する
+        public bool Instruction(string words)
+        {
+            var word = words.Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (instructions.ContainsKey(word[0]))
+            {
+                instructions[word[0]](this, word.Skip(1).ToArray());
+
+                return true;
+            }
+
+            return false;
+        }
+    }
+}
+

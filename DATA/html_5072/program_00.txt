@@ -1,0 +1,71 @@
+using System.Text.RegularExpressions;
+
+
+public class LanguageDetector
+{
+
+    public static string Detect(string text)
+    {
+        // ほんとはここでひらがなカタカナだけじゃなくて、日本語にしか使われてない漢字も含めたほうが精度あがる
+        if (JapaneseKana.IsMatch(text))
+        {
+            return "ja";
+        }
+
+        var sc = SimplifiedChinese.IsMatch(text);
+        var tc = TraditionalChinese.IsMatch(text);
+        if (sc &amp;&amp; tc)
+        {
+            // たまに繁体字・簡体字両方含んでるやつがあるので、そのときは多い方にする
+            var scount = 0;
+            var tcount = 0;
+            var n = System.Math.Min(text.Length, 100);
+            for (var i = 0; i &lt; n; i++)
+            {
+                var t = text.Substring(i, 1);
+                if (SimplifiedChinese.IsMatch(t))
+                {
+                    scount++;
+                }
+                else if (TraditionalChinese.IsMatch(t))
+                {
+                    tcount++;
+                }
+            }
+            if (scount &gt; tcount)
+            {
+                return "zh-cn";
+            }
+            else
+            {
+                return "zh-tw";
+            }
+        }
+        else if (sc)
+        {
+            return "zh-cn";
+        }
+        else if (tc)
+        {
+            return "zh-tw";
+        }
+
+        // ここに来た時点ではまだ日本語・繁体字・簡体字どれも可能性あるんだけど、
+        // どれにも含まれる漢字しか使われてないので、日本語フォントでも問題なく表示される。
+        if (Kanji.IsMatch(text))
+        {
+            return "ja";
+        }
+
+        return "en";
+    }
+
+
+    static Regex JapaneseKana = new Regex(@"\p{IsHiragana}|\p{IsKatakana}");
+    static Regex Kanji = new Regex(@"\p{IsCJKUnifiedIdeographs}");
+    // ↓Pythonスクリプトで生成したやつをコピペ
+    static Regex SimplifiedChinese = new Regex(@"\u343D|\u3447|\u3448...{省略}...\u2B6F6|\u2B6F8|\u2C88D");
+    static Regex TraditionalChinese = new Regex(@"\u346F|\u3473|\u3493...{省略}...\u2A535|\u2A600|\u2A62F");
+
+}
+

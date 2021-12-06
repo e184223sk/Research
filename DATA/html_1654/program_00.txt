@@ -1,0 +1,38 @@
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEditor.AddressableAssets;
+using UnityEngine;
+
+public static class AddressableAssetsUtil {
+
+    // サブエントリをルートへ展開して空になったフォルダを削除
+    [UnityEditor.MenuItem ("Assets/Addressables/MoveSubEntryToRoot")]
+    public static void MoveSubEntryToRoot () {
+        var entriesCount = 0;
+        var assetsCount = 0;
+        var settings = AddressableAssetSettingsDefaultObject.Settings;
+        var entries = new List&lt;UnityEditor.AddressableAssets.Settings.AddressableAssetEntry&gt;  (settings.DefaultGroup.entries);
+        var assets = new List&lt;UnityEditor.AddressableAssets.Settings.AddressableAssetEntry&gt; { };
+        foreach (var entry in entries) {
+            entry.GatherAllAssets (assets, false, true, true);
+            if (assets.Count &gt; 0 &amp;&amp; entry.MainAsset.GetType () == typeof (UnityEditor.DefaultAsset)) {
+                entriesCount++;
+                Debug.Log ($"MoveSubEntryToRoot: entry {entriesCount}: {entry.address}");
+                foreach (var asset in assets) {
+                    assetsCount++;
+                    Debug.Log ($"MoveSubEntryToRoot: asset {assetsCount}: {asset.address}");
+                    settings.MoveEntry (asset, entry.parentGroup);
+                    if (asset.address.StartsWith ("Assets/")) {
+                        asset.address = asset.address.Remove (0, 7);
+                    }
+                }
+                assets.Clear ();
+                settings.RemoveAssetEntry (entry.guid);
+            }
+        }
+        AssetDatabase.Refresh (); // アセットを更新
+        Debug.Log ($"MoveSubEntryToRoot: done (entries: {entriesCount}, assets: {assetsCount})");
+    }
+
+}
+

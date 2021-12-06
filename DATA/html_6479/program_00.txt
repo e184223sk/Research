@@ -1,0 +1,78 @@
+static IEnumerable&lt;FoundFileData&gt; FindFile(string dir, string file = "*", bool recursive = false)
+{
+    string search = Path.Combine(dir, "*");
+    if (search.StartsWith(@"\\") == false &amp;&amp; 250 &lt; search.Length)
+    {
+        search.Insert(0, @"\\?\");
+    }
+
+    int error;
+    WIN32_FIND_DATA fd = new WIN32_FIND_DATA();
+
+    using (var h = new FindFileHandle(search, fd))
+    {
+        if (h.IsInvalid)
+        {
+            error = Marshal.GetLastWin32Error();
+
+#if false
+            switch ((Win32Error)error)
+            {
+                case Win32Error.ERROR_PATH_NOT_FOUND:
+                case Win32Error.ERROR_FILE_NOT_FOUND:
+                case Win32Error.ERROR_NO_TOKEN:
+                    // UNC を指定したときに発生
+                    // 存在しない UNC を指定したときに発生
+                    break;
+                default:
+                    throw new System.ComponentModel.Win32Exception();
+            }
+#endif
+        }
+        else
+        {
+            do
+            {
+                if (PathMatchSpecEx(fd.fileName, file, PMSF_MULTIPLE) == S_OK)
+                {
+                    yield return new FoundFileData(dir, fd);
+                }
+
+                if (recursive &amp;&amp; fd.fileName != "." &amp;&amp; fd.fileName != ".." &amp;&amp; (fd.fileAttributes &amp; FILE_ATTRIBUTES_DIRECTORY) != 0)
+                {
+                    IEnumerable&lt;FoundFileData&gt; sub = FindFile(Path.Combine(dir, fd.fileName), file, true);
+                    var e = sub.GetEnumerator();
+                    while (e.MoveNext())
+                    {
+                        yield return e.Current;
+                    }
+                }
+            } while (h.FindNext(fd));
+
+            error = Marshal.GetLastWin32Error();
+            if (error != (int)Win32Error.ERROR_NO_MORE_FILES)
+            {
+                throw new System.ComponentModel.Win32Exception();
+            }
+        }
+    }
+
+    yield break;
+}
+
+static void Main(string[] args)
+{
+    try
+    {
+        foreach (FoundFileData fd in FindFile(@"c:\Users\AsladaGSX\Downloads", "*.zip; *.exe", true))
+        {
+            Debug.WriteLine(Path.Combine(fd.dir, fd.fileName));
+        }
+
+    }
+    catch (Exception e)
+    {
+        Debug.WriteLine(e.Message);
+    }
+}
+

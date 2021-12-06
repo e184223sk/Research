@@ -1,0 +1,91 @@
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.IO;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.OpenSsl;
+using Org.BouncyCastle.Crypto.Signers;
+using Org.BouncyCastle.Crypto.Parameters;
+
+namespace Sample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var clearText = @"あいうえお12345";
+
+            // 署名
+            byte[] signature = Sign(clearText, @"..\..\secp256k1.privatekey");
+            Console.WriteLine(string.Join("", signature.Select(b =&gt; $"{b:x02}")));
+
+            // 検証
+            bool result = Verify(clearText, signature, @"..\..\secp256k1.privatekey");
+            Console.WriteLine($"verify: {result}");
+
+            Console.ReadLine();
+        }
+
+        /// &lt;summary&gt;
+        /// 署名する
+        /// &lt;/summary&gt;
+        static byte[] Sign(string clearText, string key)
+        {
+            var plain = Encoding.UTF8.GetBytes(clearText);
+
+            // 鍵を読み込む
+            AsymmetricCipherKeyPair pair = null;
+            using (var stream = new StreamReader(key))
+            {
+                var reader = new PemReader(stream);
+                pair = reader.ReadObject() as AsymmetricCipherKeyPair;
+            }
+
+            // 署名インスタンスを生成＆署名
+            var signer = new ECDsaSigner();
+            signer.Init(true, pair.Private);
+            var sign = signer.GenerateSignature(plain);
+
+            // 署名の値をbyte[]にしておく
+            var sign1 = sign[0].ToByteArray().SkipWhile(b =&gt; b == 0x00).Reverse();
+            var sign2 = sign[1].ToByteArray().SkipWhile(b =&gt; b == 0x00).Reverse();
+            byte[] signature = sign1.Concat(sign2).ToArray();
+
+            return signature;
+        }
+
+        /// &lt;summary&gt;
+        /// 署名を検証する
+        /// &lt;/summary&gt;
+        static bool Verify(string clearText, byte[] signature, string key)
+        {
+            var plain = Encoding.UTF8.GetBytes(clearText);
+
+            // 鍵を読み込む
+            AsymmetricCipherKeyPair pair = null;
+            using (var stream = new StreamReader(key))
+            {
+                var reader = new PemReader(stream);
+                pair = reader.ReadObject() as AsymmetricCipherKeyPair;
+            }
+
+            // 署名の値をBigIntegerに変換する
+            var sign1 = signature.Take(32).Reverse().ToArray();
+            if ((sign1[0] &amp; 0x80) == 0x80) sign1 = new byte[] { 0x00 }.Concat(sign1).ToArray();
+            var sign2 = signature.Skip(32).Reverse().ToArray();
+            if ((sign2[0] &amp; 0x80) == 0x80) sign2 = new byte[] { 0x00 }.Concat(sign2).ToArray();
+            var sign = new BigInteger[] { new BigInteger(sign1), new BigInteger(sign2) };
+
+            // 検証する
+            var signer = new ECDsaSigner();
+            signer.Init(false, pair.Public);
+            var result = signer.VerifySignature(plain, sign[0], sign[1]);
+
+            return result;
+        }
+    }
+}
+

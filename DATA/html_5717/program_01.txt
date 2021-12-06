@@ -1,0 +1,18 @@
+
+using (var heavyTaskCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+using (var buttonCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+{
+    var cancelButtonClickedTask = _cancelButton.OnClicked.FirstAsync().ToTask(buttonCts.Token);
+    await Task.WhenAny(HeavyTaskAsync(heavyTaskCts.Token), cancelButtonClickedTask);
+    if (cancelButtonClickedTask.Status == TaskStatus.RanToCompletion)
+    {
+        // キャンセルボタンが押された
+        heavyTaskCts.Cancel();
+        await ShowDialog("キャンセルされました", ct);
+        return;
+    }
+
+    // buttonCts.Dispose()だとタスク自体はキャンセルされないので明示的にCancel()を呼び出す必要がある
+    buttonCts.Cancel();
+}
+

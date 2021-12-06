@@ -1,0 +1,65 @@
+More than 1 year has passed since last update.File.ReadAllLines()の入力テキストファイルを
+Windows10 (C#でつくるexe含む)の内部エンコード(UTF-16 LE)に合わせたら
+早くなるのか調べてみた。結論：（少なくとも今回の条件・環境では）遅くなった。
+おそらくファイルが大きくなるせい(※UTF-16は1文字を2byteで扱うので、ASCIIに対して2倍のファイルサイズになる。)今回の入力テキストファイルは、ASCIIで表現できる文字のみを対象とする。下記で入力ファイルを作成。
+暗号ライブラリの乱数生成を使用して、byte配列を生成し、
+base64エンコーディングでASCII文字にする。
+1行あたり78文字で改行はCRLFです。ソースコード
+
+
+using System;
+using System.IO;
+using System.Security.Cryptography;
+
+class RandGen
+{
+    [STAThread]
+    static void Main()
+    {
+        //Int32と同じサイズのバイト配列にランダムな値を設定する
+        //byte[] bs = new byte[sizeof(int)];
+        byte[] bs = new byte[78];
+        string[] strs = new string[10000];
+        var rng = new RNGCryptoServiceProvider();
+        for ( int i=0;i&lt;strs.Length;i++ ) {
+            rng.GetBytes(bs);
+            strs[i] = Convert.ToBase64String(bs);
+        }
+        File.WriteAllLines("tmp_ascii.txt", strs); // UTF-8 (Base64はASCII文字しか使ってないので、実質ASCII) で保存
+    }
+}
+
+
+
+約1MB(1,060,000 byte)のファイルtmp_ascii.txtが出来上がりました。Windows10(C#/.NET含む)の内部エンコードであるUTF-16(LE)のファイルの作成は、
+上記で生成したASCIIのテキストファイルをSakuraエディタで開いてUnicodeでBOMなしを選択してtmp_utf16le.txtとして保存。
+(ちなみにメモ帳で保存するとBOMありとなるようである。)ちょうど2倍の2,120,000 byteのファイルができあがります。別のプログラム(下記に一部抜粋)でFile.ReadAllLinesで読み込んだ文字列が同一であることを確認済み。1回のexe実行で、1001回ファイルを読み込み、その中央値を計測した。
+(平均だと他のアプリとかGCとかキャッシュとかの影響を受けやすそうなので、中央値を使用した。)測定結果(中央値)
+単位はms何もしないの(no_opt)が一番早かった。「exe実行1回目」1 における、読み込み1001回のうち、最初の10回程度を取り出すと、下記のようになった。
+ファイルとかもろもろ(？)がキャッシュされるのか、徐々に早くなる。実用上、同じファイルを連続で複数回読み込むシーンはあまり無いと思うので、
+中央値や平均を見ても意味がないかもしれない。初回(i=0)の抜粋
+中央値と違い、安定しない。
+N数(サンプル数)が少ないが、何もしないの(no_opt)が一番早かった。実行した順序(コマンドプロンプトでの実行内容)
+
+
+LoadTimeTest_ascii.exe &gt; time_ascii.txt
+LoadTimeTest_no_opt.exe &gt; time_no_opt.txt
+LoadTimeTest_utf16le.exe &gt; time_utf16le.txt
+
+LoadTimeTest_ascii.exe &gt; time_ascii2.txt
+LoadTimeTest_no_opt.exe &gt; time_no_opt2.txt
+LoadTimeTest_utf16le.exe &gt; time_utf16le2.txt
+
+LoadTimeTest_utf16le.exe &gt; time_utf16le3.txt
+LoadTimeTest_no_opt.exe &gt; time_no_opt3.txt
+LoadTimeTest_ascii.exe &gt; time_ascii3.txt
+
+
+GCをとめる、ましな方法（一定メモリ容量を使用するまで停止できる）：
+.NET 4.6で追加された - GC.TryStartNoGCRegion～GC.EndNoGCRegionを使ってみる(自分の環境では)デフォで入っているのは .NET 4.0.30319 なので、デフォ環境では使えない。
+(※Visual Studio入れれば使える。)ILSpy.exeで追いかけてみたところ、下記がデコード処理の本体のよう。色々チェック処理が入っているのでそれが処理時間に影響しているのかも。
+System.Text.ASCIIEncoding.GetChars
+System.Text.UTF8Encoding.GetChars
+System.Text.UnicodeEncoding.GetChars実際にはデバッグのため動作させていたので、厳密には「1回目」ではない。 ↩
+
+

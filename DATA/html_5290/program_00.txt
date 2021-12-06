@@ -1,0 +1,47 @@
+public static class EnumAttributeExtensionCore
+{
+    /// &lt;summary&gt;
+    ///属性ごとにキャッシュを作るためのジェネリッククラス
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TAttribute"&gt;属性型&lt;/typeparam&gt;
+    private static class EnumAttributeCache&lt;TAttribute&gt; where TAttribute : Attribute
+    {
+        private static ConcurrentDictionary&lt;Enum, TAttribute&gt; body = new ConcurrentDictionary&lt;Enum, TAttribute&gt;();
+
+        /// &lt;summary&gt;
+        /// ConcurrentDictionaryのGetOrAddを呼び出す
+        /// &lt;/summary&gt;
+        internal static TAttribute GetOrAdd(Enum enumKey, Func&lt;Enum, TAttribute&gt; valueFactory)
+            =&gt; body.GetOrAdd(enumKey, valueFactory);
+    }
+
+    /// &lt;summary&gt;
+    /// 特定の属性を取得する
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TAttribute"&gt;属性型&lt;/typeparam&gt;
+    public static TAttribute GetAttribute&lt;TAttribute&gt;(this Enum enumKey) where TAttribute : Attribute
+    {
+        //キャッシュに無かったら、リフレクションを用いて取得、キャッシュへの追加をして返す
+        return EnumAttributeCache&lt;TAttribute&gt;.GetOrAdd(enumKey, _ =&gt; enumKey.GetAttributeCore&lt;TAttribute&gt;());
+    }
+
+    /// &lt;summary&gt;
+    /// リフレクションを使用して特定の属性を取得する
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TAttribute"&gt;属性型&lt;/typeparam&gt;
+    public static TAttribute GetAttributeCore&lt;TAttribute&gt;(this Enum enumKey) where TAttribute : Attribute
+    {
+        //リフレクションを用いて列挙体の型から情報を取得
+        var fieldInfo = enumKey.GetType().GetField(enumKey.ToString());
+        //指定した属性のリスト
+        var attributes
+            = fieldInfo.GetCustomAttributes(typeof(TAttribute), false)
+            .Cast&lt;TAttribute&gt;();
+        //属性がなかった場合、nullを返す
+        if ((attributes?.Count() ?? 0) &lt;= 0)
+            return null;
+        //同じ属性が複数含まれていても、最初のみ返す
+        return attributes.First();
+    }
+}
+

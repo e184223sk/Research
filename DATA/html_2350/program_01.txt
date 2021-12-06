@@ -1,0 +1,120 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Windows.Forms;
+
+// Note: "."が2つ以上ある場合は、最後の"."以降を拡張子とみなす
+//  例： "hoge.tar.gz" の拡張子は "gz" とみなす
+class FileRenamer : Form
+{
+    static Dictionary&lt;string,string&gt; _defaultExtensionDict = new Dictionary&lt;string,string&gt;(){
+        // Key:変換前拡張子(小文字), Value:変換後拡張子
+        // "."は付けない
+        {"zi",  "zip"},
+        {"zi_", "zip"},
+        {"ex",  "exe"},
+        {"ex_", "exe"},
+        //{"",    "zip"},
+    };
+
+    FileRenamer()
+    {
+        Text = "File Renamer";
+        ClientSize = new Size(200,200);
+
+        AllowDrop = true;
+        DragEnter += (sender,e)=&gt;{
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)){
+                e.Effect = DragDropEffects.Copy;
+            }
+            else{
+                e.Effect = DragDropEffects.None;
+            }
+        };
+        DragDrop += (sender,e)=&gt;{
+            var fileNames = (string[]) e.Data.GetData(DataFormats.FileDrop, false);
+            foreach(string s in fileNames) {
+                RenameFile(_defaultExtensionDict, s);
+            }
+        };
+    }
+
+    static bool RenameFile(Dictionary&lt;string,string&gt; extentionConvertionDict, string partialFileName)
+    {
+        var fi = new FileInfo(partialFileName);
+        if ( !fi.Exists ) {
+            return false;
+        }
+        string newName = GetRenamedFullName(extentionConvertionDict, fi);
+        if ( newName == null ) {
+            return false;
+        }
+
+        Console.WriteLine(newName);
+
+        try {
+            File.Move(fi.FullName, newName);
+        }
+        catch (UnauthorizedAccessException e) {
+            Console.WriteLine(e);
+        }
+        catch (PathTooLongException e) {
+            Console.WriteLine(e);
+        }
+        catch (DirectoryNotFoundException e) {
+            Console.WriteLine(e);
+        }
+        catch (IOException e) {
+            Console.WriteLine(e);
+        }
+
+        return true;
+    }
+
+    // return null : 変更対象ではない or エラー
+    static string GetRenamedFullName(Dictionary&lt;string,string&gt; extentionConvertionDict, FileInfo fi)
+    {
+        string oldExtension;
+
+        int posDot = fi.Name.LastIndexOf(".");
+        if ( posDot &lt; 0 ) {       // 拡張子がない
+            oldExtension = "";
+        }
+        else if ( posDot == 0 ) { // "."から始まっている(ファイル名部分がない)
+            return null;
+        }
+        else if ( posDot == fi.Name.Length-1 ) { // "."で終わっている
+            return null;
+        }
+        else { // posDot &gt;= 1 (拡張子がある)
+            oldExtension = fi.Name.Substring(posDot+1); // "."を含まない拡張子部分
+        }
+
+        oldExtension = oldExtension.ToLowerInvariant(); // 小文字に変換する
+
+        string newExtension;
+        if (extentionConvertionDict.TryGetValue(oldExtension, out newExtension)){
+            return Path.ChangeExtension(fi.FullName, newExtension);
+        }
+        else {
+            return null; // 置換対象ではない
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        if ( args.Length &gt;= 1 ) {
+            foreach ( string s in args ) {
+                RenameFile(_defaultExtensionDict, s);
+            }
+        }
+        else {
+            Application.Run(new FileRenamer());
+        }
+    }
+}
+

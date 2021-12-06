@@ -1,0 +1,251 @@
+
+using NUnit.Framework;
+
+using System;
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
+using GenSyntaxTestHelpers;
+using SemSymbols;
+
+namespace SemModelTests {
+    public class SemModelTest {
+        private static readonly string IntfSource1 = @"
+        namespace SemModels {
+            public interface IColorDao1 {
+                ColorData? FindById(int id);
+            }
+        }            
+        ";
+        private static readonly string EntitySource1 = @"
+        namespace SemModels {
+            public readonly struct ColorData {
+                public int Id { get; }
+                public string Name { get; }
+                public int Red { get; }
+                public int Green { get; }
+                public int Blue { get; }
+
+                public ColorData(int id, string name, int red = default, int green = default, int blue = default) =&gt; 
+                    (Id, Name, Red, Green, Blue) = (id, name, red, green, blue);
+            }    
+        }    
+        ";
+
+        private static readonly string IntfSource2 = @"
+        namespace SemModels {
+            public interface IColorDao2 {
+                ColorDataMut FindById(int id);
+            }
+        }            
+        ";
+        private static readonly string EntitySource2 = @"
+        namespace SemModels {
+            public struct ColorDataMut {
+                public int Id { get; set; }
+                public int Code { get =&gt; this.Id; }
+                public string Name { get; set; }
+                public int Red { get; set; }
+                public int Green { get; set; }
+                public int Blue { get; set; }
+            }    
+        }    
+        ";
+
+        private static readonly string IntfSource3 = @"
+        using System.Collections.Generic;
+
+        namespace SemModels {
+            public interface IColorDao3 {
+                IEnumerable&lt;ColorDataMut2&gt; FindAll();
+            }
+        }            
+        ";
+
+        private static readonly string EntitySource3 = @"
+        namespace SemModels {
+            public struct ColorDataMut2 {
+                public int id;
+                public string name;
+                public int red;
+                public int green;
+                public int blue;
+            }    
+        }    
+        ";
+
+        [Test]
+        public void _戻り値型のコンテキストを解決_コンストラクタを持つ場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource1);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource1);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var ns = (NamespaceDeclarationSyntax)intfTree.GetCompilationUnitRoot().Members[0];
+            var intf = (InterfaceDeclarationSyntax)ns.Members[0];
+            var meth = (MethodDeclarationSyntax)intf.Members[0];
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(meth.ReturnType);    
+
+            Assert.IsTrue(SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx), "解決できていること");
+            Assert.That(ctx.ContainerType, Is.EqualTo(SpecialType.System_Nullable_T), "Nullableによるコンテナ型");
+            Assert.That(ctx.NamedType, Is.Not.Null, "型名のシンボルが取得できていること");
+            Assert.That(ctx.NamedType.ToDisplayString(), Is.EqualTo("SemModels.ColorData"), "型名が一致すること");
+
+            Assert.That(ctx.Constructors.Length, Is.EqualTo(1), "1つコンストラクタが定義されていること(デフォルトコンストラクタは除外)");
+            Assert.That(ctx.Constructors[0].Category, Is.EqualTo(TypeVerCategory.Constructor), "カテゴリがコンストラクタであること");
+            Assert.That(ctx.Constructors[0].Symbols.Length, Is.EqualTo(5), "コンストラクタ引数の数が一致していること");
+
+            var arg1 = ctx.Constructors[0].Symbols[0];
+            {
+                Assert.That(arg1.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "引数[1]がint型であること");
+                Assert.That(arg1.Name, Is.EqualTo("id"), "引数名[1]");
+                Assert.That(arg1.IsOptional, Is.Not.True, "引数[1はオプショナルではないこと");
+            }
+            var arg2 = ctx.Constructors[0].Symbols[1];
+            {
+                Assert.That(arg2.Type.SpecialType, Is.EqualTo(SpecialType.System_String), "引数[2]がstring型であること");
+                Assert.That(arg2.Name, Is.EqualTo("name"), "引数名[2]");
+                Assert.That(arg2.IsOptional, Is.Not.True, "引数[2]はオプショナルではないこと");
+            }
+
+            var arg3 = ctx.Constructors[0].Symbols[2];
+            {
+                Assert.That(arg3.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "引数[3]がint型であること");
+                Assert.That(arg3.Name, Is.EqualTo("red"), "引数名[3]");
+                Assert.That(arg3.IsOptional, Is.True, "引数[3]はオプショナル");
+            }
+            var arg4 = ctx.Constructors[0].Symbols[3];
+            {
+                Assert.That(arg4.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "引数[4]がint型であること");
+                Assert.That(arg4.Name, Is.EqualTo("green"), "引数名[4]");
+                Assert.That(arg4.IsOptional, Is.True, "引数[4]はオプショナル");
+            }
+            var arg5 = ctx.Constructors[0].Symbols[4];
+            {
+                Assert.That(arg5.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "引数[5]がint型であること");
+                Assert.That(arg5.Name, Is.EqualTo("blue"), "引数名[5]");
+                Assert.That(arg5.IsOptional, Is.True, "引数[5]はオプショナル");
+            }
+
+            Assert.That(ctx.PropertyTypeVars.Category, Is.EqualTo(TypeVerCategory.Properties), "カテゴリがプロパティであること");
+            Assert.That(ctx.PropertyTypeVars.Symbols.Length, Is.EqualTo(0), "Readonlyプロパティは含めないこと");
+
+            Assert.That(ctx.FieldTypeVars.Category, Is.EqualTo(TypeVerCategory.Fields), "カテゴリがフィールドであること");
+            Assert.That(ctx.FieldTypeVars.Symbols.Length, Is.EqualTo(0), "暗黙宣言されたフィールドは含めないこと");
+        }
+
+        [Test]
+        public void _戻り値型のコンテキストを解決_セッタープロパティによる初期化が要求される場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource2);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource2);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var ns = (NamespaceDeclarationSyntax)intfTree.GetCompilationUnitRoot().Members[0];
+            var intf = (InterfaceDeclarationSyntax)ns.Members[0];
+            var meth = (MethodDeclarationSyntax)intf.Members[0];
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(meth.ReturnType);    
+
+            Assert.IsTrue(SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx), "解決できていること");
+            Assert.That(ctx.ContainerType, Is.EqualTo(SpecialType.None), "エンティティ型");
+            Assert.That(ctx.NamedType, Is.Not.Null, "型名のシンボルが取得できていること");
+            Assert.That(ctx.NamedType.ToDisplayString(), Is.EqualTo("SemModels.ColorDataMut"), "型名が一致すること");
+
+            Assert.That(ctx.Constructors.Length, Is.EqualTo(0), "1つもコンストラクタが定義されていないこと(デフォルトコンストラクタは除外)");
+
+            Assert.That(ctx.PropertyTypeVars.Category, Is.EqualTo(TypeVerCategory.Properties), "カテゴリがプロパティであること");
+            Assert.That(ctx.PropertyTypeVars.Symbols.Length, Is.EqualTo(5), "Writableプロパティを持つこと");
+
+            var prop1 = ctx.PropertyTypeVars.Symbols[0];
+            {
+                Assert.That(prop1.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "プロパティ[1]がint型であること");
+                Assert.That(prop1.Name, Is.EqualTo("Id"), "プロパティ名[1]");
+            }
+            var prop2 = ctx.PropertyTypeVars.Symbols[1];
+            {
+                Assert.That(prop2.Type.SpecialType, Is.EqualTo(SpecialType.System_String), "プロパティ[2]がstring型であること");
+                Assert.That(prop2.Name, Is.EqualTo("Name"), "プロパティ名[2]");
+            }
+            var prop3 = ctx.PropertyTypeVars.Symbols[2];
+            {
+                Assert.That(prop3.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "プロパティ[3]がint型であること");
+                Assert.That(prop3.Name, Is.EqualTo("Red"), "プロパティ名[3]");
+            }
+            var prop4 = ctx.PropertyTypeVars.Symbols[3];
+            {
+                Assert.That(prop4.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "プロパティ[4]がint型であること");
+                Assert.That(prop4.Name, Is.EqualTo("Green"), "プロパティ名[4]");
+            }
+            var prop5 = ctx.PropertyTypeVars.Symbols[4];
+            {
+                Assert.That(prop5.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "プロパティ[5]がint型であること");
+                Assert.That(prop5.Name, Is.EqualTo("Blue"), "プロパティ名[5]");
+            }
+
+            Assert.That(ctx.FieldTypeVars.Category, Is.EqualTo(TypeVerCategory.Fields), "カテゴリがフィールドであること");
+            Assert.That(ctx.FieldTypeVars.Symbols.Length, Is.EqualTo(0), "暗黙フィールドは除外されていること");
+        }
+
+        [Test]
+        public void _戻り値型のコンテキストを解決_公開フィールドを持つ場合() {
+            var intfTree = SyntaxFactory.ParseSyntaxTree(IntfSource3);
+            var entityTree = SyntaxFactory.ParseSyntaxTree(EntitySource3);
+
+            var compiler = SyntaxGeneratorHelper.CreateCompilation(intfTree, entityTree);
+
+            var ns = (NamespaceDeclarationSyntax)intfTree.GetCompilationUnitRoot().Members[0];
+            var intf = (InterfaceDeclarationSyntax)ns.Members[0];
+            var meth = (MethodDeclarationSyntax)intf.Members[0];
+
+            var model = compiler.GetSemanticModel(intfTree);
+            var entityInfo = model.GetTypeInfo(meth.ReturnType);  
+
+            Assert.IsTrue(SemSymbolHelper.TryCResolveReturnTypeContext(entityInfo, out var ctx), "解決できていること");
+
+            Assert.That(ctx.NamedType, Is.Not.Null, "型名のシンボルが取得できていること");
+            Assert.That(ctx.NamedType.ToDisplayString(), Is.EqualTo("SemModels.ColorDataMut2"), "型名が一致すること");
+            Assert.That(ctx.ContainerType, Is.EqualTo(SpecialType.System_Collections_Generic_IEnumerable_T), "コレクションコンテナ型");
+
+            Assert.That(ctx.Constructors.Length, Is.EqualTo(0), "1つもコンストラクタが定義されていないこと(デフォルトコンストラクタは除外)");
+
+            Assert.That(ctx.PropertyTypeVars.Category, Is.EqualTo(TypeVerCategory.Properties), "カテゴリがプロパティであること");
+            Assert.That(ctx.PropertyTypeVars.Symbols.Length, Is.EqualTo(0), "Readonlyプロパティは含めないこと");
+
+            Assert.That(ctx.FieldTypeVars.Category, Is.EqualTo(TypeVerCategory.Fields), "カテゴリがフィールドであること");
+            Assert.That(ctx.FieldTypeVars.Symbols.Length, Is.EqualTo(5), "暗黙宣言されたフィールドは含めないこと");
+
+            var f1 = ctx.FieldTypeVars.Symbols[0];
+            {
+                Assert.That(f1.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "フィールド[1]がint型であること");
+                Assert.That(f1.Name, Is.EqualTo("id"), "フィールド名[1]");
+            }
+            var f2 = ctx.FieldTypeVars.Symbols[1];
+            {
+                Assert.That(f2.Type.SpecialType, Is.EqualTo(SpecialType.System_String), "フィールド[2]がstring型であること");
+                Assert.That(f2.Name, Is.EqualTo("name"), "フィールド名[2]");
+            }
+            var f3 = ctx.FieldTypeVars.Symbols[2];
+            {
+                Assert.That(f3.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "フィールド[3]がint型であること");
+                Assert.That(f3.Name, Is.EqualTo("red"), "フィールド名[3]");
+            }
+            var f4 = ctx.FieldTypeVars.Symbols[3];
+            {
+                Assert.That(f4.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "フィールド[4]がint型であること");
+                Assert.That(f4.Name, Is.EqualTo("green"), "フィールド名[4]");
+            }
+            var f5 = ctx.FieldTypeVars.Symbols[4];
+            {
+                Assert.That(f5.Type.SpecialType, Is.EqualTo(SpecialType.System_Int32), "フィールド[5]がint型であること");
+                Assert.That(f5.Name, Is.EqualTo("blue"), "フィールド名[5]");
+            }
+        }  
+    }
+}
+

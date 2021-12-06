@@ -1,0 +1,74 @@
+
+private Channel m_Channel;
+private void InitChannel()
+{
+    m_Channel = new Channel("127.0.0.1:50001", ChannelCredentials.Insecure);
+    var nowaitTask = Task.Run(() =&gt; MonitorChannelStateAsync(m_Channel));
+}
+
+/// &lt;summary&gt;
+/// チャネルの状態を監視します。
+/// &lt;/summary&gt;
+private async Task MonitorChannelStateAsync(Channel channel)
+{
+    while (channel.State != ChannelState.Shutdown)
+    {
+        // 状態が変更されるまで待機する
+        ChannelState state = channel.State;
+        if (await channel.TryWaitForStateChangedAsync(state).ConfigureAwait(false))
+        {
+            // 状態が変更されたときの処理を実行する
+            OnChannelStateChanged(state, channel.State);
+        }
+    }
+}
+
+/// &lt;summary&gt;
+/// チャネルの状態が変更されたときの処理を行います。
+/// &lt;/summary&gt;
+private void OnChannelStateChanged(ChannelState lastState, ChannelState currentState)
+{
+    ++m_Counter;
+    System.Diagnostics.Debug.WriteLine("({0}) {1} {2} --&gt; {3}"
+        , m_Counter
+        , DateTime.Now.ToString("HH:mm:ss")
+        , lastState
+        , currentState
+    );
+}
+private int m_Counter = 0;
+
+--- コンソール出力結果（ランタイムが出力するログは除いています） ---
+(1) 16:11:32 Idle --&gt; Ready
+(2) 16:11:33 Ready --&gt; Idle
+(3) 16:11:35 Idle --&gt; Connecting
+(4) 16:11:37 Connecting --&gt; Connecting
+(5) 16:11:39 Connecting --&gt; Connecting
+(6) 16:11:41 Connecting --&gt; TransientFailure
+(7) 16:11:42 TransientFailure --&gt; Connecting
+(8) 16:11:44 Connecting --&gt; TransientFailure
+(9) 16:11:46 TransientFailure --&gt; Connecting
+(10) 16:11:48 Connecting --&gt; TransientFailure
+(11) 16:11:53 TransientFailure --&gt; Ready
+(12) 16:11:58 Ready --&gt; Idle
+(13) 16:11:59 Idle --&gt; Connecting
+(14) 16:12:01 Connecting --&gt; Connecting
+(15) 16:12:12 Connecting --&gt; Connecting
+(16) 16:12:26 Connecting --&gt; Connecting
+(17) 16:12:56 Connecting --&gt; Ready
+(18) 16:13:09 Ready --&gt; Idle
+(19) 16:13:12 Idle --&gt; Connecting
+(20) 16:13:14 Connecting --&gt; TransientFailure
+(21) 16:13:19 TransientFailure --&gt; Connecting
+(22) 16:13:21 Connecting --&gt; TransientFailure
+(23) 16:13:31 TransientFailure --&gt; Connecting
+(24) 16:13:33 Connecting --&gt; TransientFailure
+(25) 16:13:49 TransientFailure --&gt; Connecting
+(26) 16:13:51 Connecting --&gt; TransientFailure
+(27) 16:14:11 TransientFailure --&gt; Connecting
+(28) 16:14:13 Connecting --&gt; TransientFailure
+(29) 16:15:01 TransientFailure --&gt; Connecting
+(30) 16:15:03 Connecting --&gt; TransientFailure
+(31) 16:15:04 TransientFailure --&gt; Shutdown
+
+

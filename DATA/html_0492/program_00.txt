@@ -1,0 +1,85 @@
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+public class ExcelUtility
+{
+    [DllImport("kernel32.dll")]
+    private static extern bool IsWow64Process(
+        IntPtr hProcess,
+        out bool Wow64Process
+    );
+
+    /// &lt;summary&gt;
+    /// インストールされているExcelが32bitかどうかを取得する。
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;true:32bit false:64bit null:インストールされていない等で確認不能。&lt;/returns&gt;
+    /// &lt;remarks&gt;dynamic型のコンパイルが通らない場合、Microsoft.CSharpを参照に追加する。&lt;/remarks&gt;
+    public static bool? IsExcel32Bit()
+    {
+        bool? result;
+        dynamic app = null;
+
+        try
+        {
+            //ProgIDからOfficeアプリのCOMのTypeを取得する。
+            //EXCEL:"Excel.Application"
+            //ACCESS:"Access.Application"
+            //Word:"Word.Application"
+            var appType = Type.GetTypeFromProgID("Excel.Application");
+            if (appType == null)
+            {
+                return null;
+            }
+
+            //64bitOSじゃない場合は無条件で32bit
+            if (!Environment.Is64BitOperatingSystem)
+            {
+                return true;
+            }
+
+            //COMオブジェクトを作成し、対象アプリのプロセス名を検索する。
+            //EXCEL:"EXCEL"
+            //ACCESS:"MSACCESS"
+            //WORD:"WINWORD"
+            app = Activator.CreateInstance(appType);
+            var procs = Process.GetProcessesByName("EXCEL");
+            if (procs.Length == 0)
+            {
+                return null;
+            }
+
+            //プロセスの実行にWOW64が使用されているかどうか確認する。
+            //（使用されていたら32bit）
+            bool bWow64;
+            if (!IsWow64Process(procs[0].Handle, out bWow64))
+            {
+                return null;
+            }
+            result = bWow64;
+        }
+        catch (COMException)
+        {
+            //インストールされていない場合はここにくる
+            return null;
+        }
+        finally
+        {
+            if (app != null)
+            {
+                //アプリ停止＆解放
+                app.Quit();
+                Marshal.ReleaseComObject(app);
+                app = null;
+
+                //GCを強制
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
+        }
+
+        return result;
+    }
+}
+

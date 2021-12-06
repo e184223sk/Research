@@ -1,0 +1,98 @@
+
+        [DllImport("User32.dll")]
+        static extern int SetForegroundWindow(IntPtr point);
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowPos(IntPtr hWnd, int hWndInsertAfter, int x, int y, int cx, int cy, int uFlags);
+
+        // ウィンドウをアクティブにする
+        public static void SetActiveWindow(IntPtr hWnd)
+        {
+            const int SWP_NOSIZE = 0x0001;
+            const int SWP_NOMOVE = 0x0002;
+            const int SWP_SHOWWINDOW = 0x0040;
+
+            const int HWND_TOPMOST = -1;
+            const int HWND_NOTOPMOST = -2;
+
+            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(int idAttach, int idAttachTo, bool fAttach);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")]
+        public static extern IntPtr PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", EntryPoint = "FindWindowEx")]
+        public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+
+        // ウィンドウを強制的にアクティブにする
+        public static void ForceActive(IntPtr handle)
+        {
+            const int SW_RESTORE = 9;
+
+            // 最小化状態なら元に戻す
+            if (IsIconic(handle))
+                ShowWindowAsync(handle, SW_RESTORE);
+
+            int processId;
+            // フォアグラウンドウィンドウを作成したスレッドのIDを取得         
+            int foregroundID = GetWindowThreadProcessId(GetForegroundWindow(), out processId);
+            // 目的のウィンドウを作成したスレッドのIDを取得
+            int targetID = GetWindowThreadProcessId(handle, out processId);
+
+            // スレッドのインプット状態を結び付ける   
+            AttachThreadInput(targetID, foregroundID, true);
+            // ウィンドウをフォアグラウンドに持ってくる
+            SetForegroundWindow(handle);
+            // スレッドのインプット状態を切り離す
+            AttachThreadInput(targetID, foregroundID, false);
+        }
+
+        private void button5_Click(object sender, EventArgs e)
+        {
+            SaveFireFox();
+        }
+
+        public void SaveFireFox()
+        {
+            System.Diagnostics.Process pFireFox = null;
+            foreach (System.Diagnostics.Process p in System.Diagnostics.Process.GetProcesses())
+            {
+                //メインウィンドウのタイトルがある時だけ列挙する
+                if (p.MainWindowTitle.Length != 0)
+                {
+                    if (p.ProcessName == "firefox")
+                    {
+                        pFireFox = p;
+                    }
+                 }
+            }
+            if (pFireFox != null)
+            {
+                //FireFoxをアクティブに
+                ForceActive(pFireFox.MainWindowHandle);
+                //Ctrl+sを送る→保存画面が出る
+                SendKeys.SendWait("^s");
+                Thread.Sleep(3000);
+                //Enterを送って保存
+                SendKeys.SendWait("{Enter}");
+                Thread.Sleep(3000);
+            }
+        }
+
+

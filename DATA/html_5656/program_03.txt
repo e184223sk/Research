@@ -1,0 +1,53 @@
+
+
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            // ウィンドウをマウスのドラッグで移動できるようにする
+            this.MouseLeftButtonDown += (sender, e) =&gt; { this.DragMove(); };
+
+            //　既存の画像データ集を用いて学習を開始する
+            StartLearning();
+        }
+        // 学習を開始する
+        private void StartLearning()
+        {
+            var catsCreator = new ItemsFactory("cats", directoryPath, itemList, 0);
+            var birdsCreator = new ItemsFactory("birds", directoryPath, itemList, 1);
+            var dogsCreator = new ItemsFactory("dogs", directoryPath, itemList, 2);
+            bagofVW = new TrainFactory(codeWordCount, bagofVW, itemList).bagofVW;
+
+            var inputs = new InputFactory(itemList).input;
+            var outputs = new OutputFactory(itemList).output;
+
+            msvm = new MulticlassSupportVectorMachine&lt;ChiSquare&gt;(0, new ChiSquare(), classes);
+
+            // 学習アルゴリズムを作成する
+            var teacher = new MulticlassSupportVectorLearning&lt;ChiSquare&gt;()
+            {
+                Learner = (param) =&gt; new SequentialMinimalOptimization&lt;ChiSquare&gt;()
+                {
+                    UseComplexityHeuristic = true,
+                    UseKernelEstimation = true
+                }
+            };
+
+            msvm = teacher.Learn(inputs, outputs);
+
+            var calibration = new MulticlassSupportVectorLearning&lt;ChiSquare&gt;()
+            {
+                Model = msvm,
+                Learner = (param) =&gt; new ProbabilisticOutputCalibration&lt;ChiSquare&gt;()
+                {
+                    Model = param.Model
+                }
+            };
+
+            calibration.ParallelOptions.MaxDegreeOfParallelism = 1;
+            calibration.Learn(inputs, outputs);
+
+            inkCanvas.Strokes.Clear();
+            textBox1.Clear();
+        }
+

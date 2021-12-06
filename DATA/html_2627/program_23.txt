@@ -1,0 +1,85 @@
+
+public static class CrossReferencesDumper
+{
+    public static void Dump(TranslationUnitMap map)
+    {
+        var impl = new CrossReferencesDumperImpl();
+
+        impl.Execute(map);
+    }
+
+    public class CrossReferencesDumperImpl : AMessageable
+    {
+        private TranslationUnitMap TranslationUnitMap { get; set; } = new TranslationUnitMap();
+
+        private BehaviorCrossReferenceMap CrossReferenceMap { get; set; } = new BehaviorCrossReferenceMap();
+
+        public void Execute(TranslationUnitMap map)
+        {
+            this.TranslationUnitMap = map;
+
+            this.AnalyseCrossReferences();
+
+            this.SendMessage();
+            this.SendMessage("--------------------------------------");
+            this.SendMessage("Cross References:");
+
+            this.DumpCrossReferences();
+        }
+
+        private void AnalyseCrossReferences()
+        {
+            var map1 = new BehaviorCrossReferenceMap();
+
+            foreach (var tu in this.TranslationUnitMap.Values)
+            {
+                foreach (var behavior in tu.BehaviorMap.Values)
+                {
+                    var xref_behavior = new BehaviorCrossReferenceInfo(behavior);
+
+                    map1.Add(xref_behavior);
+
+                    foreach (var invoke in behavior.Invokations)
+                    {
+                        var xref_invoke = new BehaviorCrossReferenceInfo(invoke);
+
+                        map1.Add(xref_invoke);
+                    }
+                }
+            }
+
+            var map2 = new BehaviorCrossReferenceMap();
+
+            foreach (var key in map1.Keys)
+            {
+                var set = map1[key];
+
+                var sorted_set = set.OrderBy(x =&gt; x.Type).ToHashSet();
+
+                map2.Add(key, sorted_set);
+            }
+
+            this.CrossReferenceMap = map2;
+        }
+
+        private void DumpCrossReferences()
+        {
+            foreach (var xref_id in this.CrossReferenceMap.Keys)
+            {
+                this.SendMessage($"{xref_id}");
+
+                var xref_hash_set = this.CrossReferenceMap[xref_id];
+
+                foreach (var xref_info in xref_hash_set)
+                {
+                    var type = xref_info.Type;
+                    var loc = xref_info.Location;
+                    this.SendMessage($"  [{type}] @ {loc}");
+                }
+
+                this.SendMessage();
+            }
+        }
+    }
+}
+

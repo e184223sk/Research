@@ -1,0 +1,87 @@
+
+    public static class ILoggerExtensions
+    {
+        /// &lt;summary&gt;計測ログ出力（デバッグ）&lt;/summary&gt;
+        /// &lt;param name="self"&gt;ロガー&lt;/param&gt;
+        /// &lt;param name="processName"&gt;処理名(メソッド名)&lt;/param&gt;
+        /// &lt;param name="categoryName"&gt;カテゴリ名(ファイル名)&lt;/param&gt;
+        /// &lt;param name="parameterName"&gt;パラメータ情報文字列&lt;/param&gt;
+        /// &lt;param name="getResult"&gt;結果を取得する関数&lt;/param&gt;
+        /// &lt;returns&gt;計測終了ログ出力&lt;/returns&gt;
+        /// &lt;exception cref="ArgumentNullException"&gt;self&lt;/exception&gt;
+        public static IDisposable DebugMeasureTimeAsDisposable(this ILogger self,
+                                                               [CallerMemberName] string processName = "",
+                                                               [CallerFilePath] string categoryName = "",
+                                                               string parameterName = null,
+                                                               Func&lt;object&gt; getResult = null)
+        {
+            if (self == null)
+            {
+                throw new ArgumentNullException(nameof(self));
+            }
+
+            return WriteLogAsDisposable(self.Debug, processName, categoryName, parameterName, getResult);
+        }
+
+        /// &lt;summary&gt;計測ログ出力（Info）&lt;/summary&gt;
+        /// &lt;param name="self"&gt;ロガー&lt;/param&gt;
+        /// &lt;param name="processName"&gt;処理名(メソッド名)&lt;/param&gt;
+        /// &lt;param name="categoryName"&gt;カテゴリ名(ファイル名)&lt;/param&gt;
+        /// &lt;param name="parameterName"&gt;パラメータ情報文字列&lt;/param&gt;
+        /// &lt;param name="getResult"&gt;結果を取得する関数&lt;/param&gt;
+        /// &lt;returns&gt;計測終了ログ出力&lt;/returns&gt;
+        /// &lt;exception cref="ArgumentNullException"&gt;self&lt;/exception&gt;
+        public static IDisposable InfoMeasureTimeAsDisposable(this ILogger self,
+                                                              [CallerMemberName] string processName = "",
+                                                              [CallerFilePath] string categoryName = "",
+                                                              string parameterName = null,
+                                                              Func&lt;object&gt; getResult = null)
+        {
+            if (self == null)
+            {
+                throw new ArgumentNullException(nameof(self));
+            }
+
+            return WriteLogAsDisposable(self.Info, processName, categoryName, parameterName, getResult);
+        }
+
+        private static int NestLevelCounter = 0;
+
+        /// &lt;summary&gt;計測ログ出力&lt;/summary&gt;
+        /// &lt;param name="writeLogAction"&gt;ログ書き込み処理&lt;/param&gt;
+        /// &lt;param name="processName"&gt;処理名(メソッド名)&lt;/param&gt;
+        /// &lt;param name="categoryName"&gt;カテゴリ名(ファイル名)&lt;/param&gt;
+        /// &lt;param name="parameterName"&gt;パラメータ情報文字列&lt;/param&gt;
+        /// &lt;param name="getResult"&gt;結果を取得する関数&lt;/param&gt;
+        /// &lt;returns&gt;計測終了ログ出力&lt;/returns&gt;
+        /// &lt;exception cref="ArgumentNullException"&gt;writeLogAction&lt;/exception&gt;
+        private static IDisposable WriteLogAsDisposable(Action&lt;string&gt; writeLogAction,
+                                                        [CallerMemberName] string processName = "",
+                                                        [CallerFilePath] string categoryName = "",
+                                                        string parameterName = null,
+                                                        Func&lt;object&gt; getResult = null)
+        {
+            if (writeLogAction == null)
+            {
+                throw new ArgumentNullException(nameof(writeLogAction));
+            }
+
+            var parameterNameString = string.IsNullOrWhiteSpace(parameterName) ? string.Empty : $"_param:{parameterName}";
+            var processNameString =
+                $"[{Path.GetFileName(categoryName)}]({processName}{parameterNameString})";
+            var startTime = DateTime.Now;
+            var tempNestLevel = ++NestLevelCounter;
+            var startArrowString = new string('v', tempNestLevel);
+            writeLogAction.Invoke($"{startArrowString}Start {processNameString}");
+            return new DisposableAction(() =&gt;
+            {
+                var endArrowString = new string('^', tempNestLevel);
+                --NestLevelCounter;
+                var collapsedTime = DateTime.Now - startTime;
+                var resultString = getResult != null ? $"=&gt; Result:[{getResult()}]" : string.Empty;
+                writeLogAction(
+                    $"{endArrowString}End   {processNameString} took {collapsedTime.TotalMilliseconds:f2}ms {resultString}");
+            });
+        }
+    }
+

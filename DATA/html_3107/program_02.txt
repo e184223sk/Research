@@ -1,0 +1,95 @@
+
+/// &lt;summary&gt;
+/// Get specific result
+/// &lt;/summary&gt;
+/// &lt;param name="token"&gt;&lt;/param&gt;
+/// &lt;param name="pass"&gt;&lt;/param&gt;
+/// &lt;param name="fromDateTime"&gt;&lt;/param&gt;
+/// &lt;param name="toDateTime"&gt;&lt;/param&gt;
+/// &lt;param name="inCsv"&gt;&lt;/param&gt;
+/// &lt;returns&gt;&lt;/returns&gt;
+[HttpPost]
+public async Task&lt;IActionResult&gt; Index(string token, string pass, DateTime fromDateTime, DateTime toDateTime, bool inCsv)
+{
+
+　　// Set Date, if not set
+   if (fromDateTime &lt;= DateTime.MinValue &amp;&amp; toDateTime &lt;= DateTime.MinValue)
+   {
+   　　fromDateTime = DateTime.UtcNow.AddHours(-4);
+       toDateTime = DateTime.UtcNow.AddHours(-1);
+   }
+
+   // Set ViewData
+   ViewData["FROMDATETIME"] = fromDateTime;
+   ViewData["TODATETIME"] = toDateTime;
+   ViewData["TOKEN"] = token;
+   ViewData["PASS"] = pass;
+
+   // Token must be set first
+   if (string.IsNullOrEmpty(token))
+   {
+      return View();
+   }
+
+   // Token
+   var payjpToken = token + ":" + pass;
+
+   // Convert to DateTimeOffset
+   var fromDateTimeOffset = new DateTimeOffset(fromDateTime.Ticks, new TimeSpan(+09, 00, 00));
+   var toDateTimeOffset = new DateTimeOffset(toDateTime.Ticks, new TimeSpan(+09, 00, 00));
+
+   // To Unix seconds
+   var fromDateUnixSeconds = fromDateTimeOffset.ToUnixTimeSeconds();
+   var toDateUnixSeconds = toDateTimeOffset.ToUnixTimeSeconds();
+
+   // Set Path
+   var path = "charges?";
+   path += "since=" + fromDateUnixSeconds + "&amp;until=" + toDateUnixSeconds;
+   path += "&amp;offset=0&amp;limit=100";
+
+   // Set Token
+   var base64authorization = Convert.ToBase64String(Encoding.ASCII.GetBytes(payjpToken));
+
+   // Call API
+   var client = new HttpClient();
+   var result = new ChargeListResponse();
+   client.BaseAddress = new Uri(payJpBaseUrl);
+   client.DefaultRequestHeaders.Accept.Clear();
+   client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+   client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", base64authorization);
+
+   HttpResponseMessage response = await client.GetAsync(path);
+
+   // Make sure the call was a success
+   if (response.IsSuccessStatusCode)
+   {
+     result = await response.Content.ReadAsAsync&lt;ChargeListResponse&gt;();
+   }
+
+   // see if there are more
+   for (int i = 1; result.has_more; i++)
+   {
+
+     path = "charges?";
+     path += "since=" + fromDateUnixSeconds + "&amp;until=" + toDateUnixSeconds;
+     path += "&amp;offset=" + i * 100 + "&amp;limit=100";
+
+     response = await client.GetAsync(path);
+
+     // Make sure the code was a success
+     if (response.IsSuccessStatusCode)
+     {
+       var tresult = await response.Content.ReadAsAsync&lt;ChargeListResponse&gt;();
+
+       // Add to result
+       result.count += tresult.count;
+       result.data.AddRange(tresult.data);
+       result.has_more = tresult.has_more;
+     }
+   }
+
+   client.Dispose();
+
+   return View(result);
+}
+

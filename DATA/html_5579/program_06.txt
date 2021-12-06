@@ -1,0 +1,103 @@
+
+using Line.Messaging;
+using Line.Messaging.Webhooks;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using sushibot.CloudStorage;
+using sushibot.Models;
+using Microsoft.Cognitive.LUIS;
+
+namespace sushibot
+{
+    internal class LineBotApp : WebhookApplication
+    {
+        private LineMessagingClient messagingClient { get; }
+        private TableStorage&lt;Order&gt; orderState { get; }
+        private BlobStorage blobStorage { get; }
+        private LuisClient luisClient = new LuisClient(
+            appId: "12819323-19e6-4103-aaa0-352d14fc2cfa",
+            appKey: "4501df87a8944328b3bd07ed8adb6508");
+
+        public LineBotApp(LineMessagingClient lineMessagingClient, TableStorage&lt;Order&gt; tableStorage, BlobStorage blobStorage)
+        {
+            this.messagingClient = lineMessagingClient;
+            this.orderState = tableStorage;
+            this.blobStorage = blobStorage;
+        }
+
+        protected override async Task OnMessageAsync(MessageEvent ev)
+        {
+            switch (ev.Message.Type)
+            {
+                case EventMessageType.Text:
+                    await HandleTextAsync(ev.ReplyToken, ((TextEventMessage)ev.Message).Text, ev.Source.UserId);
+                    break;
+                case EventMessageType.Location:
+                    var location = ((LocationEventMessage)ev.Message);
+                    await HandleLocationAsync(ev.ReplyToken, location, ev.Source.Id);
+                    break;
+            }
+        }
+
+        private async Task HandleLocationAsync(string replyToken, LocationEventMessage location, string userId)
+        {
+            // Order ステートを取得
+            var order = await orderState.FindAsync("order", userId);
+            // 住所を設定後保存
+            order.Location_Address = location.Address;
+            order.Location_Title = location.Title;
+            await orderState.UpdateAsync(order);
+            await messagingClient.ReplyMessageAsync(replyToken, new[] {
+                        new TextMessage($"あいよ！{order.Menu}を{order.Location_Title}にだね！")
+                    });
+        }
+
+        private async Task HandleTextAsync(string replyToken, string userMessage, string userId)
+        {
+            ISendMessage replyMessage = new TextMessage("");
+
+            // LUIS で文章を解析
+            var luisResult = await luisClient.Predict(userMessage);
+            if (luisResult.TopScoringIntent.Name == "greeting")
+            {
+                replyMessage = new TextMessage("どうもどうも");
+            }
+            else if (luisResult.TopScoringIntent.Name == "order")
+            {
+                // メニューエンティティがある場合
+                if (luisResult.Entities.ContainsKey("menu"))
+                {
+                    // メニューを取得して、Order を Azure テーブルに保存
+                    var menu = luisResult.Entities["menu"].First().Value;
+                    var order = new Order(){ Menu = menu, SourceId = userId };
+                    await orderState.UpdateAsync(order);
+                    // 住所の確認に地図を起動するスキームを送信
+                    replyMessage = new TemplateMessage("location", new ButtonsTemplate(
+                        title: "住所の送信",
+                        text: $"毎度！{menu}ですね。どちらにお送りしましょう？",
+                        actions: new List&lt;ITemplateAction&gt;(){
+                            new UriTemplateAction("住所を送る","line://nv/location")
+                            }));
+                }
+                else
+                {
+                    // 注文だがメニューがわからない場合はメニューをボタンで提示
+                    replyMessage = new TemplateMessage("menu", new ButtonsTemplate(
+                        title: "注文",
+                        text: "毎度！注文ですね。何にしましょう？",
+                        actions: new List&lt;ITemplateAction&gt;(){
+                            new MessageTemplateAction("松","松"),
+                            new MessageTemplateAction("竹","竹"),
+                            new MessageTemplateAction("梅","梅"),
+                            }));
+                }
+            }
+
+            await messagingClient.ReplyMessageAsync(replyToken, new List&lt;ISendMessage&gt; { replyMessage });
+        }
+    }
+}
+

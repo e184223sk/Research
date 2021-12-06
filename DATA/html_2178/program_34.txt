@@ -1,0 +1,110 @@
+
+using UnityEngine;
+using UnityEngine.UIElements;
+
+public class EdgeConnector : MouseManipulator
+{
+    bool m_Active = false;
+
+    ContextualMenuManipulator m_AddEdgeMenu;
+
+    public EdgeConnector()
+    {
+        // ノードの接続は左クリックで行う
+        activators.Add(new ManipulatorActivationFilter() { button = MouseButton.LeftMouse });
+
+        m_Active = false;
+
+        // メニュー選択マニピュレータは作っておくが、この時点ではターゲットが確定していないので、
+        // RegisterCallbacksOnTarget()で追加する
+        m_AddEdgeMenu = new ContextualMenuManipulator(OnContextualMenuPopulate);
+    }
+
+    private void OnContextualMenuPopulate(ContextualMenuPopulateEvent evt)
+    {
+        if (evt.target is NodeElement node)
+        {
+            // エッジ追加中に右クリックを押されたときのために、ノードの上かどうかを見る
+            if (!node.ContainsPoint(node.WorldToLocal(evt.mousePosition)))
+            {
+                // イベントを即座に中断
+                evt.StopImmediatePropagation();
+                return;
+            }
+
+            evt.menu.AppendAction(
+                "Add Edge",
+                (DropdownMenuAction menuItem) =&gt;
+                {
+                    m_Active = true;
+
+                    Debug.Log("Add Edge");  // ここでエッジ追加モード開始処理を書く
+
+                    target.CaptureMouse();
+                },
+                DropdownMenuAction.AlwaysEnabled);
+        }
+    }
+
+    protected override void RegisterCallbacksOnTarget()
+    {
+        target.RegisterCallback&lt;MouseDownEvent&gt;(OnMouseDown);
+        target.RegisterCallback&lt;MouseUpEvent&gt;(OnMouseUp);
+        target.RegisterCallback&lt;MouseMoveEvent&gt;(OnMouseMove);
+        target.RegisterCallback&lt;MouseCaptureOutEvent&gt;(OnCaptureOut);
+
+        target.AddManipulator(m_AddEdgeMenu);
+    }
+
+    protected override void UnregisterCallbacksFromTarget()
+    {
+        target.RemoveManipulator(m_AddEdgeMenu);
+
+        target.UnregisterCallback&lt;MouseDownEvent&gt;(OnMouseDown);
+        target.UnregisterCallback&lt;MouseUpEvent&gt;(OnMouseUp);
+        target.UnregisterCallback&lt;MouseMoveEvent&gt;(OnMouseMove);
+        target.UnregisterCallback&lt;MouseCaptureOutEvent&gt;(OnCaptureOut);
+    }
+
+    protected void OnMouseDown(MouseDownEvent evt)
+    {
+        if (!CanStartManipulation(evt))
+            return;
+
+        // マウス押下では他のイベントが起きてほしくないのでPropagationを中断する
+        if (m_Active)
+            evt.StopImmediatePropagation();
+    }
+
+    protected void OnMouseUp(MouseUpEvent evt)
+    {
+        if (!CanStopManipulation(evt))
+            return;
+
+        if (!m_Active)
+            return;
+
+        Debug.Log("Try Connect");  // ここでマウスの下にあるノードにエッジを接続しようとする
+
+        m_Active = false;
+        target.ReleaseMouse();
+    }
+
+    protected void OnMouseMove(MouseMoveEvent evt)
+    {
+        if (!m_Active)
+            return;
+
+        Debug.Log("move");  // ここで、追加中のエッジの再描画を行う
+    }
+
+    private void OnCaptureOut(MouseCaptureOutEvent evt)
+    {
+        if (!m_Active)
+            return;
+
+        m_Active = false;
+        target.ReleaseMouse();
+    }
+}
+

@@ -1,0 +1,159 @@
+
+using System.Linq;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using Microsoft.CodeAnalysis;
+
+namespace Flow
+{
+    public class FlowGraph
+    {
+        private static int WORD_WRAP_LENGTH = 40;
+        private List&lt;GraphEdge&gt; EdgeList = new List&lt;GraphEdge&gt;();
+        private Dictionary&lt;SyntaxNode, GraphNode&gt; NodeMap = new System.Collections.Generic.Dictionary&lt;SyntaxNode, GraphNode&gt;();
+        private int _seq = 0;
+
+        public FlowGraph(string sourceCode)
+        {
+            var tree = CSharpSyntaxTree.ParseText(sourceCode);
+            var memberDeclarations = tree.GetRoot().DescendantNodes().OfType&lt;BaseMethodDeclarationSyntax&gt;();
+
+            foreach (var funcRoot in memberDeclarations)
+            {
+                SyntaxVisitor ast = new SyntaxVisitor(this);
+                if (funcRoot is MethodDeclarationSyntax || funcRoot is ConstructorDeclarationSyntax)
+                    ast.VisitRootSyntax(funcRoot);
+            }
+        }
+
+        public GraphNode CreateGraphNode(SyntaxNode astNode, string labelName, string nodeShape)
+        {
+            GraphNode gNode = new GraphNode(astNode, "node" + (++_seq), labelName, nodeShape);
+            NodeMap[astNode] = gNode;
+            return gNode;
+        }
+
+        public GraphNode CreateGraphNode(string labelName, string nodeShape)
+        {
+            return new GraphNode("node" + (++_seq), labelName, nodeShape);
+        }
+
+        public GraphNode GetGraphNode(SyntaxNode node)
+        {
+            if (NodeMap.ContainsKey(node))
+            {
+                return NodeMap[node];
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        public int GetNodeSequence()
+        {
+            return ++_seq;
+        }
+
+        public void AddEdge(GraphNode tail, GraphNode head)
+        {
+            AddEdge(tail, head, "");
+        }
+
+        public void AddEdge(GraphNode tail, GraphNode head, string centerLabel = "", string tailLabel = "", string headLabel = "")
+        {
+            EdgeList.Add(new GraphEdge(tail, head, centerLabel, tailLabel, headLabel));
+        }
+
+        public void WriteDot(string dotFilename)
+        {
+            using (System.IO.StreamWriter writer = new System.IO.StreamWriter(dotFilename, false))
+            {
+                writer.WriteLine("digraph G{");
+                writer.WriteLine("rankdir=TB;");
+                writer.WriteLine("node[fontname   =  \"MS GOTHIC\"]");
+                writer.WriteLine("edge[fontname   =  \"MS GOTHIC\"]");
+                foreach (GraphNode node in NodeMap.Values)
+                {
+                    string wrapStr = LabelWordWrap(node.LabelName, WORD_WRAP_LENGTH);
+                    writer.WriteLine("\"" + node.NodeId + "\"" + "[shape = \"" + node.NodeShape + "\""
+                              + ",  color = \"\"" + ", label = \"" + wrapStr.Replace("\"", "\\\"") + "\"]");
+                }
+
+                foreach (GraphEdge edge in EdgeList)
+                {
+                    writer.WriteLine("\"" + edge.TailNode.NodeId + "\"  -&gt; \"" + edge.HeadNode.NodeId
+                         + "\"[label =\"" + edge.CenterLabel + "\"  ,taillabel =\""
+                         + edge.TailLabel + "\"  , color = \"" + "black" + "\"]");
+                }
+                writer.WriteLine("}");
+            }
+        }
+
+        private static string LabelWordWrap(string text, int length)
+        {
+            Encoding sjis = Encoding.GetEncoding("Shift_JIS");
+            var words = Regex.Split(text, @"( |\(|\)|=[=&gt;]|\{|\}|\\n)");
+            StringBuilder sb = new StringBuilder();
+            int len = 0;
+            foreach (var str in words)
+            {
+                int bytes = sjis.GetByteCount(str);
+                if ((len + bytes) &gt; length || bytes &gt; length)
+                {
+                    sb.Append("\\n");
+                    len = 0;
+                }
+                sb.Append(str);
+                if (str == "\\n")
+                {
+                    len = 0;
+                }
+                len += bytes;
+            }
+            return sb.ToString();
+        }
+    }
+
+    public class GraphNode
+    {
+        public SyntaxNode AstNode { get; set; }
+        public string NodeId { get; set; }
+        public string LabelName { get; set; }
+        public string NodeShape { get; set; }
+        public string TransitEdgeLabel { get; set; } = "";
+        public GraphNode(SyntaxNode astNode, string id, string labelName, string nodeShape)
+        {
+            AstNode = astNode;
+            NodeId = id;
+            LabelName = labelName;
+            NodeShape = nodeShape;
+        }
+
+        public GraphNode(string id, string labelName, string nodeShape) : this(null, id, labelName, nodeShape)
+        {
+        }
+    }
+
+    public class GraphEdge
+    {
+        public GraphNode TailNode { get; set; }
+        public GraphNode HeadNode { get; set; }
+        public string TailLabel { get; set; }
+        public string CenterLabel { get; set; } = "";
+        public string HeadLabel { get; set; } = "";
+        public GraphEdge(GraphNode tailNode, GraphNode headNode, string centerLabel = "", string tailLabel = "", string headLabe = "")
+        {
+            TailNode = tailNode;
+            HeadNode = headNode;
+            TailLabel = tailLabel;
+            CenterLabel = centerLabel;
+            HeadLabel = headLabe;
+        }
+    }
+}
+
+

@@ -1,0 +1,100 @@
+More than 1 year has passed since last update.
+コードはこんな感じ
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class test : MonoBehaviour
+{
+    [SerializeField] private GameObject _cylinder;
+    [SerializeField] private Button _reset;
+    [SerializeField] private Button _go;
+    [SerializeField] private Slider _slider;
+    [SerializeField] private InputField _field;
+
+    private Coroutine _animationCoroutine = null;
+
+    // Use this for initialization
+    void Start()
+    {
+        _reset.onClick.AddListener(() =&gt;
+        {
+            if (_animationCoroutine != null)
+            {
+                StopCoroutine(_animationCoroutine);
+            }
+
+            _cylinder.transform.SetPositionAndRotation(
+                new Vector3(6f, 0f, 0f),
+                Quaternion.Euler(0f, 0f, -60f)
+            );
+        });
+        _reset.onClick.Invoke();
+
+        _go.onClick.AddListener(() =&gt;
+        {
+            if (_animationCoroutine != null)
+            {
+                StopCoroutine(_animationCoroutine);
+            }
+
+            _animationCoroutine =
+                StartCoroutine(AnimateCoroutine(
+                    _cylinder.transform,
+                    _slider.value,
+                    new Vector3(-6f, 0f, 0f),
+                    Quaternion.Euler(0f, 0f, 60f)));
+        });
+
+        _slider.onValueChanged.AddListener(arg =&gt; _field.text = arg.ToString());
+    }
+
+
+    // tranform 移動させたいtranform
+    // time     何秒かけて推移させるか
+    // position 目標とするposition...nullを入れると値は変化しない
+    // rotation 目標とするrotation...nullを入れると値は変化しない
+    IEnumerator AnimateCoroutine(Transform transform, float time, Vector3? position, Quaternion? rotation)
+    {
+        // 現在のposition, rotation
+        var currentPosition = transform.position;
+        var currentRotation = transform.rotation;
+
+        // 目標のposition, rotation
+        var targetPosition = position ?? currentPosition;
+        var targetRotation = rotation ?? currentRotation;
+
+        var sumTime = 0f;
+        while (true)
+        {
+            // Coroutine開始フレームから何秒経過したか
+            sumTime += Time.deltaTime;
+            // 指定された時間に対して経過した時間の割合
+            var ratio = sumTime / time;
+
+            transform.SetPositionAndRotation(
+                Vector3.Lerp(currentPosition, targetPosition, ratio),
+                Quaternion.Lerp(currentRotation, targetRotation, ratio)
+            );
+
+            if (ratio &gt; 1.0f)
+            {
+                // 目標の値に到達したらこのCoroutineを終了する
+                // ~.Lerpは割合を示す引数は0 ~ 1の間にClampされるので1より大きくても問題なし
+                break;
+            }
+
+            yield return null;
+        }
+    }
+}
+
+
+棍棒の再発明なのでは？　感がありますが、Update()じゃなくてCoroutineでLerp動かしてるサンプルが見つからなかったので自分用のメモとして書きました。Update()でなんかするのイヤ。あとCoroutineだとStopCoroutine()できる。
+相も変わらず勘で書いてるのでロジック間違ってたら教えてください。
+gifがうまくいかなかったっぽくて動画はカクカクですが、実際はなめらかに指定秒数で動きます。1
+ratioの値を使えばLerp系すべてに流用できると思うのでうまいこと使ってください。しかしC#のnullableとか何に使うんだろうと思ってたんですが、structのデフォルト引数を使いたいときに必須っぽいですね。さあ今すぐ手元で試してみよう、の意。 ↩
+
+

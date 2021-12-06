@@ -1,0 +1,98 @@
+More than 1 year has passed since last update.Excelに埋め込まれたpdfとかのファイルを楽に保存したい。クリップボード経由でやれなくはなさそうだが、
+かなり面倒くさそうなので、自作するのはお勧めできない。結局できていないですが、
+判ったところまでを残したいので投稿します。埋め込みオブジェクトは  _OLEObjectのようである。
+プロパティやメソッドを探すも、使えそうなものが見つからなかった。
+（埋め込み元のアプリで開いたり(Verb()メソッド)、
+埋め込みオブジェクトとしてクリップボードにコピーさせる(Copy()メソッド)くらいしかできなかった。
+Copy()でテンポラリファイルができるというblogもあったが、できず。）
+ _OLEObject に関するメモ 
+
+
+ _OLEObjectインタフェースは、Microsoft Excel 12.0 Object Library に属している（環境により異なるかも）。
+
+_OLEObjectは、sheetオブジェクトのもつ OLEObjects() を呼び出して、foreachとかで要素として取り出せる。
+
+_OLEObjectの一部のメソッドやプロパティ(.Objectとか)は、C#で作ってみたが実行時に例外吐いて落ちる。。。
+
+
+今回の本題。
+Excel Sheet上の埋め込みオブジェクトをコピーすると、クリップボードにちゃんとデータが入る。 クリップボードからEmbedded Objectをファイルに保存するソースコード 
+
+IDataObject data = Clipboard.GetDataObject();
+if (data != null) {
+    // 関連付けられているすべての形式を列挙する
+    //   foreach(string fmt in data.GetFormats(){Console.WriteLine(fmt);}
+
+    if (data.GetDataPresent("Embedded Object")) {
+        dynamic obj = data.GetData("Embedded Object");
+        if ( obj is MemoryStream ) {
+            var ms = (MemoryStream)obj;
+            using ( var fs = new FileStream("testout.dat", FileMode.Create) ) {
+                ms.WriteTo(fs);
+            }
+        }
+    }
+}
+
+// Mainメソッドに [STAThread] つけ忘れなきよう・・・
+
+
+
+上の処理で、クリップボードのデータをファイルに保存できる。
+問題はこれが元データ（EXCELに埋め込まれる前のファイル）のままではなく、謎な形式・・というかOLEになっている。
+バイナリエディタで開いてみると先頭がD0 CF 11 E0 A1 B1 1A E1となっていて、調べてみた結果、
+[MS-CFB]: Compound File Binary File Format ・・・ (仕様書(Rev 9.0))
+という形式らしい。ファイルシステムを埋め込んだような構造で、割とめんどくさい。。
+GitHubさがせばありそう。バイナリエディタ(BZ Editor)向けの構造体定義の一部を張っておく
+
+BZ.DEF に下記を付け足し。
+
+struct CFB_HEADER {
+    BYTE    signature [8];
+    BYTE    clsid [16];
+    WORD    minorVersion;
+    WORD    majorVersion;
+    WORD    byteOrder;
+    WORD    sectorSize;
+    WORD    miniStream;
+    BYTE    reserved1[6];
+    DWORD   numOfDirSectors;
+    DWORD   numOfFatSectors;
+    DWORD   dirStartSectLoca;
+    DWORD   tranSignature;
+    DWORD   miniStreamSizeCo;
+    DWORD   miniFatStartSectLoca;
+    DWORD   numOfMiniFatSectors;
+    DWORD   difatStartSectLoca;
+    DWORD   numOfDifatSectors;
+    DWORD   difat[109];
+} cfb_header;
+
+struct CFB_DIR_ENTRY {
+    BYTE    nameUtf16 [64];
+    WORD    nameLen;
+    BYTE    ObjectType;
+    BYTE    ColorFlag;
+    DWORD   LeftSiblingID;
+    DWORD   RightSiblingID;
+    DWORD   ChildID;
+    BYTE    CLSID [16];
+    DWORD   StateBits;
+    BYTE    CreationTime [8];
+    BYTE    ModifiedTime [8];
+    DWORD   StartSectLoca;
+    DWORD   StreamSize[2];
+} cfb_dir_entry;
+
+
+
+乱暴なやりかた：
+
+Sectorの概念を無視してデータが連番のセクターに保存されていると仮定すれば、
+
+Name(※UTF-16)が"CONTENTS"のdirectory entry上の
+(StartingSectorLocation + 1) * 0x0200 = (下記例では 0x2600) から
+StreamSizeだけデータを取り出せば取り出せそうだが、
+ファイルフォーマットを完全に無視しているので危険。。
+
+

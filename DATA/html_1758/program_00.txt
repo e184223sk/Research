@@ -1,0 +1,651 @@
+using System;
+using System.ComponentModel;
+using System.ComponentModel.Design;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+namespace utils.calendar
+{
+    [ClassInterface(ClassInterfaceType.AutoDispatch)]
+    [ComVisible(true)]
+    [DefaultEvent("Load")]
+    [DesignerCategory("UserControl")]
+    public class MonthCalendar : UserControl
+    {
+        private DateTime currentDate;
+
+        [Browsable(true)]
+        [DefaultValue(12)]
+        public int FontSize {
+            get
+            {
+                return (int)this.Font.Size;
+            }
+            set
+            {
+                this.Font = new Font("Meiryo UI", value, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
+            }
+        }
+        private DayLabel[,,] days = new DayLabel[2,7,7];
+        private DayLabel rightButton;
+        private DayLabel leftButton;
+        private Label title;
+        private DayLabel todayLabel;
+        private Panel[] bodyPanel = new Panel[2];
+        public const string MONTH_FORMAT  = "yyyy年M月";
+        public const string DATE_FORMAT  = "yyyy年M月d日";
+
+        private DayLabel selectDayLabel;
+        [Browsable(false)]
+        [DefaultValue(typeof(DateTime))]
+        public DateTime SelectDate
+        {
+            get
+            {
+                return selectDayLabel == null ? new DateTime() : selectDayLabel.Date;
+            }
+            set
+            {
+                if (value.Ticks &gt; 0L)
+                {
+                    currentDate = value.Date;
+                    setDayLabelPreferredDate(curIndex, currentDate, false);
+                    if (selectDayLabel != null &amp;&amp; selectDayLabel.Selected)
+                    {
+                        selectDayLabel.Selected = false;
+                    }
+                    selectDayLabel = getCurrentDayLabel(value.Day);
+                    if (selectDayLabel != null)
+                    {
+                        selectDayLabel.Selected = true;
+                    }
+                    title.Text = currentDate.Date.ToString(MONTH_FORMAT);
+                }
+            }
+        }
+        [Browsable(true)]
+        [DefaultValue(26)]
+        public int TilteHeight
+        {
+            get { return title.Height; }
+            set {
+                title.Height = value;
+                Invalidate();
+            }
+        }
+        private int curIndex = 0;
+        private volatile bool moving = false;
+        public MonthCalendar() : base()
+        {
+            this.MinimumSize = new Size(240,200);
+            currentDate = DateTime.Now.Date;
+            title = new Label();
+            todayLabel = new DayLabel();
+            rightButton = new DayLabel();
+            leftButton = new DayLabel();
+            bodyPanel[0] = new Panel();
+            bodyPanel[1] = new Panel();
+            string[] WEEKS = { "日", "月", "火", "水", "木", "金", "土", };
+            this.SuspendLayout();
+            for (int n = 0; n &lt; 2; n++)
+            {
+                Panel p = new Panel();//曜日、各日の分割ライン
+                p.Location = new Point(0,0);
+                p.Size = new Size(1, 1);
+                p.BackColor = Color.DeepSkyBlue;
+                p.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+                bodyPanel[n].Controls.Add(p);
+                for (int i = 0; i &lt; 7; i++)
+                {
+                    for (int ii = 0; ii &lt; 7; ii++)
+                    {
+                        DayLabel d = new DayLabel();
+                        d.Size = new Size(40, 30);
+                        if (i == 0)
+                        {
+                            d.Text = WEEKS[ii];
+                            d.staticLabel = true;
+                        }
+                        else
+                        {
+                            d.Date = currentDate;
+                            d.Click += DayLabel_Click;
+                        }
+                        d.Location = new Point(ii*40+5, 30*i+5);
+                        days[n, i, ii] = d;
+                        bodyPanel[n].Controls.Add(d);
+                    }
+                }
+            }
+            this.Font = new Font("Meiryo UI", 12, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
+            this.AutoScaleMode = AutoScaleMode.Dpi;
+            int w = 320;
+            int h = 240;
+            int th = 26;
+            int tw = 240;
+            this.Size = new Size(w, h);
+            this.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+
+            title.AutoSize = false;
+            title.Size = new Size(tw, th);
+            title.Location = new Point((w-tw)&gt;&gt;1, 0);
+            title.TextAlign = ContentAlignment.MiddleCenter;
+            title.Text = currentDate.ToString(MONTH_FORMAT);
+            title.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+
+            todayLabel.AutoSize = true;
+            todayLabel.Date = currentDate;
+            todayLabel.Text = "□ 今日：" + currentDate.ToString(DATE_FORMAT);
+            int todaywidth = TextRenderer.MeasureText(todayLabel.Text, this.Font).Width;
+            todayLabel.Location = new Point((w - Padding.Left - Padding.Right - todaywidth) / 2, h - th - Padding.Bottom);
+            todayLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            todayLabel.CurrentMonth = true;
+            todayLabel.Click += Today_Click;
+            rightButton.Font = new Font("Meiryo UI", FontSize + 2, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
+            rightButton.Text = "▶";
+            rightButton.ForeColor = Color.Black;
+            rightButton.Size = new Size(th, th);
+            rightButton.Location = new Point(w - th - 5, 0);
+            rightButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            rightButton.CurrentMonth = true;
+            rightButton.Click += RightButton_Click;
+
+            leftButton.Font = new Font("Meiryo UI", FontSize + 2, FontStyle.Regular, GraphicsUnit.Point, ((byte)(128)));
+            leftButton.Text = "◀";
+            leftButton.ForeColor = Color.Black;
+            leftButton.Size = new Size(th, th);
+            leftButton.Location = new Point(5, 0);
+            leftButton.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            leftButton.CurrentMonth = true;
+            leftButton.Click += LeftButton_Click;
+
+            bodyPanel[0].Size = new Size(w, h - th - th - 1);
+            bodyPanel[0].Location = new Point(0, th);
+            bodyPanel[0].Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            bodyPanel[0].SizeChanged += (s, e) =&gt; {
+                setDayLabelPreferredSize((Control)s);
+            };
+            bodyPanel[1].Size = new Size(w - tw, h - th - 1);
+            bodyPanel[1].Location = new Point(0, th);
+            bodyPanel[1].Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            bodyPanel[1].Visible = false;
+            bodyPanel[1].SizeChanged += (s, e) =&gt; {
+                setDayLabelPreferredSize((Control)s);
+            };
+
+            this.Controls.Add(title);
+            this.Controls.Add(todayLabel);
+            this.Controls.Add(rightButton);
+            this.Controls.Add(leftButton);
+            this.Controls.Add(bodyPanel[0]);
+            this.Controls.Add(bodyPanel[1]);
+            setDayLabelPreferredSize(bodyPanel[0]);
+            this.ResumeLayout(false);
+            this.PerformLayout();
+        }
+        private void changeToNextMonth(DateTime nextDate, Action callback=null)
+        {
+            if(currentDate.Year==nextDate.Year &amp;&amp; currentDate.Month == nextDate.Month)
+            {
+                moving = false;
+                return;
+            }
+            int nextIndex = (curIndex + 1) &amp; 0x00000001;
+            Panel np = bodyPanel[nextIndex];
+            Panel cp = bodyPanel[curIndex];
+            DayLabel firstday = setDayLabelPreferredDate(nextIndex, nextDate, (selectDayLabel!=null));
+            Point pt = np.Location;
+
+            int dx = cp.Width + 2;
+            int n = 5;
+            int xStep = (dx + n - 1) / n;
+
+            if (nextDate&gt;currentDate)    //[cur][next]&lt;=左に移動
+            {
+                dx = -dx;
+                xStep = -xStep;
+            }
+            pt.X = cp.Location.X - dx;
+            pt.Y = cp.Location.Y;
+            np.Location = pt;
+            np.Visible = true;
+
+            int orgCX = cp.Location.X;
+            int orgNX = np.Location.X;
+
+            Timer t = new Timer();
+            t.Interval = (200 + n - 1) / n;
+            int cnt = 0;
+            t.Tick += (s, e)=&gt; {
+                Point npt = np.Location;
+                Point cpt = cp.Location;
+                cnt++;
+                if(cnt&gt;=n)
+                {
+                    npt.X = orgCX;
+                    cpt.X = orgNX;
+                    t.Stop();
+                    moving = false;
+                    cp.Visible = false;
+                    curIndex = nextIndex;
+                    currentDate = nextDate;
+                    if (selectDayLabel != null)
+                    {
+                        selectDayLabel = firstday;
+                    }
+                    title.Text = currentDate.ToString(MONTH_FORMAT);
+                    if (callback != null)
+                    {
+                        try { callback(); } catch (Exception) { }
+                    }
+                }
+                else
+                {
+                    npt.Offset(xStep, 0);
+                    cpt.Offset(xStep, 0);
+                }
+                cp.Location = cpt;
+                np.Location = npt;
+            };
+            t.Start();
+        }
+
+        private void LeftButton_Click(object sender, EventArgs e)
+        {
+            if (!moving)
+            {
+                moving = true;
+                DateTime t = currentDate.AddMonths(-1);
+                changeToNextMonth(t);
+                title.Text = t.ToString(MONTH_FORMAT);
+            }
+        }
+
+        private void RightButton_Click(object sender, EventArgs e)
+        {
+            if (!moving)
+            {
+                moving = true;
+                DateTime t = currentDate.AddMonths(1);
+                changeToNextMonth(t);
+                title.Text = t.ToString(MONTH_FORMAT);
+            }
+        }
+
+        private void Today_Click(object sender, EventArgs e)
+        {
+            if (!moving)
+            {
+                moving = true;
+                changeToNextMonth(todayLabel.Date, () =&gt;
+                {
+                    DayLabel next = getCurrentDayLabel(currentDate.Day);
+                    if (next != null)
+                    {
+                        if (selectDayLabel != null)
+                        {
+                            selectDayLabel.Selected = false;
+                        }
+                        selectDayLabel = next;
+                        selectDayLabel.Selected = true;
+                    }
+                });
+                title.Text = todayLabel.Date.ToString(MONTH_FORMAT);
+            }
+        }
+
+        private void DayLabel_Click(object sender, EventArgs e)
+        {
+            DayLabel d = (DayLabel)sender;
+            if (d.CurrentMonth)
+            {
+                if (selectDayLabel == null)
+                {
+                    selectDayLabel = d;
+                    selectDayLabel.Selected = true;
+                }
+                else if (selectDayLabel != d)
+                {
+                    selectDayLabel.Selected = false;
+                    selectDayLabel = d;
+                    selectDayLabel.Selected = true;
+                }
+            }
+            else
+            {
+                if (!moving)
+                {
+                    moving = true;
+                    changeToNextMonth(d.Date, () =&gt;
+                    {
+                        DayLabel next = getCurrentDayLabel(d.Date.Day);
+                        if (next != null)
+                        {
+                            if (selectDayLabel != null)
+                            {
+                                selectDayLabel.Selected = false;
+                            }
+                            selectDayLabel = next;
+                            selectDayLabel.Selected = true;
+                        }
+                    });
+                    title.Text = d.Date.ToString(MONTH_FORMAT);
+                }
+            }
+        }
+        private DayLabel getCurrentDayLabel(int day)
+        {
+            int m = currentDate.Month;
+            for(int i=1;i&lt;7;i++)
+            {
+                for(int ii=0;ii&lt;7;ii++)
+                {
+                    DayLabel d =  days[curIndex,i,ii];
+                    if (d.Date.Month == m &amp;&amp; d.Date.Day == day)
+                    {
+                        return d;
+                    }
+                }
+            }
+            return null;
+        }
+        private void setDayLabelPreferredSize(Control parent)
+        {
+            int pw = parent.Width;
+            int ph = parent.Height;
+            int left = parent.Padding.Left;
+            int right = parent.Padding.Right;
+            int top = parent.Padding.Top;
+            int bottom = parent.Padding.Bottom;
+            int dy = 3;             //間隔
+            int dx = 3;             //間隔
+            int n = 7;              //行数
+            int separater = 10;     //分割ライン高さ
+            int w = (pw - left - right - dx * (n - 1)) / n;
+            int h = (ph - top - bottom - dy * (n - 1) - separater) / n;
+            parent.SuspendLayout();
+            for(int i=0; i&lt;2;i++)
+            {
+                int y = top;
+                for(int row=0;row&lt;n;row++)
+                {
+                    int x = left;
+                    for (int col = 0; col &lt; n; col++)
+                    {
+                        days[i, row, col].Size = new Size(w, h);
+                        days[i, row, col].Location = new Point(x, y);
+                        x += dx;
+                        x += w;
+                    }
+                    y += dy;
+                    y += h;
+                    if (row==0)
+                    {
+                        bodyPanel[i].Controls[0].Size = new Size(pw-dx-dx, 2);
+                        bodyPanel[i].Controls[0].Location = new Point(dx, y + 3);
+                        y += separater;
+                    }
+                }
+            }
+            setDayLabelPreferredDate(curIndex, currentDate, false);
+            setDayLabelPreferredDate(0x00000001&amp;(curIndex+1), currentDate.AddMonths(1), false);
+            parent.ResumeLayout(true);
+        }
+        private DayLabel setDayLabelPreferredDate(int curIndex, DateTime date, bool selectFirstday)
+        {
+            DateTime d = new DateTime(date.Year, date.Month, 1);
+            int m = d.Month;
+            int w = (int)d.DayOfWeek;
+            if(w==0)
+            {
+                w = 7;
+            }
+            d = d.AddDays(-w);
+            DayLabel firstday = null;
+            int curMonth = todayLabel.Date.Month;
+            int curDay = todayLabel.Date.Day;
+            for (int i = 1; i &lt; 7; i++)
+            {
+                for(int ii = 0; ii &lt; 7; ii++)
+                {
+                    DayLabel dd = days[curIndex, i, ii];
+                    dd.Date = d;
+                    dd.CurrentMonth = (d.Month == m);
+                    dd.Today = (d.Month == curMonth &amp;&amp; d.Day == curDay);
+                    bool selected = false;
+                    if (firstday==null &amp;&amp; d.Day==1)
+                    {
+                        firstday = dd;
+                        if (selectFirstday)
+                        {
+                            selected = true;
+                        }
+                    }
+                    dd.Selected = selected;
+                    FontStyle s;
+                    if (d.DayOfWeek==DayOfWeek.Sunday|| d.DayOfWeek == DayOfWeek.Saturday)
+                    {
+                        s = FontStyle.Bold;
+                    }
+                    else
+                    {
+                        s = FontStyle.Regular;
+                    }
+                    if (dd.Font.Style != s)
+                    {
+                        dd.Font = new Font(dd.Font, s);
+                    }
+                    d = d.AddDays(1);
+                }
+            }
+            return firstday;
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            int w = Width;
+            int h = Height;
+            int th = title.Height;
+            bodyPanel[0].Size = new Size(w, h - th - th - 1);
+            bodyPanel[1].Size = new Size(w, h - th - th - 1);
+            setDayLabelPreferredSize(bodyPanel[0]);
+            if (selectDayLabel != null)
+            {
+                selectDayLabel.Selected = true;
+            }
+        }
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            if(selectDayLabel!=null)
+            {
+                selectDayLabel.Selected = true;
+            }
+        }
+        class DayLabel : Label
+        {
+            private Color[] foreColeos = { Color.Black,       Color.Orange,    Color.Black,       Color.Black };
+            private Color[] backColeos = { Color.Transparent, Color.LightCyan, Color.Transparent, Color.Orange };
+            private Color BODY_LINE_COLOR  = Color.DeepSkyBlue;
+            private Color SELECTED_COLOR   = Color.Red;
+            private const int MOUSE_NONE   = 0;
+            private const int MOUSE_ENTER  = 1;
+            private const int MOUSE_LEAVE  = 2;
+            private const int MOUSE_DOWN   = 3;
+            private const int MOUSE_UP     = MOUSE_NONE;
+            private const int MOUSE_SELECT = 4;
+            public bool CurrentMonth {
+                get { return curMonth; }
+                set {
+                    curMonth = value;
+                    ForeColor = value ? Color.Black : Color.LightGray;
+                }
+            }
+            private bool curMonth = true;
+            public bool Today
+            {
+                get { return toDay; }
+                set { toDay = value; }
+            }
+            private bool toDay = false;
+            private DateTime date;
+            public bool Selected {
+                get { return selectd; }
+                set {
+                    selectd = value;
+                    BackColor = value ? SELECTED_COLOR : BackColor = backColeos[state];
+                }
+            }
+            private bool selectd;
+            private int radius = 3;
+            private int state = MOUSE_NONE;
+            public bool staticLabel { get; set; }
+            public DateTime Date
+            {
+                get { return date; }
+                set
+                {
+                    date = value;
+                    int day = date.Day;
+                    if(day==0)
+                    {
+                        Text = "";
+                    }
+                    else if(day&lt;10)
+                    {
+                        Text = " " + day;
+                    }
+                    else
+                    {
+                        Text = day.ToString();
+                    }
+                }
+            }
+            public DayLabel() : base()
+            {
+                this.AutoSize = false;
+                this.BackColor = Color.Transparent;
+                this.TabIndex = 0;
+                this.TabStop = false;
+                this.TextAlign = ContentAlignment.MiddleCenter;
+            }
+            protected override void OnMouseLeave(EventArgs e)
+            {
+                base.OnMouseLeave(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_LEAVE;
+                setCurrentColor();
+            }
+            private void setCurrentColor()
+            {
+                if (!curMonth &amp;&amp;( state == MOUSE_NONE||state==MOUSE_LEAVE))
+                {
+                    ForeColor = Color.LightGray;
+                }
+                else
+                {
+                    ForeColor = foreColeos[state];
+                }
+                if(state!=MOUSE_DOWN &amp;&amp; selectd)
+                {
+                    BackColor = SELECTED_COLOR;
+                }
+                else
+                {
+                    BackColor = backColeos[state];
+                }
+            }
+            protected override void OnMouseEnter(EventArgs e)
+            {
+                base.OnMouseEnter(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_ENTER;
+                setCurrentColor();
+            }
+            protected override void OnKeyDown(KeyEventArgs e)
+            {
+                base.OnKeyDown(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_DOWN;
+                setCurrentColor();
+            }
+            protected override void OnMouseDown(MouseEventArgs e)
+            {
+                base.OnMouseDown(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_DOWN;
+                setCurrentColor();
+            }
+            protected override void OnKeyUp(KeyEventArgs e)
+            {
+                base.OnKeyUp(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_UP;
+                setCurrentColor();
+            }
+            protected override void OnMouseUp(MouseEventArgs e)
+            {
+                base.OnMouseUp(e);
+                if (staticLabel)
+                {
+                    return;
+                }
+                state = MOUSE_UP;
+                setCurrentColor();
+            }
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+                if (!toDay)
+                {
+                    return;
+                }
+                int x = 0;
+                int y = 0;
+                int w = Width - 1;
+                int h = Height - 1;
+                using (Pen pen = new Pen(BODY_LINE_COLOR))
+                {
+                    if (selectd)
+                    {
+                        pen.DashStyle = DashStyle.Dash;
+                    }
+                    using (GraphicsPath Path = generateGraphicsPath(x, y, w, h, radius))
+                    {
+                        e.Graphics.DrawPath(pen, Path);
+                    }
+                }
+            }
+            private GraphicsPath generateGraphicsPath(int x, int y, int w, int h, int radius)
+            {
+                radius &lt;&lt;= 1;
+                GraphicsPath path = new GraphicsPath();
+                path.AddArc(x + w - radius, y, radius, radius, 270, 90);
+                path.AddArc(x + w - radius, y + h - radius, radius, radius, 0, 90);
+                path.AddArc(x, y + h - radius, radius, radius, 90, 90);
+                path.AddArc(x, y, radius, radius, 180, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
+    }
+}
+

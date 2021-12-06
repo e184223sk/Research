@@ -1,0 +1,252 @@
+
+using System;
+using System.Drawing;
+using System.IO;
+//using System.Collections.Generic;
+//using System.Reflection;
+using System.Runtime.CompilerServices; // to use [MethodImpl(MethodImplOptions.NoInlining)]
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+using Excel = Microsoft.Office.Interop.Excel;
+using Word = Microsoft.Office.Interop.Word;
+using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+//using Microsoft.Office.Core;
+
+class GetDirOfOfficeOpening : Form
+{
+    // column index of lsvFiles
+    //readonly int CI_FileName = 1;
+    //readonly int CI_Path = 2;
+
+    ListView lsvFiles;
+    Button btnReload;
+    //Button btnExportAllLinks;
+
+    void ReloadList()
+    {
+        lsvFiles.BeginUpdate();
+        lsvFiles.Items.Clear();
+        try {
+            AppendExcelFileList();
+            AppendWordFileList();
+            AppendPowerPointFileList();
+        }
+        finally {
+            lsvFiles.EndUpdate();
+        }
+        // GC.Collect(); GC.WaitForPendingFinalizers();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void AppendExcelFileList()
+    {
+        Excel.Application oExcelApp;
+
+        try {
+            oExcelApp = (Excel.Application)Marshal.GetActiveObject("Excel.Application");
+        }
+        catch(COMException) {
+            return; // Excelが起動していない、もしくは不明なエラー
+        }
+
+        Excel.Workbooks oWorkBooks = (Excel.Workbooks)oExcelApp.Workbooks;
+
+        foreach ( Excel.Workbook book in oWorkBooks ) {
+            string t = book.FullName;
+            if ( t.IndexOf("/") &gt;= 0 || t.IndexOf("\\") &gt;= 0 ) {
+                // pathあり
+                lsvFiles.Items.Add(MakeLsvItem("Excel", Path.GetFileName(t), Path.GetDirectoryName(t)));
+            }
+            else {
+                lsvFiles.Items.Add(MakeLsvItem("Excel", t, ""));
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void AppendWordFileList()
+    {
+        Word.Application oWordApp;
+
+        try {
+            oWordApp = (Word.Application)Marshal.GetActiveObject("Word.Application");
+        }
+        catch(COMException) {
+            return; // Wordが起動していない、もしくは不明なエラー
+        }
+
+        Word.Documents oWordDocs = (Word.Documents)oWordApp.Documents;
+
+        foreach ( Word.Document doc in oWordDocs ) {
+            string t = doc.FullName;
+            if ( t.IndexOf("/") &gt;= 0 || t.IndexOf("\\") &gt;= 0 ) {
+                // pathあり
+                lsvFiles.Items.Add(MakeLsvItem("Word", Path.GetFileName(t), Path.GetDirectoryName(t)));
+            }
+            else {
+                lsvFiles.Items.Add(MakeLsvItem("Word", t, ""));
+            }
+        }
+    }
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void AppendPowerPointFileList()
+    {
+        PowerPoint.Application oPptApp;
+
+        try {
+            oPptApp = (PowerPoint.Application)Marshal.GetActiveObject("PowerPoint.Application");
+        }
+        catch(COMException) {
+            return; // PowerPointが起動していない、もしくは不明なエラー
+        }
+
+        PowerPoint.Presentations oPptPresentations = (PowerPoint.Presentations)oPptApp.Presentations;
+
+        foreach ( PowerPoint.Presentation presen in oPptPresentations ) {
+            string t = presen.FullName;
+            if ( t.IndexOf("/") &gt;= 0 || t.IndexOf("\\") &gt;= 0 ) {
+                // pathあり
+                lsvFiles.Items.Add(MakeLsvItem("PowerPoint", Path.GetFileName(t), Path.GetDirectoryName(t)));
+            }
+            else {
+                lsvFiles.Items.Add(MakeLsvItem("PowerPoint", t, ""));
+            }
+        }
+    }
+
+/*
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void CreateShortcut(string lnkDest, string saveDest, ref dynamic shell)
+    {
+        // WshShellを作成
+        if (shell == null) {
+            var type = Type.GetTypeFromProgID("WScript.Shell");
+            shell = Activator.CreateInstance(type);
+        }
+        // IWshRuntimeLibrary.WshShell shell = new IWshRuntimeLibrary.WshShell();
+        dynamic shortcut = shell.CreateShortcut(saveDest);
+
+        // リンク先
+        shortcut.TargetPath = lnkDest;
+        // shortcut.Arguments = "/a /b /c";
+        // shortcut.WorkingDirectory = Application.StartupPath;
+        // 実行時の大きさ 1が通常、3が最大化、7が最小化
+        shortcut.WindowStyle = 1;
+        // shortcut.Description = "xxx";
+        // shortcut.IconLocation = Application.ExecutablePath + ",0";
+        // ショートカットを作成
+        shortcut.Save();
+    }
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void ExportAllLinks(string saveDestPath)
+    {
+        dynamic shell = null;
+        foreach (ListViewItem item in lsvFiles.Items) {
+            string basePath = item.SubItem[CI_Path].Text;
+            if (basePath != "") {
+                string fileName = item.SubItem[CI_FileName].Text;
+                string lnkDest = Path.Combine(basePath, fileName);
+                string saveDest = Path.Combine(saveDestPath, fileName+".lnk");
+                CreateShortcut(lnkDest, saveDest, ref shell);
+            }
+        }
+    }
+
+
+    void ExportAllLinksWithDialog()
+    {
+        //FolderBrowserDialogクラスのインスタンスを作成
+        FolderBrowserDialog fbd = new FolderBrowserDialog();
+
+        //上部に表示する説明テキストを指定する
+        fbd.Description = "フォルダを指定してください。";
+        //ルートフォルダを指定する
+        //デフォルトでDesktop
+        fbd.RootFolder = Environment.SpecialFolder.Desktop;
+        //最初に選択するフォルダを指定する
+        //RootFolder以下にあるフォルダである必要がある
+        fbd.SelectedPath = Environment.SpecialFolder.Desktop; // @"C:\Windows";
+        //ユーザーが新しいフォルダを作成できるようにする
+        //デフォルトでTrue
+        fbd.ShowNewFolderButton = true;
+
+        //ダイアログを表示する
+        if (fbd.ShowDialog(this) == DialogResult.OK) {
+            ExportAllLinks(fbd.SelectedPath);
+        }
+    }
+    */
+
+    ListViewItem MakeLsvItem(string appName, string fileName, string path)
+    {
+        return new ListViewItem(new string[]{appName, fileName, path});
+    }
+
+
+    GetDirOfOfficeOpening()
+    {
+        Controls.Add(btnReload = new Button(){
+            Text = "Reload",
+            Location = new Point(0, 0),
+            Width = 100
+        });
+        btnReload.Click += (s,e)=&gt;{ReloadList();};
+
+/*
+        Controls.Add(btnExportAllLinks = new Button(){
+            Text = "Reload",
+            Location = new Point(0, 0),
+            Width = 100
+        });
+        btnExportAllLinks.Click += (s,e)=&gt;{ExportAllLinksWithDialog();};
+*/
+
+        Controls.Add(lsvFiles = new ListView(){
+            View = View.Details,
+            FullRowSelect = true,
+            HideSelection = false,
+            MultiSelect = false,
+            GridLines = true,
+            Location = new Point(0,30),
+            Size = new Size(100,100)
+        });
+        lsvFiles.Columns.Add("Application",  80, HorizontalAlignment.Left);
+        lsvFiles.Columns.Add("FileName",  100, HorizontalAlignment.Left);
+        lsvFiles.Columns.Add("Path", 400, HorizontalAlignment.Left);
+        lsvFiles.MouseDoubleClick += lsvFiles_MouseDoubleClick;
+
+        ClientSize = new Size(600 ,300);
+
+        Load      += (s,e)=&gt;{MyResize();ReloadList();};
+        Resize    += (s,e)=&gt;{MyResize();};
+        ResizeEnd += (s,e)=&gt;{MyResize();};
+    }
+
+    void MyResize()
+    {
+        int h = ClientSize.Height - lsvFiles.Top;
+        lsvFiles.Size = new Size(ClientSize.Width, (h&lt;50)?50:h);
+    }
+
+    void lsvFiles_MouseDoubleClick(object sender, MouseEventArgs e)
+    {
+        ListViewHitTestInfo info = lsvFiles.HitTest(e.Location);
+        if ( info.SubItem != null &amp;&amp; info.SubItem.Text != "" ) {
+            System.Diagnostics.Process.Start(info.SubItem.Text);
+        }
+    }
+
+    [STAThread]
+    static void Main(string[] args)
+    {
+        Application.Run(new GetDirOfOfficeOpening());
+    }
+}
+
+

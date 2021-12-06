@@ -1,0 +1,36 @@
+More than 3 years have passed since last update.Office内のテキストをgrepする必要があり、エクセル、ワード、パワーポイントからテキストを抽出するツールを作成したので作り方も踏まえて紹介します。
+JavaのPOIでもいいのですが、簡単に作ることができるのでC#で作りました。
+.Net Framework 4.5.1(コマンドラインのパースライブラリが必須のため。これを使わなければもっと古いバージョンでも動作可能と思われます)、Officeのインストールが必須です。
+　ソース：https://github.com/tashxii/office-extract-text
+　実行ファイル：https://github.com/tashxii/office-extract-text/releases/download/1.0/OfficeExtractText.exe.zip-o オプションで指定したディレクトリに見つけたOfficeファイル名.txtファイルで作成します。
+作成されるファイルパスは入力パスからの相対パスで作成されます。
+C:\inputを対象に、C:\outputを出力パスとして実行した場合、txtファイルは以下のように出力されます。  たとえば、C:\OfficeDocuments以下にあるすべてのエクセルとワードだけ抽出したい場合
+OfficeExtractText.exe -s -e -w -o C:\Temp\ExtractedText C:\OfficeDocumentsのように実行します。基本方針は、エクセル、ワード、パワーポイントファイルをCOMで開いて、SaveAs系のメソッドでテキスト形式にして保存するだけでよいです。コード1行でほとんどをテキストにできます。
+ほとんどと書いたのは、図形内のテキストを抽出する場合は、さらにコードが必要になります。Officeファイルを操作する場合は、2通り（エクセルの場合は3通り）のライブラリがあります。
+- Microsoft.Office.Interop (COM)
+- OpenXml（MS製のライブラリ、高速だがありえないほど使い辛い、専用の機械でもないとコーディング不可能）
+- ClosedXml(Excel専用のOSSライブラリ、高速で使いやすいが、図形に対応していないなど制限も多い。）
+実用上、1番上のCOMを使うことになりました。Excelファイルを C# と VB.NET で読み込む "正しい" 方法に記載されているように、COMを使う場合は、「Marshal.ReleaseComObject(comObject)」のようにリリースする必要があります。記事にも書かれていますが、リリースを自動化しないと大変ですのでその方法を紹介します。毎回ここまで書くのは大変なので何度も使うのであればIDisposableの実装クラスを作成したほうがいいです）。ComWrapperクラスです。IDisposableを実装しているため、usingを使ってクローズを自動化できます。使い方は、こんな感じです。比較的簡単である、ワードのテキスト抽出から書いていきます。
+ワードファイルを操作するには、Word.Applicationをnewし、アプリケーションのWord.DocumentsプロパティのOpenメソッドでワードの1ファイル（Word.Document）を開きます。 Word.Document#SaveAs2 で FileFormat: Word.WdSaveFormat.wdFormatText を引数に渡してテキストファイルとして保存します。（テンポラリファイル１として保存しています。図形情報をテンポラリファイル２として保存して、その２つをマージして返しています）
+コメントは、Word.Document#Commentsでループしてコンテンツとして保存しています。コメントを構成しているComment#Authorと、Comment#Range#Textを合成しています。図形のテキストは、Word.Shape#TextFrame.TextRange.Textで取得します。
+しかし、以下のコードは少し複雑になっています。その理由は、テキストを持たない場合やグループ化図形に対して上のAPIを呼ぶと例外が飛んでくるためです。
+また、shape#Selectメソッドを処理の前に実行していないと、shape#Typeなどで例外が飛んできます。
+ワード以外では、Selectを呼ぶ必要はありませんでした。グループ化図形か、または描画キャンバスかの判別は、shape.Typeで行います。
+　グループ化図形＝Microsoft.Office.Core.MsoShapeType.msoGroup
+　キャンバス図形＝Microsoft.Office.Core.MsoShapeType.msoCanvas
+あとは、再帰処理で図形をcontentsという文字列リストに詰めるだけです。エクセルファイルを操作するには、Excel.Applicationをnewし、アプリケーションのExcel.WorkbooksプロパティのOpenメソッドでエクセルの1ファイル（Excel.Workbook）を開きます。 エクセルは、シートごとにテキスト保存と、図形内テキストの保存を行う必要があります。
+以下のメソッドでは各シートの、セルの内容と図形内テキストをテンポラリファイルに出力して最後にマージしています。
+セルの内容は、シート(Excel.Worksheet)のSaveAsメソッドを FileFormat: Excel.XlFileFormat.xlCSV を渡して呼び出すことで、保存できます。シート内の図形は、以下のようなコードで出力できます。
+- 図形のテキストは、Excel.Shape#TextFrame.Characters().Textで取得します。
+- グループ図形かキャンバス図形化の判別は、Shape#Typeで行えます。
+基本的にワードと同じやり方で再帰処理を行えます。パワーポイントのファイルを操作するには、PowerPoint.Applicationをnewし、アプリケーションのPowerPoint.PresentationsプロパティのOpenメソッドでパワーポイントの1ファイル（PowerPoint.Presentation）を開きます。 パワーポイントをテキストとして保存する機能はありませんが、リッチテキストとしては保存できます。リッチテキストをテキストに変換するために、WindowsのForm部品である、RichTextBoxをnewして変換します。このページなどが参考になりました。図形とノートページは、スライドごとに取得する必要があります。
+foreach(PowerPoint.Slide slide in presentation.Slides)のようにスライドをループさせることができます。ノートページは、slide.NotePage.shapes.Placeholders[2]で取得します。１つ目はスライド自身、２つ目がノートを表しています。
+ノートページのテキストは、slide.NotesPage.Shapes.Placeholders[2].TextFrame.TextRange.Textで取得します。全体のコードは以下のようになります。パワーポイント内の図形の取得は、ワード、エクセルと同様、shape.Typeで判別して、グループ、キャンバスであれば、再帰呼び出しを行うことで抽出できます。このツール開発で使った、下にあるTIPSのいつくかは、単独の記事として書く予定です。
+- 国際化対応
+- OfficeのCOMのReleaseの自動化（Disposable）
+- .Netのコンソール引数パーサーの使用方法
+- コンソール出力、コンソールエラー出力の色を変える
+- リッチテキストからテキストへの変換
+- アセンブリDLLのExeへのマージ方法
+
+

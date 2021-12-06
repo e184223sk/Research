@@ -1,0 +1,52 @@
+
+private Dictionary&lt;string, string&gt; getDataSource()
+{
+    Dictionary&lt;string, string&gt; result = new Dictionary&lt;string, string&gt;();
+
+    string baseKey = @"SOFTWARE\ORACLE";
+    RegistryKey regkey = Registry.LocalMachine.OpenSubKey(baseKey, false);
+    if (regkey == null) return result;
+
+    string[] arySubKeyNames = regkey.GetSubKeyNames();
+
+    regkey.Close();
+
+    foreach (string subKeyName in arySubKeyNames)
+    {
+        if (subKeyName.IndexOf("KEY_") &gt; -1)
+        {
+            RegistryKey subkey = Registry.LocalMachine.OpenSubKey(baseKey + "\\" + subKeyName, false);
+            if (subkey == null) continue;
+
+            string oraHome = (string)subkey.GetValue("ORACLE_HOME");
+            subkey.Close();
+
+            if (oraHome != null)
+            {
+                string path = oraHome + @"\network\admin\tnsnames.ora";
+                StreamReader sr = new StreamReader(path);
+                string tnsNames = sr.ReadToEnd();
+                sr.Close();
+
+                string[] lineAll = Regex.Split(tnsNames, @"^\s+[\r\n]|^[\r\n]", RegexOptions.Multiline);
+                foreach (string line in lineAll)
+                {
+                    string str = line.Replace(Environment.NewLine, "").Trim();
+                    if (!str.StartsWith("#") &amp;&amp; str.IndexOf("=") &gt; 0)
+                    {
+                        foreach (Match m in Regex.Matches(str, @"(^.*?)=.*?(\(.*\))"))
+                        {
+                            string section = m.Groups[1].Value.Trim().ToUpper();
+                            result.Add(section, m.Groups[2].Value);
+                        }
+                    }
+                }
+
+                return result;
+            }
+        }
+    }
+
+    return result;
+}
+

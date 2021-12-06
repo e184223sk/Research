@@ -1,0 +1,70 @@
+using UnityEngine;
+using UniRx;
+using UniRx.Triggers;
+using System;
+
+public class Door : MonoBehaviour
+{
+
+    [SerializeField] AudioClip OpenSound;
+    [SerializeField] AudioClip CloseSound;
+    [SerializeField] AudioClip LockedSound;
+    private Animator animator;
+    private AudioSource audioSource;
+    private BoxCollider boxCollider;
+    [SerializeField]private bool isOpen;    //ドアの状態
+    [SerializeField]private bool isLocked;  //ドアの状態
+
+
+    private void Start()
+    {
+        animator = GetComponent&lt;Animator&gt;();
+        boxCollider = GetComponent&lt;BoxCollider&gt;();
+        audioSource = GetComponent&lt;AudioSource&gt;();
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        if (Input.GetKeyUp(KeyCode.LeftControl))
+        {
+            this.UpdateAsObservable().First()
+                .Where(_ =&gt; Input.GetKeyUp(KeyCode.LeftControl))
+                .ThrottleFirst(TimeSpan.FromSeconds(1.0f))
+                .Subscribe(_ =&gt; DoorAction())
+                .AddTo(this); 
+        }
+    }
+
+    void DoorAction()
+    {
+        //鍵がかかっているかどうかで場合分けをしている。
+        switch (isLocked)
+        {
+            case (true):
+                audioSource.PlayOneShot(LockedSound);
+                break;
+            case (false):
+                if (!isOpen)
+                {
+                    animator.SetBool("isOpen", true);
+                    audioSource.PlayOneShot(OpenSound);
+                    Invoke("ChangeisOpen", 1);
+                }
+                else if (isOpen)
+                {
+                    animator.SetBool("isOpen", false);
+                    audioSource.PlayOneShot(CloseSound);
+                    Invoke("ChangeisOpen",1);
+                }
+                break;
+        }
+    }
+
+    private void ChangeisOpen()  //状態が変わったことを１秒遅れにするためにInvokeメソッド
+    {
+        isOpen = !isOpen;
+    }
+}
+
+
+

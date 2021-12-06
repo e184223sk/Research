@@ -1,0 +1,373 @@
+「QRコードを手計算＆手書きで書けたらかっこいいのでは？」と思い立ち、QRコードの仕組みを勉強しました。
+しかしその仕組みは想定の１億倍難しく、到底手計算できるものではありませんでした。
+ではせめて…ということで、ライブラリに頼りがちなQRコード生成を１から自分でやってみることにしました。C#のコンソールで入出力を行います。
+QR バージョン1、エラー訂正レベルはH、英数字モード、マスクパターンは011で固定とします。
+　バージョン1、エラー訂正レベルHの場合はデータコード数9、エラー訂正コード数17です。
+　バージョン1では21×21マス。下のような構造になっています。数字はビット番号を示します。
+コード全体
+
+
+QR.cs
+using System;
+using System.Collections.Generic;
+
+namespace QRCodeMaker
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Console.WriteLine("データを英数字で入力して！");
+            var input = Console.ReadLine();
+            var QRCode = new QRCode(input);
+        }
+    }
+
+    class QRCode
+    {
+        public QRCode(string input)
+        {
+            //モード指示子 英数字固定
+            string modeIndicator = "0010";
+            //文字数指示子
+            string lenIndicator = Convert.ToString((input.Length), 2);
+            while (lenIndicator.Length &lt; 9) { lenIndicator = "0" + lenIndicator; }
+            //データ
+            string data = "";
+            for (int i = 0; i &lt;= (input.Length - 1) / 2; i++)
+            {
+                int H, L, deciInt;
+                string deciStr = "";
+                if (i * 2 + 1 &lt; input.Length)
+                {
+                    H = (int)input[i * 2];
+                    L = (int)input[i * 2 + 1];
+                    deciInt = AscTo45(H) * 45 + AscTo45(L);
+                    deciStr = Convert.ToString((deciInt), 2);
+                    while (deciStr.Length &lt; 11) { deciStr = "0" + deciStr; }
+                }
+                else
+                {
+                    L = input[i * 2];
+                    deciInt = AscTo45(L);
+                    deciStr = Convert.ToString((deciInt), 2);
+                    while (deciStr.Length &lt; 6) { deciStr = "0" + deciStr; }
+                }
+                data += deciStr;
+            }
+            //終端パターン
+            string terminator = "0000";
+
+            string dataraw = modeIndicator + lenIndicator + data + terminator;
+            List&lt;int&gt; dataList = new List&lt;int&gt;();
+            while (dataraw.Length &gt;= 8)
+            {
+                string codeLang = dataraw.Substring(0, 8);
+                dataList.Add(Convert.ToInt32(codeLang, 2));
+                dataraw = dataraw.Substring(8);
+            }
+            if (dataraw.Length &gt; 0)
+            {
+                while (dataraw.Length &lt; 8) { dataraw += "0"; }
+                string codeLang = dataraw.Substring(0, 8);
+                dataList.Add(Convert.ToInt32(codeLang, 2));
+            }
+            while (dataList.Count &lt; 9)
+            {
+                bool addflg = true;
+                if (addflg) { dataList.Add(236); }
+                else { dataList.Add(17); }
+                addflg = !addflg;
+            }
+
+            //リードソロモン誤り訂正方式で誤り訂正コード語作成
+            List&lt;int&gt; exponent = new List&lt;int&gt;() { 1 };
+            List&lt;int&gt; integer = new List&lt;int&gt;() { 0 };
+            for (int i = 0; i &lt; 255; i++)
+            {
+                exponent.Add(exponent[i] * 2);
+                if (exponent[i + 1] &gt;= 256)
+                {
+                    exponent[i + 1] = exponent[i + 1] - 256;
+                    exponent[i + 1] = exponent[i + 1] ^ 29;
+                }
+                integer.Add(0);
+            }
+            for (int i = 0; i &lt;= 255; i++)
+            {
+                for (int j = 0; j &lt; 255; j++)
+                    if (exponent[j] == i) { integer[i] = j; }
+            }
+
+            List&lt;int&gt; fx = new List&lt;int&gt;() { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+            for (int i = 8; i &gt;= 0; i--) { fx.Add(dataList[i]); }
+            List&lt;int&gt; gx = new List&lt;int&gt;() { 79, 99, 125, 53, 85, 134, 143, 41, 249, 83, 197, 22, 119, 120, 83, 66, 119, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+            while (GetMaxDegree(fx) &gt;= 17)
+            {
+                int DeltaDegree = GetMaxDegree(fx) - GetMaxDegree(gx);
+                List&lt;int&gt; gxBuf = new List&lt;int&gt;() { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+                for (int i = 0; i &lt;= 17; i++) { gxBuf[i + DeltaDegree] = gx[i]; }
+
+                int DeltaAlpha = integer[fx[GetMaxDegree(fx)]];
+                for (int i = 0; i &lt;= 25; i++)
+                {
+                    int gxInt = gxBuf[i];
+                    if (gxInt == 0) { gxBuf[i] = 0; }
+                    else
+                    {
+                        int gxAlpha = integer[gxInt];
+                        gxAlpha += DeltaAlpha;
+                        if (gxAlpha &gt; 255) { gxAlpha -= 255; }
+                        gxBuf[i] = exponent[gxAlpha];
+                    }
+                }
+                for (int i = 0; i &lt;= 25; i++) { fx[i] = fx[i] ^ gxBuf[i]; }
+            }
+
+            for (int i = 16; i &gt;= 0; i--) { dataList.Add(fx[i]); }
+            string dataWithErrorStr = "";
+            for (int i = 0; i &lt;= 25; i++)
+            {
+                int num = dataList[i];
+                string str = Convert.ToString(num, 2);
+                while (str.Length &lt; 8) { str = "0" + str; }
+                dataWithErrorStr += str;
+            }
+
+
+
+            //QRコード生成
+            int QRsize = 21;
+            int[,] bitAry = new int[QRsize, QRsize];
+
+            //初期化
+            for (int i = 0; i &lt; QRsize; ++i)
+            {
+                for (int j = 0; j &lt; QRsize; ++j)
+                {
+                    bitAry[i,j] = 0;
+                }
+            }
+
+            //タイミングパターン
+            for (int i = 0; i &lt; QRsize; ++i)
+            {
+                if(i % 2 ==0)
+                {
+                    bitAry[i, 6] = 1;
+                    bitAry[6, i] = 1;
+                } 
+            }
+            bitAry[13, 8] = 1;
+
+            //位置検出パターン
+            int startrow, startcol;
+            startrow=0;
+            startcol=0;
+            for (int i = 0; i &lt;= 6; ++i)
+            {
+                for (int j = 0; j &lt;= 6; ++j)
+                {                    
+                    if ((i == 0) || (j == 0) || (i == 6) || (j == 6)) { bitAry[startrow + i, startcol + j] = 1; }
+                    if ((i != 1) &amp;&amp; (j != 1) &amp;&amp; (i != 5) &amp;&amp; (j != 5)) { bitAry[startrow + i, startcol + j] = 1; }
+                }
+            }
+            startrow = 0;
+            startcol = 14;
+            for (int i = 0; i &lt;= 6; ++i)
+            {
+                for (int j = 0; j &lt;= 6; ++j)
+                {
+                    if ((i == 0) || (j == 0) || (i == 6) || (j == 6)) { bitAry[startrow + i, startcol + j] = 1; }
+                    if ((i != 1) &amp;&amp; (j != 1) &amp;&amp; (i != 5) &amp;&amp; (j != 5)) { bitAry[startrow + i, startcol + j] = 1; }
+                }
+            }
+            startrow = 14;
+            startcol = 0;
+            for (int i = 0; i &lt;= 6; ++i)
+            {
+                for (int j = 0; j &lt;= 6; ++j)
+                {
+                    if ((i == 0) || (j == 0) || (i == 6) || (j == 6)) { bitAry[startrow + i, startcol + j] = 1; }
+                    if ((i != 1) &amp;&amp; (j != 1) &amp;&amp; (i != 5) &amp;&amp; (j != 5)) { bitAry[startrow + i, startcol + j] = 1; }
+                }
+            }
+
+            //データを埋めていく
+            int row = QRsize-1;
+            int col = QRsize-1;
+            bool UpFlag = true;
+            for (int i = 0; i &lt;= 103; ++i)
+            {
+                bitAry[row, col] = (int)Char.GetNumericValue(dataWithErrorStr[i*2]);
+                bitAry[row, col-1] = (int)Char.GetNumericValue(dataWithErrorStr[i*2+1]);
+
+                if (UpFlag)
+                {
+                    if (IsDataArea(row - 1, col)){row += -1;}
+                    else
+                    {
+                        if (IsTimingArea(row - 1, col)){row += -2;}
+                        else
+                        {
+                            col += -2;
+                            UpFlag = !UpFlag;
+                            if (IsTimingArea(row, col)) { col += -1;}
+                        }
+                    }
+                }
+                else
+                {
+                    if (IsDataArea(row + 1, col)){row += 1;}
+                    else
+                    {
+                        if (IsTimingArea(row + 1, col)){row += 2;}
+                        else
+                        {
+                            col += -2;
+                            UpFlag = !UpFlag;
+                            if (IsTimingArea(row, col)){col += -1;}
+                            else
+                            {
+                                if (IsFormatArea(row, col)){row += -8;}
+                            }
+
+                        }
+                    }
+                }
+            }
+
+            //マスク処理
+            for (int i = 0; i &lt;= 20; ++i)
+            {
+                for (int j = 0; j &lt;= 20; ++j)
+                {
+                    if ((IsDataArea(i,j))&amp;&amp; ((i + j) % 3 == 0))
+                    {
+                        if(bitAry[i, j] == 1)
+                        {
+                            bitAry[i, j] = 0;
+                        }
+                        else
+                        {
+                            bitAry[i, j] = 1;
+                        }
+                    }
+                }
+            }
+
+            //string formatStr = "001100111010000";
+            string formatStr = "000010111001100";
+            int index = 0;
+            int Celindex = 0;
+            while (index &lt; 15)
+            {
+                bitAry[Celindex, 8] = (int)Char.GetNumericValue(formatStr[index]);
+                Celindex += 1;
+                while (!IsFormatArea(Celindex, 8)){ Celindex += 1;}
+                index += 1;
+            }
+
+            index = 0;
+            Celindex = 20;
+            while (index &lt; 15)
+            {
+                bitAry[8,Celindex] = (int)Char.GetNumericValue(formatStr[index]);
+                Celindex += -1;
+                while (!IsFormatArea(8, Celindex))
+                {
+                    Celindex += -1;
+                }
+                if (Celindex==8) { Celindex += -1; }
+                index += 1;
+            }
+
+            //コンソールでQRコード出力
+            Console.WriteLine("");
+            Console.WriteLine("");
+            Console.Write("　　");
+            for (int i = 0; i &lt; QRsize; ++i)
+            {for (int j = 0; j &lt; QRsize; ++j)
+                {
+                    if (bitAry[i, j] == 1){Console.Write("■");}
+                    else{Console.Write("　");}
+                }
+                Console.WriteLine("");
+                Console.Write("　　");
+            }
+            Console.ReadKey();
+        }
+        Boolean IsPositionArea(int i, int j)
+        {
+            if ((i - 0 &lt;= 7) &amp;&amp; (j - 0 &lt;= 7)){ return true; }
+            if((i - 0 &lt;= 7) &amp;&amp; (j - 13 &lt;= 7) &amp;&amp; (j &gt;= 13)) { return true; }
+            if((j - 0 &lt;= 7) &amp;&amp; (i - 13 &lt;= 7) &amp;&amp; (i &gt;= 13)) { return true; }
+            return false;
+        }
+        Boolean IsTimingArea(int i, int j)
+        {
+            if ((i ==6)|| (j == 6)) { return true; }
+            if ((i == 13) &amp;&amp; (j == 8)) { return true; }
+            return false;
+        }
+        Boolean IsFormatArea(int i, int j)
+        {
+            if ((i == 8) &amp;&amp; ((j &lt; 6) || (j == 7)||(j == 8) || (j &gt; 12))) { return true; }
+            if ((j == 8) &amp;&amp; ((i &lt; 6) || (i == 7) || (i == 8) || (i &gt; 13))) { return true; }
+            return false;
+        }
+        Boolean IsDataArea(int i, int j)
+        {
+            if (IsPositionArea(i,j)) { return false; }
+            if (IsTimingArea(i, j)) { return false; }
+            if (IsFormatArea(i, j)) { return false; }
+            if((i &gt; 20) || (j &gt; 20)) { return false; }
+            if ((i &lt; 0) || (j &lt; 0)) { return false; }
+            return true;
+        }
+
+        int GetMaxDegree(List&lt;int&gt; function)
+        {
+            for (int i = 25; i &gt;= 0; i--) { if (function[i] &gt; 0) { return i; } }
+            return 0;
+        }
+        int AscTo45(int asc)
+        {
+            if((asc &gt;=48)&amp;&amp;(asc &lt;= 57)){ return asc - 48; }
+            if ((asc &gt;= 65) &amp;&amp; (asc &lt;= 90)) { return asc - 65 + 10; }
+            if ((asc &gt;= 97) &amp;&amp; (asc &lt;= 122)) { return asc - 97 + 10; }
+            if (asc == 32) { return 36; }
+            if (asc == 36) { return 37; }
+            if (asc == 37) { return 38; }
+            if (asc == 42) { return 39; }
+            if (asc == 43) { return 40; }
+            if (asc == 45) { return 41; }
+            if (asc == 46) { return 42; }
+            if (asc == 47) { return 43; }
+            if (asc == 58) { return 45; }
+            return 0;
+        }
+    }
+}
+
+
+
+モード指示子：4bit　英数字なら”0010”
+文字数指示子：英数字なら文字数を9bitで表記。
+データ：入力データを2文字ごとに区切り、区切ったデータを45進法表記とみなして2進数へ変換。
+　2文字なら11bit,1文字なら6bitとする。
+終端パターン："0000"これらを連結してから1バイト（8bit）ごとに分ける。最後のbit列が8bit未満なら0で埋める。
+データが9バイト未満であれば、"11101100" と "00010001"を交互に追加する。リードソロモン誤り訂正方式で作成します。まず下準備としてガロア体GF(2^8)上の元の集まりとそのインデックス表を作成します。
+なんのこっちゃオブ・ザ・イヤーですが許してください。データコードから作った多項式f(x)を生成多項式g(x)で割った余りの多項式の係数が誤り訂正コード語になります。データは揃ったので、いよいよQRコード配列を埋めていきます。スマートに埋めていく方法が思いつかなかったので、地道にごりごり埋めていきます。データコード語と誤り訂正コード語をあわせたものを2進数文字列で用意していました。
+これをQRの右下端から上方向に埋めていきます。
+　左右隣り合う2マスを右→左の順番で埋めます。
+　　上が空いていたら上に移動し、同様に右→左の2マスを埋めます。
+　　上が空いていなかったら左の2列に移動して、次は下方向に移動していきます。　指定したマスの役割を判定します。データ領域のみ、マスをあるルールでビット反転させます。
+本当は、数種類あるマスクから評価を行い、もっとも効果が高いものを選定するのですが、今回は固定にします。今回はコンソールでQRを表示します。試しに「QR CODE」と打ってみました。
+Wikipedia QR code
+独極 QRコードを極める
+ＱＲコードをつくってみる
+特集：あなたも描ける！　JIS X0510準拠 QRコード®超入門
+拡大体をPythonで実装するQiita初投稿でした。プログラムも文章ももっとスマートに書けるように精進します。
+
+

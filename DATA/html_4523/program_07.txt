@@ -1,0 +1,73 @@
+
+public class MainWindowViewModel : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler PropertyChanged;
+    private void RaisePropertyChanged([CallerMemberName]string propertyName = null)
+        =&gt; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+    #region 読み書き可能
+    private string _ReadAndWrite = "Read And Write";
+    public string ReadAndWrite
+    {
+        get =&gt; _ReadAndWrite;
+        set
+        {
+            _ReadAndWrite = value;
+            RaisePropertyChanged();
+            RaisePropertyChanged(nameof(ReadOnly));//読み取りのみプロパティ通知用
+        }
+    }
+
+    public ReactiveProperty&lt;string&gt; ReadAndWrite_RP { get; } = new ReactiveProperty&lt;string&gt;("Read And Write");
+    #endregion
+
+
+    #region 読み取りのみ
+    public string ReadOnly =&gt; ReadAndWrite.ToUpper();
+
+    public ReadOnlyReactiveProperty&lt;string&gt; ReadOnly_RP { get; }
+    #endregion
+
+
+    #region クラス内からのみ書き込み可能
+    private string _WritePrivate = "WritePrivate";
+    public string WritePrivate
+    {
+        get =&gt; _WritePrivate;
+        private set
+        {
+            _WritePrivate = value;
+            RaisePropertyChanged();
+        }
+    }
+
+    private ReactiveProperty&lt;string&gt; writePrivate_RP = new ReactiveProperty&lt;string&gt;("WritePrivate");
+    public IReadOnlyReactiveProperty&lt;string&gt; WritePrivate_RP =&gt; writePrivate_RP;
+    #endregion
+
+    /// &lt;summary&gt;
+    /// プロパティ書き換えコマンド
+    /// &lt;/summary&gt;
+    public ReactiveCommand ChangePropertiesCommand { get; } = new ReactiveCommand();
+
+    public MainWindowViewModel()
+    {
+        ReadOnly_RP = ReadAndWrite_RP
+            .Select(x =&gt; x.ToUpper())
+            .ToReadOnlyReactiveProperty();
+
+        ChangePropertiesCommand.Subscribe(() =&gt; ChangeProperties());
+    }
+
+    private void ChangeProperties()
+    {
+        ReadAndWrite = "Changed from VM";
+        WritePrivate = "Changed from VM";
+        //ReadOnly = "Changed from VM";//コンパイルエラー
+
+        ReadAndWrite_RP.Value = "Changed from VM";
+        writePrivate_RP.Value = "Changed from VM";
+        //ReadOnly_RP.Value = "Changed from VM";//コンパイルエラー
+    }
+}
+

@@ -1,0 +1,113 @@
+
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Channels;
+using FASTER.core;
+using System.IO;
+using System.Linq;
+
+namespace fasterlabs
+{
+    static class FasterLogCommitTest
+    {
+        static long EnqueueData(long value, FasterLog fl)
+        {
+            Span&lt;long&gt; data = stackalloc long[1];
+
+            if (fl.TryEnqueue(System.Runtime.InteropServices.MemoryMarshal.AsBytes(data), out var logicalAddress))
+            {
+                return logicalAddress;
+            }
+            else
+            {
+                return -1;
+            }
+        }
+        public static async ValueTask DoTest(int TaskNum)
+        {
+            const long TotalCount = 100000;
+            // ensure using cleared data 
+            if (File.Exists("logcommittest.log.0"))
+            {
+                File.Delete("logcommittest.log.0");
+            }
+            if (Directory.Exists("log-commits"))
+            {
+                Directory.Delete("log-commits");
+            }
+            var log = Devices.CreateLogDevice("logcommittest.log");
+            var channel = Channel.CreateUnbounded&lt;long&gt;();
+            using (var fl = new FasterLog(new FasterLogSettings() { LogDevice = log }))
+            {
+                var sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                using (var csrc = new CancellationTokenSource(1000 * 240))
+                {
+                    await Task.WhenAll(
+                        Task.WhenAll(Enumerable.Range(0, TaskNum).Select(async idx =&gt;
+                        {
+                            // データを追加するタスク
+                            long logicalAddress = 0;
+                            try
+                            {
+                                for (int i = 0; i &lt; TotalCount / TaskNum; i++)
+                                {
+                                    logicalAddress = EnqueueData(i + idx * TotalCount, fl);
+                                    await channel.Writer.WriteAsync(logicalAddress, csrc.Token).ConfigureAwait(false);
+                                    await fl.WaitForCommitAsync(logicalAddress, csrc.Token).ConfigureAwait(false);
+                                    // Console.WriteLine($"{idx}, {i}, {logicalAddress}");
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine($"producer error({idx}, {logicalAddress}, {fl.CommittedUntilAddress}, {fl.TailAddress}): {e}");
+                            }
+                            // Console.WriteLine($"exit producer({idx}, {sw.Elapsed})");
+                        })).ContinueWith(t =&gt; channel.Writer.Complete()),
+                        Task.Run(async () =&gt;
+                        {
+                            // コミットする方のタスク
+                            int commitCount = 0;
+                            try
+                            {
+                                while (true)
+                                {
+                                    if (!await channel.Reader.WaitToReadAsync(csrc.Token).ConfigureAwait(false))
+                                    {
+                                        break;
+                                    }
+                                    while (channel.Reader.TryRead(out var untiladdr))
+                                    {
+                                        if (fl.CommittedUntilAddress != fl.TailAddress)
+                                        {
+                                            fl.Commit(true);
+                                            // await fl.CommitAsync(csrc.Token).ConfigureAwait(false);
+                                            commitCount++;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine($"consumer error:{e}");
+                            }
+                            Console.WriteLine($"exit consumer({commitCount})");
+                        }).ContinueWith(t =&gt;
+                        {
+                            if(fl.CommittedUntilAddress != fl.TailAddress)
+                            {
+                                Console.WriteLine($"last commit");
+                                fl.Commit(true);
+                            }
+                        })
+                    ).ConfigureAwait(false);
+                    sw.Stop();
+                    Console.WriteLine($"Multi({TotalCount}, {TaskNum}): {sw.Elapsed}, iops = {(TotalCount * 1000) / sw.Elapsed.TotalMilliseconds}");
+                }
+            }
+            log.Close();
+        }
+    }
+}
+

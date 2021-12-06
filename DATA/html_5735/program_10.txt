@@ -1,0 +1,52 @@
+
+public static class PropertyChangedEventHandlerExtensions
+{
+    /// &lt;summary&gt;
+    /// イベントを発行する
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TResult"&gt;プロパティの型&lt;/typeparam&gt;
+    /// &lt;param name="_this"&gt;イベントハンドラ&lt;/param&gt;
+    /// &lt;param name="propertyName"&gt;プロパティ名を表すExpression。() =&gt; Nameのように指定する。&lt;/param&gt;
+    public static void Raise&lt;TResult&gt;(this PropertyChangedEventHandler _this, Expression&lt;Func&lt;TResult&gt;&gt; propertyName)
+    {
+        // ハンドラに何も登録されていない場合は何もしない
+        if (_this == null) return;
+
+        // ラムダ式のBodyを取得する。MemberExpressionじゃなかったら駄目
+        if (!(propertyName.Body is MemberExpression memberEx))
+            throw new ArgumentException();
+
+        // () =&gt; NameのNameの部分の左側に暗黙的に存在しているオブジェクトを取得する式をゲット
+        // ConstraintExpressionじゃないと駄目
+        if (!(memberEx.Expression is ConstantExpression senderExpression))
+            throw new ArgumentException();
+
+        // ○：定数なのでValueプロパティからsender用のインスタンスを得る
+        var sender = senderExpression.Value;
+
+        // 下準備が出来たので、イベント発行！！
+        _this(sender, new PropertyChangedEventArgs(memberEx.Member.Name));
+    }
+
+    /// &lt;summary&gt;
+    /// 前と値が違うなら変更してイベントを発行する
+    /// &lt;/summary&gt;
+    /// &lt;typeparam name="TResult"&gt;プロパティの型&lt;/typeparam&gt;
+    /// &lt;param name="_this"&gt;イベントハンドラ&lt;/param&gt;
+    /// &lt;param name="propertyName"&gt;プロパティ名を表すExpression。() =&gt; Nameのように指定する。&lt;/param&gt;
+    /// &lt;param name="source"&gt;元の値&lt;/param&gt;
+    /// &lt;param name="value"&gt;新しい値&lt;/param&gt;
+    /// &lt;returns&gt;値の変更有無&lt;/returns&gt;
+    public static bool RaiseIfSet&lt;TResult&gt;(this PropertyChangedEventHandler _this, Expression&lt;Func&lt;TResult&gt;&gt; propertyName, ref TResult source, TResult value)
+    {
+        //値が同じだったら何もしない
+        if (EqualityComparer&lt;TResult&gt;.Default.Equals(source, value))
+            return false;
+
+        source = value;
+        //イベント発行
+        Raise(_this, propertyName);
+        return true;
+    }
+}
+

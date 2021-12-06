@@ -1,0 +1,67 @@
+
+public class DiffPaneModelToFlowDocumentConverter : IValueConverter
+{
+    private static readonly Brush unchangeBrush = Colors.Transparent.ToSolidColorBrush(true);
+    private static readonly Brush deletedBrush = AppExtention.ToColorOrDefault($"#FFAFD1").ToSolidColorBrush(true);
+    private static readonly Brush insertedBrush = AppExtention.ToColorOrDefault($"#88E6A7").ToSolidColorBrush(true);
+    private static readonly Brush imaginaryBrush = Colors.SkyBlue.ToSolidColorBrush(true);
+    private static readonly Brush modifiedBrush = Colors.Orange.ToSolidColorBrush(true);
+    private static readonly Brush changedTextBrush = Colors.Black.ToSolidColorBrush(true);
+    private static readonly Brush normalTextBrush = (SolidColorBrush)App.Current.Resources["MaterialDesignBody"];
+
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (!(value is DiffPaneModel diffVM))
+            return Binding.DoNothing;
+
+        if (!diffVM.Lines.Any())
+            return Binding.DoNothing;
+
+        if (diffVM.Lines.Count &gt; 1)
+            LogTo.Warning("Lines Count is over. {@LinesCount}", diffVM.Lines.Count);
+
+        List&lt;Run&gt; lineView = ConvertLinveVmToRuns(diffVM.Lines.First());
+
+        var paragraph = new Paragraph();
+        paragraph.Inlines.AddRange(lineView);
+        return new FlowDocument(paragraph);
+    }
+
+    private static List&lt;Run&gt; ConvertLinveVmToRuns(DiffPiece lineVM) =&gt;
+        lineVM.Type switch
+        {
+            //ChangeType.Modifiedだったら変更された部分だけハイライトしたいのでSubPieceからいろいろやる
+            ChangeType.Modified =&gt; lineVM
+                .SubPieces
+                .Select(x =&gt; ConvertPieceVmToRun(x))
+                .ToList(),
+
+            //ChangeType.Modified以外は行全体で同じ書式
+            _ =&gt; new List&lt;Run&gt; { ConvertPieceVmToRun(lineVM) },
+        };
+
+    private static Run ConvertPieceVmToRun(DiffPiece pieceVM) =&gt;
+        new Run
+        {
+            Text = pieceVM.Text,
+            Foreground = (pieceVM.Type == ChangeType.Unchanged)
+                ? normalTextBrush
+                : changedTextBrush,
+            //差分タイプによって、背景色を決定
+            Background = (pieceVM.Type switch
+            {
+                ChangeType.Deleted =&gt; deletedBrush,
+                ChangeType.Inserted =&gt; insertedBrush,
+                ChangeType.Imaginary =&gt; imaginaryBrush,
+                ChangeType.Modified =&gt; modifiedBrush,
+                _ =&gt; unchangeBrush
+            }),
+        };
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        LogTo.Error("Not Implemented");
+        return Binding.DoNothing;
+    }
+}
+

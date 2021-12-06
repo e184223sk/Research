@@ -1,0 +1,51 @@
+using McMaster.Extensions.CommandLineUtils;
+using System;
+using Microsoft.Extensions.DependencyInjection;
+
+[Command]
+class MySubCommand
+{
+    [Option]
+    public string Y { get; set; }
+    public MyCommand _Parent;
+    public MySubCommand(MyCommand parent)
+    {
+        // オプションセット済みの親コマンドのインスタンスが渡される
+        _Parent = parent;
+    }
+    public void OnExecute()
+    {
+        // 親コマンドの実行も可能
+        _Parent.OnExecute();
+        // 親クラスのオプションの取得も可能
+        Console.WriteLine($"parent X = {_Parent.X}, Y = {Y}");
+    }
+}
+
+[Command]
+[HelpOption]
+[Subcommand("sub", typeof(MySubCommand))]
+// 親コマンド
+class MyCommand
+{
+    [Option]
+    public string X { get; set; }
+    public void OnExecute()
+    {
+        Console.WriteLine($"in {nameof(MyCommand)}");
+    }
+}
+
+static class Executor
+{
+    public static void EntryPoint()
+    {
+        var services = new ServiceCollection();
+        var app = new CommandLineApplication&lt;MyCommand&gt;();
+        // UseConstructorInjectionに空引数を指定すれば、デフォルトのServiceProviderが使用される
+        // 属性ベースのAPIを使用する場合はUseDefaultConventions()は必須
+        app.Conventions.UseConstructorInjection(services.BuildServiceProvider()).UseDefaultConventions();
+        app.Execute(new []{ "-x", "abc", "sub", "-y", "def" });
+    }
+}
+

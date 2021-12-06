@@ -1,0 +1,44 @@
+using System.IO;
+using System.IO.Compression;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Networking;
+
+public class SampleMain : MonoBehaviour {
+
+    void Start () {
+        Debug.Log ("sample.txt.gz".LoadStremingText () ?? "Error");
+    }
+
+}
+
+public static class Sample {
+
+    public static string LoadStremingText (this string filename) {
+        string sourcePath = Path.Combine (Application.streamingAssetsPath, filename);
+        var gz = filename.EndsWith (".gz");
+        if (sourcePath.Contains ("://")) { // Android
+            using (var www = UnityWebRequest.Get (gz ? sourcePath.Substring (0, sourcePath.Length - 3) : sourcePath)) {
+                www.SendWebRequest ();
+                while (!www.isDone &amp;&amp; !www.isNetworkError &amp;&amp; !www.isHttpError) { }
+                if (!www.isNetworkError &amp;&amp; !www.isHttpError) {
+                    return www.downloadHandler.text;
+                }
+            }
+        } else if (File.Exists (sourcePath)) { // Mac, Windows, iPhone
+            if (gz) {
+                using (var data = File.OpenRead (sourcePath))
+                using (var compresed = new GZipStream (data, CompressionMode.Decompress))
+                using (var text = new MemoryStream ()) {
+                    compresed.CopyTo (text);
+                    return Encoding.UTF8.GetString (text.ToArray ());
+                }
+            } else {
+                return File.ReadAllText (sourcePath);
+            }
+        }
+        return null;
+    }
+
+}
+

@@ -1,0 +1,43 @@
+       private void MainLoop(object sender, EventArgs e)
+        {
+            //毎秒処理
+            if (G.DispIcon != 0)
+            { 
+                DrawClock2(this.aCanvas);
+
+                aCanvas.Arrange(new Rect(aCanvas.RenderSize));
+                aCanvas.Measure(aCanvas.RenderSize);
+                var bounds = VisualTreeHelper.GetDescendantBounds(aCanvas);
+                var RTbitmap = new RenderTargetBitmap((int)bounds.Width, (int)bounds.Height, 96.0d,96.0d,PixelFormats.Pbgra32);
+                var dv = new DrawingVisual();
+                using (var dc = dv.RenderOpen())
+                {
+                    var vb = new VisualBrush(aCanvas);
+                    dc.DrawRectangle(vb, null, bounds);
+                }
+                RTbitmap.Render(dv);
+                RTbitmap.Freeze();
+
+                //RenderTargetBitmap =&gt; bitmap
+                var bitmap = new System.Drawing.Bitmap((int)bounds.Width, (int)bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                var bitmapData = bitmap.LockBits(new System.Drawing.Rectangle(System.Drawing.Point.Empty, bitmap.Size), System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+                RTbitmap.CopyPixels(Int32Rect.Empty, bitmapData.Scan0, bitmapData.Stride * bitmapData.Height, bitmapData.Stride);
+
+                //bitmap =&gt; bitmapHandler =&gt; ImageSource(参考）
+                IntPtr Hbitmap = bitmap.GetHbitmap();
+                var ImageSource = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(Hbitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                this.image.Source = ImageSource;
+
+                //bitmap =&gt;iconHandler =&gt; icon
+                bitmap.UnlockBits(bitmapData);
+                IntPtr Hicon = bitmap.GetHicon();
+                System.Drawing.Icon icon = System.Drawing.Icon.FromHandle(Hicon);
+                this.NotifyIcon.Icon = icon;
+
+                bitmap.Dispose();
+                DestroyIcon(icon.Handle);
+
+            }
+       }
+
+

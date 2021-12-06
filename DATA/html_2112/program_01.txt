@@ -1,0 +1,51 @@
+
+using System;
+using UniRx;
+
+namespace ProjectName.Scripts.Domain.Entity
+{
+    // このように値の更新と更新通知は別のinterfaceに分けた方がいいよなぁ
+    // と思いつつも、つい一緒にまとめてしまう
+    public interface IEntity
+    {
+        IReadOnlyReactiveProperty&lt;int&gt; ReactiveProperty { get; }
+        void Update(int value);
+    }
+
+    // このEntityが、防御力を管理している場合、防御力の変化とダメージ計算は用途が違うので
+    // interfaceも別にする
+    public interface IDamageReduceEntity
+    {
+        int Calculation(int damage);
+    }
+
+    public class Entity : IEntity, IDamageReduceEntity, IDisposable
+    {
+        private readonly ReactiveProperty&lt;int&gt; _reactiveProperty = default;
+        public IReadOnlyReactiveProperty&lt;int&gt; ReactiveProperty =&gt; _reactiveProperty;
+
+        public Entity()
+        {
+            _reactiveProperty = new ReactiveProperty&lt;int&gt;();
+        }
+
+        // 状態の更新、場合によっては別のEntityによって計算された値をUseCaseから受け取ることもある
+        public void Update(int value)
+        {
+            _reactiveProperty.Value = value;
+        }
+
+        // 例えば防御力など、受けたダメージから防御力の数値を引いた結果をUseCaseに返して
+        // HPを管理しているEntityに渡すことも
+        public int Calculation(int damage)
+        {
+            return damage - _reactiveProperty.Value;
+        }
+
+        public void Dispose()
+        {
+            _reactiveProperty?.Dispose();
+        }
+    }
+}
+

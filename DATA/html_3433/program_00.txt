@@ -1,0 +1,87 @@
+using System.Collections.Generic;
+using SuperScrollView;
+using System.Linq;
+using UnityEngine;
+
+[DisallowMultipleComponent]
+public class BattleLogScrollHandler : MonoBehaviour
+{
+    [SerializeField] private LoopListView2 m_view = null;
+    [SerializeField] private LogCellView _turnStartLogCell = null;
+    [SerializeField] private LogCellView _commandLogCell = null;
+    [SerializeField] private LogCellView _winLogCell = null;
+    [SerializeField] private LogCellView _loseLogCell = null;
+    [SerializeField] private LogCellView _levelUpLogCell = null;
+    [SerializeField] private LogCellView _treasureLogCell = null;
+
+    bool isInitialized = false;
+
+    private LogHandler[] m_list;
+
+    public void Open(IEnumable&lt;LogHandler&gt; logHandlers)
+    {
+        Debug.Log("BattleLogScrollHandler Open()");
+        m_list = logHandlers.ToArray();
+
+        // m_view.InitListView()は1度だけしか呼ばない
+        if (!isInitialized)
+        {
+            m_view.InitListView(m_list.Length, OnUpdate);
+            isInitialized = true;
+        }
+        else
+        {
+            // データ個数を変更して表示を更新する
+            m_view.SetListItemCount(m_list.Length);
+            m_view.RefreshAllShownItem();
+        }
+        // ScrollViewを非表示にしてる場合は表示するため
+        m_view.gameObject.SetActive(true);
+    }
+
+    private LoopListViewItem2 OnUpdate(LoopListView2 view, int index)
+    {
+        if (index &lt; 0 || m_list.Length &lt;= index) return null;
+        // Cellの元となるLogデータはLogHandlerを継承したクラスで管理している
+        LogHandler data = m_list[index];
+        var prevData = m_list.ElementAtOrDefault(index + 1);
+        // UIの更新はLogCellViewを継承した各CellごとのComponentで行う
+        LogCellView itemOriginal;
+        switch (data.LogType)
+        {
+            case LogHandlerType.TurnStart:
+                itemOriginal = _turnStartLogCell;
+                break;
+            case LogHandlerType.Command:
+                itemOriginal = _commandLogCell;
+                break;
+            case LogHandlerType.Win:
+                itemOriginal = _winLogCell;
+                break;
+            case LogHandlerType.Lose:
+                itemOriginal = _loseLogCell;
+                break;
+            case LogHandlerType.TurnOver:
+                itemOriginal = _loseLogCell;
+                break;
+            case LogHandlerType.LevelUp:
+                itemOriginal = _levelUpLogCell;
+                break;
+            case LogHandlerType.Treasure:
+                itemOriginal = _treasureLogCell;
+                break;
+            default:
+                Debug.LogError("到達しないコードです");
+                itemOriginal = null;
+                break;
+        }
+
+        var itemObj = view.NewListViewItem(itemOriginal.name);
+        var itemUI = itemObj.GetComponent&lt;LogCellView&gt;();
+
+        itemUI.InitDisplay(data);
+
+        return itemObj;
+    }
+}
+

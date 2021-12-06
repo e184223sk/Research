@@ -1,0 +1,195 @@
+
+using System.Text;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+public class SplitSpeed
+{
+    public static void Main()
+    {
+        //スプリットの対象文字
+        var splitTargets = new string[] { "12345,D,555555,115151,EEEEEE" };
+
+        //環境
+        Console.WriteLine("Version: {0}", Environment.Version.ToString());
+#if DEBUG
+        Console.WriteLine("Is DEBUG");
+#endif
+        //正しくスプリットできているかチェックする
+        Console.WriteLine("---------------------------Check---------------------------");
+        Check("nomalSplit", nomalSplit, splitTargets);
+        Check(" fastSplit", fastSplit, splitTargets);
+        Check(" fast2Split", fast2Split, splitTargets);
+        //温める
+        Console.WriteLine("---------------------------WarmUp--------------------------");
+        Sokutei(" nomalSplit", nomalSplit, splitTargets);
+        Sokutei("  fastSplit", fastSplit, splitTargets);
+        Sokutei(" fast2Split", fast2Split, splitTargets);
+        Sokutei("nomalSplit2", nomalSplit2, splitTargets);
+        //合計のリセット
+        ResultDic = new Dictionary&lt;string, List&lt;TimeSpan&gt;&gt;();
+        //スプリットの速度計測
+        Console.WriteLine("---------------------------Start---------------------------");
+        Console.WriteLine("Loop Count:{0}", LOOP_COUNT);
+
+        for (var i = 1; i &lt;= 10; i++)
+        {
+            Console.WriteLine("{0}回目", i);
+            Sokutei(" nomalSplit", nomalSplit, splitTargets);
+            Sokutei("  fastSplit", fastSplit, splitTargets);
+            Sokutei(" fast2Split", fast2Split, splitTargets);
+            Sokutei("nomalSplit2", nomalSplit2, splitTargets);
+        }
+        foreach(var results in ResultDic)
+        {
+            Console.WriteLine("{0}--------------------------------", results.Key);
+            Console.WriteLine("平均(ミリ秒):{0,12}", results.Value.Average(x =&gt; x.TotalMilliseconds));
+            Console.WriteLine("最大(ミリ秒):{0,12}", results.Value.Max(x =&gt; x.TotalMilliseconds));
+            Console.WriteLine("最少(ミリ秒):{0,12}", results.Value.Min(x =&gt; x.TotalMilliseconds));
+        }
+        Console.ReadLine();
+    }
+
+    //スプリットの検証用メソッド
+    private static void Check(string name, Func&lt;string, string[]&gt; splitFunc, string[] splitTargets)
+    {
+        foreach (var text in splitTargets)
+        {
+            var splitedValues = splitFunc(text);
+            foreach (var val in splitedValues)
+            {
+                Console.WriteLine("{0}:{1}", name, val);
+            }
+        }
+    }
+
+    private static Dictionary&lt;string, List&lt;TimeSpan&gt;&gt; ResultDic = new Dictionary&lt;string, List&lt;TimeSpan&gt;&gt;();
+
+    //速度図るためのカウント
+    private const int LOOP_COUNT = 2000000;
+    //スプリットの速度計測用メソッド
+    private static void Sokutei(string name, Func&lt;string, string[]&gt; splitFunc, string[] splitTargets)
+    {
+        System.Threading.Thread.Sleep(10);
+        var sw = new System.Diagnostics.Stopwatch();
+        sw.Start();
+        for (int i = 0; i &lt; LOOP_COUNT; i++)
+        {
+            foreach (var text in splitTargets)
+            {
+                splitFunc(text);
+            }
+        }
+        sw.Stop();
+        var elapsed = sw.Elapsed;
+
+        //結果表示
+        Console.WriteLine("{0}:{1}", name, elapsed.ToString());
+
+        //結果の保存
+        List&lt;TimeSpan&gt; results;
+        if (ResultDic.TryGetValue(name, out results) == false)
+        {
+            results = new List&lt;TimeSpan&gt;();
+            ResultDic.Add(name, results);
+        }
+        results.Add(elapsed);
+    }
+
+    //区切り文字
+    private const char DELIMITER = ',';
+    //何個に区切るか
+    private const int COL_NUM = 5;
+    //区切り文字の数
+    private const int COUNT_OF_DELIMITER = COL_NUM - 1;
+
+    //通常のスプリット
+    private static string[] nomalSplit(string str)
+    {
+        return str.Split(DELIMITER);
+    }
+
+    //お手製スプリット
+    private static string[] fastSplit(string str)
+    {
+        //結果を格納するための配列を生成する
+        var splitedStr = new string[COL_NUM];
+        //区切り文字を見つけた件数
+        var count = 0;
+        //区切り文字の位置を格納する配列
+        var posi = new int[COUNT_OF_DELIMITER];
+
+        //文字列をchar配列でループして、一文字ずつ区切り文字であるか判定
+        //区切り文字であるなら、区切り文字の位置を保存
+        for (var i = 0; i &lt; str.Length; i = i + 1)
+        {
+            if (str[i] == DELIMITER)
+            {
+                posi[count] = i;
+                if (count == COUNT_OF_DELIMITER - 1)
+                    break;
+                count = count + 1;
+            }
+        }
+
+        //-----------------------------------------------------
+        //Substringで文字列をスプリットしていく
+        //1つ目の引数は、開始位置(0始まり)
+        //2つ目の引数は、文字数
+        //-----------------------------------------------------
+        //※区切り文字を「カンマ」として説明を記載
+        //・1列目のデータは、以下で抽出
+        //　開始位置：0
+        //    文字数：最初のカンマの位置（最初のカンマの位置＝最初の文字数になる）
+        splitedStr[0] = str.Substring(0, posi[0]);
+        //・2列目のデータは、以下で抽出（3列目以降も同じ感じ）
+        //　開始位置：最初のカンマの位置 + 1
+        //    文字数：次のカンマの位置 - 最初のカンマの位置 - 1
+        splitedStr[1] = str.Substring(posi[0] + 1, posi[1] - posi[0] - 1);
+        splitedStr[2] = str.Substring(posi[1] + 1, posi[2] - posi[1] - 1);
+        splitedStr[3] = str.Substring(posi[2] + 1, posi[3] - posi[2] - 1);
+        //・最後のデータは、以下で抽出
+        //　開始位置：最後のカンマの位置
+        //    文字数：指定なし（最後まで）
+        splitedStr[4] = str.Substring(posi[3] + 1);
+        return splitedStr;
+    }
+
+    private static string[] fast2Split(string str)
+    {
+        //結果を格納するための配列を生成する
+        var splitedStr = new string[COL_NUM];
+        //区切り文字を見つけた件数
+        var count = 0;
+        //切り出し開始位置
+        var start = 0;
+
+        //文字列をchar配列でループして、一文字ずつ区切り文字であるか判定
+        //区切り文字であるなら、区切り文字の位置を保存
+        for (var i = 0; i &lt; str.Length; i++)
+        {
+            if (str[i] == DELIMITER)
+            {
+                //Substringで文字列をスプリットしていく
+                splitedStr[count] = str.Substring(start, i - start);
+                if (count + 1 == COUNT_OF_DELIMITER)
+                {
+                    //最後のデータは、以下で抽出
+                    splitedStr[count + 1] = str.Substring(i + 1);
+                    break;
+                }
+                start = i + 1;
+                count++;
+            }
+        }
+        return splitedStr;
+    }
+
+    static readonly char[] DELIMITERS = new char[] { DELIMITER };
+    private static string[] nomalSplit2(string str)
+    {
+        return str.Split(DELIMITERS);
+    }
+}
+

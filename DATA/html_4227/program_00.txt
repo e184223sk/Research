@@ -1,0 +1,19 @@
+private static readonly Parser&lt;Expression&gt; Function =
+    // 関数名の部分 関数名にカッコやカンマは含まれないはずなので除外する
+    from name in Parse.CharExcept(new[] { '(', ')', ',' }).AtLeastOnce().Text()
+    // 関数の最初のカッコ
+    from lparen in Parse.Char('(')
+    // 関数の引数の部分 引数に関数を取る場合があり得るので`Ref`を使用して再帰的にパースされるように定義する
+    from arguments in Parse.Ref(() =&gt; Arguments).DelimitedBy(Parse.Char(',').Token())
+    // 関数の閉じカッコ
+    from rparen in Parse.Char(')')
+    // 関数を表す文字列と引数を表す文字列をExpressionにする関数を呼び出す
+    select CallFunction(name, arguments.ToArray());
+
+// 引数のうち、関数でないもの（＝定数）
+private static readonly Parser&lt;Expression&gt; Constant =
+    Parse.CharExcept(new[] { '(', ')', ',' }).AtLeastOnce().Token().Text().Select(Expression.Constant);
+
+// 引数は関数か定数であるはず。なので、まず関数かどうかを評価してから関数でない場合は定数と判断する（なので`Or`を利用している）
+private static readonly Parser&lt;Expression&gt; Arguments = Function.Or(Constant);
+

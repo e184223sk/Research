@@ -1,0 +1,116 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditorInternal;
+#endif
+public class PrefabListEmitter : MonoBehaviour
+{
+    public List&lt;EmitPrefab&gt; list = new List&lt;EmitPrefab&gt;();
+
+    bool activate;
+    float Timer;
+//開始時に呼ぶ
+    public void Set()
+    {
+        activate = true;
+    }
+//出現させたい間呼ぶ
+    public void Emit()
+    {
+        if (activate)
+        {
+            Timer += Time.deltaTime;
+            for(int i = 0;i &lt; list.Count; i++)
+            {
+                if (list[i].Time &lt; Timer)
+                {
+                    GameObject obj = (GameObject)Instantiate(list[i].Prefab, list[i].Pos, Quaternion.Euler(list[i].Rot));
+                    obj.transform.parent = transform;
+                    list.Remove(list[i]);
+                }
+            }
+        }
+    }
+    [Serializable]
+    public class EmitPrefab
+    {
+        public float Time;
+        public UnityEngine.Object Prefab;
+        public Vector3 Pos;
+        public Vector3 Rot;
+    }
+}
+//ReorderableListの作成
+public class EmitPrefabAttribute : PropertyAttribute { }
+#if UNITY_EDITOR
+[CanEditMultipleObjects]
+[CustomEditor(typeof(PrefabListEmitter))]
+public class TutorialMessagesDrawer : Editor
+{
+    private ReorderableList RL;
+    private SerializedProperty ListProp;
+    private void OnEnable()
+    {
+        ListProp = serializedObject.FindProperty("list");
+        RL = new ReorderableList(serializedObject, ListProp);
+        RL.elementHeight = 80;
+        RL.drawHeaderCallback = (rect) =&gt;
+        {
+            EditorGUI.LabelField(rect, "Prefabs");
+        };
+        RL.drawElementCallback = (rect, index, isActive, isFocused) =&gt;
+        {
+            var element = ListProp.GetArrayElementAtIndex(index);
+            EditorGUI.PropertyField(rect, element);
+        };
+    }
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+        serializedObject.Update();
+        RL.DoLayoutList();
+        serializedObject.ApplyModifiedProperties();
+    }
+}
+[CustomPropertyDrawer(typeof(PrefabListEmitter.EmitPrefab))]
+public class TutorialMessageAttribute : PropertyDrawer
+{
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        using (new EditorGUI.PropertyScope(position, label, property))
+        {
+            position.height = EditorGUIUtility.singleLineHeight;
+            var ele1 = property.FindPropertyRelative("Time");
+            var ele2 = property.FindPropertyRelative("Prefab");
+            var ele3 = property.FindPropertyRelative("Pos");
+            var ele4 = property.FindPropertyRelative("Rot");
+            var ele1Rect = new Rect(position)
+            {
+                height = position.height
+            };
+            var ele2Rect = new Rect(position)
+            {
+                height = position.height,
+                y = ele1Rect.y + EditorGUIUtility.singleLineHeight + 2
+            };
+            var ele3Rect = new Rect(position)
+            {
+                height = position.height * 2,
+                y = ele2Rect.y + EditorGUIUtility.singleLineHeight + 2
+            };
+            var ele4Rect = new Rect(position)
+            {
+                height = position.height * 2,
+                y = ele3Rect.y + EditorGUIUtility.singleLineHeight + 2
+            };
+            EditorGUI.PropertyField(ele1Rect, ele1);
+            EditorGUI.PropertyField(ele2Rect, ele2);
+            EditorGUI.PropertyField(ele3Rect, ele3);
+            EditorGUI.PropertyField(ele4Rect, ele4);
+        }
+    }
+}
+#endif
+

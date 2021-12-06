@@ -1,0 +1,101 @@
+
+using System;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
+using System.Windows.Automation;
+
+
+public static class NativeMethods
+{
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr hWndParent, IntPtr hWndChildAfter, string lpszClass, string lpszWindow);
+
+    public delegate bool EnumWindowsDelegate(IntPtr hWnd, IntPtr lparam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public extern static bool EnumWindows(EnumWindowsDelegate lpEnumFunc,   IntPtr lparam);
+}
+
+public class Class1
+{
+    static AutomationElement FindCredentialWindow()
+    {
+        IntPtr hWnd = NativeMethods.FindWindowEx(IntPtr.Zero, IntPtr.Zero, "Credential Dialog Xaml Host", "Windows セキュリティ");
+
+        if ( hWnd == IntPtr.Zero ) {
+            return null;
+        }
+
+        return AutomationElement.FromHandle(hWnd);
+    }
+
+    static string FindTextBlockMatches(AutomationElement aeForm, Regex r)
+    {
+        var elems = FindElementsByClassName(aeForm, "TextBlock");
+        foreach ( AutomationElement elem in elems ) {
+            var elemInfo = elem.Current;
+            if ( r.IsMatch(elemInfo.Name) ) {
+                return elemInfo.Name;
+            }
+        }
+        return null;
+    }
+
+    static void InputToCredentialWindow(AutomationElement aeForm, string userId, string password)
+    {
+        AutomationElement aeUserId   = FindElementById(aeForm, "EditField_0");
+        AutomationElement aePassword = FindElementById(aeForm, "PasswordField_1");
+        AutomationElement aeOkButton = FindElementById(aeForm, "OkButton");
+
+        if ( aeUserId != null &amp;&amp; aePassword != null &amp;&amp; aeOkButton != null ) {
+            var vpUserId   = (ValuePattern)aeUserId.GetCurrentPattern(ValuePattern.Pattern);
+            var vpPassword = (ValuePattern)aePassword.GetCurrentPattern(ValuePattern.Pattern);
+            vpUserId.SetValue(userId);
+            vpPassword.SetValue(password);
+
+//  OKも自動で押す場合はこれ
+//            var ipOkButton = (InvokePattern)aeOkButton.GetCurrentPattern(InvokePattern.Pattern);
+//            ipOkButton.Invoke();
+        }
+    }
+
+    static AutomationElement FindElementById(AutomationElement rootElement, string automationId)
+    {
+        var cond = new PropertyCondition(AutomationElement.AutomationIdProperty, automationId);
+        return rootElement.FindFirst(TreeScope.Descendants, cond);
+    }
+
+    static AutomationElementCollection FindElementsByClassName(AutomationElement rootElement, string className)
+    {
+        var cond = new PropertyCondition(AutomationElement.ClassNameProperty, className);
+        return rootElement.FindAll(TreeScope.Descendants, cond);
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        AutomationElement aeForm = FindCredentialWindow();
+        if ( aeForm != null ) {
+
+            // 対象サイト(?)のメッセージに応じて適宜変更. 改行とか合わせるのが面倒なので正規表現で探すようにした
+            string text = FindTextBlockMatches(aeForm, new Regex("^サーバー(.*)が"));
+
+            if ( text != null ) {
+                Console.WriteLine(text);
+
+                // 下記は ID, PASSWORD に応じて適宜変更。機密管理に注意すること。
+                //  やらかし例：ソースにパスワード埋め込んだままGitHubなどでうっかり公開したりとか
+                InputToCredentialWindow(aeForm, "userid", "password");
+            }
+            else {
+                Console.WriteLine("Not found Credential window with the description.");
+            }
+        }
+        else {
+            Console.WriteLine("Not found Credential window.");
+        }
+    }
+}
+
+

@@ -1,0 +1,74 @@
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
+
+    //描画する図形をListに定義
+    private IList&lt;IShape&gt; shapes = new[]{ 
+        new OvalShape(new CoreShape.Rectangle(100, 100, 200, 150))
+        {
+            Stroke = new Stroke(CoreShape.Color.Red, 2),
+            //Fill = new Fill(CoreShape.Color.LightSkyBlue)
+        },
+        new RectangleShape(new CoreShape.Rectangle(350, 100, 100, 150))
+        {
+            Stroke = new Stroke(CoreShape.Color.Black, 2),
+            Fill = new Fill(CoreShape.Color.LightPink)
+        },
+    };
+    //処理の対象となる図形
+    private IShape? activeShape;
+    //1フレーム前のマウス座標
+    private CoreShape.Point oldPoint;
+
+    //描画イベント
+    private void sKElement_PaintSurface(object sender, SKPaintSurfaceEventArgs e)
+    {
+        var g = new SkiaGraphics(e.Surface.Canvas);
+        g.ClearCanvas(CoreShape.Color.Ivory);
+        foreach (var shape in shapes)
+        {
+            shape.Draw(g);
+        }
+    }
+
+    //マウス移動イベント
+    private void sKElement_MouseMove(object sender, MouseEventArgs e)
+    {
+        //マウスポインタの座標を取得
+        var p = e.GetPosition(skElement);
+        var currentPoint = new CoreShape.Point((float)p.X, (float)p.Y);
+
+        if (e.LeftButton == MouseButtonState.Pressed)
+        {
+            //左ボタン押下中、activeShapeがあればドラッグ処理を実行して描画更新
+            if (activeShape is null)
+            { return; }
+            activeShape.Drag(oldPoint, currentPoint);
+            skElement.InvalidateVisual();
+        }
+        else
+        {
+            //カーソルとactiveShapeを一旦初期化
+            Cursor = Cursors.Arrow; 
+            activeShape = null;
+            //当たり判定
+            foreach (var shape in shapes)
+            {
+                if (shape.HitTest(currentPoint))
+                {
+                    //ヒットしたら十字矢印のカーソルに変更。ヒットした図形オブジェクトをactiveShapeに入れてループを抜ける
+                    Cursor = Cursors.SizeAll;
+                    activeShape = shape;
+                    break;
+                }
+            }
+        }
+        //1フレーム前のポインタを更新
+        oldPoint = currentPoint;
+    }
+}
+

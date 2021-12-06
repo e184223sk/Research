@@ -1,0 +1,31 @@
+using System.IO;
+using SharpCompress.Writers;
+using XZ.NET;
+
+public static void Compress(string sourceDir, string destArchivePath)
+{
+    using (var outFileStream = new FileStream(destArchivePath, FileMode.Create, FileAccess.Write))
+    using (var ms = new MemoryStream())
+    {
+        using (var tarWriter = WriterFactory.Open(ms, SharpCompress.Common.ArchiveType.Tar,
+            new WriterOptions(SharpCompress.Common.CompressionType.None) { LeaveStreamOpen = true }))
+        {
+            tarWriter.WriteAll(sourceDir, "*", SearchOption.AllDirectories);
+        }
+
+        ms.Position = 0;
+        using (var xzStream = new XZOutputStream(outFileStream))
+        {
+            var buf = new byte[1 * 1024 * 1024];
+            var bytesRead = (long)0;
+
+            while (bytesRead &lt; ms.Length)
+            {
+                var count = ms.Read(buf, 0, buf.Length);
+                xzStream.Write(buf, 0, count);
+                bytesRead += count;
+            }
+        }
+    }
+}
+

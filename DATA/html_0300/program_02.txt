@@ -1,0 +1,78 @@
+
+
+using System;
+using System.Windows.Forms;
+using System.Text.RegularExpressions; ///正規表現の比較に必要
+
+namespace RETROF {
+    public partial class MainForm /*: Form*/ {
+        RETROF245 FT245 = new RETROF245();
+
+        ///Enterキーダウン時に発生する独自イベントの処理
+        void OnShell(object sender, ShellEventArgs e) {
+            e.Result = "!Unknown command"; //仮設定、再設定しないとこれが表示される
+                                           //文字列先頭の！は特別な色（一般には赤）で表示する指定文字
+                                           //コマンドの前後の空白を取る
+            string command = e.Command.Trim();
+            //コマンドと引数に分割
+            string[] com_arg =  Regex.Split(e.Command.Trim(),@"\s+");
+            //トークン数が0なら何もしないでリターン
+            if (com_arg.Length == 1 &amp;&amp; com_arg[0] == "") { e.Result = ""; return; }
+            //トークン数が3以上なら「引数多すぎ」
+            if (com_arg.Length &gt; 3) { e.Result = "!Too many argument."; return; }
+            //「命令文字列のみ」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+$")) {e.Result = Do(com_arg[0], 0, 0); return;}
+            //「命令文字列　16進引数」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+\s+[a-fA-F0-9]{1,4}$")) {
+                e.Result = Do(com_arg[0], System.Convert.ToUInt32(com_arg[1], 16), 0);
+                return;
+            }
+            //「命令文字列　16進引数　16進引数」に一致するか？
+            if (Regex.IsMatch(command, @"^\w+\s+[a-fA-F0-9]{1,4}\s+[a-fA-F0-9]{1,4}$")) {
+                e.Result = Do(com_arg[0], Convert.ToUInt32(com_arg[1], 16), Convert.ToUInt32(com_arg[2], 16));
+                return;
+            }
+        }
+
+        /// コマンドの実行
+        // コマンド自体は任意の文字列、コマンドの引数は0～255までの値が最大2個添付可能
+        // 但し、不要な（無意味な）引数を添付しても、エラーとはせず無視するだけとしている
+        String Do(string command, uint arg1, uint arg2) {
+
+            /// OPEN　
+            if (command == "o") {
+                uint sts = FT245.Open();
+                if (sts == 0) return ("Open Success");
+                return ("!Open error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// CLOSE
+            if (command == "c") {
+                uint sts = FT245.Close();
+                if (sts == 0) return ("Close Success");
+                return ("!Close error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// WRITE ONE BYTE (Write指定していないビットには出力しない)
+            if (command == "w") {
+                FT245.Put(arg1);
+                uint sts = FT245.Flush();
+                if (sts == 0) return ("Write Success");
+                return ("!Writr error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// READ ONE BYTE  (Read指定していないビットは0が入力される)
+            if (command == "r") {
+                int value = 0;
+                uint sts = FT245.Get(ref value);
+                if (sts == 0) return ("Get Success value = " + Convert.ToString(value));
+                return ("!Get error  (sts = " + Convert.ToString(sts) + ").");
+            }
+
+            /// 意味不明なコマンド
+            return ("!Unknown command : " + command + " " + Convert.ToString(arg1) + " " + Convert.ToString(arg2));
+        }
+    }
+}
+
+

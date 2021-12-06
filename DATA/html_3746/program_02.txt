@@ -1,0 +1,81 @@
+
+using System;
+using System.Diagnostics;
+using System.Linq;
+using UnityEditor;
+
+public class MessagePackPostprocessor : AssetPostprocessor
+{
+    // 監視するディレクトリ
+    private const string TargetDirectory = "Assets/ServerDefinition";
+
+    // 自動ビルド設定のMenuPath
+    private const string AutoBuildMenuPath = "Tools/MessagePack/Auto Build";
+
+    /// &lt;summary&gt;
+    /// 自動ビルドするかどうかを切り替える
+    /// &lt;/summary&gt;
+    [MenuItem("Tools/MessagePack/Auto Build")]
+    private static void ToggleAutoBuild()
+    {
+        Menu.SetChecked(AutoBuildMenuPath, !Menu.GetChecked(AutoBuildMenuPath));
+    }
+
+    /// &lt;summary&gt;
+    /// アセットインポート時の処理
+    /// &lt;/summary&gt;
+    private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
+    {
+        // 自動ビルドがOFFなら終了
+        if (!Menu.GetChecked(AutoBuildMenuPath)) return;
+
+        // TargetDirectory のファイルが更新されたか確認
+        var files = new[] { importedAssets, deletedAssets, movedAssets, movedFromAssetPaths }.SelectMany(_ =&gt; _);
+        if (files.Any(x =&gt; x.StartsWith("Assets/ServerDefinition"))) Generate();
+    }
+
+    /// &lt;summary&gt;
+    /// 実処理
+    /// &lt;/summary&gt;
+    [MenuItem("Tools/MessagePack/Build Resolvers")]
+    private static void Generate()
+    {
+        // dotnet コマンドのパスを通す
+        Environment.SetEnvironmentVariable("PATH", "/usr/local/share/dotnet");
+
+        // MagicOnionCodeGenerator
+        DoProcess(
+            command: "../Tools/MagicOnionCodeGenerator/osx-x64/moc",
+            arguments: "-i ../Server/ServerDefinition/ServerDefinition.csproj -o Assets/GeneratedScripts/MagicOnionResolver.cs"
+        );
+
+        // MessagePackCompiler
+        DoProcess(
+            command: "../Tools/MessagePackCompiler/osx-x64/mpc",
+            arguments: "-i Assets -o Assets/GeneratedScripts/GeneratedResolver.cs"
+        );
+    }
+
+    /// &lt;summary&gt;
+    /// 外部プロセスを起動して、標準出力・標準エラー出力をログに表示する
+    /// &lt;/summary&gt;
+    /// &lt;param name="command"&gt;コマンド&lt;/param&gt;
+    /// &lt;param name="arguments"&gt;引数&lt;/param&gt;
+    private static void DoProcess(string command, string arguments)
+    {
+        UnityEngine.Debug.Log($"コマンドを実行します: {command} {arguments}");
+        var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = command,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        });
+        UnityEngine.Debug.Log(process.StandardOutput.ReadToEnd());
+        var error = process.StandardError.ReadToEnd();
+        if (!string.IsNullOrEmpty(error)) UnityEngine.Debug.LogError(error);
+    }
+}
+
+

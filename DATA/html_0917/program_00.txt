@@ -1,0 +1,69 @@
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+class PipeServer {
+  private NamedPipeServerStream pipe;
+  private byte[] buffer;
+
+  PipeServer(string name) {
+    this.pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    this.buffer = new byte[512];
+  }
+
+  private void ConnectCallback(IAsyncResult result) {
+    Console.WriteLine("Connected.");
+    // this.pipe.EndWaitForConnection(result);
+    ((NamedPipeServerStream)result.AsyncState).EndWaitForConnection(result);
+  }
+
+  private void ReadCallback(IAsyncResult result) {
+    int len = ((NamedPipeServerStream)result.AsyncState).EndRead(result);
+    if (len &gt; 0)
+      Console.Write(Encoding.UTF8.GetString(this.buffer, 0, len));
+  }
+
+  async private void WriteCallback(IAsyncResult result) {
+    ((NamedPipeServerStream)result.AsyncState).EndWrite(result);
+    while (!result.IsCompleted)
+      await Task.Delay(10);
+  }
+
+  async private void ReadingThread() {
+    while (this.pipe.IsConnected) {
+      IAsyncResult ar = this.pipe.BeginRead(this.buffer, 0, this.buffer.Length, this.ReadCallback, this.pipe);
+      while (!ar.IsCompleted)
+        await Task.Delay(10);
+    }
+  }
+
+  static void Main(string[] args) {
+    PipeServer server = new PipeServer(args[0]);
+    try {
+      IAsyncResult ar = server.pipe.BeginWaitForConnection(server.ConnectCallback, server.pipe);
+      Console.WriteLine("Waiting for client connection at \\\\.\\pipe\\" + args[0] + " ...");
+      while (!ar.IsCompleted)
+        Thread.Sleep(100);
+      Thread t = new Thread(server.ReadingThread);
+      t.Start();
+      byte[] buf;
+      ConsoleKeyInfo cki;
+      while (server.pipe.IsConnected) {
+        if (Console.KeyAvailable) {
+          cki = Console.ReadKey(true);
+          buf = Encoding.UTF8.GetBytes(new char[1] { (char)cki.KeyChar });
+          if (buf.Length &gt; 0)
+            ar = server.pipe.BeginWrite(buf, 0, buf.Length, server.WriteCallback, server.pipe);
+          while (!ar.IsCompleted)
+            Thread.Sleep(10);
+        }
+      }
+    } finally {
+      server.pipe.Close();
+    }
+  }
+}
+

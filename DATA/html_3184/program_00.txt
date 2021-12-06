@@ -1,0 +1,55 @@
+public InteractionEvents interactionEvents;   // これはOnExecuteでセットしてね
+
+public void SelectEvents_OnPreSelect(
+    ref object PreSelectEntity,
+    out bool DoHighlight,
+    ref ObjectCollection MorePreSelectEntities,
+    SelectionDeviceEnum SelectionDevice,
+    Point ModelPosition,
+    Point2d ViewPosition,
+    View View
+    )
+{
+    DoHighlight = false;
+    if (PreSelectEntity is SketchEntity sketchEntity)
+    {
+        if (sketchEntity is SketchLine line)
+        {
+            try
+            {
+                InteractionGraphics ig = interactionEvents.InteractionGraphics;
+                ClientGraphics cg = ig.OverlayClientGraphics;
+
+                if (cg.Count == 0)
+                {
+                    GraphicsNode gn = cg.AddNode(0);
+                    PointGraphics pg = gn.AddPointGraphics();
+
+                    // 点に座標を設定する
+                    GraphicsCoordinateSet gcs = ig.GraphicsDataSets.CreateCoordinateSet(0);
+                    Point2d midPoint2d = InventorApplication.TransientGeometry.CreatePoint2d();
+                    Point midPoint = InventorApplication.TransientGeometry.CreatePoint();
+                    midPoint2d.X = (line.StartSketchPoint.Geometry.X + line.EndSketchPoint.Geometry.X) / 2;
+                    midPoint2d.Y = (line.StartSketchPoint.Geometry.Y + line.EndSketchPoint.Geometry.Y) / 2;
+                    midPoint = (line.Parent as PlanarSketch).SketchToModelSpace(midPoint2d);
+
+                    gcs.PutCoordinates(new double[3] { midPoint.X, midPoint.Y, midPoint.Z });
+                    pg.CoordinateSet = gcs;
+
+                    // 点の種類を選ぶ
+                    pg.PointRenderStyle = PointRenderStyleEnum.kEndPointStyle;
+                    // 常に前面に表示
+                    pg.BurnThrough = true;  // 無視される。Inventorのbug?
+
+                    // 表示を更新。これをしないと、表示されない。
+                    ig.UpdateOverlayGraphics(View);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+    return;
+}
+

@@ -1,0 +1,59 @@
+More than 1 year has passed since last update.今更ながらJavaに引き続き、色んな言語からPostgreSQLへ接続するシリーズです。
+今回はC#(.NET系)です。C#はODBC接続などの方法もありますが、今回はNpgsqlによる接続を説明します。.NET環境からPostgreSQLへ接続するためのツールです。
+今回は以下の環境でNpgsqlの導入と検証をしました。実際に使用する場合、.NET、Visual Studio、Npgsqlのバージョンを各々考慮する必要があります。
+ただ結論を述べると注意すべき点は以下の通りです。そもそも.NET Frameworkと.NET Standardって何? となった方(私はなった)や、詳細な各環境の対応を知りたい方は参考にしたサイトの.NET関連をご参照ください。NpgsqlはNuGetを用いて導入可能です。以下のサイトから最新版を確認し、インストール用のコマンドをコピーします。その後、Visual Studioを開き、メニューバーの[ツール]→[NuGetパッケージマネージャ]→[パッケージマネージャコンソール]を選択する。
+するとVisual Studioの下部に、PM(パッケージマネージャ)コンソールが開くため、先程コピーしたコマンドを入力し、結果を確認する。今回はNuGetのバージョンが古いため失敗しました。
+そのためNuGetをバージョンアップします。
+メニューバーの[ツール]→[拡張機能と更新プログラム]→左メニューから[更新プログラム]の[Visutal Studioギャラリー]を選択します。
+NuGetの[更新]をクリックし、インストール後、案内されるままVisutal Studioを再起動します。バージョンアップ完了後、再びNpgsqlを入手するコマンドを実行すると以下の通り、Npgsqlの導入に成功します。まずは単純にPostgreSQLへ接続できるかを確認します。
+Visual StudioからC#の空のプロジェクトを作り、コードを書き込んでいきます。C#のプロジェクトを生成後、下準備として参照の追加とPostgreSQL側の設定変更をします。デフォルトの参照設定ではNpgsqlの機能を使うことはできません。そのため参照を追加します。
+まずVisual Studioのメニューバーの[プロジェクト]→[参照の追加]を選択します。 その後、左メニューの[アセンブリ]→[フレームワーク]を選択し、"System.Data"と"System.Transaction"にチェックし、参照へ追加します。
+また単純な接続では必要ありませんが、SELECT結果取得の際に使用するDataTableのために"System.Xml"もチェックします。C#アプリ側とPostgreSQLサーバ側が接続可能であるか、ping等で確かめます。
+(pingが通らない場合、ファイアウォールやOSのネットワーク設定を見直してください)サーバ同士の通信が可能であることが判明した後は、PostgreSQLのネットワーク設定を調整します。
+PostgreSQLのデータディレクトリ(環境変数PGDATA配下)のpostgresql.confとpg_hba.confの2つの設定ファイルを次のように編集します。上記はPostgreSQL側の接続を受け付けるIPアドレスです。
+デフォルトでは"localhost"のみなため、"localhost, "または全てのIPで受け付ける"*"(アスタリスク)を設定します。
+詳細はマニュアルをご参照ください。接続を許可するクライアント側(今回の場合はC#プログラム側)の設定です。
+接続先DB名や接続に用いるユーザ名も限定可能です。
+また「METHOD」に"md5"を指定することでパスワード入力のみ受け付けます。
+詳細はマニュアルをご参照ください。上記設定後、PostgreSQLの設定変更を反映するためにPostgreSQLを再起動します。
+※listen_addressesパラメータの反映には再起動が必要なためです。
+※pg_hba.confの変更反映はreloadのみで可能です。準備が完了したため、早速接続を試行します。
+今回作成するソースコードは次の通りです。※namespaceやclassは環境ごとに適切な名前にしてください。接続文字列は以下の値を入力する必要があります。接続先の環境に合わせて設定下さい。上記を[ビルド]→[デバッグなしで開始]をすると、「Connection success!」の文字が標準出力されます。
+エラーが発生する場合、そのエラー内容を確認し、PostgreSQLやOSの接続設定に誤りがないか確認してください。C#(.NET系)にはTransactionScopeという、トランザクションを一括管理する頼もしい機能があります。
+昔、Npgsql 3.0で検証した頃は、自身の環境のせいもありエラーが発生しましたが、最新版では問題なく使用できます。
+C#でSQL処理をする際は頻繁に使うため、Npgsqlでも適切に利用できることを確認します。今回はINSERT、DELETE、SELECT処理を1つのトランザクション内で実施します。
+検証に使用するテーブルは次の通りです。実際に上記のtestテーブルにSQLを実行したソースコードが以下です。実行結果は以下の通りです。col1が1～3である行のINSERT後、偶数値の行だけ削除したため上記結果となります。
+PostgreSQLのパラメータを「log_statement = 'all'」した状態で上記のC#プログラムの実行ログを見ると以下のようになります。TransactionScopeにより「BEGIN」～「COMMIT」が実行され、暗黙的にトランザクションが管理されていることが分かります。TransactionScopeを用いることで分散トランザクションが容易に実行可能です。
+分散トランザクションは、複数のデータベースに対する処理を1つのトランザクションとして扱う技術です。C#ではTransactionScopeを使うことで、意識することなく分散トランザクションを利用できます。
+今回の検証ではを分散トランザクションとして実施します。下準備としてPostgreSQL側の「max_prepared_transactions」パラメータを0より大きくする必要があります。
+(本パラメータは分散トランザクションにおける最大接続数を設定します。0の場合無効です)設定変更を反映するために、その後、PostgreSQLを再起動します。
+本パラメータの詳細はマニュアルをご参照ください。準備が完了したため、以下のソースコードを記述し分散トランザクションを実行します。実行結果は以下の通りです。また実行ログは以下の通りです。接続その1(tes_db1)はプロセス[5368]で、接続その2(tes_db2)はプロセス[5369]で処理され、分散トランザクションが実施されています。上記の通りTransacrionScopeは自動的に分散トランザクションを扱うことが可能です。
+しかし、1つのトランザクション内で同一のデータベースに対して、複数回接続した場合どうなるでしょうか。コネクタやNpgsqlのバージョンによっては、分散トランザクションに昇格してしまいますが、最近のNpgsqlではちゃんと同一接続として扱ってくれます。実際のソースコードは次の通りです。上記のプログラムは、接続その1,2で同じDBへ接続しています(接続文字列が同一なため)。
+Npgsqlは賢いため、ログを見れば分かる通り、ログインしたまま一貫したトランザクション処理をしています。
+※古いNpgsql(3.2より古いバージョン?)では勝手に分散トランザクション扱いにし、エラーが発生する場合があります。接続1,2の処理においてプロセス番号が共に[5112]であることから分かる通り、1回の接続でそのまま処理を実行しています。
+接続1,2でどちらもconnX.Open();を実行していますが、内部的には接続を使いまわしているようです。.NET Blog Introducing .NET Standard
+https://blogs.msdn.microsoft.com/dotnet/2016/09/26/introducing-net-standard/
+.NET Standard、.NET Framework、.NET Core、Xamarinの関係性について図を交えて説明しています。
+MicrosoftのBlogなため、公式情報として重宝しました。.NET Standardとは
+http://www.atmarkit.co.jp/ait/articles/1707/28/news033.html
+.NET Standardについて分かりやすく解説された＠ITの記事です。
+.NET関連の情報を知る際にとても重宝しました。.NET Standard
+https://docs.microsoft.com/ja-jp/dotnet/standard/net-standard
+Microsoftによる.NET Standardのバージョン毎にサポートする.NET関連の最小バージョンについて記載されています。.NET Frameworkのバージョンを整理する
+http://www.atmarkit.co.jp/ait/articles/1211/16/news093.html
+.NET Frameworkのバージョンと.NET Standardとの対応について分かりやすく解説された＠ITの記事です。
+環境対応について調査する際は、こちらの情報をよく参照しています。さいきんの.NETのこととかNuGetとかCoreとかよく分からないよねーって話
+https://qiita.com/acple@github/items/e80bef939583fc2b0e5e
+.NET関連の用語を整理し、分かりやすく解説されたQiitaの記事です。
+各種.NETの概要と関係性について理解する上で非常に役立ちました。Npgsql - .NET Access to PostgreSQL
+https://www.npgsql.org/index.html
+Npgsqlの公式サイトです。Npgsqlの詳細を知りたい場合はまずはこちらから。System.Transactionsサポート
+http://vdlz.xyz/Csharp/Database/Postgre/Npgsql/Doc/Npgsql_Doc_020.html
+少し古い情報ですが、TransactionScopeを使ったNpgsqlのソースコード例が載っています。
+今回のソースコード作成の際に、参考にさせていただきました。トランザクション スコープを使用した暗黙的なトランザクションの実装
+https://docs.microsoft.com/ja-jp/dotnet/framework/data/transactions/implementing-an-implicit-transaction-using-transaction-scope
+Npgsqlの情報ではないですが参考として。
+MicrosoftのTransactionScopeによる暗黙的なトランザクションの解説とソースコードの例が載っています。
+こちらもソースコード作成の際に、参考にさせていただきました。
+
+

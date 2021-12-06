@@ -1,0 +1,174 @@
+using System;
+using BenchmarkDotNet.Attributes;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Text;
+using System.Text.Json;
+using System.Text.Unicode;
+using System.Runtime.Serialization.Json;
+using System.Text.Encodings.Web;
+
+namespace StudyJsonSerializer
+{
+    [MemoryDiagnoser]
+    public class MeasurementJsonSerializer
+    {
+        /// &lt;summary&gt;
+        /// DataContractJsonSerializerによるシリアル化/デシリアル化のサンプル
+        /// &lt;/summary&gt;
+        [Benchmark]
+        public void UsingDataContractJsonSerializer()
+        {
+            //シリアル化
+            using var serializerStream = new MemoryStream();
+            var serializer = new DataContractJsonSerializer(OfficeWorkerContract.GetType());
+            serializer.WriteObject(serializerStream, OfficeWorkerContract);
+            var jsonString = Encoding.UTF8.GetString(serializerStream.ToArray());
+
+            //デシリアル化
+            var byteArray = Encoding.UTF8.GetBytes(jsonString);
+            using var deserializerStreamtream = new MemoryStream(byteArray);
+            var deserializer = new DataContractJsonSerializer(typeof(OfficeWorkerContractModel));
+            var officeWorker = serializer.ReadObject(deserializerStreamtream) as OfficeWorkerContractModel;
+        }
+        /// &lt;summary&gt;
+        /// Json.NETによるシリアル化/デシリアル化のサンプル
+        /// &lt;/summary&gt;
+        [Benchmark]
+        public void UsingJsonNet()
+        {
+            var jsonString = Newtonsoft.Json.JsonConvert.SerializeObject(OfficeWorker);
+            var result = Newtonsoft.Json.JsonConvert.DeserializeObject&lt;OfficeWorker&gt;(jsonString);
+        }
+        /// &lt;summary&gt;
+        /// System.Text.Json.Serializationによるシリアル化/デシリアル化のサンプル
+        /// &lt;/summary&gt;
+        [Benchmark]
+        public void UsingSystemTextJson()
+        {
+            var options = new JsonSerializerOptions()
+            {
+                // すべての言語セットをエスケープせずにシリアル化させる
+                Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+            };
+            var jsonString = System.Text.Json.JsonSerializer.Serialize(OfficeWorker, options);
+            var result = System.Text.Json.JsonSerializer.Deserialize&lt;OfficeWorker&gt;(jsonString);
+        }
+        /// &lt;summary&gt;
+        /// System.Text.Json.Serializationによるシリアル化/デシリアル化のオプション指定を外す
+        /// &lt;/summary&gt;
+        [Benchmark]
+        public void UsingSystemTextJsonWithoutSerializeOption()
+        {
+            var jsonString = System.Text.Json.JsonSerializer.Serialize(OfficeWorker);
+            var result = System.Text.Json.JsonSerializer.Deserialize&lt;OfficeWorker&gt;(jsonString);
+        }
+        /// &lt;summary&gt;
+        /// DataContractJsonSerializer用(他と異なるため念の為、分ける)
+        /// &lt;/summary&gt;
+        private static readonly OfficeWorker OfficeWorker = new OfficeWorker()
+        {
+            Company = "株式会社 自宅警備",
+            Department = "開発部",
+            Name = "山本太郎",
+            Sex = "男",
+            Age = 30,
+        };
+        /// &lt;summary&gt;
+        /// DataContractJsonSerializer以外で使用
+        /// &lt;/summary&gt;
+        private static readonly OfficeWorkerContractModel OfficeWorkerContract = new OfficeWorkerContractModel()
+        {
+            Company = "株式会社 自宅警備",
+            Department = "開発部",
+            Name = "山本太郎",
+            Sex = "男",
+            Age = 30,
+        };
+    }
+    /// &lt;summary&gt;
+    /// DataContractJsonSerializer用の会社員モデル(属性指定が必要なため、念の為分ける)
+    /// &lt;/summary&gt;
+    [DataContract(Name = "officeWorker")]
+    public class OfficeWorkerContractModel
+    {
+        /// &lt;summary&gt;
+        /// 会社
+        /// &lt;/summary&gt;
+        [DataMember(Name = "company",Order = 0)]
+        public string Company { get; set; }
+
+        /// &lt;summary&gt;
+        /// 部署
+        /// &lt;/summary&gt;
+        [DataMember(Name = "department", Order = 1)]
+        public string Department { get; set; }
+
+        /// &lt;summary&gt;
+        /// 名前
+        /// &lt;/summary&gt;
+        [DataMember(Name = "name", Order = 2)]
+        public string Name { get; set; }
+
+        /// &lt;summary&gt;
+        /// 性別
+        /// &lt;/summary&gt;
+        [DataMember(Name = "sex", Order = 3)]
+        public string Sex { get; set; }
+
+        /// &lt;summary&gt;
+        /// 年齢
+        /// &lt;/summary&gt;
+        [DataMember(Name = "age", Order = 4)]
+        public uint Age { get; set; }
+
+        /// &lt;summary&gt;
+        /// 文字列変換
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public override string ToString()
+        {
+            return $"company={Company},department={Department},name={Name},sex={Sex},age={Age}";
+        }
+    }
+    /// &lt;summary&gt;
+    /// 会社員(DataContractJsonSerializer以外で使用)
+    /// &lt;/summary&gt;
+    public class OfficeWorker
+    {
+        /// &lt;summary&gt;
+        /// 会社
+        /// &lt;/summary&gt;
+        public string Company { get; set; }
+
+        /// &lt;summary&gt;
+        /// 部署
+        /// &lt;/summary&gt;
+        public string Department { get; set; }
+
+        /// &lt;summary&gt;
+        /// 名前
+        /// &lt;/summary&gt;
+        public string Name { get; set; }
+
+        /// &lt;summary&gt;
+        /// 性別
+        /// &lt;/summary&gt;
+        public string Sex { get; set; }
+
+        /// &lt;summary&gt;
+        /// 年齢
+        /// &lt;/summary&gt;
+        public uint Age { get; set; }
+        /// &lt;summary&gt;
+        /// 文字列変換
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public override string ToString()
+        {
+            return $"company={Company},department={Department},name={Name},sex={Sex},age={Age}";
+        }
+    }
+}
+
+

@@ -1,0 +1,194 @@
+using System;
+using System.IO;
+using System.Text;
+using MySql.Data.MySqlClient;
+using Microsoft.Extensions.Configuration;
+
+namespace dbtool
+{
+    public class MYSQLSettings
+    {
+        public string Server { get; set; }
+        public string Database { get; set; }
+        public string Uid { get; set; }
+        public string Pwd { get; set; }
+    }
+    class Program
+    {
+        static string CONNECTION;
+        static string ENCODING;
+        static string SEPARATOR;
+        static string COLUMNS;
+        static string TABLE;
+        static string HEADER;
+        static void Main(string[] args)
+        {
+            if (args.Length&lt;1 || args.Length&gt;2) {
+                help();
+                return;
+            }
+            if (args.Length==1) {
+                switch(args[0])
+                {
+                    case "-v": version();break;
+                    default: help();break;
+                }
+                return;
+            }
+            var configuration = new ConfigurationBuilder()
+                                   .SetBasePath(Directory.GetCurrentDirectory())
+                                   .AddJsonFile("config.json").Build();
+
+            var mysqlSettings = configuration.GetSection("MYSQLSettings").Get&lt;MYSQLSettings&gt;();
+                    CONNECTION = "Server=" + mysqlSettings.Server
+                               + ";Database=" + mysqlSettings.Database
+                               + ";Uid=" + mysqlSettings.Uid
+                               + ";Pwd=" + mysqlSettings.Pwd
+                               + ";Port=3306;";
+            using (StreamReader sr = new StreamReader(new FileStream("dbtool.conf", FileMode.Open), Encoding.GetEncoding("utf-8")))
+            {
+                while(sr.Peek() &gt;0){
+                    String line = sr.ReadLine();
+                    string[] values =  line.Split('=');
+                    switch(values[0])
+                    {
+                        case "ENCODING":ENCODING=values[1];break;
+                        case "SEPARATOR":SEPARATOR=values[1];break;
+                        case "COLUMNS":COLUMNS=values[1];break;
+                        case "TABLE":TABLE=values[1];break;
+                        case "HEADER":HEADER=values[1];break;
+                    }
+                    if (SEPARATOR=="\\t") SEPARATOR="\t";
+                }
+            }
+           switch(args[0])
+           {
+                case "-i": import(args[1]);break;
+                case "-e": export(args[1]);break;
+                case "-d": delete(args[1]);break;
+                default: help();break;
+           }
+           return;
+        }
+        static void import(string param)
+        {
+            string sqlcmd;
+            using(MySqlConnection cn = new MySqlConnection(CONNECTION))
+            {
+                cn.Open();
+                Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                using (StreamReader sr = new StreamReader(new FileStream(@param, FileMode.Open), Encoding.GetEncoding(ENCODING)))
+                {
+                    while(sr.Peek() &gt;0){
+                        String line = sr.ReadLine();
+                        string[] values =  line.Split(SEPARATOR);
+                        string[] columns =  COLUMNS.Split(',');
+                        if (values[0]==columns[0]) {
+                            continue;
+                        } else {
+                            sqlcmd  = "INSERT INTO " + TABLE + "(" + COLUMNS + ") VALUES (";
+                            for(int i=0; i&lt;columns.Length; i++) {
+                                if (i&gt;0) sqlcmd += ",";
+                                sqlcmd += "'"+values[i]+"'";
+                            }
+                            sqlcmd += ")";
+                            sqlcmd += " ON DUPLICATE KEY UPDATE " + columns[0] + "='" + values[0] + "'";
+                            for(int i=1; i&lt;columns.Length; i++) {
+                                sqlcmd += "," + columns[i];
+                                sqlcmd += "='"+values[i]+"'";
+                            }
+                        }
+
+                        using (MySqlTransaction trans = cn.BeginTransaction())
+                        {
+                            MySqlCommand cmd = new MySqlCommand(sqlcmd, cn);
+                            cmd.Transaction = trans;
+                            cmd.ExecuteNonQuery();
+                            trans.Commit();
+                        }
+                    }
+                }
+                cn.Close();
+            }
+            return;
+        }
+        static void export(string param)
+        {
+            using(MySqlConnection cn = new MySqlConnection(CONNECTION))
+            {
+                cn.Open();
+                using (MySqlCommand cmd = new MySqlCommand("SELECT "+ COLUMNS+ " FROM "+TABLE, cn))
+                {
+                    using (MySqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        string[] columns =  COLUMNS.Split(',');
+                        string message = "";
+                        if (HEADER=="1") {
+                            for(int i=0; i&lt;columns.Length; i++) {
+                                if (i &gt; 0) message+=SEPARATOR;
+                                message += columns[i];
+                            }
+                            message += "\r\n";
+                        }
+                        while (reader.Read())
+                        {
+                            for(int i=0; i&lt;columns.Length; i++) {
+                                if (i &gt; 0) message+=SEPARATOR;
+                                string column = reader[columns[i]].ToString();
+                                message += column;
+                            }
+                            message += "\r\n";
+                        }
+                        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                        File.WriteAllText(@param, message, Encoding.GetEncoding(ENCODING));
+                    }
+                    cn.Close();
+                }
+            }
+            return;
+        }
+        static void delete(string param)
+        {
+            using(MySqlConnection cn = new MySqlConnection(CONNECTION))
+            {
+            cn.Open();
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            using (StreamReader sr = new StreamReader(new FileStream(@param, FileMode.Open), Encoding.GetEncoding(ENCODING)))
+            {
+                while(sr.Peek() &gt;0){
+                    string[] columns =  COLUMNS.Split(',');
+                    string sqlcmd = "DELETE FROM "+TABLE+" WHERE "+columns[0]+" = '" + sr.ReadLine()+"'";
+                    using (MySqlTransaction trans = cn.BeginTransaction())
+                    {
+                        MySqlCommand cmd = new MySqlCommand(sqlcmd, cn);
+                        cmd.Transaction = trans;
+                        cmd.ExecuteNonQuery();
+                        trans.Commit();
+                    }
+                }
+            }
+            cn.Close();
+            }
+            return;
+        }
+        static void version()
+        {
+            Console.WriteLine("\nMYSQL module: version 202003\n");
+            return;
+        }
+        static void help()
+        {
+
+            Console.WriteLine("\nUsage: dbtool -options [file path]\n");
+
+            Console.WriteLine("options");
+            Console.WriteLine("    -e          export user from MYSQL");
+            Console.WriteLine("    -i          import user to MYSQL");
+            Console.WriteLine("    -d          delete user from MYSQL");
+            Console.WriteLine("    -v          display version");
+            Console.WriteLine("    -h          display help message\n");
+            return;
+        }
+    }
+}
+

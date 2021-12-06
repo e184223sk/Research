@@ -1,0 +1,94 @@
+using UnityEngine;
+using System.Collections;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class UdpServer : MonoBehaviour
+{
+    // UnityEventの引数指定用のダミークラス
+    public class ReceivedCallback : UnityEngine.Events.UnityEvent&lt;string&gt;
+    {
+    }
+
+    // データを受信したときに発火されるイベント
+    public static ReceivedCallback OnReceivedEvent = new ReceivedCallback();
+
+    [SerializeField]
+    int port = 22222;
+    static UdpClient udp;
+
+    Task receiveTask;
+
+    bool isRunning = false;
+
+    public bool IsRunning
+    {
+        get
+        {
+            return isRunning;
+        }
+    }
+
+    void Awake ()
+    {
+        udp = new UdpClient(port);
+        // udp.Client.ReceiveTimeout = 1000;
+
+        OpenServer();
+    }
+
+    void OnDisable()
+    {  
+        CloseServer();
+    }
+
+    void OnEnable()
+    {
+        if(!isRunning)
+        {
+            OpenServer();
+        }
+    }
+
+    public void OpenServer()
+    {
+        if(isRunning) return;
+        isRunning = true;
+        receiveTask = DataReceiveTask();
+    }
+
+    public void CloseServer()
+    {
+        if(!isRunning) return;
+
+        isRunning = false;
+
+        // isRunningをfalseにするとTaskが止まるのでそれを待つ
+        if(receiveTask != null &amp;&amp; receiveTask.Status == TaskStatus.Running)
+        {
+            receiveTask.Wait();
+        }
+
+    }
+
+    async Task DataReceiveTask()
+    {
+        await Task.Run(() =&gt;
+        {
+            while(isRunning)
+            {
+                //Debug.Log("TEST");
+                IPEndPoint remoteEP = null;
+                byte[] data = udp.Receive(ref remoteEP);
+                string text = Encoding.ASCII.GetString(data);
+
+                // 登録したイベントを発火
+                OnReceivedEvent.Invoke(text);
+            }
+        });
+    }     
+}
+

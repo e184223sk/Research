@@ -1,0 +1,185 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using DG.Tweening;
+
+public class Map : MonoBehaviour {
+
+    [SerializeField] Image mapImage; //マップ画像
+    [SerializeField] GameObject character; //キャラクターオブジェクト
+    [SerializeField] List&lt;MapPoint&gt; mapLists; //フィールドにあるマップ
+
+    private const float HEIGHT_MAX = 994f;//移動できる範囲(X軸 +-で考える
+    private const float WIDTH_MAX = 568f; //移動できる範囲(Y軸 +-で考える
+
+    private Vector3 mapDownPosition; //マップをタップした位置
+    private MapState currentState = MapState.None; //現在の状態
+    private MapPoint currentMapPoint; //現在地
+
+    private MapPoint nullMapData = new MapPoint();//nullデータ
+
+    //マップステータス
+    private enum MapState
+    {
+        None, //何もしていない
+        CharacterMove, //キャラクター移動中
+        RootSearch, //ルート探索中
+    }
+
+    private void Awake()
+    {
+        //キャラクターの現在位置取得・設定
+        int defaultPointIndex = PlayerPrefs.GetInt(PlayerPrefsWord.WORLD_CURRENT_POINTS, 0);
+        character.transform.localPosition = mapLists[defaultPointIndex].transform.localPosition;
+        mapImage.transform.localPosition = -character.transform.localPosition;
+        MapOutdoorJudgment();
+        currentMapPoint = mapLists[defaultPointIndex];
+    }
+
+    /// &lt;summary&gt;
+    /// マップの場外判定（マップが範囲外になった場合自動で補正
+    /// &lt;/summary&gt;
+    private void MapOutdoorJudgment()
+    {
+        mapImage.transform.localPosition = (new Vector3(Mathf.Clamp(mapImage.transform.localPosition.x, -HEIGHT_MAX, HEIGHT_MAX),
+            Mathf.Clamp(mapImage.transform.localPosition.y, -WIDTH_MAX, WIDTH_MAX),
+            0f));
+    }
+
+    /// &lt;summary&gt;
+    /// 次に進むルートを取得する（ターゲットに近いポイントを導き出す）
+    /// &lt;/summary&gt;
+    /// &lt;param name="points"&gt;現在地に隣接するルート&lt;/param&gt;
+    /// &lt;param name="targetPoint"&gt;ゴール地点&lt;/param&gt;
+    /// &lt;returns&gt;nullが返ってきた場合は行き止まり&lt;/returns&gt;
+    private MapPoint NextTarget(List&lt;MapPoint&gt; points,Transform targetPoint)
+    {    
+        MapPoint shortestPoint = points[0].IsPassing ? nullMapData : points[0]; //最短ルート初期設定
+        float shortestDistance = shortestPoint == nullMapData ? -1f : Vector3.Distance(points[0].transform.localPosition, targetPoint.localPosition);//最短距離計算初期設定（nullの場合-1)
+
+        for (int i = 1;i &lt; points.Count; i++)
+        {
+            if (points[i].IsPassing) continue;//探索済みのルートは見ない
+            if(shortestDistance == -1f || shortestDistance &gt; Vector3.Distance(points[i].transform.localPosition, targetPoint.localPosition))//最短距離チェック
+            {
+                shortestDistance = Vector3.Distance(points[i].transform.localPosition, targetPoint.localPosition);
+                shortestPoint = points[i];
+            }
+        }
+        return shortestPoint;
+    }
+
+    /// &lt;summary&gt;
+    /// 探索をしたルートを戻ってまだ探索していないルートを導き出す
+    /// &lt;/summary&gt;
+    /// &lt;param name="rootPoints"&gt;現在探索を終えたルート&lt;/param&gt;
+    /// &lt;returns&gt;falseが返ってきた場合は指定のルートに行けない&lt;/returns&gt;
+    private bool BacktrackPoint(ref List&lt;MapPoint&gt; rootPoints)
+    {
+        bool isAnotherWay = false; //別のルートがあったか
+        int backRootListIndex = rootPoints.Count; //戻るルートまでの配列番号
+        for (int i = rootPoints.Count-1; i &gt;= 0; i--)
+        {
+            for (int j = 0; j &lt; rootPoints[i].GetGroundPoints().Count; j++)
+            {
+                if(rootPoints[i].GetGroundPoints()[j].IsPassing == false)//まだ探索を行っていないルートがある
+                {
+                    isAnotherWay = true;
+                    break;
+                }
+            }
+            if (isAnotherWay) break;
+            backRootListIndex--;
+        }
+
+        rootPoints.RemoveRange(backRootListIndex, rootPoints.Count - backRootListIndex);//戻るルート分削除
+
+        return isAnotherWay;
+    }
+    /// &lt;summary&gt;
+    /// キャラクターの移動
+    /// &lt;/summary&gt;
+    /// &lt;param name="moveMapPoint"&gt;移動中継地点&lt;/param&gt;
+    private void MoveCharacter(List&lt;MapPoint&gt; moveMapPoint)
+    {
+        if (moveMapPoint.Count &gt; 0)//移動地点があるか
+        {
+            character.transform.DOLocalMove(moveMapPoint[0].transform.localPosition, 0.3f).OnComplete(() =&gt; {
+                moveMapPoint.RemoveAt(0);//先頭から消していく
+                MoveCharacter(moveMapPoint);
+            });
+        }
+        else
+        {
+            PlayerPrefs.SetInt(PlayerPrefsWord.WORLD_CURRENT_POINTS, currentMapPoint.GetPointIndex());//初期座標のセーブ
+            currentState = MapState.None;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// マップをタップした時の処理
+    /// &lt;/summary&gt;
+    public void OnMapDown()
+    {
+        if (currentState != MapState.None) return;//処理中は受け付けない
+        mapDownPosition = Input.mousePosition;
+    }
+
+    /// &lt;summary&gt;
+    /// マップをスクロールした時の処理
+    /// &lt;/summary&gt;
+    public void OnMapDrag()
+    {
+        if (currentState != MapState.None) return;//処理中は受け付けない
+        mapImage.transform.localPosition -= (mapDownPosition - Input.mousePosition);
+        MapOutdoorJudgment();
+        mapDownPosition = Input.mousePosition;
+    }
+
+    /// &lt;summary&gt;
+    /// タップした位置までのルートを割り出す
+    /// &lt;/summary&gt;
+    /// &lt;param name="pushMap"&gt;&lt;/param&gt;
+    public void PushMap(MapPoint pushMap)
+    {
+        if (pushMap.GetPointIndex() == currentMapPoint.GetPointIndex()) return;
+        if (currentState != MapState.None) return;//操作中はルート探索をしない
+        currentState = MapState.RootSearch; //現在のステータスを変える（探索中)
+        List&lt;MapPoint&gt; moveMapPoint = new List&lt;MapPoint&gt;();//ゴールまでのルート
+
+        foreach(var map in mapLists)
+        {
+            map.IsPassing = false;
+        }
+
+        while (true)
+        {
+            currentMapPoint.IsPassing = true;
+            MapPoint nextPoint = NextTarget(currentMapPoint.GetGroundPoints(), pushMap.transform);
+            if (nextPoint != nullMapData)//行き止まりでないか？
+            {
+                nextPoint.IsPassing = true; //探索済みにする
+                moveMapPoint.Add(nextPoint);
+                currentMapPoint = nextPoint;
+            }
+            else
+            {
+                if (!BacktrackPoint(ref moveMapPoint))//もしもすべての探索をしてもなおたどり着けない場合探索を終える
+                {
+                    Debug.LogError("そのルートへはいけません");
+                    break;
+                }
+                else//別のルートがあった場合そのルートから探索を開始する
+                {
+                    currentMapPoint = moveMapPoint[moveMapPoint.Count - 1]; //現在地変更
+                }
+            }
+
+            if(currentMapPoint.GetPointIndex() == pushMap.GetPointIndex()){//探索終了
+                MoveCharacter(moveMapPoint);
+                break;
+            }
+        }
+    }
+}
+

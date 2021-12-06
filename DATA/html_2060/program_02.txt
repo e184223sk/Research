@@ -1,0 +1,128 @@
+
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.IO;
+using System.Text;
+
+namespace BulkInsertApp
+{
+    public class ServiceBulk
+    {
+        public void ServiceBulkManager()
+        {
+            List&lt;ServiceData&gt; ServiceDataList = CSVDataGet();
+
+            TruncateTable();
+            BulkInsert(ServiceDataList);
+        }
+
+        private List&lt;ServiceData&gt; CSVDataGet()
+        {
+            List&lt;ServiceData&gt; retList = new List&lt;ServiceData&gt;();
+            StreamReader sr = new StreamReader(@"C:\hoge\Service.csv", Encoding.GetEncoding("Shift_JIS"));
+
+            try
+            {
+                while (!sr.EndOfStream)
+                {
+                    ServiceData ServiceData = new ServiceData();
+                    string line = sr.ReadLine();
+
+                    string[] values = line.Split(',');
+                    List&lt;string&gt; items = new List&lt;string&gt;();
+                    items.AddRange(values);
+
+                    if (items.Count == 2)
+                    {
+
+                        ServiceData.ServiceID = int.Parse(items[0]);
+                        ServiceData.ServiceName = items[1];
+
+                        retList.Add(ServiceData);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+            finally
+            {
+                sr.Close();
+            }
+            return retList;
+        }
+
+        private void TruncateTable()
+        {
+            MSSqlManager manager = new MSSqlManager();
+            try
+            {
+                manager.BeginTran();
+
+                string query = "TRUNCATE TABLE SERVICE_TABLE";
+                manager.ExecuteQuery(query);
+                manager.CommitTran();
+            }
+            catch (SqlException sqle)
+            {
+                string error = "Number: " + sqle.Number + " Message: " + sqle.Message;
+                Console.WriteLine(error);
+                manager.RollBack();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                throw;
+            }
+            finally
+            {
+                manager.Close();
+            }
+        }
+
+        private void BulkInsert(List&lt;ServiceData&gt; listData)
+        {
+            MSSqlManager manager = new MSSqlManager();
+            try
+            {
+                manager.BeginTran();
+
+                foreach (ServiceData data in listData)
+                {
+                    string sqlstr = "INSERT INTO SERVICE_TABLE " +
+                        "(Service_ID, ServiceName)" +
+                        " values " +
+                        "(@Service_ID, @Service_Name)";
+
+                    Dictionary&lt;string, Object&gt; paramDict = new Dictionary&lt;string, object&gt;();
+                    paramDict.Add("@Service_ID", data.ServiceID);
+                    paramDict.Add("@Service_Name", data.ServiceName);
+
+                    manager.ExecuteInsert(sqlstr, paramDict);
+                }
+
+                manager.CommitTran();
+            }
+            catch (SqlException sqle)
+            {
+                string error = "Number: " + sqle.Number + " Message: " + sqle.Message;
+                Console.WriteLine(error);
+                manager.RollBack();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                throw;
+            }
+            finally
+            {
+                manager.Close();
+            }
+        }
+    }
+}
+

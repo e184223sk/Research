@@ -1,0 +1,70 @@
+
+internal List&lt;string&gt; Export()
+{
+    List&lt;string&gt; contents = new List&lt;string&gt;();
+    //★ブックを読み取り専用で開く
+    using (var book = new ComWrapper&lt;Excel.Workbook&gt;(books.Open(file,
+            UpdateLinks: Excel.XlUpdateLinks.xlUpdateLinksNever,
+            ReadOnly: true,
+            IgnoreReadOnlyRecommended: true,
+            Editable: false)
+        ))
+    {
+        List&lt;string&gt; sheetNames = new List&lt;string&gt;();
+        List&lt;string&gt; tempFiles = new List&lt;string&gt;();
+        bool success = false;
+        try
+        {
+            for (int i = 1; i &lt;= book.ComObject.Worksheets.Count; i++)
+            {
+                using (var sheet = new ComWrapper&lt;Excel.Worksheet&gt;(book.ComObject.Worksheets[i]))
+                {
+                    var sheetName = sheet.ComObject.Name;//Not after save, because sheet name will be changed after saving.
+                    sheetNames.Add(sheetName);
+                    var tempFile1 = Path.GetTempFileName();//for sheet
+                    tempFiles.Add(tempFile1);
+                    //Text in sheet.
+                    sheetNames.Add(sheetName);
+                    var tempFile2 = Path.GetTempFileName();//for shapes &amp; comments
+                    tempFiles.Add(tempFile2);
+                    sheet.ComObject.SaveAs(tempFile1, FileFormat: Excel.XlFileFormat.xlCSV);
+                    //Text in shapes &amp; comments
+                    List&lt;string&gt; otherContents = new List&lt;string&gt;();
+                    foreach (Excel.Shape shape in sheet.ComObject.Shapes)
+                    {//★図形のテキスト抽出
+                        ExtractShapesContents(otherContents, shape);
+                    }
+                    foreach (Excel.Comment comment in sheet.ComObject.Comments)
+                    {//★コメントの抽出
+                        otherContents.Add(comment.Author + ":" + comment.Text());
+                    }
+                    File.WriteAllLines(tempFile2, otherContents, Encoding.Default);
+                    success = true;
+                }
+            }
+        }
+        finally
+        {
+            book.ComObject.Close(false);
+            //merge contents after closing 
+            if (success)
+            {
+                int i = 0;
+                foreach (var tempFile in tempFiles)
+                {
+                    if (i % 2 == 0)
+                    {//sheet=n+0, shapes=n+1
+                        contents.Add("[" + sheetNames[i] + "]");
+                    }
+                    i++;
+                    var sheetContents = FileUtils.MergeTextContents(new string[] { tempFile });
+                    File.Delete(tempFile);
+                    contents.AddRange(sheetContents);
+                }
+            }
+            FileUtils.DeleteFiles(tempFiles.ToArray());
+        }
+        return contents;
+    }
+}
+

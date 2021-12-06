@@ -1,0 +1,21 @@
+
+public static TResult Execute&lt;TResult&gt;(this DbCommand command)
+{
+    Func&lt;Type, bool&gt; isNullable = type =&gt; type.IsGenericType &amp;&amp; (type.GetGenericTypeDefinition() == typeof(Nullable&lt;&gt;));
+    Func&lt;Type, Type&gt; getBaseOrSelf = type =&gt; isNullable(type) ? Nullable.GetUnderlyingType(type) : type;
+
+    if (command == null) throw new ArgumentNullException(nameof(command));
+    try
+    {
+        command.Log();
+        var result = command.ExecuteScalar();
+        if (result == null) return default(TResult);
+        if (result is DBNull) return default(TResult);
+        return (TResult)Convert.ChangeType(result, getBaseOrSelf(typeof(TResult)));
+    }
+    catch (Exception ex)
+    {
+        throw new ApplicationException("Attempt to ExecuteScalar failed.", ex);
+    }
+}
+

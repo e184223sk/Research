@@ -1,0 +1,105 @@
+
+public class AD
+{
+    :
+    /// &lt;summary&gt;
+    /// 偏微分値
+    /// &lt;/summary&gt;
+    private double dif = 0;
+
+    /// &lt;summary&gt;
+    /// この変数を入力として使っている演算の数
+    /// &lt;/summary&gt;
+    private int UsedNum;
+    /// &lt;summary&gt;
+    /// 偏微分値の足しこみ回数
+    /// &lt;/summary&gt;
+    private int CalculatedNum;
+
+    /// &lt;summary&gt;
+    /// 計算待機リスト
+    /// &lt;/summary&gt;
+    private static Queue&lt;AD&gt; CalcList = new Queue&lt;AD&gt;();
+
+    /// &lt;summary&gt;
+    /// 準備中フラグ
+    /// &lt;/summary&gt;
+    private bool InPreparation = false;
+
+    /// &lt;summary&gt;
+    /// 微分計算
+    /// &lt;/summary&gt;
+    public void GetDifferential()
+    {
+        // 待機リストが空になるまでループして全ノードで準備
+        CalcList.Enqueue(this);
+        while (CalcList.Count &gt; 0)
+        {
+            CalcList.Dequeue().prepare();
+        }
+
+        // 目的関数自身による微分値は1になる
+        this.dif = 1.0;
+
+        // 待機リストが空になるまでループして全ノードで計算
+        CalcList.Enqueue(this);
+        while (CalcList.Count &gt; 0)
+        {
+            CalcList.Dequeue().calculate();
+        }
+    }
+    /// &lt;summary&gt;
+    /// 偏微分計算の準備
+    /// &lt;/summary&gt;
+    private void prepare()
+    {
+        // すでに計算準備を行っているなら何もしない
+        if (this.InPreparation) return;
+        this.InPreparation = true;
+
+        this.dif = 0;
+        this.CalculatedNum = 0;
+
+        if (Inputs == null) return;
+        for (int i = 0; i &lt; Inputs.Length; i++)
+        {
+            var src = Inputs[i];
+            src.UsedNum++;
+            if (!src.InPreparation)
+                CalcList.Enqueue(src);
+        }
+    }
+    /// &lt;summary&gt;
+    /// 偏微分値計算
+    /// &lt;/summary&gt;
+    protected void calculate()
+    {
+        // すでに偏微分値計算を行っているなら何もしない
+        if (!this.InPreparation) return;
+        this.InPreparation = false;
+
+        if (Inputs== null) return;
+        for (int i = 0; i &lt; Inputs.Length; i++)
+        {
+            var src = Inputs[i];
+            src.dif += this.dif * Differentials[i];
+            src.CalculatedNum++;
+            // 計算回数が演算ソースとして使われている回数に達した（＝微分値導出完了）なら待機リストに加える
+            if (src.CalculatedNum &gt;= src.UsedNum)
+            {
+                src.UsedNum = 0;
+                CalcList.Enqueue(src);
+            }
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 変数値、演算の結果値
+    /// &lt;/summary&gt;
+    public double Val { get { return Output; } }
+    /// &lt;summary&gt;
+    /// 偏微分値
+    /// &lt;/summary&gt;
+    public double Dif { get { return dif; } }
+}
+

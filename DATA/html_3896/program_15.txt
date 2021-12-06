@@ -1,0 +1,29 @@
+
+await Task.Run(async () =&gt;
+{
+    var enumerateFilesCollection = GetAllFilesAsync(@"C:\");
+    await enumerateFilesCollection.ForEachAsyncNoLock(async enumerateFiles =&gt;
+    {
+        foreach (var file in await enumerateFiles)
+        {
+            //キャンセルされれば例外で止める
+            _cancellationToken.ThrowIfCancellationRequested();
+
+            //念の為スレッドセーフにインクリメントを行う
+            Interlocked.Increment(ref count);
+
+            //意図的にawaitを付けない
+            this.Dispatcher.InvokeAsync(() =&gt;
+            {
+                this.txtFileCount.Text = count + Environment.NewLine + file;
+            }, DispatcherPriority.Background, _cancellationToken);
+
+            //50000件の計測用
+            if (count &gt;= 50000)
+            {
+                _cancellationTokenSource.Cancel();
+            }
+        }
+    }, _cancellationToken);
+}, _cancellationToken);
+

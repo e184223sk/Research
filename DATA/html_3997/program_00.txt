@@ -1,0 +1,57 @@
+using System;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+
+namespace ConsoleApp1
+{
+    [StructLayout(LayoutKind.Sequential, Pack=2)]
+    class MyStruct
+    {
+        public byte a = 0x42;
+        public uint b;
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            MyStruct ms = new MyStruct();
+            ms.b = 0xCAFEBABE;
+
+            using (FileStream stream = new FileStream(@"c:\tmp\struct1.bin", FileMode.Create))
+            {
+                int size = Marshal.SizeOf(ms);
+                byte[] bytes = new byte[size];
+                GCHandle gch = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                Marshal.StructureToPtr(ms, gch.AddrOfPinnedObject(), false);
+                gch.Free();
+                stream.Write(bytes, 0, bytes.Length);
+                // 42 00 BE BA FE CA
+            }
+
+            using (FileStream stream = new FileStream(@"c:\tmp\struct2.bin", FileMode.Create))
+            {
+                int size = Marshal.SizeOf(ms);
+                IntPtr ptr = Marshal.AllocHGlobal(size);
+                Marshal.StructureToPtr(ms, ptr, false);
+                byte[] bytes = new byte[size];
+                Marshal.Copy(ptr, bytes, 0, size);
+                stream.Write(bytes, 0, bytes.Length);
+                // 42 00 BE BA FE CA
+            }
+
+            using (FileStream stream = new FileStream(@"c:\tmp\struct3.bin", FileMode.Create))
+            {
+                FieldInfo[] infos = typeof(MyStruct).GetFields();
+                foreach (FieldInfo info in infos)
+                {
+                    byte[] bytes = BitConverter.GetBytes(Convert.ToUInt32(info.GetValue(ms)));
+                    stream.Write(bytes, 0, Marshal.SizeOf(info.FieldType));
+                }
+                // 42 BE BA FE CA
+            }
+        }
+    }
+}
+

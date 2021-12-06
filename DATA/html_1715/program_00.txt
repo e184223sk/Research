@@ -1,0 +1,81 @@
+using UnityEngine;
+
+[ExecuteInEditMode, RequireComponent(typeof(RectTransform))]
+public class UISizeFitter : MonoBehaviour
+{
+    [SerializeField] RectTransform _target;
+
+    RectTransform _selfRect;
+    Vector3 _cachedTargetLossyScale;
+    Vector2 _cachedTargetSizeDelta;
+    Vector3 _cachedSelfLossyScale;
+    bool _isDirty = true;
+
+    void UpdateDirty()
+    {
+        if (_cachedTargetSizeDelta == _target.sizeDelta &amp;&amp;
+            _cachedTargetLossyScale == _target.lossyScale &amp;&amp;
+            _cachedSelfLossyScale == _selfRect.lossyScale)
+        {
+            return;
+        }
+
+        _cachedTargetSizeDelta = _target.sizeDelta;
+        _cachedTargetLossyScale = _target.lossyScale;
+        _cachedSelfLossyScale = _selfRect.lossyScale;
+
+        _isDirty = true;
+    }
+    void AdjustSize()
+    {
+        if (!_isDirty)
+        {
+            return;
+        }
+
+        if (_selfRect.lossyScale.x != 0 &amp;&amp; _selfRect.lossyScale.y != 0)
+        {
+            _selfRect.sizeDelta = _cachedTargetSizeDelta * _cachedTargetLossyScale / _selfRect.lossyScale;
+        }
+        _isDirty = false;
+    }
+
+    // Layout Groupみたいに「Some values driven by 〜」とInspector上の編集を禁止する
+    void LockRectTransformProperty()
+    {
+        DrivenRectTransformTracker dt = new DrivenRectTransformTracker();
+        dt.Clear();
+        dt.Add(this, _selfRect, DrivenTransformProperties.SizeDelta | DrivenTransformProperties.Scale);
+    }
+
+    void FitSize()
+    {
+        if (_target == null)
+        {
+            return;
+        }
+
+        UpdateDirty();
+
+        AdjustSize();
+    }
+
+    void Awake()
+    {
+        _selfRect = GetComponent&lt;RectTransform&gt;();
+        _selfRect.transform.localScale = Vector2.one;
+
+        LockRectTransformProperty();
+    }
+
+    void Start()
+    {
+        FitSize();
+    }
+
+    void Update()
+    {
+        FitSize();
+    }
+}
+

@@ -1,0 +1,74 @@
+
+public static void MakeCodeOfTileTypeToDropItemType()
+{
+    //タイルタイプとTileID名のディクショナリーを作成する
+    var dicTileID = new Dictionary&lt;int, string&gt;();
+    var classTileID = typeof(TileID);
+    classTileID.GetFields().ToList().ForEach(x =&gt; dicTileID.Add(int.Parse(x.GetValue(classTileID).ToString()), x.Name));
+
+    //アイテムタイプとItemID名のディクショナリーを作成する
+    var dicItemID = new Dictionary&lt;int, string&gt;();
+    var classItemID = typeof(ItemID);
+    classItemID.GetFields().ToList().ForEach(x =&gt;
+    {
+        if (x.FieldType.Equals(typeof(short))) dicItemID.Add(int.Parse(x.GetValue(classItemID).ToString()), x.Name);
+    });
+
+    //タイルタイプからドロップするアイテムのリストを作成する
+    List&lt;Tuple&lt;int, int&gt;&gt; listOK = new List&lt;Tuple&lt;int, int&gt;&gt;();
+    List&lt;int&gt; listNG = new List&lt;int&gt;();
+    for (int i = 0; i &lt; dicTileID.Count; i++)
+    {
+        Tile tile = new Tile();
+        tile.type = (ushort)i;
+        int itemType = TileUtils.getKillDropItemType(tile);
+        if (0 &lt; itemType)
+        {
+            listOK.Add(new Tuple&lt;int, int&gt;(i, itemType));
+        }
+        else
+        {
+            listNG.Add(i);
+        }
+    }
+
+    //ドロップするアイテムのアイテムタイプとアイテム名のディクショナリーを作成する
+    var dicItemName = new Dictionary&lt;int, string&gt;();
+    foreach (var x in listOK)
+    {
+        Item item = new Item();
+        item.SetDefaults(x.Item2);
+        if (!dicItemName.ContainsKey(x.Item2))
+            dicItemName.Add(x.Item2, item.Name);
+    }
+
+    //TileIDとItemIDで置き換えたコードを生成する
+    using (FileStream fs = new FileStream($@"{Main.SavePath}\TileUtils.cs", FileMode.Create))
+    using (StreamWriter sw = new StreamWriter(fs))
+    {
+        sw.WriteLine("public static class TileUtils");
+        sw.WriteLine("{");
+        sw.WriteLine("    public static int getKillDropItemType(Tile tile)");
+        sw.WriteLine("    {");
+        sw.WriteLine("        int result = 0;");
+        sw.WriteLine("        switch (tile.type)");
+        sw.WriteLine("        {");
+        foreach (var x in listOK)
+        {
+            sw.WriteLine($"            //{dicItemName[x.Item2]}");
+            sw.WriteLine($"            case TileID.{dicTileID[x.Item1]}:");
+            sw.WriteLine($"                result = ItemID.{dicItemID[x.Item2]};");
+            sw.WriteLine("                break;");
+        }
+        foreach (var x in listNG)
+        {
+            sw.WriteLine($"            case TileID.{dicTileID[x]}:");
+            sw.WriteLine("                break;");
+        }
+        sw.WriteLine("        }");
+        sw.WriteLine("        return result;");
+        sw.WriteLine("    }");
+        sw.WriteLine("}");
+    }
+}
+

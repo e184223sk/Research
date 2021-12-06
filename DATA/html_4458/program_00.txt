@@ -1,0 +1,60 @@
+        public static void chatWorkFileNotice(string apikey, string roomID, string filePath, string filename = "テキスト.txt")
+        {
+            try
+            {
+                //文字コードを指定する
+                var enc = Encoding.GetEncoding("UTF-8");
+                string url = string.Format("https://api.chatwork.com/v2/rooms/{0}/files", roomID);
+                string boundary = System.Environment.TickCount.ToString();
+                var req = WebRequest.Create(url);
+                req.Method = "POST";
+                req.ContentType = "multipart/form-data; boundary=" + boundary;
+                System.IO.StreamReader cReader = (
+                    new System.IO.StreamReader(filePath, System.Text.Encoding.Default)
+                );
+                string stResult = string.Empty;
+                while (cReader.Peek() &gt;= 0)
+                {
+                    // ファイルを 1 行ずつ読み込む
+                    string stBuffer = cReader.ReadLine();
+                    // 読み込んだものを追加で格納する
+                    stResult += stBuffer + System.Environment.NewLine;
+                }
+                cReader.Close();
+
+                var postData = "";
+                postData = "--------------------------" + boundary + "\r\n" +
+                    "Content-Disposition: form-data; name=\"file\"; filename=" + filename + "\"\r\n" +
+                    "Content-Type: text/plain\r\n\r\n" +
+                    stResult + "\r\n" +
+                    "--------------------------" + boundary + "--";
+
+                var postDataBytes = System.Text.Encoding.UTF8.GetBytes(postData);
+                req.ContentLength = postDataBytes.Length;
+                req.Headers.Add(string.Format("X-ChatWorkToken: {0}", apikey));
+
+                // データをPOST送信するためのStreamを取得
+                var reqStream = req.GetRequestStream();
+                // 送信するデータを書き込む
+                reqStream.Write(postDataBytes, 0, postDataBytes.Length);
+                reqStream.Close();
+
+                // サーバーからの応答を受信する
+                var res = req.GetResponse();
+                // 応答データを受信するためのStreamを取得
+                var resStream = res.GetResponseStream();
+                // 受信して表示
+                var sr = new StreamReader(resStream, enc);
+                // 結果受信
+                var responseMessage = sr.ReadToEnd();
+
+                Console.Write(responseMessage);
+                sr.Close();
+            }
+            catch (System.Exception ex)
+            {
+                Console.WriteLine("下記エラーにより送信失敗");
+                Console.WriteLine(ex.Message);
+            }
+        }
+

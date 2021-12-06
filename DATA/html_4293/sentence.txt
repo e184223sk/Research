@@ -1,0 +1,44 @@
+More than 1 year has passed since last update.Rxってなにそれおいしいの？といったレベル感の方を対象に書きます。
+Rxは概念が難しく、筆者自身調べれば調べるほどわからなくなったので、自分が理解したことをできるだけわかりやすく解説します。非同期/イベント/時間に関する処理を、LINQ形式で簡潔かつ宣言的に記述することができるC#のさいきょうライブラリのことです。
+eventとかLINQの機能を盛り込んで高機能にしたすごいやつ、それがRxです。
+Rxの概念があまりに秀逸であったため、ReactiveXとして多言語(Java/JavaScript/Unity(C#)/Scala/C++/Ruby/Python/Go/Kotlin/Swift/PHP etc...)に移植され言語を超えて使用されています。RxはObserverパターンが核となる考え方です。
+Observerパターンとは、観測対象(=Subject)と観測者(=Observer)の2つの役割が存在し、Subjectの状態が変化した際にObserverに通知されるデザインパターンです。そのため、状態変化に応じた処理を記述する時に有効です。
+このとき重要なのは、SubjectはObserver(の型)を直接知らないようにすることです。この抽象化を実現するために、一般的にはインターフェースが利用されます。.NET Framework 4では、SubjectのインターフェースとしてIObservable&lt;T&gt;が、ObserverのインターフェースとしてIObserver&lt;T&gt;が導入されました。IObservable&lt;T&gt;はSubscribeメソッドのみを持ちます。
+1. IDisposable Subscribe(IObserver&lt;T&gt; observer)メソッド
+引数で受け取ったObserverにイベントの通知を行うようにします。
+つまり、Subjectに通知先(=Observer)を登録します。
+戻り値のIDisposableのDisposeメソッドを呼び出すと通知を取り消します。ジェネリック型Tには、変更通知に用いる型を指定します。IObserver&lt;T&gt;には、IObservable&lt;T&gt;から状態変更を通知してもらうための3つのメソッドがあります。
+1. void OnNext(T value)メソッド
+IObservable&lt;T&gt;から発生した通知を受け取って処理を行います。
+つまり、Subjectの状態が変化したことを通知します。
+2. void OnError(Exception ex)メソッド 
+IObservable&lt;T&gt;で発生した例外を受け取って処理を行います。
+つまり、Subjectで何らかのエラーが発生したことを通知します。
+3. void OnCompleted()メソッド
+IObservable&lt;T&gt;からの通知が終了した時の処理を行います。
+つまり、Subjectの状態変化が完了したことを通知します。Rxではストリームと呼ばれるものを扱います。ストリームとはデータの流れるシーケンスであり、時間軸も存在しています。
+ストリームの実態はSubject(IObservable&lt;T&gt;)です。ちなみにストリームに流れるデータの事をメッセージと呼びます。ここで、Rxの挙動を追いかける上で非常に重要である、データの流れについて見ていきます。Push型は、発信源から情報が送信されてくるのを受信者が待機する(受動的に待ち受ける)という形です。
+情報の発信源に対して複数の受信者を関連付けることができるので、同じ情報を一度に複数の対象者に配ることができます。
+Pull型は、受信者が必要に応じて情報を発信源に取得しに行く(能動的に取得する)という形です。
+コレクションの中から特定の条件に合う要素を抜き出してどうこうする、というIEnumerable&lt;T&gt;ベースのLINQスタイルは、まさにPull型と言えます。実際、foreach文などでコレクションからデータを取得する際には、要素を取得する必要があるときになって初めて、MoveNextメソッドとCurrentプロパティを利用して逐次アクセスするようになっています。
+Hotな性質とは、同一のIObservable&lt;T&gt;シーケンスに関連付けたすべてのIObserver&lt;T&gt;に対し、一度に同じ値を通知することを言います。
+Rxのストリームは、基本的にSubscribeされた瞬間に各オペレータの動作が始まるようになっています。ですが、Hot Observableをストリームの途中に挟むことで、Subscribeを実行するより前にストリームを稼働させることができます。また、ストリームを分岐することもできます。
+Coldな性質とは、IObservable&lt;T&gt;シーケンスに関連付けたそれぞれのIObserver&lt;T&gt;に対し、個別に値を通知することを言います。
+Cold Observableは、Subscribeされる(またはHot変換される)まで動作しません。つまり、自発的に何もしない受動的なObservableです。
+みんなだいすきHello worldをRxでやってみたいと思います。
+一番シンプルなRxのHello worldは、単純なObserverパターンになります。ここで肝になるインターフェースはIObservable&lt;T&gt;とIObserver&lt;T&gt;の２つです。こんな感じでRxのHello worldを実装することができました。
+ただ、わざわざインターフェースを実装したり、非常にまどろっこしいです。なので、Rxで提供されている便利なSubject&lt;T&gt;クラスを利用して、上記のHello worldを書き直してみたいと思います。
+Subject&lt;T&gt;は、IObservable&lt;T&gt;とIObserver&lt;T&gt;の両方を実装した、言わば一人二役なクラスです。 Subscribeメソッドも実装してあるし、OnNextメソッドを呼ぶことで変更を通知することができます。おや、"Rx完全に理解した"がコンソールに出力されていませんね。実はIObservableが実装するSubscribeメソッドが返すIDisposableのDisposeを呼ぶと、Subscribeで追加したものを削除する効果があります。このように、非常に簡単にObserverパターンが作れるようになりました。LINQでお馴染みのWhereメソッドを使ってフィルタリングをかけることができます。LINQでお馴染みのSelectメソッドを使って値を変換することができます。RxはIObservable&lt;T&gt;とIObserver&lt;T&gt;をベースに下記のような機能を提供しています。
+1. IObservable&lt;T&gt;のファクトリメソッド
+RxにはIObservable&lt;T&gt;を返すファクトリメソッドが多数用意されています。.NETの標準のイベントからIObservable&lt;T&gt;を生成するメソッドや、非同期呼び出し、タイマー、シーケンス、特定のルールで生成される値の集合etc...さまざまなものが提供されています。
+2. IObservable&lt;T&gt;の拡張メソッド
+IObservable&lt;T&gt;とIObserver&lt;T&gt;だけではイベントの発行と購読の関係にしかなりません。Rxでは、ここにLINQスタイルの拡張メソッドを提供することでIObservable&lt;T&gt;から発行された値をフィルタリングしたり、発行された値を元に別の処理を行ったり、発行された値の変換を行ったりすることが出来ます。
+3. IObserver&lt;T&gt;生成へのショートカット
+IObserver&lt;T&gt;を実装しなくても、ラムダ式からIObserver&lt;T&gt;を内部的に生成してくれます。そのため、実際にRxを使用するときには、IObserver&lt;T&gt;インターフェースを実装するケースはほとんどありません。
+4. 柔軟なスレッドの切り替え機能
+IObservable&lt;T&gt;から発行された値に対する処理を何処のスレッドで実行するのか柔軟に切り替える機能が提供されています。このためバックグラウンドで時間のかかる処理を行い、UIスレッドに切り替えて画面の更新を行うといった処理が簡単に行えるようになります。Rxについてまとめるのは正直無理ゲーです。まじでわからん。笑
+Rxなら様々な処理をよしなに書くことができます。
+イベント / 並列 / 非同期 / 時間 / 合成 / 分配 / キャンセル / 例外 / 連携 etc... なんでもござれ。
+もっとRxについて勉強したい方は下記リンクからどうぞ！(激つよな方々が解説されています)
+
+

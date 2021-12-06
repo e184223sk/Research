@@ -1,0 +1,100 @@
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using CsvHelper;
+using CsvHelper.Configuration;
+
+namespace MyProject
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            using (var reader = new StreamReader("test2.csv", Encoding.GetEncoding("SHIFT_JIS")))
+            {
+                using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+                {
+                    csv.Configuration.IgnoreBlankLines = false;
+                    csv.Configuration.RegisterClassMap&lt;TestData1Map&gt;();
+                    csv.Configuration.RegisterClassMap&lt;TestData2Map&gt;();
+                    var TestData1Records = new List&lt;TestData1&gt;();
+                    var TestData2Records = new List&lt;TestData2&gt;();
+                    var isHeader = true;
+                    while (csv.Read())
+                    {
+                        if (isHeader)
+                        {
+                            csv.ReadHeader();
+                            isHeader = false;
+                            continue;
+                        }
+
+                        if (string.IsNullOrEmpty(csv.GetField(0)))
+                        {
+                            isHeader = true;
+                            continue;
+                        }
+
+                        switch (csv.Context.HeaderRecord[0])
+                        {
+                            case "Id":
+                               TestData1Records.Add(csv.GetRecord&lt;TestData1&gt;());
+                               break;
+                            case "Name":
+                               TestData2Records.Add(csv.GetRecord&lt;TestData2&gt;());
+                               break;
+                            default:
+                               throw new InvalidOperationException("Unknown record type.");
+                        }
+                    }
+                    foreach (var l in TestData1Records)
+                    {
+                        Console.WriteLine($"Id = {l.Id}, {l.Name}");
+                        foreach (var m in TestData2Records)
+                        {
+                            if (l.Name == m.Name)
+                            {
+                                Console.WriteLine($"Param1 = {m.Param1}, Param2 = {m.Param2}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        public class TestData1
+        {
+            public int Id { get; set; }
+            public string Name { get; set; }
+        }
+
+        public class TestData2
+        {
+            public string Name { get; set; }
+            public string Param1 { get; set; }
+            public string Param2 { get; set; }
+        }
+
+        public sealed class TestData1Map : ClassMap&lt;TestData1&gt;
+        {
+            public TestData1Map()
+            {
+                Map(m =&gt; m.Id).Name("Id");
+                Map(m =&gt; m.Name);
+            }
+        }
+
+        public sealed class TestData2Map : ClassMap&lt;TestData2&gt;
+        {
+            public TestData2Map()
+            {
+                Map(m =&gt; m.Name).Name("Name");
+                Map(m =&gt; m.Param1);
+                Map(m =&gt; m.Param2);
+            }
+        }
+    }
+}
+

@@ -1,0 +1,49 @@
+
+    public class HomeController : Controller
+    {
+        // カード処理を実装するアプリケーションサービス
+        private readonly HomeControlerService service;
+
+        public HomeController()
+        {
+            this.service = new HomeControlerService();
+        }
+
+（中略）
+
+        // 商品を発注、カード決裁入力
+        [Authorize]
+        public ActionResult Order()
+        {
+            // カード情報入力画面（checkout.js）に必要な引数をセット（Stripeの公開鍵とメールアドレス）
+            ViewBag.PublishableKey = ConfigurationManager.AppSettings["StripePublishableKey"]; 
+            ViewBag.Email = User.Identity.Name;
+            return View();
+        }
+
+        // カード決済と、決裁結果を表示
+        [HttpPost]
+        [Authorize]
+        public ActionResult Charge(string stripeEmail, string stripeToken)
+        {
+            // クロスドメインでも実行できるように
+            Response.Headers["Expires"] = "-1";
+            Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+            try
+            {
+                // 課金処理
+                service.Charge(stripeEmail, stripeToken);
+                return View();
+            }
+            catch (Exception ex)
+            {
+                // 課金エラー処理
+                // 本当なら service からスローされたエラーを処理します
+                // こんなアバウトなキャッチはだめですよ！(^^;;
+                ViewBag.Message = "エラー発生：" + ex.Message;
+                return View("Error");
+            }
+        }
+    }
+

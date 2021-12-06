@@ -1,0 +1,12 @@
+More than 1 year has passed since last update.ASP.NET MVC で 1 つのフォームに複数ボタンを配置しそれぞれ別のアクションメソッドを呼び出したいというときには ActionMethodSelectorAttribute クラスを継承して以下の様なクラスを作成します。ボタンの name 属性値と ActionMethodAttribute の引数を一致させることでアクションメソッドを紐づける。通常に扱うぶんには問題ないのだが、上記コードでは特定条件下で非常に分かりづらいバグ？が発生する。
+例えば https://localhost/users/100 のようにユーザー ID をパラメーターにアクセスし、更新と削除のアクションを行える画面のコントローラーを定義する。
+Update アクションと、Delete アクションにはさきほどの ActionMethodAttribute を付与する。この状態で https://localhost/users/100 へアクセスすると UsersController.Index は int 型の id というパラメーターを受け取るシグネチャなのに null が渡されたというような例外が発生する。URL で id を指定しているのにどういうことなのか。。。
+ここで重要なのは属性の並び順であり、ActionMethodAttribute と HttpPostAttribute の並び順を逆にするとひとまず正常に動作するようになる。属性は並び順に処理が実行されるのだが、なぜ HttpPostAttribute より先に ActionMethodAttribute が評価されるとエラーとなるのか。。。。
+問題は恐らく context.Controller.ValueProvider.GetValue(Name) の箇所で ValueProvider にアクセスしているせいかと思われる。
+MVC のソースを確認してみると以下のような流れで ValueProvider が作成される。
+ControllerBase.ValueProvider プロパティに初回アクセス -&gt; ValueProviderFactories.Factories -&gt; ValueProviderFactoryCollection.GetValueProvider
+ここで一度 ValueProvider が生成されてしまうと Index アクションへのバインディング時に値がなくなっているように見受けられる。
+正確な原因は不明だが ValueProvider にアクセスすると発生するのは間違いないようである。
+対処法としては上記にも挙げたように他の ActionMethodSelector より前に適用することである。
+
+

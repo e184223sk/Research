@@ -1,0 +1,58 @@
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+[RequireComponent(typeof(Button))]
+public class KeyBind : MonoBehaviour
+{
+    [SerializeField]
+    private Button _targetButton;
+
+    public KeyCode _bindKey;
+
+    private void Reset()
+    {
+        _targetButton = GetComponent&lt;Button&gt;();
+    }
+
+    private static List&lt;RaycastResult&gt; raycastResultList = new List&lt;RaycastResult&gt;();
+    private PointerEventData _pointerEventData;
+
+    private void Update()
+    {
+        //指定したキーの押下
+        if (Input.GetKeyDown(_bindKey))
+        {
+            _pointerEventData = new PointerEventData(EventSystem.current)
+            {
+                button = PointerEventData.InputButton.Left,
+                position = _targetButton.transform.position //指定したボタンの位置にマウスがある体
+            };
+            EventSystem.current.RaycastAll(_pointerEventData , raycastResultList);
+            var validGameObject = raycastResultList.Select(result =&gt; result.gameObject).FirstOrDefault(gameObject =&gt; gameObject != null);//一番最初にぶつかっている有効なGameObject取得
+            raycastResultList.Clear();
+            if (validGameObject == null)
+            {
+                return;
+            }
+            var currentPointerDownHandlerObject = ExecuteEvents.GetEventHandler&lt;IPointerDownHandler&gt;(validGameObject); //ボタン位置にあるGameObjectからIPointerDownHandlerを保持しているGameObjectを取得
+            if (currentPointerDownHandlerObject != _targetButton.gameObject){
+                return;    //ボタン位置から得られたGameObjectとボタンのGameObjectが異なる＝別のもので遮られている ので処理しない
+            }
+
+            _pointerEventData.pointerPress = currentPointerDownHandlerObject;
+            ExecuteEvents.Execute(currentPointerDownHandlerObject, _pointerEventData, ExecuteEvents.pointerDownHandler);
+        }
+
+        //指定したキーの押上
+        if (_pointerEventData != null &amp;&amp; _pointerEventData.pointerPress != null &amp;&amp; Input.GetKeyUp(_bindKey))
+        {
+            ExecuteEvents.Execute(_pointerEventData.pointerPress, _pointerEventData, ExecuteEvents.pointerUpHandler);
+            ExecuteEvents.Execute(_pointerEventData.pointerPress, _pointerEventData, ExecuteEvents.pointerClickHandler);
+            _pointerEventData = null;
+        }
+    }
+}
+

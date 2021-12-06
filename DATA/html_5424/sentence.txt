@@ -1,0 +1,20 @@
+More than 3 years have passed since last update.みたいなクラスがあって、IEnumerable&lt;Ball&gt; を色別にグルーピングする必要がありました。
+グルーピング後に「ある色について何かする」という処理がたくさんあり、扱いやすく効率的なものにしたいと思いました。最初に思いついたのは、LINQ の GroupBy() を使う方法です。
+特定のグループを取り出すには、Where() とか Single() が使えます。GroupBy() の返り値の型は IEnumerable&lt;IGrouping&lt;K, T&gt;&gt; になります。
+グループの検索は常に先頭から順番にたどっていくことになり、実行時間は $O(n)$ となります。
+また削除についても、あるグループを含まないコレクションを作り直すしかなく、ピンポイントで削除できませｎ。
+グループに対する操作を何度も繰り返す場合、これはオーバーヘッドが大きすぎます。ちなみに、.GroupBy().Single() としたときの返り値の型は IGrouping&lt;K, V&gt; です。
+これは IEnumerable&lt;V&gt; を継承していますので、あるグループ内の要素についてループを回す分には困りません。キーを使ったグルーピングをする型として LookUp&lt;K, T&gt; があります。
+IEnumerable&lt;T&gt;.ToLookUp() で簡単に変換できます。ILookUp&lt;K, T&gt; に変換した後はインデクサーが使えますので、グループの検索は $O(\log n)$ になります（そのような実装になっていると思いたいです）。
+また、ILookUp&lt;K, T&gt; は IEnumerable&lt;IGrouping&lt;K, T&gt;&gt; を継承していますので、GroupBy() と同様に扱えます。ただし、グループを削除する方法がありません。
+Where() で削除すると、型が ILookUp&lt;K, V&gt; から IEnumerable&lt;IGrouping&lt;K, V&gt;&gt; に変わってしまいます。キーを使った検索は辞書( Dictionary&lt;K, V&gt; )型が得意とするところです。
+そこで、配列を値とした辞書に格納することにしました。まずは、自分で Dictionary&lt;RGB, List&lt;Ball&gt;&gt; を組み立ててみました。
+ボールの色を順番に調べて、既存の色なら List に加え、未知の色なら辞書にキーを追加して、を繰り返します。できあがってしまえば、グループの検索も削除も $O(\log n)$ になります。
+あるグループ内の要素についてループを回すのも簡単です。でも、自分で Dictionary と List をメンテするのはスマートとはいえません。IEnumerable&lt;T&gt;.ToDictionary() があります。
+名前の通り、IEnumerable&lt;T&gt; から Dictionary&lt;K, V&gt; に変換できます。しかし、IEnumerable&lt;T&gt; の要素1つから Dictionary&lt;K, V&gt; の要素1つに変換するので、このままではグルーピングには使えません。GroupBy() の戻り値は IEnumerable&lt;&gt; 型なので、ToDictionary() が使えます。
+そこで、list.GroupBy().ToDictionary() として辞書にしてみました。辞書型なので、グループの検索も削除も簡単で速い（ $O(\log n)$ ）です。
+しかし、グループを取得する際に Dictionary&lt;K, V&gt;.TryGetValue(K, out V) を使おうとすると、C#6.0 以前では型を知っている必要があります。out 引数の時だけグループの型が IGrouping&lt;K, V&gt; であることを思い出すのは面倒くさいです。
+いつでも IEnumerable&lt;V&gt; 型で扱いたいので、もう一工夫します。ToDictionary() は、第 2 引数にも関数を渡すことで、要素から値を生成できます。
+そこで、値の方を IEnumerable&lt;V&gt; 型にキャストして格納してみます。ようやく、扱いやすい型になりました。LINQ と C# 7.0 以降なら、グルーピングはとても簡単で、.GroupBy(e =&gt; e.K) とか .GroupBy(e =&gt; e.K).ToDictionary(g =&gt; g.Key) で済みます。C# 6.0 以前で辞書で out 引数を使おうとして、ちょっと嵌った話でした。
+
+

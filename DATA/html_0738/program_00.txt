@@ -1,0 +1,224 @@
+using System;
+using System.Collections.Generic;
+using Android.Graphics;
+
+    class clsBMPF
+    {
+        //画像はARGB8888で扱う
+        Android.Graphics.Bitmap.Config bitmapConfig = Android.Graphics.Bitmap.Config.Argb8888;
+
+        //■ヘッダー情報関係
+        //http://oyk3865b.blog13.fc2.com/blog-entry-1394.html
+        //△冒頭の構文=BfType(ファイルタイプ)------------------------------------------------------------------------------------------------------------
+        readonly byte[] bmp_header_start = new byte[] { 0x42, 0x4D };
+
+
+        //△ヘッダー間隔用のオブジェクト------------------------------------------------------
+        readonly byte[] bmp_1st_obj = new byte[] { 0, 0, 0, 0 };
+
+
+        //△BfOffBits------------------------------------------------------
+        readonly byte[] bmp_2nd_obj = new byte[] { 0x36, 0, 0, 0 };
+
+
+        //△BiSize------------------------------------------------------
+        readonly byte[] bmp_3rd_obj = new byte[] { 0x28, 0, 0, 0 };
+
+
+        //△BiPlanes_BiBitCount------------------------------------------------------
+        readonly byte[] bmp_4th_obj = new byte[] { 0x1, 0, 0x18, 0 };
+
+        public void Output_Bitmap_Image(Bitmap bitmap, string Output_Path)
+        {
+
+            //Windows Bitmapを自分で作る
+            //bitmap→出力する画像の元データ
+            //Output_Path→出力するパス（重複の場合、上書きする）
+            //https://qiita.com/oyk3865b/items/58abd56c5c1edcc84118
+
+            //色設定をARGB8888に統一する。
+            //https://stackoverflow.com/questions/7320392/how-to-draw-text-on-image
+            bitmap = bitmap.Copy(bitmapConfig, true);
+
+            //Bitmapのバイナリ置き換えの準備
+            //https://qiita.com/aymikmts/items/7139fa6c4da3b57cb4fc
+            string err_str = "byteBuffer";
+            Java.Nio.ByteBuffer byteBuffer = Java.Nio.ByteBuffer.Allocate(bitmap.ByteCount);
+            err_str = "CopyPixelsToBuffer";
+            bitmap.CopyPixelsToBuffer(byteBuffer);
+            err_str = "Flip";
+            byteBuffer.Flip();
+            err_str = "bmparr";
+
+            //基礎Bitmapのバイナリへの置き換え
+            byte[] bmparr = new byte[byteBuffer.Capacity()];
+            err_str = "Get";
+            byteBuffer.Duplicate().Get(bmparr);
+            err_str = "Clear";
+            byteBuffer.Clear();
+
+
+            //ファイルサイズの算出(横は4の倍数でないといけない)
+            int width_size = bitmap.Width * 3; //幅1行のバイナリサイズを算出(幅px*3色)
+                                           //幅バイナリ値は4の倍数に直してから、高さpxをかけ本体サイズを算出。
+            Int32 bitmap_filesize = ((((width_size + 3) / 4) * 4) * bitmap.Height);
+            //出来るBitmapの全ファイル・サイズを格納
+            Int32 bitmap_all_filesize = bitmap_filesize + 54; //ヘッダーなど本体以外で54バイト消費
+
+
+            //■出力bmpバイナリの初期化
+            //出力bmpのバイナリ格納用。
+            List&lt;byte&gt; ary_bmp_file = new List&lt;byte&gt;();
+            //出力bmpのバイナリ各オブジェクトの、バイト開始位置を格納用。
+            List&lt;byte&gt; ary_bmp_byte_head = new List&lt;byte&gt;();
+
+
+            //■ファイルを作成して書き込む 
+            //ファイルが存在しているときは、消してから書き込みする 
+            if (System.IO.File.Exists(Output_Path)) { System.IO.File.Delete(Output_Path); }
+
+            using (System.IO.FileStream fs = new System.IO.FileStream(Output_Path,
+                System.IO.FileMode.Create,
+                System.IO.FileAccess.Write))
+            {
+                //◎冒頭の書き込み
+                ary_bmp_file.AddRange(bmp_header_start);
+
+                //◎全ファイルサイズの格納(BfSize)
+                //ファイルサイズ値を、バイト配列に変換
+                ary_bmp_byte_head.AddRange(BitConverter.GetBytes(bitmap_all_filesize));
+                if (ary_bmp_byte_head.Count &lt; 4)
+                { //必ず、4バイトにする。
+                  //空隙は0で埋める。
+                    for (int i = ary_bmp_byte_head.Count + 1; i &lt;= 4; i++)
+                    {
+                        ary_bmp_byte_head.Add(0);
+                    }
+                }
+                ary_bmp_file.AddRange(ary_bmp_byte_head.ToArray()); //書き加える。
+                ary_bmp_byte_head.Clear(); //不要情報を、クリア。
+
+                //◎空白4バイトの書き込み
+                ary_bmp_file.AddRange(bmp_1st_obj);
+
+                //◎BfOffBitsの書き込み
+                ary_bmp_file.AddRange(bmp_2nd_obj);
+
+                //◎BiSizeの書き込み
+                ary_bmp_file.AddRange(bmp_3rd_obj);
+
+
+                //◎画像幅の指定(BiWidth)
+                //幅の値を、バイト配列に変換
+                ary_bmp_byte_head.AddRange(BitConverter.GetBytes(bitmap.Width));
+                if (ary_bmp_byte_head.Count &lt; 4)
+                { //必ず、4バイトにする。
+                    for (int i = ary_bmp_byte_head.Count + 1; i &lt;= 4; i++)
+                    {
+                        ary_bmp_byte_head.Add(0);
+                    }
+                }
+                ary_bmp_file.AddRange(ary_bmp_byte_head); //書き加える。
+                ary_bmp_byte_head.Clear(); //不要情報を、クリア。
+
+
+                //◎画像高さの指定(BiHeight)
+                //高さの値を、バイト配列に変換
+                ary_bmp_byte_head.AddRange(BitConverter.GetBytes(bitmap.Height));
+                if (ary_bmp_byte_head.Count &lt; 4)
+                {    //必ず、4バイトにする。
+                    for (int i = ary_bmp_byte_head.Count + 1; i &lt;= 4; i++)
+                    {
+                        ary_bmp_byte_head.Add(0);
+                    }
+                }
+                ary_bmp_file.AddRange(ary_bmp_byte_head); //書き加える。
+                ary_bmp_byte_head.Clear(); //不要情報を、クリア。
+
+                //◎BiPlanes_BiBitCountの書き込み
+                ary_bmp_file.AddRange(bmp_4th_obj);
+
+                //◎空白4バイトの書き込み
+                ary_bmp_file.AddRange(bmp_1st_obj);
+
+                //◎画像ファイルサイズの格納(BiSizeImage)
+                //ファイルサイズ値を、バイト配列に変換
+                ary_bmp_byte_head.AddRange(BitConverter.GetBytes(bitmap_filesize));
+                for (int i = ary_bmp_byte_head.Count + 1; i &lt;= 4; i++)
+                {
+                    ary_bmp_byte_head.Add(0);
+                }
+                ary_bmp_file.AddRange(ary_bmp_byte_head); //書き加える。
+                ary_bmp_byte_head.Clear(); //不要情報を、クリア。
+
+                //◎空白4バイトの書き込み×4
+                for (int i = 0; i &lt; 4; i++)
+                {
+                    ary_bmp_file.AddRange(bmp_1st_obj);
+                }
+
+                //一旦、バイト型配列の内容をファイルに書き出す
+                fs.Write(ary_bmp_file.ToArray(), 0, ary_bmp_file.Count);
+
+                //配列を、一旦、クリアする。
+                ary_bmp_file.Clear();
+                //■ヘッダーの作成------------ここまで-----------------
+
+                //Bitmapは、左下から書き込む
+                for (int bmp_y = bitmap.Height - 1; bmp_y &gt;= 0; bmp_y--)
+                { //縦軸分のループ(下から)
+
+                    //横幅の分だけ配列にコピーする。
+                    //このコピー部分は、ループでなくて、配列のコピーでも良い
+                    for (int bmp_x = 0; bmp_x &lt;= (bitmap.Width - 1); bmp_x++)
+                    {   //横軸分のループ(左から)
+                        //その座標の点にある、ピクセル（ドット）の色を取得する。
+                        long pos = bmp_y * (bitmap.Width * 4) + bmp_x * 4;
+                        //ary_bmp_file.Add(bmparr[pos + 3]); //AはRGB888形式で出力するため入れない
+                        ary_bmp_file.Add(bmparr[pos + 2]); //R
+                        ary_bmp_file.Add(bmparr[pos + 1]); //G
+                        ary_bmp_file.Add(bmparr[pos + 0]); //B
+                    }
+
+                    //4の倍数でない場合
+                    if (ary_bmp_file.Count % 4 != 0)
+                    {
+                        //横方向は、4の倍数とする。
+                        while ((ary_bmp_file.Count % 4) != 0)
+                        {
+                            ary_bmp_file.Add(0); //0で埋める
+                        }
+                    }
+
+
+                    //一旦、バイト型配列の内容をファイルに書き出す
+                    fs.Write(ary_bmp_file.ToArray(), 0, ary_bmp_file.Count);
+
+
+                    //配列を、一旦、クリアする。
+                    ary_bmp_file.Clear();
+                }
+
+
+                //■書き込みの後処理
+                fs.Close(); //ファイルを閉じる 
+            }
+
+            //バイナリ・メモリの占有を開放する。
+            ary_bmp_file.Clear();
+            ary_bmp_file = null;
+
+            ary_bmp_byte_head.Clear();
+            ary_bmp_byte_head = null;
+
+
+            //画像の解放
+            Array.Clear(bmparr,0, bmparr.Length);
+            bmparr = null;
+            if (bitmap != null) { bitmap.Dispose(); }
+            bitmap  = null;
+
+
+        }
+    }
+

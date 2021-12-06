@@ -1,0 +1,58 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using Tinyhand;
+
+namespace ConsoleApp1
+{
+    [TinyhandObject] // シリアライズ対象のクラスにTinyhandObject属性を追加します
+    public partial class MyClass // ソースジェネレーターでコード追加するので、partial classが必須
+    {
+        // シリアライズ対象のメンバーにKey属性（シリアライズ時の識別子）を追加します。intとstringが指定できますが、クラス毎に統一する必要があります
+        // もちろんユニークな識別子が必要で、バージョニングの際には重要です
+        [Key(0)]
+        public int Age { get; set; }
+
+        [Key(1)]
+        public string FirstName { get; set; } = string.Empty;
+
+        [Key(2)]
+        [DefaultValue("Doe")] // デフォルト値。デシリアライズ時に対応するデータがない場合、この値が代入されます
+        public string LastName { get; set; } = string.Empty;
+
+        // IgnoreMember属性を付けると、シリアライズ対象から外れます
+        [IgnoreMember]
+        public string FullName { get { return FirstName + LastName; } }
+
+        [Key(3)]
+        public List&lt;string&gt; Friends { get; set; } = default!; // null非許容参照型。自動で新しいインスタンスが生成されます
+
+        [Key(4)]
+        public int[]? Ids { get; set; } // null許容の場合は、nullが代入
+
+        public MyClass()
+        {// デシリアライズのため、デフォルトコンストラクタ（引数のないコンストラクタ）が必須です
+        }
+    }
+
+    [TinyhandObject]
+    public partial class EmptyClass
+    {
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var myClass = new MyClass() { Age = 10, FirstName = "hoge", LastName = "huga", };
+            var b = TinyhandSerializer.Serialize(myClass);// 普通にシリアライズ
+            var myClass2 = TinyhandSerializer.Deserialize&lt;MyClass&gt;(b);// 普通にデシリアライズ
+
+            b = TinyhandSerializer.Serialize(new EmptyClass()); // 空のデータ
+            var myClass3 = TinyhandSerializer.Deserialize&lt;MyClass&gt;(b); // 対応するデータがないので、デフォルト値が使用されます。
+
+            var myClassRecon = TinyhandSerializer.Reconstruct&lt;MyClass&gt;(); // インスタンス生成。それぞれのメンバーには、デフォルト値諸々が入ります。
+        }
+    }
+}
+

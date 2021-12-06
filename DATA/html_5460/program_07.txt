@@ -1,0 +1,68 @@
+
+//using SharpCompress.Readers;
+//using SharpCompress.Writers;
+//using System.Diagnostics;
+//using System.IO;
+
+var zipRootDir = @"C:\data\zip";
+var zipFiles = Directory.EnumerateFiles(zipRootDir, "*.zip", SearchOption.AllDirectories);
+
+var destRootDir = @"C:\data\targz";
+
+foreach (var zip in zipFiles)
+{
+    var destFileName = zip.Replace(zipRootDir, destRootDir).Replace(".zip", ".tar.gz");
+    var destDirectory = Path.GetDirectoryName(destFileName);
+    var tarEntryName = Path.GetFileName(destFileName).Replace("tar.gz", ".tar");
+    if (!Directory.Exists(destDirectory)) Directory.CreateDirectory(destDirectory);
+
+
+    using (var tarMs = new MemoryStream())
+    {
+        //Zip Read
+        var tmpdata = new List&lt;Tuple&lt;string, byte[]&gt;&gt;();
+        using (var infs = new FileStream(zip, FileMode.Open, FileAccess.Read))
+        using (var zipReader = ReaderFactory.Open(infs, new ReaderOptions()))
+        {
+            while (zipReader.MoveToNextEntry())
+            {
+                if (!zipReader.Entry.IsDirectory)
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        using (var entryStream = zipReader.OpenEntryStream())
+                        {
+                            entryStream.CopyTo(ms);
+                        }
+                        var item = new Tuple&lt;string, byte[]&gt;(zipReader.Entry.Key, ms.ToArray());
+                        tmpdata.Add(item);
+                    }
+                }
+            }
+        }
+
+        //Create Tar
+        using (var tarWriter = WriterFactory.Open(tarMs, SharpCompress.Common.ArchiveType.Tar,
+            new WriterOptions(SharpCompress.Common.CompressionType.None) { LeaveStreamOpen = true }))
+        {
+            foreach(var item in tmpdata)
+            {
+                using (var ms = new MemoryStream(item.Item2))
+                {
+                    tarWriter.Write(item.Item1, ms, DateTime.Now);
+                }
+            }
+        }
+        tarMs.Position = 0;
+
+        //Compress Gzip
+        using (var outfs = new FileStream(destFileName, FileMode.Create, FileAccess.Write))
+        using (var gzWriter = WriterFactory.Open(outfs, SharpCompress.Common.ArchiveType.GZip,
+            new WriterOptions(SharpCompress.Common.CompressionType.GZip) { LeaveStreamOpen = true }))
+        {
+            gzWriter.Write(tarEntryName, tarMs, DateTime.Now);
+        }
+
+    }
+}
+

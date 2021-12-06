@@ -1,0 +1,929 @@
+More than 1 year has passed since last update.この記事はUnity Advent Calendar 2019の第1日目の記事です。LINQについては結構資料がありますので、主にMono.CecilとGitHub Actionsについてこの記事で学んでいただければと思います。以後ターミナル操作はPowerShell上で行います。まずUnity2018.4の実体のあるパスを追加します。
+私は"コントロール パネル\システムとセキュリティ\システム\システムの詳細設定\環境変数\Path"に"C:\Users\conve\Documents\Unity\Editor"と追加していますが、環境変数を汚したくない方は都度下のように書いてパスを通すのが良いのではないでしょうか。適当なディレクトリの下に新規に作業ディレクトリを作成します。
+今回はUniNativeLinqHandsOnという名前にしましょう。前節で正常にパスが通っているならば次のシェルコマンドを実行してUnityエディタが起動するはずです。起動して図のようにエディタが正常に起動しましたか？
+では、一旦エディタを閉じましょう。GitHub Actionsを使う兼ね合いもあり、Gitのリポジトリを用意しましょう。これからUniNativeLinqの基礎となるNativeEnumerable&lt;T&gt; where T : unmanagedを実装します。
+マネージドプラグインとしてUnity外でDLLをビルドしますので、フォルダを作りましょう。フォルダ名は"core~"とします。DLLを作るためにdotnet newコマンドでclasslib（ライブラリ作成）オプションを指定して初期化します。
+Class1.csは特に要らないので削除します。
+追加で.gitignoreをこのフォルダにも定義します。次にcore~.csprojを編集します。
+初期状態では以下のように記述されているはずです。csprojの各要素の軽い解説
+Unity使いの方はcsprojファイルの中身をこれまで読んだ時に物凄く長くて冗長な記述を見てきたことでしょう。 そもそもcsprojの中身を読まない？　アッ、ハイ
+Visual Studio 2017の頃からcsprojの新しい形式としてSdk形式というものが登場しました。 参考文献：ufcppのブログ記事
+全てを設定していた従来のものよりも、デフォルト値と異なる点のみ設定するSdk形式の方が非常に記述量が少なく可読性が高いですね。
+&amp;lt;Project Sdk=&amp;quot;Microsoft.NET.Sdk&amp;quot;&amp;gt;というトップレベルのProject要素にSdk属性が定義されている場合Sdk形式となります。
+
+PropertyGroup要素以下に基本設定を記述します。
+TargetFarmework要素にビルド対象のプラットフォーム/フレームワークを指定します。
+Unity2018以上で使うことを考え、.NET Standard 2.0を意味するnetstandard2.0を指定しておきます。RootNamespace要素はVisual Studioで新規にcsファイルを作成する時に使用される名前空間を指定します。
+上記csprojを編集して以下の通りにします。AllowUnsafeBlocks要素をTrueにしてポインタを使用可能にします。
+AssemblyName要素によりアセンブリ名と出力されたDllファイルの名前を指定します。
+そして、LangVersion要素を8に指定してunmanaged型制約の判定を緩めます。　参考文献：アンマネージな総称型に関するunmanaged型制約最後に、ItemGroup/Reference要素でUnityEngine.CoreModule.dllを参照に追加しましょう。
+Unityのランタイムで使用される基本的な機能はUnityEngine.CoreModule.dllを通じて提供されています。以上で最初の下拵えを終わります。現在の作業ディレクトリが"UniNativeLinqHandsOn/core~"であることを確認してください。これから私達は以下のファイル群を作成し、UniNativeLinqのコア機能を最低限の形で実装していきます。最初のNativeEnumerable.cs
+
+
+NativeEnumerable.cs
+namespace UniNativeLinq
+{
+  public readonly unsafe struct NativeEnumerable&lt;T&gt;
+    where T : unmanaged
+  {
+    public readonly T* Ptr;
+    public readonly long Length;
+
+    public NativeEnumerable(T* ptr, long length)
+    {
+      if (ptr == default || length &lt;= 0)
+      {
+        Ptr = default;
+        Length = default;
+        return;
+      }
+      Ptr = ptr;
+      Length = length;
+    }
+
+    public ref T this[long index] =&gt; ref Ptr[index];
+  }
+}
+
+
+
+unsafeでreadonlyな構造体UniNativeLinq.NativeEnumerable&lt;T&gt;を定義します。
+これはジェネリックなTのポインタであるPtrと要素数であるLengthフィールドを露出させています。
+nullポインタやダングリングポインタに対する安全性保証は一切ないので、その辺りはエンドユーザーに一切合切投げっぱなしになるC++スタイルです。これをビルドし、テストコードをUnityの方で実行してみましょう。現在のワーキングディレクトリは"UniNativeLinqHandsOn/core~"のはずです。
+以下のようにAssets以下Plugins/UNLフォルダを作成し、core~のビルド成果物であるUniNativeLinq.dllをコピーして配置します。ビルドした後毎回"cp -Force ほげほげ"と入力するのも面倒ですので、core~.csprojにビルド後イベントを定義して自動化します。ビルド後イベントでコピーを自動化したcsproj
+
+
+core.csproj
+&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;netstandard2.0&lt;/TargetFramework&gt;
+    &lt;RootNamespace&gt;UniNativeLinq&lt;/RootNamespace&gt;
+    &lt;AllowUnsafeBlocks&gt;True&lt;/AllowUnsafeBlocks&gt;
+    &lt;LangVersion&gt;8&lt;/LangVersion&gt;
+    &lt;AssemblyName&gt;UniNativeLinq&lt;/AssemblyName&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;Reference Include="UnityEngine.CoreModule"&gt;
+      &lt;HintPath&gt;○Unityのインストールしてあるフォルダ○\Editor\Data\Managed\UnityEngine\UnityEngine.CoreModule.dll&lt;/HintPath&gt;
+    &lt;/Reference&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;Target Name="PostBuild" AfterTargets="PostBuildEvent"&gt;
+    &lt;Exec Command="copy $(TargetPath) $(ProjectDir)..\Assets\Plugins\UNL\UniNativeLinq.dll"/&gt;
+  &lt;/Target&gt;
+&lt;/Project&gt;
+
+
+
+ビルド後イベントでローカルデプロイの自動化は結構重宝しますのでオススメです。さて、Assets/Plugins/UNL以下にdllを配置しましたので、それを対象としたテストコードを書きましょう。エディタが起動しましたね？
+ProjectタブのAssetsを選択してコンテキストメニューから"Create/Testing/Tests Assembly Folder"を選択してTestsフォルダーを作成してください。
+無事にTestsフォルダが作成されたならばそのフォルダ以下にTests.asmdefファイルがあるはずです。
+それを選択し、Inspectorタブから設定を変更します。
+"Allow 'unsafe' Code"と"Override References"にチェックを入れ、"Assembly References"に"UniNativeLinq.dll"を加えてください。
+そしてPlatformsをEditorだけにしてください。
+次の画像のようなInspectorになるはずです。正しく設定できたならば一番下のApplyボタンを押して設定を保存してください。
+次にProjectタブでAssets/Testsフォルダを右クリックしてコンテキストメニューを呼び出し、"Create/Testing/C# Test Script"を押して新規にテスト用スクリプトを作成します。
+ファイル名は"NativeEnumerableTestScript"としましょう。NativeEnumerableTestScriptをダブルクリックして編集を行います。NativeEnumerableTestScript.csの中身
+
+
+NativeEnumerableTestScript.cs
+using NUnit.Framework;
+using UniNativeLinq;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+
+namespace Tests
+{
+  public sealed unsafe class NativeEnumerableTestScript
+  {
+    [Test]
+    public void DefaultValuePass()
+    {
+      NativeEnumerable&lt;int&gt; nativeEnumerable = default;
+      Assert.AreEqual(0L, nativeEnumerable.Length);
+      Assert.IsTrue(nativeEnumerable.Ptr == null);
+    }
+
+    [TestCase(0L)]
+    [TestCase(-10L)]
+    [TestCase(-12241L)]
+    [TestCase(long.MinValue)]
+    public void ZeroOrNegativeCountTest(long count)
+    {
+      using (var array = new NativeArray&lt;int&gt;(1, Allocator.Persistent))
+      {
+        Assert.IsFalse(array.GetUnsafePtr() == null);
+        var nativeEnumerable = new NativeEnumerable&lt;int&gt;((int*) array.GetUnsafePtr(), count);
+        Assert.AreEqual(0L, nativeEnumerable.Length);
+        Assert.IsTrue(nativeEnumerable.Ptr == null);  
+      }
+    }
+
+    [TestCase(0, Allocator.Temp)]
+    [TestCase(1, Allocator.Temp)]
+    [TestCase(10, Allocator.Temp)]
+    [TestCase(114, Allocator.Temp)]
+    [TestCase(0, Allocator.TempJob)]
+    [TestCase(1, Allocator.TempJob)]
+    [TestCase(10, Allocator.TempJob)]
+    [TestCase(114, Allocator.TempJob)]
+    [TestCase(0, Allocator.Persistent)]
+    [TestCase(1, Allocator.Persistent)]
+    [TestCase(10, Allocator.Persistent)]
+    [TestCase(114, Allocator.Persistent)]
+    public void FromNativeArrayPass(int count, Allocator allocator)
+    {
+      using (var array = new NativeArray&lt;int&gt;(count, allocator))
+      {
+        var nativeEnumerable = new NativeEnumerable&lt;int&gt;((int*) array.GetUnsafePtr(), array.Length);
+        Assert.AreEqual((long)count, nativeEnumerable.Length);
+        for (var i = 0; i &lt; nativeEnumerable.Length; i++)
+        {
+          Assert.AreEqual(0, nativeEnumerable[i]);
+          nativeEnumerable[i] = i;
+        }
+        for (var i = 0; i &lt; count; i++)
+          Assert.AreEqual(i, array[i]);
+      }
+    }
+  }
+}
+
+
+
+テストコードの記述後はエディタに戻り、Unity Test Runnerのウィンドウを呼び出しましょう。メニューの"Window/General/Test Runner"をクリックすると開きます。
+出てきたウィンドウのRun Allを押すと全ての項目が緑になり、テスト全てをPassしたことがわかります。
+GitHubに適当なリポジトリ名で新規リポジトリを作成してください。そこにこのプロジェクトを公開します。
+私は"HandsOn_CSharpAdventCalendar20191201"と命名しました。
+現在のワーキングディレクトリはUniNativeLinqHandsOnのはずです。git remote add origin https://github.com/pCYSl5EDgo/HandsOn_CSharpAdventCalendar20191201.gitについては適切な読み替えを行ってください。
+適切な.gitignore設定を行っているならば上記の操作で最初のコミットを過不足なくできます。基本的にローカルのワーキングブランチはdevelopとし、リモートリポジトリのdevelopブランチにpushすることとします。
+この措置はリモートのmasterブランチをUPM用にする為のものです。Assetsを含む通常のUnityプロジェクトはUPMの構成と相性が悪いのです。これからGitHub ReleasesでUniNativeLinq.dllをpush時に自動的に公開する仕組みを作ります。その際にテストも走らせ、テスト失敗時はリリースしないようにします。GitHub ActionsでUnityを使うための下拵え　参考文献：GitHub ActionsでUnity開発GitHub ActionsではLinux, Windows, MacOSXの３種類の環境でCI/CDを行うことができます。
+CI/CDサービスからUnityを利用する場合にはLinux環境を利用する形になります。
+なぜWindowsやMacではなくLinuxなのかについての補足WindowsやMacOS環境でもpCYSl5EDgo/setup-unityというGitHub Actionを利用してUnityをインストール可能です。
+WinやMacはVMインスタンスとして立ち上がるので、ジョブ毎にMachine IDが変化します。
+困ったことに後述するalfファイルの項目にMachine IDがありまして、ここがulfにも受け継がれてしまい、不一致だと認証にコケるのです。
+故にulfファイルを使用してオフライン認証を行う手法をWindowsとMacOS環境では取り得ません。
+
+Unityを利用するためには必ずメールアドレスとパスワードで認証する必要があります。
+CUIで認証する場合にはオフライン/ 手動アクティベーションを行う方がパスワード漏洩対策として安全です。
+これは事前にUnityを動かすPCの情報と、Unityのバージョン、ユーザーのパスワードとメールアドレス等全ての情報を含んだulfファイルを生成しておき、GitHub Actionsでの実行時にulfファイルを使用して認証を行うという手法です。詳細な手順は公式の参考文献を読んで理解していただくとして、次のような手順でulfファイルを作成してください。もしあなたがUnity2018.4.12f1以外でこのハンズオンを行う場合そのバージョンのalfファイルを作成しなくてはいけません。
+CreateALFというGitHubのリポジトリをForkし、".github/workflows/CreateLicenseALF.yml"を編集してください。
+
+
+CreateLicenseALF.yml
+name: Create ALF File
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        unity-version:
+        - 2018.4.9f1
+        - 2018.4.10f1
+        - 2018.4.11f1
+        - 2018.4.12f1
+        - 2018.4.13f1
+        - 2019.3.0f1
+        - 2020.1.0a14
+
+    steps:
+    - uses: pCYSl5EDgo/setup-unity@master
+      with:
+        unity-version: ${{ matrix.unity-version }}
+    - name: Create Manual Activation File
+      run: /opt/Unity/Editor/Unity -quit -batchmode -nographics -logfile -createManualActivationFile || exit 0
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1.0.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: setup-${{ matrix.unity-version }}
+        release_name: Release setup-Unity ${{ matrix.unity-version }}
+        draft: false
+        prerelease: false
+    - name: Upload Release Asset
+      id: upload-release-asset 
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+        asset_path: Unity_v${{ matrix.unity-version }}.alf
+        asset_name: Unity_v${{ matrix.unity-version }}.alf
+        asset_content_type: application/xml
+
+
+
+matrix.unity-versionにあなたの使うUnityのバージョンを指定してください。
+masterブランチにpushするとGitHub Releaseにそのバージョンのalfファイルが登録されます。
+入手したulfファイルをリポジトリ"HandsOn_CSharpAdventCalendar20191201"で利用しますが、秘密にすべき情報であるため、GitHub Secretsという機能を使って暗号化しましょう。
+GitHub SecretsはSettings/Secretsを選択し、そこにキーと値のペアを登録します。
+
+今回はulfというキーでulfファイルの中身を登録しましょう。
+以上でGitHub ActionsでUnityを扱う下拵えは完了です。現在のワーキングディレクトリはUniNativeLinqHandsOnのはずです。".github/workflows"フォルダ以下にyamlファイルを作成し、そこに自動化する仕事を記述します。
+更にcore~.csproje.txtを新規に作成します。core~.csprojはWindows向けの記述をしていて、そのままではLinuxのDockerコンテナ上では動作しません。
+core~.csprojはこのように記述しなおしてください。ほぼ元のcore~.csprojと変わりは無いですが、HintPathが変更され、かつビルド後イベントが削除されています。
+
+
+core~.csproj.txt
+&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;netstandard2.0&lt;/TargetFramework&gt;
+    &lt;RootNamespace&gt;UniNativeLinq&lt;/RootNamespace&gt;
+    &lt;AllowUnsafeBlocks&gt;True&lt;/AllowUnsafeBlocks&gt;
+    &lt;LangVersion&gt;8&lt;/LangVersion&gt;
+    &lt;AssemblyName&gt;UniNativeLinq&lt;/AssemblyName&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;Reference Include="UnityEngine.CoreModule"&gt;
+      &lt;HintPath Condition="Exists('C:\Users\conve')"&gt;C:\Users\conve\Documents\Unity\Editor\Data\Managed\UnityEngine\UnityEngine.CoreModule.dll&lt;/HintPath&gt;
+      &lt;HintPath Condition="Exists('/opt/Unity/Editor/Unity')"&gt;/opt/Unity/Editor/Data/Managed/UnityEngine/UnityEngine.CoreModule.dll&lt;/HintPath&gt;
+    &lt;/Reference&gt;
+  &lt;/ItemGroup&gt;
+&lt;/Project&gt;
+
+
+
+CI.yamlの内容
+
+
+CI.yaml
+name: CreateRelease
+
+on:
+  push:
+    branches:
+    - develop
+
+jobs:
+  buildReleaseJob:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        unity-version: [2018.4.9f1]
+        user-name: [pCYSl5EDgo]
+        repository-name: [HandsOn_CSharpAdventCalendar20191201]
+        exe: ['/opt/Unity/Editor/Unity']
+
+    steps:
+    - uses: pCYSl5EDgo/setup-unity@master
+      with:
+        unity-version: ${{ matrix.unity-version }}
+
+    - name: License Activation
+      run: |
+        echo -n "$ULF" &gt; unity.ulf
+        ${{ matrix.exe }} -nographics -batchmode -quit -logFile -manualLicenseFile ./unity.ulf || exit 0
+      env:
+        ULF: ${{ secrets.ulf }}
+
+    - run: git clone https://github.com/${{ github.repository }}
+
+    - uses: actions/setup-dotnet@v1.0.2
+      with:
+        dotnet-version: '3.0.101'
+
+    - name: Builds DLL
+      run: |
+        cd ${{ matrix.repository-name }}/core~
+        dotnet build -c Release
+
+    - name: Post Process DLL
+      run: |
+        cd ${{ matrix.repository-name }}
+        mv -f ./core~/bin/Release/netstandard2.0/UniNativeLinq.dll ./Assets/Plugins/UNL/UniNativeLinq.dll
+
+    - name: Run Test
+      run: ${{ matrix.exe }} -batchmode -nographics -projectPath ${{ matrix.repository-name }} -logFile ./log.log -runEditorTests -editorTestsResultFile ../result.xml || exit 0
+
+    - run: ls -l
+    - run: cat log.log
+    - run: cat result.xml
+
+    - uses: pCYSl5EDgo/Unity-Test-Runner-Result-XML-interpreter@master
+      id: interpret
+      with:
+        path: result.xml
+
+    - if: steps.interpret.outputs.success != 'true'
+      run: exit 1
+
+    - name: Get Version
+      run: |
+        cd ${{ matrix.repository-name }}
+        git describe --tags 1&gt; ../version 2&gt; ../error || exit 0
+
+    - name: Cat Error
+      uses: pCYSl5EDgo/cat@master
+      id: error
+      with:
+        path: error
+
+    - if: startsWith(steps.error.outputs.text, 'fatal') != 'true'
+      run: |
+        cat version
+        cat version | awk '{ split($0, versions, "-"); split(versions[1], numbers, "."); numbers[3]=numbers[3]+1; variable=numbers[1]"."numbers[2]"."numbers[3]; print variable; }' &gt; version_increment
+
+    - if: startsWith(steps.error.outputs.text, 'fatal')
+      run: echo -n "0.0.1" &gt; version_increment
+
+    - name: Cat
+      uses: pCYSl5EDgo/cat@master
+      id: version
+      with:
+        path: version_increment
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1.0.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.text }}
+        release_name: Release Unity${{ matrix.unity-version }} - v${{ steps.version.outputs.text }}
+        draft: false
+        prerelease: false
+
+    - name: Upload DLL
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ matrix.repository-name }}/Assets/Plugins/UNL/UniNativeLinq.dll
+        asset_name: UniNativeLinq.dll
+        asset_content_type: application/vnd.microsoft.portable-executable
+
+
+
+
+jobs.buildReleaseJob.startegy.matrix以下の3項目は適切に書き換えてください。全体の流れとしては以下の通りになります。現在のワーキングディレクトリはUniNativeLinqHandsOnのはずです。
+全ての作業が終わったらGitHubにpushして最初のGitHub Releasesを公開しましょう。NativeEnumerable&lt;T&gt;の中身として全てのフィールドとインデクサを定義しました。
+これからIEnumerable&lt;T&gt;を実装します。記述が増えるのでpartial structにします。
+IEnumerable&lt;T&gt;を実装したNativeEnumerable&lt;T&gt;
+
+
+NativeEnumerable.cs
+using System.Collections;
+using System.Collections.Generic;
+
+namespace UniNativeLinq
+{
+  public readonly unsafe partial struct NativeEnumerable&lt;T&gt;
+    : IEnumerable&lt;T&gt;
+    where T : unmanaged
+  {
+    public readonly T* Ptr;
+    public readonly long Length;
+
+    public NativeEnumerable(T* ptr, long length)
+    {
+      if (ptr == default || length &lt;= 0)
+      {
+        Ptr = default;
+        Length = default;
+        return;
+      }
+      Ptr = ptr;
+      Length = length;
+    }
+
+    public ref T this[long index] =&gt; ref Ptr[index];
+
+    public Enumerator GetEnumerator() =&gt; new Enumerator(this);
+    IEnumerator&lt;T&gt; IEnumerable&lt;T&gt;.GetEnumerator() =&gt; GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() =&gt; GetEnumerator();
+  }
+}
+
+
+
+イテレータ構造体を内部型として定義するのはforeachの性能向上の常套手段です。ビルドをした後エディタを起動し、テストコードを書きましょう。
+NativeEnumerableTestScriptクラスに追記する形で単一のクラスを肥大させましょう。
+Unityのよくわからない仕様なのですが、１つのプロジェクトに２ファイル以上のテストスクリプトが存在するとコマンドラインからrunEditorTestsするとエラー吐きます。
+このような事情もあり、簡易的な処置ですが神テストクラスを肥えさせます。本格的な処置についてはいずれまた別の記事で書くこともあるかも知れません。
+NativeEnumerableTestScript.cs
+
+
+NativeEnumerableTestScript.cs
+[TestCase(0, Allocator.Temp)]
+[TestCase(114, Allocator.Temp)]
+[TestCase(114514, Allocator.Temp)]
+[TestCase(0, Allocator.TempJob)]
+[TestCase(114, Allocator.TempJob)]
+[TestCase(114514, Allocator.TempJob)]
+[TestCase(0, Allocator.Persistent)]
+[TestCase(114, Allocator.Persistent)]
+[TestCase(114514, Allocator.Persistent)]
+public void IEnumerableTest(int count, Allocator allocator)
+{
+    using (var array = new NativeArray&lt;long&gt;(count, allocator))
+    {
+    var nativeEnumerable = new NativeEnumerable&lt;long&gt;((long*) array.GetUnsafePtr(), array.Length);
+    Assert.AreEqual(count, nativeEnumerable.Length);
+    for (var i = 0L; i &lt; count; i++)
+        nativeEnumerable[i] = i;
+    var index = 0L;
+    foreach (ref var i in nativeEnumerable)
+    {
+        Assert.AreEqual(index++, i);
+        i = index;
+    }
+    index = 1L;
+    foreach (var i in nativeEnumerable)
+        Assert.AreEqual(index++, i);
+    }
+}
+
+
+
+foreach文が正しく動いていることがこれで確認できます。
+Unityエディターを閉じた後、GitHubにpushしてCI/CDを体感しましょう。NativeArray&lt;T&gt;からNativeEnumerable&lt;T&gt;を生成するのに一々 var nativeEnumerable = new NativeEnumerable&lt;T&gt;((T*) array.GetUnsafePtr(), array.Length);と記述するのも手間です。
+var nativeEnumerable = array.AsRefEnumerable();だったら非常に楽ですので、拡張メソッドを定義します。NativeEnumerable&lt;T&gt;とその内部型Enumeratorは public Enumerator GetEnumetor();と public ref T Current{get;}が特徴的な要素です。
+これをインターフェイスに抽出します。IRefEnumerable.csとIRefEnumerator.csの定義
+
+
+IRefEnumerable.cs
+namespace UniNativeLinq
+{
+  public interface IRefEnumerable&lt;TEnumerator, T&gt; : System.Collections.Generic.IEnumerable&lt;T&gt;
+    where TEnumerator : IRefEnumerator&lt;T&gt;
+  {
+    new TEnumerator GetEnumerator();
+  }
+}
+
+
+
+
+IRefEnumerator.cs
+namespace UniNativeLinq
+{
+  public interface IRefEnumerator&lt;T&gt; : System.Collections.Generic.IEnumerator&lt;T&gt;
+  {
+    new ref T Current { get; }
+  }
+}
+
+
+
+上記インターフェイスをNativeEnumerableに実装します。実際は各ファイルを一行書き換えるだけです。
+
+
+NativeEenumerable.cs
+public readonly unsafe partial struct NativeEnumerable&lt;T&gt;
+  : IRefEnumerable&lt;NativeEnumerable&lt;T&gt;.Enumerator, T&gt;
+
+
+
+
+NativeEenumerable.Enumerator.cs
+public unsafe struct Enumerator : IRefEnumerator&lt;T&gt;
+
+
+
+テストコードには何も差は生じません。（既存の実装を元にインターフェイスを抽出しただけですので）LINQで一番使うAPIはSelectまたはWhereのはずです。
+今回はUniNativeLinqの特異性を学ぶのに好適であるため、Selectを実装してみます。通常のSystem.Linq.Enumerableの提供するSelectメソッドのシグネチャを見てみましょう。引数にIEnumerable&lt;TFrom&gt;なコレクションと、Func&lt;TFrom, TTo&gt;な写像を取ってマッピングを行います。
+LINQの優れている点は拡張メソッドの型引数を（C#の貧弱な型推論でも）型推論完了できるという点にあります。標準にLINQに習ってAPIを定義してみましょう。このような感じでしょうか？
+TToEnumeratorを引数から導出できず、センスが悪いですね。
+実際のUniNativeLinqでは新たにSelectEnumerable&lt;TPrevEnumerable, TPrevEnumerator, TPrev, T, TAction&gt;型を定義します。
+
+
+powershell
+New-Item API/RefAction.cs
+New-Item Interface/IRefAction.cs
+New-Item Utility/DelegateRefActionToStructOperatorAction.cs
+New-Item Utility/Unsafe.cs
+New-Item Collection/SelectEnumerable.cs
+New-Item Collection/SelectEnumerable.Enumerator.cs
+
+
+
+細々と必要な型があるので他にもいくつか新規にファイルを作成します。RefAction.csとIRefAction.cs似たような内容なので同一ファイル内に記述するのも良いでしょう。
+
+
+RefAction.cs
+namespace UniNativeLinq
+{
+  public delegate void RefAction&lt;T0, T1&gt;(ref T0 arg0, ref T1 arg1);
+  public interface IRefAction&lt;T0, T1&gt;
+  {
+    void Execute(ref T0 arg0, ref T1 arg1);
+  }
+}
+
+
+
+namespace UniNativeLinq
+{
+  public readonly struct DelegateRefActionToStructOperatorAction&lt;T0, T1&gt; : IRefAction&lt;T0, T1&gt;
+  {
+    private readonly RefAction&lt;T0, T1&gt; action;
+    public DelegateRefActionToStructOperatorAction(RefAction&lt;T0, T1&gt; action) =&gt; this.action = action;
+    public void Execute(ref T0 arg0, ref T1 arg1) =&gt; action(ref arg0, ref arg1);
+  }
+}
+
+
+Unsafe.csは、System.Runtime.CompilerServices.Unsafeの一部抜粋です。
+
+
+Unsafe.cs
+namespace UniNativeLinq
+{
+  public static class Unsafe
+  {
+    // ref T AsRef&lt;T&gt;(in T value) =&gt; ref value;
+    public static ref T AsRef&lt;T&gt;(in T value) =&gt; throw new System.NotImplementedException();
+  }
+}
+
+
+
+実際の所、NotImplementExceptionとして中身は空っぽなモックAPIです。
+後にいい感じにこのモックAPIを処理します。Unsafe.AsRefはin引数をref戻り値に変換します。
+引数にreadonlyフィールドの参照を与えたら、その戻り値が変更可能な参照になります。
+SelectEnumerable.cs
+
+
+SelectEnumerable.cs
+namespace UniNativeLinq
+{
+  public readonly partial struct SelectEnumerable&lt;TPrevEnumerable, TPrevEnumerator, TPrev, T, TAction&gt;
+    : IRefEnumerable&lt;SelectEnumerable&lt;TPrevEnumerable, TPrevEnumerator, TPrev, T, TAction&gt;.Enumerator, T&gt;
+    where TPrevEnumerable : IRefEnumerable&lt;TPrevEnumerator, TPrev&gt;
+    where TPrevEnumerator : IRefEnumerator&lt;TPrev&gt;
+    where TAction : IRefAction&lt;TPrev, T&gt;
+  {
+    private readonly TPrevEnumerable enumerable;
+    private readonly TAction action;
+
+    public SelectEnumerable(in TPrevEnumerable enumerable)
+    {
+      this.enumerable = enumerable;
+      action = default;
+    }
+    public SelectEnumerable(in TPrevEnumerable enumerable, in TAction action)
+    {
+      this.enumerable = enumerable;
+      this.action = action;
+    }
+
+    public Enumerator GetEnumerator() =&gt; new Enumerator(ref Unsafe.AsRef(in enumerable), action);
+    System.Collections.Generic.IEnumerator&lt;T&gt; System.Collections.Generic.IEnumerable&lt;T&gt;.GetEnumerator() =&gt; GetEnumerator();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =&gt; GetEnumerator();
+  }
+}
+
+
+
+SelectEnumerable.Enumerator.cs
+
+
+SelectEnumerable.Enumerator.cs
+namespace UniNativeLinq
+{
+  public readonly partial struct SelectEnumerable&lt;TPrevEnumerable, TPrevEnumerator, TPrev, T, TAction&gt;
+  {
+    public struct Enumerator : IRefEnumerator&lt;T&gt;
+    {
+      private TPrevEnumerator enumerator;
+      private TAction action;
+      private T element;
+
+      public Enumerator(ref TPrevEnumerable enumerable, in TAction action)
+      {
+        enumerator = enumerable.GetEnumerator();
+        this.action = action;
+        element = default;
+      }
+
+      public bool MoveNext()
+      {
+        if (!enumerator.MoveNext()) return false;
+        action.Execute(ref enumerator.Current, ref element);
+        return true;
+      }
+
+      public void Reset() =&gt; throw new System.InvalidOperationException();
+      public ref T Current =&gt; throw new System.NotImplementedException();
+      T System.Collections.Generic.IEnumerator&lt;T&gt;.Current =&gt; Current;
+      object System.Collections.IEnumerator.Current =&gt; Current;
+      public void Dispose() { }
+    }
+  }
+}
+
+
+
+このEnumeratorの最大の特徴は、 public ref T Current =&gt; throw new System.NotImplementedException();です。
+そう、未実装のままなのです。これはバグではなく極めて意図的な仕様です。
+これをこのままビルドしてテストコードを追加してもエラーを吐くだけです。本当は public ref T Current =&gt; ref element;と記述したいのですが、C#の文法の制限として無理です。現在のワーキングディレクトリはUniNativeLinqHandsOnのはずです。
+Mono.Cecilを利用してUniNativeLinq.dllを編集してSelectEnumerable.Enumerator.CurrentからNotImplementedExceptionを消し飛ばしましょう。参考までにpost~.csprojの中身
+
+&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+  &lt;PropertyGroup&gt;
+    &lt;OutputType&gt;Exe&lt;/OutputType&gt;
+    &lt;TargetFramework&gt;netcoreapp3.0&lt;/TargetFramework&gt;
+    &lt;RootNamespace&gt;_post&lt;/RootNamespace&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="Mono.Cecil" Version="0.11.1" /&gt;
+  &lt;/ItemGroup&gt;
+&lt;/Project&gt;
+
+
+PackageReferenceタグでMono.Cecilをインストール可能です。Program.cs
+
+
+Program.cs
+using System;
+using System.IO;
+public sealed class Program
+{
+  static int Main(string[] args)
+  {
+    if (!ValidateArguments(args, out FileInfo inputUniNativeLinqDll, out FileInfo outputUniNativeLinqDllPath, out DirectoryInfo unityEngineFolder))
+    {
+      return 1;
+    }
+    using (DllProcessor processor = new DllProcessor(inputUniNativeLinqDll, outputUniNativeLinqDllPath, unityEngineFolder))
+    {
+      processor.Process();
+    }
+    return 0;
+  }
+
+  private static bool ValidateArguments(string[] args, out FileInfo inputUniNativeLinqDll, out FileInfo outputNativeLinqDllPath, out DirectoryInfo unityEngineFolder)
+  {
+    if (args.Length != 3)
+    {
+      Console.Error.WriteLine("Invalid argument count.");
+      inputUniNativeLinqDll = default;
+      outputNativeLinqDllPath = default;
+      unityEngineFolder = default;
+      return false;
+    }
+    inputUniNativeLinqDll = new FileInfo(args[0]);
+    if (!inputUniNativeLinqDll.Exists)
+    {
+      Console.Error.WriteLine("Empty Input UniNativeLinq.dll path");
+      outputNativeLinqDllPath = default;
+      unityEngineFolder = default;
+      return false;
+    }
+    string outputNativeLinqDllPathString = args[1];
+    if (string.IsNullOrWhiteSpace(outputNativeLinqDllPathString))
+    {
+      Console.Error.WriteLine("Empty Output UniNativeLinq.dll path");
+      unityEngineFolder = default;
+      outputNativeLinqDllPath = default;
+      return false;
+    }
+    outputNativeLinqDllPath = new FileInfo(outputNativeLinqDllPathString);
+    unityEngineFolder = new DirectoryInfo(args[2]);
+    if (!unityEngineFolder.Exists)
+    {
+      Console.Error.WriteLine("Unity Engine Dll Folder does not exist");
+      return false;
+    }
+    return true;
+  }
+}
+
+
+
+Main関数はコマンドライン引数を2つ要求します。ValidateArgumentsで引数の妥当性を検証します。
+IDisposableを実装したDllProcessorのインスタンスを生成し、Processメソッドを実行することで適切な処理を加えます。
+RewriteThrowNotImplementedException内部で使用されます。
+ILの命令を置換するための拡張メソッドです。
+ILProcessorのReplaceメソッドはバグを誘発するわりと使い物にならないメソッドです。
+gotoやif, switchなどのジャンプ系の命令の行き先にまつわる致命的なバグを生じます。
+こうしてわざわざ拡張メソッドを用意する必要があるのです。
+特に気にする必要はない拡張メソッドです。
+Resolve()が例外を投げる可能性が結構あります。
+GenericInstanceUtility.cs
+
+
+GenericInstanceUtility.cs
+using Mono.Cecil;
+using System.Linq;
+using System.Collections.Generic;
+internal static class GenericInstanceUtility
+{
+  public static FieldReference FindField(this TypeReference type, string name)
+  {
+    if (type is TypeDefinition definition)
+      return definition.FindField(name);
+    if (type is GenericInstanceType genericInstanceType)
+      return genericInstanceType.FindField(name);
+    var typeDefinition = type.ToDefinition();
+    var fieldDefinition = typeDefinition.Fields.Single(x =&gt; x.Name == name);
+    if (fieldDefinition.Module == type.Module)
+      return fieldDefinition;
+    return type.Module.ImportReference(fieldDefinition);
+  }
+  public static FieldReference FindField(this TypeDefinition type, string name) =&gt; type.Fields.Single(x =&gt; x.Name == name);
+
+  public static FieldReference FindField(this GenericInstanceType type, string name)
+  {
+    var typeDefinition = type.ToDefinition();
+    var definition = typeDefinition.Fields.Single(x =&gt; x.Name == name);
+    return definition.MakeHostInstanceGeneric(type.GenericArguments);
+  }
+
+  public static FieldReference MakeHostInstanceGeneric(this FieldReference self, IEnumerable&lt;TypeReference&gt; arguments) =&gt; new FieldReference(self.Name, self.FieldType, self.DeclaringType.MakeGenericInstanceType(arguments));
+
+  public static GenericInstanceType MakeGenericInstanceType(this TypeReference self, IEnumerable&lt;TypeReference&gt; arguments)
+  {
+    var instance = new GenericInstanceType(self);
+    foreach (var argument in arguments)
+      instance.GenericArguments.Add(argument);
+    return instance;
+  }
+}
+
+
+
+post~によりUniNativeLinq.dllにポストプロセスをする必要があり、CI.yamlを書き換えます。
+
+CI.yaml全文
+
+
+CI.yaml
+name: CreateRelease
+
+on:
+  push:
+    branches:
+    - develop
+
+jobs:
+  buildReleaseJob:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        unity-version: [2018.4.9f1]
+        user-name: [pCYSl5EDgo]
+        repository-name: [HandsOn_CSharpAdventCalendar20191201]
+        exe: ['/opt/Unity/Editor/Unity']
+
+    steps:
+    - uses: pCYSl5EDgo/setup-unity@master
+      with:
+        unity-version: ${{ matrix.unity-version }}
+
+    - name: License Activation
+      run: |
+        echo -n "$ULF" &gt; unity.ulf
+        ${{ matrix.exe }} -nographics -batchmode -quit -logFile -manualLicenseFile ./unity.ulf || exit 0
+      env:
+        ULF: ${{ secrets.ulf }}
+
+    - run: git clone https://github.com/${{ github.repository }}
+
+    - uses: actions/setup-dotnet@v1.0.2
+      with:
+        dotnet-version: '3.0.101'
+
+    - name: Builds DLL
+      run: |
+        cd ${{ matrix.repository-name }}/core~
+        dotnet build -c Release
+
+    - name: Post Process DLL
+      run: |
+        cd ${{ matrix.repository-name }}/post~
+        ls -l ../Assets/Plugins/UNL/
+        dotnet run ../core~/bin/Release/netstandard2.0/UniNativeLinq.dll ../Assets/Plugins/UNL/UniNativeLinq.dll
+        ls -l ../Assets/Plugins/UNL/
+
+    - name: Run Test
+      run: ${{ matrix.exe }} -batchmode -nographics -projectPath ${{ matrix.repository-name }} -logFile ./log.log -runEditorTests -editorTestsResultFile ../result.xml || exit 0
+
+    - run: ls -l
+    - run: cat log.log
+    - run: cat result.xml
+
+    - uses: pCYSl5EDgo/Unity-Test-Runner-Result-XML-interpreter@master
+      id: interpret
+      with:
+        path: result.xml
+
+    - if: steps.interpret.outputs.success != 'true'
+      run: exit 1
+
+    - name: Get Version
+      run: |
+        cd ${{ matrix.repository-name }}
+        git describe --tags 1&gt; ../version 2&gt; ../error || exit 0
+
+    - name: Cat Error
+      uses: pCYSl5EDgo/cat@master
+      id: error
+      with:
+        path: error
+
+    - if: startsWith(steps.error.outputs.text, 'fatal') != 'true'
+      run: |
+        cat version
+        cat version | awk '{ split($0, versions, "-"); split(versions[1], numbers, "."); numbers[3]=numbers[3]+1; variable=numbers[1]"."numbers[2]"."numbers[3]; print variable; }' &gt; version_increment
+
+    - if: startsWith(steps.error.outputs.text, 'fatal')
+      run: echo -n "0.0.1" &gt; version_increment
+
+    - name: Cat
+      uses: pCYSl5EDgo/cat@master
+      id: version
+      with:
+        path: version_increment
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1.0.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.text }}
+        release_name: Release Unity${{ matrix.unity-tag }} - v${{ steps.version.outputs.text }}
+        draft: false
+        prerelease: false
+
+    - name: Upload DLL
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ matrix.repository-name }}/core~/bin/Release/netstandard2.0/UniNativeLinq.dll
+        asset_name: UniNativeLinq.dll
+        asset_content_type: application/vnd.microsoft.portable-executable
+
+
+
+ライブラリをGitHubから提供するならば素のDLLを提供するだけというのも不親切です。
+やはりunitypackageファイルをGitHub Releasesから提供したいものです。この節ではコマンドラインからUnityを操作してunitypackageを作成します。
+Unityのコマンドラインの機能自体ではunitypackageを作成することは不可能ですが、プロジェクトのEditorフォルダ直下に存在するクラスのstaticメソッドを呼び出すことが可能です。
+UnityEditor.AssetDatabase.ExportPackageメソッドをstaticメソッド内で呼び出してunitypackageを作成します。現在のワーキングディレクトリはUniNativeLinqHandsOnのはずです。UnityPackageBuilder.cs
+
+
+UnityPackageBuilder.cs
+using System;
+using UnityEditor;
+namespace HandsOn
+{
+  public static class UnityPackageBuilder
+  {
+    public static void Build()
+    {
+      string[] args = Environment.GetCommandLineArgs();
+      string exportPath = args[args.Length - 1];
+      AssetDatabase.ExportPackage(
+      new[]{
+        "Assets/Plugins/UNL/UniNativeLinq.dll"
+      },
+      exportPath,
+      ExportPackageOptions.Default
+      );
+    }
+  }
+}
+
+
+
+コマンドラインから呼び出すメソッドのシグネチャは必ずSystem.Actionである必要があります。
+コマンドライン引数を扱いたい場合にはSystem.Environment.GetCommandLineArgsメソッドから適切に文節処理された文字列の配列を受け取りましょう。これは今回限りの約束事ですが、最後のコマンドライン引数がunitypackageの出力先のパスを示すようにします。AssetDatabase.ExportPackageの第一引数にstring[]を渡してunitypackageを構築します。
+ここで渡すファイルのパスはプロジェクトのルートに対する相対パスですね。
+HandsOn.UnityPackageBuilder.BuildをGitHub Actionsから呼び出し、リリースに同梱します。
+yamlファイルの最後に追記する部分（インデントには気を付けてください）
+
+
+CI.yamlへの追記
+- name: Create UnityPackage
+  run: ${{ matrix.exe }} -batchmode -nographics -quit -projectPath ${{ matrix.repository-name }} -logFile ./log.log -executeMethod HandsOn.UnityPackageBuilder.Build "../UniNativeLinq.unitypackage"
+- run: cat log.log
+- name: Upload Unity Package
+  uses: actions/upload-release-asset@v1.0.1
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  with:
+    upload_url: ${{ steps.create_release.outputs.upload_url }}
+    asset_path: UniNativeLinq.unitypackage
+    asset_name: UniNativeLinq.unitypackage
+    asset_content_type: application/x-gzip
+
+
+
+UniNativeLinq本家ではエディタ拡張に関連して更にえげつない最適化やMono.Cecilテクニックが使用されています。
+既存のLINQに比べて非常に高速に動作しますので是非使ってください。このハンズオンよりも更に深くMono.CecilやUniNativeLinqを学びたいという方は私のTwitterのDMなどでご相談いただければ嬉しいです。画像はUnityのサイトより引用 ↩
+
+

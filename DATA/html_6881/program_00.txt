@@ -1,0 +1,174 @@
+    /// &lt;summary&gt;
+    /// テストクラス：Personの中にいる子クラス
+    /// &lt;/summary&gt;
+    public class Family
+    {
+        public string name;
+    }
+
+    /// &lt;summary&gt;
+    /// テストクラス：変換対象クラス
+    /// &lt;/summary&gt;
+    public class Person
+    {
+        public int age;
+        public string name;
+        public int BrotherNumber { get; set; }
+        public Family family;
+        public string[] favItems;
+        public BroSis bros;
+    }
+
+    /// &lt;summary&gt;
+    /// テスト列挙子
+    /// &lt;/summary&gt;
+    public enum BroSis
+    {
+        None,
+        OlderSister,
+        YoungerSister,
+        OlderBrother,
+        YounderBrother
+    }
+
+    class Program
+    {
+        /// &lt;summary&gt;
+        /// Main
+        /// &lt;/summary&gt;
+        static void Main(string[] args)
+        {
+            // Personクラスのpublicメンバーを構造体形式でコンソール出力する
+            var human = new Person();
+            ConvertCSharpClasses2CStructure(human.GetType());
+        }
+
+        /// &lt;summary&gt;
+        /// C#のプリミティブ型をCの基本型の名称に変換する辞書
+        /// &lt;/summary&gt;
+        private static readonly Dictionary&lt;string, string&gt; convertDeclaration = new Dictionary&lt;string, string&gt;()
+        {
+            { "Int32", "__int32" },
+            { "UInt32", "unsigned __int32" },
+            { "Boolean", "bool" },
+            { "String", "wchar_t" },
+        };
+
+        /// &lt;summary&gt;
+        /// メンバを保持するクラス
+        /// &lt;/summary&gt;
+        private class Members
+        {
+            public string Key { get; set; }
+            public string Value { get; set; }
+        }
+
+        /// &lt;summary&gt;
+        /// C#クラスのpublicメンバーを構造体形式に変換する
+        /// サンプルなのでコンソール出力してる
+        /// &lt;/summary&gt;
+        /// &lt;param name="classes"&gt;The classes.&lt;/param&gt;
+        private static void ConvertCSharpClasses2CStructure(Type classes)
+        {
+            var memberNames = new List&lt;Members&gt;();
+            var enumNames = new Dictionary&lt;string, string[]&gt;();
+            var nestMembers = new List&lt;Type&gt;();
+
+            // publicのプロパティとフィールドを検索
+            var memberInfos = classes.GetMembers(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var memberInfo in memberInfos)
+            {
+                switch (memberInfo.MemberType)
+                {
+                    case MemberTypes.Field:
+                        {
+                            var prop = classes.GetField(memberInfo.Name);
+
+                            // 配列なら要素数の位置を移動(要検討)
+                            if (prop.FieldType.IsArray)
+                            {
+                                memberNames.Add(new Members() { Key = prop.FieldType.GetElementType().Name, Value = prop.Name + "[128]" });
+                            }
+                            else
+                            {
+                                memberNames.Add(new Members() { Key = prop.FieldType.Name, Value = prop.Name });
+                            }
+
+                            // プリミティブとSystemネームスペース以外
+                            if (!"System".Equals(prop.FieldType.Namespace) &amp;&amp; prop.FieldType.IsPrimitive == false)
+                            {
+                                // enumは一階層のため列挙
+                                if (prop.FieldType.IsEnum)
+                                {
+                                    enumNames[prop.FieldType.Name] = prop.FieldType.GetEnumNames();
+                                }
+                                // 独自クラスがある場合はさらに掘り進める
+                                else if (prop.FieldType.IsClass)
+                                {
+                                    nestMembers.Add(prop.FieldType);
+                                }
+                            }
+                        }
+                        break;
+                    case MemberTypes.Property:
+                        {
+                            var prop = classes.GetProperty(memberInfo.Name);
+                            memberNames.Add(new Members() { Key = prop.PropertyType.Name, Value = prop.Name});
+                            // enumは一階層のため列挙
+                            if (prop.PropertyType.IsEnum)
+                            {
+                                enumNames[prop.PropertyType.Name] = prop.PropertyType.GetEnumNames();
+                            }
+                        }
+                        break;
+                    default:
+                        // ignore;
+                        break;
+                }
+            }
+
+            // メンバーに独自クラスがある場合は掘り進める ※1
+            foreach (var item in nestMembers)
+            {
+                ConvertCSharpClasses2CStructure(item);
+            }
+
+            // enum
+            foreach (var item in enumNames)
+            {
+                Console.WriteLine("enum {0}", item.Key);
+                Console.WriteLine("{");
+                foreach (var name in item.Value)
+                {
+                    Console.WriteLine("    {0},", name);
+                }
+                Console.WriteLine("};\r\n");
+            }
+
+            // コンソール出力をファイル出力(.h)で出すとしぁゎせ。ファイル出力する場合はstreamを引数にするとか工夫しよう。
+            // ※1より後に出力があるのは、掘り進めた深い階層の構造体を先に定義したいがため
+            Console.WriteLine("typedef struct\r\n{");
+            foreach (var item in memberNames)
+            {
+                string replaceValue;
+                if (!convertDeclaration.TryGetValue(item.Key, out replaceValue))
+                {
+                    replaceValue = item.Key;
+                }
+
+                if (string.Compare(item.Key, "string", true) == 0)
+                {
+                    Console.WriteLine("    {0} {1}[256];", replaceValue, item.Value);
+                }
+                else
+                {
+                    Console.WriteLine("    {0} {1};", replaceValue, item.Value);
+                }
+            }
+
+            Console.Write("} ");
+            Console.WriteLine("{0};\r\n", classes.Name);
+        }
+    }
+
+

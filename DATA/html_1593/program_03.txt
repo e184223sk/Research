@@ -1,0 +1,88 @@
+
+    [SerializeField] private Transform _paintTrailRendererParent;
+
+    [SerializeField] private GameObject _paintTrailRendererPrefab;
+
+    private MaterialPropertyBlock _materialPropertyBlock;
+
+    private int _propertyID;
+
+    private void Start()
+    {
+        _materialPropertyBlock = new MaterialPropertyBlock();
+
+        //色のプロパティIDをintで保持
+        _propertyID = Shader.PropertyToID("_Color");
+    }
+
+    /// &lt;summary&gt;
+    /// セーブ機能
+    /// &lt;/summary&gt;
+    private void save()
+    {
+        //ここでTrailRendererの情報を構造体、及びリストに格納する
+        PaintDataWrapper paintDataWrapper = new PaintDataWrapper();
+        PaintData paintData = new PaintData();
+
+        //Paintオブジェクト(TrailRenderer)のリストを作成
+
+        foreach (Transform child in _paintTrailRendererParent.transform)
+        {
+            //TrailRendererの情報を取得
+            TrailRenderer tr = child.GetComponent&lt;TrailRenderer&gt;();
+            int posCount = tr.positionCount;
+            Vector3[] posArray = new Vector3[posCount];
+            int vertCount = tr.GetPositions(posArray);
+
+            //構造体にTrailRendererの座標を格納
+            paintData.PaintObjectPosition = child.position;
+
+            //構造体にTrailRendererの頂点座標の配列を格納
+            paintData.PaintVertices = posArray;
+
+            //描画した頂点座標を確認
+            for (int i = 0; i &lt; vertCount; i++)
+            {
+                Debug.Log(posArray[i]);
+            }
+
+            //構造体に色情報を格納
+            _materialPropertyBlock.SetColor(_propertyID,tr.material.color);
+            paintData.PaintColor = _materialPropertyBlock.GetColor(_propertyID);
+
+            //構造体をリストに追加
+            paintDataWrapper.DataList.Add(paintData);
+        }
+
+        //シリアライズ
+        JsonDataManager.Save(paintDataWrapper);
+    }
+
+    /// &lt;summary&gt;
+    /// ロード機能
+    /// &lt;/summary&gt;
+    private void load()
+    {
+        //デシリアライズ
+        PaintDataWrapper paintDataWrapper =  JsonDataManager.Load();
+
+        foreach (PaintData paintData in paintDataWrapper.DataList)
+        {
+            //リストのデータ分Instantiate
+            GameObject paintObj = Instantiate(_paintTrailRendererPrefab, paintData.PaintObjectPosition ,Quaternion.identity,_paintTrailRendererParent);
+
+            //==============================================================================================================
+            //　TrailRenderer再設定
+            //==============================================================================================================
+
+            TrailRenderer paintObjTrailRenderer = paintObj.GetComponent&lt;TrailRenderer&gt;();
+
+            //全ての頂点を復元
+            paintObjTrailRenderer.AddPositions(paintData.PaintVertices);
+
+            //色情報を復元
+            _materialPropertyBlock.SetColor(_propertyID, paintData.PaintColor);
+            paintObjTrailRenderer.SetPropertyBlock(_materialPropertyBlock);
+        }
+    }
+

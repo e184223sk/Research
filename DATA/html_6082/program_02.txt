@@ -1,0 +1,155 @@
+
+using AdvanceSoftware.VBReport8;
+using Prism.Commands;
+using Prism.Mvvm;
+using System;
+using System.Xml;
+
+namespace VbReportSampleApp.ViewModels
+{
+    public class MainUcViewModel : BindableBase
+    {
+        public MainUcViewModel()
+        {
+
+        }
+
+private DelegateCommand&lt;ViewerControlEx&gt; createReportCommand;
+        public DelegateCommand&lt;ViewerControlEx&gt; CreateReportCommand =&gt;
+            createReportCommand ?? (createReportCommand = new DelegateCommand&lt;ViewerControlEx&gt;(CreateDocumentExecute));
+
+        private void CreateDocumentExecute(ViewerControlEx viewerControlEx)
+        {
+            viewerControlEx.viewer.Clear();
+            DocumentReport = CreateDocument();    
+        }
+
+        public Document CreateDocument()
+        {
+            XmlDocument doc = new XmlDocument();
+            XmlNodeList list;
+
+            string userID;
+            string designFilePath = @"見積書.xls";
+            cellReport1.FileName = designFilePath;
+            cellReport1.Report.Start();
+            cellReport1.Report.File();
+
+            // 請求リストを読み込みます。
+            doc.Load(@"見積書リスト.xml");
+            list = doc.SelectNodes("/見積書リスト/顧客");
+
+            foreach (XmlNode node in list)
+            {
+                int totalSeikyu = 0;
+                userID = node.SelectSingleNode("@id").InnerText;
+
+                cellReport1.Page.Start("見積書", "1");
+                // 日付
+                cellReport1.Cell("**Date").Value = DateTime.Now;
+                // 見積有効日
+                cellReport1.Cell("**EndDate").Value = (double)DateTime.Now.ToOADate() + 7;
+                // 見積書番号
+                cellReport1.Cell("**Mitsumori").Value = node.SelectSingleNode("./見積書番号").InnerText;
+                // 会社名
+                string officename = node.SelectSingleNode("./会社名").InnerText;
+                if (officename != "")
+                {
+                    cellReport1.Cell("**OfficeName").Value = node.SelectSingleNode("./会社名").InnerText;
+                }
+                // 部署名
+                string sectionname = node.SelectSingleNode("./部署名").InnerText;
+                if (sectionname != "")
+                {
+                    cellReport1.Cell("**SectionName").Value = node.SelectSingleNode("./部署名").InnerText;
+                }
+                // お客様名
+                cellReport1.Cell("**UserName").Value = node.SelectSingleNode("./お客様名").InnerText + " 様";
+                // 郵便番号
+                cellReport1.Cell("**Post").Value = "〒" + node.SelectSingleNode("./郵便番号").InnerText;
+                // 住所県
+                cellReport1.Cell("**Address1").Value = node.SelectSingleNode("./住所県").InnerText;
+                // 住所その他
+                cellReport1.Cell("**Address2").Value = node.SelectSingleNode("./住所その他").InnerText;
+                // 商品一覧
+                int y = 0;
+                XmlNode shyouhinNode = node.SelectSingleNode("./商品明細");
+                XmlNodeList list2 = shyouhinNode.SelectNodes("./商品");
+
+                // 一括割引対象品と除外品を判断するためのフラグ("1"→"0"に変更した時点で割引額の表示)
+                string discount = "";
+                string discountPrev = "";
+
+                foreach (XmlNode node2 in list2)
+                {
+                    discount = node2.SelectSingleNode("./一括割引").InnerText;
+                    // 一括割引対象品でなくなった時点で、割引額を求める
+                    // 全て割引除外品の場合、計算を行わない
+                    if ((discount == "0") &amp;&amp; (discountPrev == "1"))
+                    {
+                        // 合計額(税抜き)が、100万未満の場合、一括割引を行わない。
+                        if (totalSeikyu &gt;= 1000000)
+                        {
+                            cellReport1.Cell("**Shouhin", 0, y).Value = "（一括割引）";
+                            cellReport1.Cell("**Shouhin", 0, y).Attr.FontColor2 = AdvanceSoftware.VBReport8.xlColor.Red;
+                            int discountGaku = totalSeikyu * -2 / 10;
+                            cellReport1.Cell("**Kingaku", 0, y).Value = discountGaku;
+                            cellReport1.Cell("**Kingaku", 0, y).Attr.FontColor2 = AdvanceSoftware.VBReport8.xlColor.Red;
+                            totalSeikyu += discountGaku;
+                            cellReport1.Cell("**Biko", 0, y).Value = "上記合計金額より２０％ＯＦＦ";
+                            y += 2;
+                            cellReport1.Cell("**Shouhin", 0, y).Value = "（以下、割引除外品）";
+                            y++;
+                        }
+                    }
+                    // 商品名
+                    cellReport1.Cell("**Shouhin", 0, y).Value = node2.SelectSingleNode("./商品名").InnerText;
+                    // 数量
+                    int unitNumber = Convert.ToInt32(node2.SelectSingleNode("./数量").InnerText);
+                    cellReport1.Cell("**Suuryou", 0, y).Value = unitNumber;
+                    // 単価
+                    int unitPrice = Convert.ToInt32(node2.SelectSingleNode("./単価").InnerText);
+                    cellReport1.Cell("**Tanka", 0, y).Value = unitPrice;
+                    // 金額
+                    int totalPrice = unitNumber * unitPrice;
+                    cellReport1.Cell("**Kingaku", 0, y).Value = totalPrice;
+                    totalSeikyu += totalPrice;
+                    // 備考
+                    cellReport1.Cell("**Biko", 0, y).Value = node2.SelectSingleNode("./備考").InnerText;
+                    y++;
+                    discountPrev = discount;
+                }
+                // 税抜
+                cellReport1.Cell("**Zeinuki").Value = totalSeikyu;
+
+                // 消費税
+                int tax = (int)(totalSeikyu * 0.05);
+                cellReport1.Cell("**Zei").Value = tax;
+
+                // 税込
+                cellReport1.Cell("**Zeikomi").Value = totalSeikyu + tax;
+
+                cellReport1.Page.End();
+            }
+            cellReport1.Report.End();
+            return cellReport1.Document;
+        }
+
+        private Document documentReport;
+        public Document DocumentReport
+        {
+            get
+            {
+                return documentReport;
+            }
+            set
+            {
+                SetProperty(ref documentReport, value);
+            }
+        }
+
+        private CellReport cellReport1 = new CellReport();
+
+    }
+}
+

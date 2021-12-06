@@ -1,0 +1,125 @@
+using System.Runtime.InteropServices;
+using Microsoft.Office.Interop.Excel;
+
+    class ExcelManager : IDisposable
+    {
+        /// &lt;summary&gt;
+        /// Excel操作用オブジェクト
+        /// &lt;/summary&gt;
+        private Application _application = null;
+        private Workbook _workbook = null;
+        private Worksheet _worksheet = null;
+
+        // Dispose処理は、下記のページを参考にしています。
+        // [アンマネージドリソースをDisposeパターンで管理する]
+        // (https://days-of-programming.blogspot.com/2018/04/dispose.html)
+
+        #region "IDisposable Support"
+        private bool disposedValue = false;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    // TODO: Managed Objectの破棄
+                }
+
+                if (_workbook != null)
+                {
+                    _workbook.Close();
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(_workbook);
+                    _workbook = null;
+                }
+
+                if (_application != null)
+                {
+                    _application.Quit();
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(_application);
+                    _application = null;
+                }
+
+                disposedValue = true;
+            }
+        }
+
+        ~ExcelManager()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        #endregion "IDisposable Support"
+
+        /// &lt;summary&gt;
+        /// Excelワークブックを開く
+        /// &lt;/summary&gt;
+        public void Open()
+        {
+            try
+            {
+                // Excelアプリケーション生成
+                _application = new Application()
+                {
+                    // 非表示
+                    //Visible = true
+                    Visible = false
+                };
+
+                // Bookを開く
+                _workbook = _application.Workbooks.Open(@"e:\book1.xlsx");
+
+                // 対象シートを設定する
+                _worksheet = _workbook.Worksheets["Sheet1"];
+            }
+            catch (Exception ex)
+            {
+                throw (ex);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Excelワークブックをファイル名を指定して保存する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;True:正常終了、False:保存失敗&lt;/returns&gt;
+        public bool SaveAs()
+        {
+            try
+            {
+                // ファイル名を指定して保存する
+                _workbook.SaveCopyAs(@"e:\book2.xlsx");
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// セル設定
+        /// &lt;/summary&gt;
+        /// &lt;param name="rowIndex"&gt;row&lt;/param&gt;
+        /// &lt;param name="columnIndex"&gt;col&lt;/param&gt;
+        /// &lt;param name="value"&gt;value&lt;/param&gt;
+        public void WriteCell(int rowIndex, int columnIndex, object value)
+        {
+            // セルを指定
+            var cells = _worksheet.Cells;
+            var range = cells[rowIndex, columnIndex] as Range;
+
+            // 値を設定
+            range.Value = value;
+
+            // cell解放
+            Marshal.ReleaseComObject(range);
+            Marshal.ReleaseComObject(cells);
+        }
+    }
+

@@ -1,0 +1,28 @@
+More than 1 year has passed since last update.こんにちは、ZeniZeniです。
+最近ZenjectのSubContainerというものを知り、試しに自分のプロジェクトでも扱ってみようとしたところめちゃめちゃつまづいてしまったので、そのつまづきポイントとその解決方法を共有したいと思います。こちらのいもさん(@adarapata )のスライドが非常にわかりやすいので、こちらを参照してください。
+https://learning.unity3d.jp/3771/Zenjectの便利な機能の一つとして、MonoBehaviourのStartやUpdateのような機能をpure C#クラスでも用いることができるという機能があります。
+実装は非常に簡単で、IInitializableやITickableといったインターフェースを実装して、それらをBindするだけです。この機能は非常に強力ですが、SubContainerで用いるにはいろいろと手間がかかります。公式のドキュメントではこちらに方法が書いてあります。実装方法は主に二つ存在します。まずKernelクラスを継承したクラスを用意します。すでに存在しているクラスにわざわざ継承させるとクラスの責務がぼやけるので、別途新しく作ったほうがいいと思います。
+そして継承したクラスをBindInterfacesAndSelfToでBindすればそれだけでIInitializable、ITickableが機能します。以下のコードは公式のドキュメント記載のコードに一部修正を加えたものです。KernelクラスはIInitializableやITickableといったインターフェースをすべて継承したクラスです。
+KernelクラスにSubContainer内のIInitializableやITickableがすべてInjectされていて、Kernelクラスがそれらすべてを呼び出すことでSubContainer内のIInitializableといったインターフェースが動作するようになっています。GameObjectContextやSceneContextでIInitializableが動作するのは、Kernekクラスが自動的に追加されているからです。Kernelクラスを用いる方法は新しくクラスを用意する必要があり最適とは言えません。そこでもう一つの方法として、WithKernelメソッドを用いる方法があります。こうすることでSubContainer内のIInitializable等のインターフェースが動作するようになります。
+この方法ではKernelクラスを用いず、BindInterfacesAndSelfToも使わないので素晴らしいです。…という風にドキュメントに書いてあるんですが、どうも正しく動作しないケースがあるみたいです。
+実際上記のコードは正しく動作せず、"Hello World"は出力されません。
+この不具合はissueでも上がっていますが、まだ解決されていません。
+https://github.com/modesttree/Zenject/issues/574
+https://github.com/svermeulen/Extenject/issues/13
+自分でもいろいろ試してところ、うまく動作するときもあれば動作しないときもあり、その違いが全く分かっていないという状況です…
+解決方法がわかり次第追記していきます。ところでFromSubContainerResolveとはどういったコンストラクションメソッドでしょうか？
+公式のドキュメントにはこう書いてあります。FromSubContainerResolve
+Get ResultType by doing a lookup on a subcontainer. Note that for this to work, the sub-container must have a binding for ResultType. This approach can be very powerful, because it allows you to group related dependencies together inside a mini-container, and then expose only certain classes (aka "Facades") to operate on this group of dependencies at a higher level. For more details on using sub-containers, see this section. There are several ways to define the subcontainer:…まぁ要するにSubContainer内を参照してそこからBindするというものです。
+ではその参照するSubContainerはどう決めればいいのでしょうか？
+FromSubContainerResolve続けてメソッドを書くのですが、そのうち最も使うであろうByInstaller、ByMethodを見てみます。ByMethod - Initialize the subcontainer by using a method.
+ByInstaller - Initialize the subcontainer by using a class derived from Installer.Initialize the subcontainerと書いてありますね。この二つだけでなく、現状すべてのSubContanerを決定づけるメソッドはSubContainerを新しく生成しています。
+つまり何が言いたいかというと、同じメソッド、インストーラーを用いてFromSubContanerResolveを呼んでも、その時生成されて渡されるSubContainerは別物だということです。これの何が困るかというと、上記のKernelInitializable.csでさらにHalloHandlerも基のContainerにBindしたいときなどです。と書いても、Container.Bind&lt;HelloHandler&gt;()...でBindしたHelloHandlerのIInitializableは呼ばれず、呼ばれるのはContainer.BindInterfacesAndSelfTo&lt;Greeter&gt;()...でBindした別のHelloHandlerのIInitializableです。BindInterfacesAndSelfToは可変長引数ではないので、
+BindInterfacesAndSelfTo(typeof(Greeter),typeof(HelloHandler))みたいな書き方はできません。
+WithKernelを使う方法であるならば、Bindは可変長引数なので
+Bind(typeof(Greeter),typeof(HelloHandler))と書くだけで終わりですがKernelを使う方法ではそうもいきません。
+ではどうするかというと、Kernelクラスを継承したGreeterクラスにSubContainer内のHellorHandlerクラスをBindして、それを基のContainerにBindします。
+具体的には、下記のコードのようにします。FromResolveGetter&lt;ObjectType&gt;ConstructionMethodは、BindされているObjectTypeを参照して、そこのプロパティーを用いてBindする方法です。
+こうすることで同一のSubContainerからBindすることができました。ByInstallerを使うべきだと公式のドキュメントに書いてありました。ByInstaller - Initialize the subcontainer by using a class derived from Installer. This can be a cleaner and less error-prone alternative than ByMethod, especially if you need to inject data into the installer itself. Less error prone because when using ByMethod it is common to accidentally use Container instead of subContainer in your method.ByMethodを用いるとうっかりContainer.Bind...と引数で与えられたsubContainerではなく基のContainerにBindしちゃうことがよくあるので、使うならByInstallerにしようねということですね（ByInstllerならContainer以外を書くとコンパイルエラーになる）
+実際私もこのミスで1時間くらい溶かしたことがあるので、使うならByInstallerを使うべきだと思います。
+
+

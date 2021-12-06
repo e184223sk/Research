@@ -1,0 +1,112 @@
+
+
+    public class FireController : MonoBehaviour
+    {
+
+        [SerializeField]
+        [Tooltip("弾オブジェクトを一か所にまとめるための空オブジェクト")]
+        private Transform mTransBulletGroup; // 弾オブジェクトのルートとなる
+        [SerializeField]
+        [Tooltip("弾の発射地点")]
+        private Transform mTransFirePoint; // 発射時の弾とエフェクトについて、位置と方向を決定する
+        [SerializeField]
+        [Tooltip("発射エフェクト")]
+        private GameObject mMuzzleFirePrefab;
+        [SerializeField]
+        [Tooltip("弾")]
+        private GameObject mBulletPrefab;
+
+
+        //------------------------------
+        // Called by TankModel#Update //
+        //----------------------------------------------------------------------------------------
+
+        public void CheckInput()
+        {
+            if (Input.GetMouseButtonDown(0)) Fire();
+        }
+
+        //--------
+        // 発射 //
+        //----------------------------------------------------------------------------------------
+
+        // 発射地点のTransformから正面方向に1.0f進んだ座標に弾を生成する
+        private readonly float BULLET_OFFSET = 1.0f;
+
+        // 生成された弾オブジェクトをプーリング
+        private List&lt;BulletModel&gt; mBulletList = new List&lt;BulletModel&gt;();
+
+        // 所持している弾数
+        private int mBulletCount = 3;
+
+        // 弾の攻撃力
+        private int mBulletAttack = 10;
+
+        // 弾の速さ
+        private float mBulletSpeed = 40.0f;
+
+        public void Fire()
+        {
+            // 弾数が残っているならば発射処理
+            if (mBulletCount &gt; 0)
+            {
+                // 所持弾数をデクリメント
+                mBulletCount--;
+
+                // 発射エフェクト生成
+                CreateMuzzleFire();
+
+                // 弾生成
+                CreateBullet();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 発射時のエフェクト生成
+        /// &lt;/summary&gt;
+        private void CreateMuzzleFire()
+        {
+            GameObject muzzleFire = Instantiate(mMuzzleFirePrefab, mTransFirePoint.position, mTransFirePoint.rotation) as GameObject;
+            muzzleFire.transform.parent = mTransFirePoint;
+        }
+
+        /// &lt;summary&gt;
+        /// 弾オブジェクトの生成
+        /// &lt;/summary&gt;
+        private void CreateBullet()
+        {
+            // 休眠状態の弾オブジェクトがある場合はそれを再利用する
+            foreach (BulletModel model in mBulletList)
+            {
+                if (model.IsSleep)
+                {
+                    model.Respawn(mBulletAttack, mBulletSpeed, mTransFirePoint.position + mTransFirePoint.forward * BULLET_OFFSET, mTransFirePoint.rotation);
+                    return;
+                }
+            }
+
+            // 再利用できるオブジェクトが無かった場合は新しく生成してリストに格納する
+            GameObject bulletGo = Instantiate(mBulletPrefab, mTransFirePoint.position + mTransFirePoint.forward * BULLET_OFFSET, mTransFirePoint.rotation) as GameObject;
+            bulletGo.transform.parent = mTransBulletGroup;
+            BulletModel bulletModel = bulletGo.GetComponent&lt;BulletModel&gt;();
+            bulletModel.SetDelegate(this);
+            bulletModel.Spawn(mBulletAttack, mBulletSpeed);
+            mBulletList.Add(bulletModel);
+        }
+
+        //---------------------
+        // デリゲート受け取り //
+        //----------------------------------------------------------------------------------------
+
+        /// &lt;summary&gt;
+        /// 発射した弾が休眠状態になった際に、残弾数を1つ回復する
+        /// called by BulletModel
+        /// &lt;/summary&gt;
+        public void OnSleepBullet()
+        {
+            mBulletCount++;
+        }
+
+    }
+
+

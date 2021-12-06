@@ -1,0 +1,38 @@
+        internal static string GetExpirationDate(string path)
+        {
+            try
+            {
+                using (var archive = ZipFile.OpenRead(path))
+                {
+                    foreach (var ent in archive.Entries)
+                    {
+                        if (string.Compare("embedded.mobileprovision", ent.Name, true) == 0)
+                        {
+                            using (var stream = ent.Open())
+                            {
+                                var buffer = new byte[ent.Length];
+                                stream.Read(buffer, 0, (int)ent.Length);
+
+                                var cms = new SignedCms();
+                                cms.Decode(buffer);
+                                var xml = Encoding.UTF8.GetString(cms.ContentInfo.Content);
+                                var m = Regex.Match(xml, @"&lt;key&gt;ExpirationDate&lt;/key&gt;.*?&lt;date&gt;(.*?)&lt;/date&gt;", RegexOptions.Singleline);
+                                if (m.Success)
+                                {
+                                    DateTime res;
+                                    if (DateTime.TryParse(m.Groups[1].ToString(), out res))
+                                    {
+                                        return res.ToString();
+                                    }
+                                    return m.Groups[1].ToString();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            return "??";
+        }
+

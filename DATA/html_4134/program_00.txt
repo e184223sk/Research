@@ -1,0 +1,90 @@
+using Discord;
+using Discord.Commands;
+using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Reflection;
+using System.Threading.Tasks;
+
+namespace DiscordBot.NetCore
+{
+    /// &lt;summary&gt;
+    ///     DiscordBot メイン処理
+    /// &lt;/summary&gt;
+    public class MainLogic
+    {
+        /// &lt;summary&gt;
+        ///     Botクライアント
+        /// &lt;/summary&gt;
+        public static DiscordSocketClient Client;
+        /// &lt;summary&gt;
+        ///     Discordコマンドをやり取りするService層
+        /// &lt;/summary&gt;
+        public static CommandService Commands;
+        /// &lt;summary&gt;
+        ///     ServiceProvider
+        /// &lt;/summary&gt;
+        public static IServiceProvider Provider;
+
+        /// &lt;summary&gt;
+        ///     起動時処理
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task MainAsync()
+        {
+            // ServiceProviderインスタンス生成
+            Provider = new ServiceCollection().BuildServiceProvider();
+
+            // 自身のアセンブリにコマンドの処理を構築する為、自身をCommandServiceに追加
+            Commands = new CommandService();
+            await Commands.AddModulesAsync(Assembly.GetEntryAssembly());
+
+            // Botアカウントに機能を追加
+            Client = new DiscordSocketClient();
+            Client.MessageReceived += CommandRecieved;
+            Client.Log += msg =&gt; { Console.WriteLine(msg.ToString()); return Task.CompletedTask; };
+            // BotアカウントLogin
+            var token = "";
+            await Client.LoginAsync(TokenType.Bot, token);
+            await Client.StartAsync();
+
+            // タスクを常駐
+            await Task.Delay(-1);
+        }
+
+        /// &lt;summary&gt;
+        ///     メッセージの受信処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="messageParam"&gt;受信メッセージ&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task CommandRecieved(SocketMessage messageParam)
+        {
+            var message = messageParam as SocketUserMessage;
+            Console.WriteLine("{0} {1}:{2}", message.Channel.Name, message.Author.Username, message);
+
+            // コメントがユーザーかBotかの判定
+            if (message?.Author.IsBot ?? true)
+            {
+                return;
+            }
+
+            // Botコマンドかどうか判定（判定条件は接頭辞"!"付き発言 or Botアカウントへのメンション）
+            int argPos = 0;
+            if (!(message.HasCharPrefix('!', ref argPos) || message.HasMentionPrefix(Client.CurrentUser, ref argPos)))
+            {
+                return;
+            }
+
+            // 実行
+            var context = new CommandContext(Client, message);
+            var result = await Commands.ExecuteAsync(context, argPos, Provider);
+
+            //実行できなかった場合
+            if (!result.IsSuccess)
+            {
+                await context.Channel.SendMessageAsync(result.ErrorReason);
+            }
+        }
+    }
+}
+

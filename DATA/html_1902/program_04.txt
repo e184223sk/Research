@@ -1,0 +1,63 @@
+
+
+namespace MyNameSpace.Filter{
+
+    // 確認画面描画用のアクションフィルター
+    public class ConfirmAttribute : ActionFilterAttribute
+    {
+        private const string SubmitButtonKey = "__SubmitButton";        //　←自作したタグヘルパーのname属性と同じであること。
+        private const string ConfirmButtonKey = "__ConfirmButton";      //　←自作したタグヘルパーのname属性と同じであること。
+        private const string BackButtonKey = "__BackButton";            //　←自作したタグヘルパーのname属性と同じであること。
+
+        private const string ViewSuffix = "Confirm";
+
+        // アクションメソッド実行前処理
+        public override void OnActionExecuting(ActionExecutingContext context)
+        {
+            var form = context.HttpContext.Request.Form;
+
+            var factory = context.HttpContext.RequestServices.GetService(typeof(ITempDataDictionaryFactory)) as ITempDataDictionaryFactory;
+
+            // ※Post先アクションメソッド(EditとかCreate)の第一引数と、確認画面で定義する「@model」は同じ型であること。※
+            var parameter = context.ActionArguments.FirstOrDefault();
+
+            // 登録ボタンが押された場合
+            if (form.Any(f =&gt; f.Key == SubmitButtonKey))
+            {
+                // そのままアクションメソッドのpost処理を実行する。
+                return;
+            }
+
+            // 確認ボタンが押された場合
+            var viewName = (string)context.RouteData.Values["Action"];
+            if (form.Any(f =&gt; f.Key == ConfirmButtonKey))
+            {
+                // モデルの検証でエラーが発生しているか調べる
+                if (!context.ModelState.IsValid)
+                {
+                    // Viewに戻りエラーを表示する
+                    return;
+                }
+
+                // 確認画面を表示するためにビュー名を変更
+                viewName += ViewSuffix;
+            }
+
+            var controller = context.Controller as Controller;
+
+            // ビューを表示する（戻るボタンを押した場合は入力内容そのままで戻る）
+            context.Result = new ViewResult
+            {
+                ViewName = viewName,
+                // Viewにモデルの内容を渡すために必要。ViewのModelに値が入る。
+                ViewData = new ViewDataDictionary(controller.ViewData) { Model = parameter.Value }
+            };
+        }
+
+        // アクションメソッド実行後処理
+        public override void OnActionExecuted(ActionExecutedContext context)
+        {
+        }
+    }
+}
+

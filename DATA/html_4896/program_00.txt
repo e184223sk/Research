@@ -1,0 +1,76 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace WindowsFormsApp1
+{
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            int startTick = System.Environment.TickCount;
+            Log(startTick, "1", "UI", 0);
+            A(startTick);
+            Log(startTick, "6?", "UI", 500);
+            System.Threading.Thread.Sleep(2000);
+            Log(startTick, "14", "UI", 2500);
+        }
+
+        private async void A(int startTick)
+        {
+            Log(startTick, "2", "UI", 0);
+
+            // await前にTaskが終わるケース（UIスレッドの場合）
+            Task task = Task.Run(() =&gt; Sleep(startTick, "3", "4", 250, 0));
+            System.Threading.Thread.Sleep(500);
+            await task;
+            Log(startTick, "5", "UI", 500);
+
+            // await後にTaskが終わるケース（UIスレッドの場合）
+            await Task.Run(() =&gt; B(startTick));
+            Log(startTick, "15", "UIsync", 2500);
+        }
+
+        private async void B(int startTick)
+        {
+            Log(startTick, "7?", "work7?", 500);
+
+            // await後にTaskが終わるケース（ワーカースレッドの場合）
+            await Task.Run(() =&gt; Sleep(startTick, "8?", "9", 500, 500));
+            Log(startTick, "10", "work8?&gt;", 1000);
+
+            // await前にTaskが終わるケース（ワーカースレッドの場合）
+            Task task = Task.Run(() =&gt; Sleep(startTick, "11", "12", 250, 1000));
+            System.Threading.Thread.Sleep(500);
+            await task;
+            Log(startTick, "13", "work8?&gt;", 1500);
+        }
+
+        private void Sleep(int startTick, string seq1, string seq2, int sleep, int expectTaskStartTick)
+        {
+            string threadName = "work" + seq1;
+            Log(startTick, seq1, "work" + seq1, expectTaskStartTick);
+            System.Threading.Thread.Sleep(sleep);
+            Log(startTick, seq2, "work" + seq1, expectTaskStartTick + sleep);
+        }
+
+        private void Log(int startTick, string seq, string threadName, int expectTick)
+        {
+            int threadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            int actualTick = System.Environment.TickCount - startTick;
+            Console.WriteLine("({0,4}ms:{1,4}ms) [{2}:{3,-7}] {4}", expectTick, actualTick, threadId, threadName, seq);
+        }
+    }
+}
+

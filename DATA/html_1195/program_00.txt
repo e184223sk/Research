@@ -1,0 +1,110 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Diagnostics;
+using SharpDX.MediaFoundation;
+using System.Runtime.InteropServices;
+
+namespace VideoThumbnail
+{
+    public partial class Form1 : Form
+    {
+        [DllImport("Kernel32.dll", EntryPoint = "RtlMoveMemory", CallingConvention = CallingConvention.StdCall)]
+        private static extern void RtlMoveMemory(IntPtr Destination, IntPtr Source, [MarshalAs(UnmanagedType.U4)] int Length);
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            //MediaFoundation使用前にMediaManager.Startupが必要
+            MediaManager.Startup();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            //MediaFoundation終了処理
+            MediaManager.Shutdown();
+
+            base.OnFormClosed(e);
+        }
+
+        /// &lt;summary&gt;
+        /// 動画の指定位置から画像を取得し、Bitmapオブジェクトを作成する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="moviePath"&gt;動画ファイルパス&lt;/param&gt;
+        /// &lt;param name="positionOfPercent"&gt;取得する再生位置(0～100%)&lt;/param&gt;
+        /// &lt;returns&gt;作成したBitmapオブジェクト&lt;/returns&gt;
+        private Bitmap CreateVideoBitmap(string moviePath, double positionOfPercent)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            SourceReader reader = null;
+            try
+            {
+                using (var attr = new MediaAttributes(1))
+                using (var newMediaType = new MediaType())
+                {
+                    //SourceReaderに動画のパスを設定
+                    attr.Set(SourceReaderAttributeKeys.EnableVideoProcessing.Guid, true);
+                    reader = new SourceReader(moviePath, attr);
+
+                    //出力メディアタイプをRGB32bitに設定
+                    newMediaType.Set(MediaTypeAttributeKeys.MajorType, MediaTypeGuids.Video);
+                    newMediaType.Set(MediaTypeAttributeKeys.Subtype, VideoFormatGuids.Rgb32);
+                    reader.SetCurrentMediaType(SourceReaderIndex.FirstVideoStream, newMediaType);
+
+                    //元のメディアタイプから動画情報を取得する
+                    // duration:ビデオの総フレーム数
+                    // frameSize:フレーム画像サイズ（上位32bit:幅 下位32bit:高さ）
+                    // stride:フレーム画像一ライン辺りのバイト数
+                    var mediaType = reader.GetCurrentMediaType(SourceReaderIndex.FirstVideoStream);
+                    var duration = reader.GetPresentationAttribute(SourceReaderIndex.MediaSource, PresentationDescriptionAttributeKeys.Duration);
+                    var frameSize = mediaType.Get(MediaTypeAttributeKeys.FrameSize);
+                    var stride = mediaType.Get(MediaTypeAttributeKeys.DefaultStride);
+                    var rect = new Rectangle()
+                    {
+                        Width = (int)(frameSize &gt;&gt; 32),
+                        Height = (int)(frameSize &amp; 0xffffffff)
+                    };
+
+                    //取得する動画の位置を設定
+                    var mulPositionOfPercent = Math.Min(Math.Max(positionOfPercent, 0), 100.0) / 100.0;
+                    reader.SetCurrentPosition((long)(duration * mulPositionOfPercent));
+
+                    //動画から1フレーム取得し、Bitmapオブジェクトを作成してメモリコピー
+                    int actualStreamIndex;
+                    SourceReaderFlags readerFlags;
+                    long timeStampRef;
+                    using (var sample = reader.ReadSample(SourceReaderIndex.FirstVideoStream, SourceReaderControlFlags.None, out actualStreamIndex, out readerFlags, out timeStampRef))
+                    using (var buf = sample.ConvertToContiguousBuffer())
+                    {
+                        int maxLength;
+                        int currentLength;
+                        var pBuffer = buf.Lock(out maxLength, out currentLength);
+                        var bmp = new Bitmap(rect.Width, rect.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                        var bmpData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+                        RtlMoveMemory(bmpData.Scan0, pBuffer, stride * rect.Height);
+                        bmp.UnlockBits(bmpData);
+                        buf.Unlock();
+                        return bmp;
+                    }
+                }
+            }
+            finally
+            {
+                if (reader != null) reader.Dispose();
+
+                stopwatch.Stop();
+                textBox1.AppendText($"process time {stopwatch.ElapsedMilliseconds} msec ({moviePath})\r\n");
+            }
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            pictureBox1.Image = CreateVideoBitmap(@"C:\test\mov_hts-samp003.mp4", 75);
+            pictureBox2.Image = CreateVideoBitmap(@"C:\test\mov_hts-samp004.mp4", 75);
+            pictureBox3.Image = CreateVideoBitmap(@"C:\test\mov_hts-samp005.mp4", 75);
+        }
+    }
+}
+
+

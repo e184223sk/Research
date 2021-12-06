@@ -1,0 +1,89 @@
+
+using NativeStringCollections;
+using NativeStringCollections.Utility;
+
+public struct YourDataElem
+{
+    public ReadOnlyStringEntity text;
+    public int somethingData;
+}
+
+public class YourDataParser : ITextFileParser, IDisposable
+{
+    // 処理したいデータの実体
+    public NativeList&lt;YourDataElem&gt; data_list;
+
+    private NativeStringList text_field_list;
+
+    // ReadOnlyStringEntity.Split() の一時結果格納用
+    private NativeList&lt;ReadOnlyStringEntity&gt; str_list; 
+
+    private bool _allocated;
+
+    public void Init()
+    {
+        data_list = new NativeList&lt;YourDataElem&gt;(Allocator.Persistent);
+        text_field_list = new NativeStringList(Allocator.Persistent);
+
+        str_list = new NativeList&lt;ReadOnlyStringEntity&gt;(Allocator.Persistent);
+
+        _allocated = true;
+    }
+    public void Clear()
+    {
+        data_list.Clear();
+        text_field_list.Clear();
+    }
+    public bool ParseLines(NativeStringList lines)
+    {
+        bool continueRead = true;
+        for(int i=0; i&lt;lines.Length; i++)
+        {
+            continueRead = ParseLineImpl(lines[i]);
+            if (!continueRead) return false;
+        }
+        return true;
+    }
+    private bool ParseLineImpl(ReadOnlyStringEntity line)
+    {
+        if (line.Length &lt; 1) return true; // 空行
+
+        line.Split(',', str_list);   // CSVとして ',' 区切りで分割
+
+
+        // 以下は "ElemName,IntValue" な CSV の場合の実装例
+        text_field_list.Add(str_list[0]);
+
+        var elem = new YourDataElem();
+        BurstFunc.TryParse(str_list[1], out elem.somethingData); // Burst 適用済み delegate
+
+        data_list.Add(elem);
+
+        return true;
+    }
+    public void PostReadProc()
+    {
+        // 略
+    }
+    public void UnLoad()
+    {
+        // 略
+    }
+
+    public void Dispose()
+    {
+        if (_allocated)
+        {
+            data_list.Dispose();
+            text_field_list.Dispose();
+            str_list.Dispose();
+            _allocated = false;
+        }
+    }
+    ~YourDataParser()
+    {
+        this.Dispose();
+        GC.SuppressFinalize(this);
+    }
+}
+

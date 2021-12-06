@@ -1,0 +1,45 @@
+    using System.Windows.Media;
+    using System.Windows.Media.Imaging;
+    using System.IO;
+
+    private static unsafe void AccessPixels(in string f){
+        System.IO.MemoryStream data = new System.IO.MemoryStream(File.ReadAllBytes(f));
+        WriteableBitmap wbmp = new WriteableBitmap(BitmapFrame.Create(data));
+        data.Close();//MemoryStreamを閉じてロックを解除
+        FormatConvertedBitmap bitmap = new FormatConvertedBitmap(wbmp, PixelFormats.Pbgra32, null, 0);//32bit で読む
+        byte[] originalPixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];//αの値も読みたいのでbgrαの4種 4*8bit=32bit
+        int stride = (bitmap.PixelWidth * bitmap.Format.BitsPerPixel + 7) / 8;
+        bitmap.CopyPixels(originalPixels, stride, 0);
+
+        for (int y = 0; y &lt; bitmap.PixelHeight; ++y)
+            for (int x = 0; x &lt; bitmap.PixelWidth; ++x) {
+                int offset = (bitmap.PixelWidth * y + x) * 4;
+                if(originalPixels[0 + offset] &gt;=128) 
+                     originalPixels[0 + offset]=255;//b
+                else originalPixels[0 + offset]=0;//b
+
+                if(originalPixels[1 + offset] &gt;=128) 
+                     originalPixels[1 + offset]=255;//g
+                else originalPixels[1 + offset]=0;//g
+        }
+        BitmapSource originalBitmap = BitmapSource.Create(bitmap.PixelWidth,bitmap.PixelHeight, 96, 96, PixelFormats.Pbgra32, null, originalPixels, stride);//変更データ(配列)をBitmapSourceに変換．
+        SaveBitmapSourceToFile(originalBitmap,f+".bmp")//変更データをファイルに保存．
+        //SaveAsPng(originalBitmap,f+".png")//変更データをpngで保存．
+    }
+
+    private void SaveBitmapSourceToFile(BitmapSource bitmapSource, string filePath){
+        using (var fileStream = new FileStream(filePath, FileMode.Create)){
+            BitmapEncoder encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+            encoder.Save(fileStream);
+        }
+    }
+    public void SaveAsPng(BitmapSource bitmapSource,string pngPath){
+        using (var fileStream = new FileStream(pngPath, FileMode.Create)){
+            var encoder = new PngBitmapEncoder();
+            encoder.Interlace = PngInterlaceOption.On;
+            encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+            encoder.Save(fileStream);
+        }
+    }
+

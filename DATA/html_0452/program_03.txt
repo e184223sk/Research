@@ -1,0 +1,35 @@
+
+        [FunctionName("Function1_HttpStart")]
+        public static async Task&lt;HttpResponseMessage&gt; HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            // Function input comes from the request content.
+            var list = new List&lt;string&gt;();
+            for(var i=0; i &lt; 5; i++)
+            {
+                string instanceId = await starter.StartNewAsync&lt;string&gt;("Function1", i.ToString());
+                log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+                list.Add(instanceId);
+            }
+
+            return starter.CreateCheckStatusResponse(req, string.Join(',', list));
+        }
+
+        [FunctionName("Function1")]
+        public static async Task RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
+        {
+            log = context.CreateReplaySafeLogger(log);
+            var i = context.GetInput&lt;int&gt;();
+            try
+            {
+                await context.CallActivityAsync("WaitTest", i);
+            }
+            catch (Exception e)
+            {
+                log.LogError($"error orcestration: {i}", e);
+            }
+        }
+

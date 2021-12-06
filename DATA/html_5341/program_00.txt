@@ -1,0 +1,298 @@
+using System;
+using System.CodeDom;
+using System.CodeDom.Compiler;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using Microsoft.CSharp;
+
+namespace Zuishin
+{
+    public class NotifyPropertyAttribute : Attribute { }
+
+    public class PropertyNotifier
+    {
+        private static Dictionary&lt;Type, Type&gt; typeDictionary = new Dictionary&lt;Type, Type&gt;();
+
+        public static T Create&lt;T&gt;(params object[] arguments)
+        {
+            if (!typeDictionary.TryGetValue(typeof(T), out Type type))
+            {
+                type = CreateType(typeof(T));
+                typeDictionary.Add(typeof(T), type);
+            }
+            if (type == null) return default;
+            return (T)Activator.CreateInstance(type, arguments);
+        }
+
+        private static CodeCompileUnit CreateCompileUnit(Type baseType)
+        {
+            var compileUnit = new CodeCompileUnit();
+            compileUnit.ReferencedAssemblies.AddRange(AppDomain
+                .CurrentDomain
+                .GetAssemblies()
+                .Where(a =&gt; !a.IsDynamic)
+                .Select(a =&gt; a.Location)
+                .ToArray());
+            var nameSpace = new CodeNamespace($"INotifyPropertyChanged_{Guid.NewGuid().ToString("N")}");
+            compileUnit.Namespaces.Add(nameSpace);
+            var type = new CodeTypeDeclaration(baseType.Name);
+            type.BaseTypes.Add(baseType);
+
+            var thisReference = new CodeThisReferenceExpression();
+            var baseReference = new CodeBaseReferenceExpression();
+
+            #region PropertyChanged
+            var propertyChanged = new CodeMemberEvent()
+            {
+                Attributes = MemberAttributes.Public,
+                Name = "PropertyChanged",
+                Type = new CodeTypeReference(typeof(PropertyChangedEventHandler))
+            };
+            type.Members.Add(propertyChanged);
+            #endregion
+
+            #region propertyChangedEventArgs
+            var propertyChangedEventArgsField = new CodeMemberField(
+                new CodeTypeReference(typeof(Dictionary&lt;string, PropertyChangedEventArgs&gt;)),
+                "propertyChangedEventArgs"
+            )
+            {
+                Attributes = MemberAttributes.Private | MemberAttributes.Static,
+            };
+            propertyChangedEventArgsField.InitExpression = new CodeObjectCreateExpression(
+                typeof(Dictionary&lt;string, PropertyChangedEventArgs&gt;)
+            );
+            type.Members.Add(propertyChangedEventArgsField);
+            var propertyChangedEventArgs = new CodeMemberProperty()
+            {
+                Attributes = MemberAttributes.Family | MemberAttributes.Static,
+                Name = "PropertyChangedEventArgs",
+                Type = new CodeTypeReference(typeof(Dictionary&lt;string, PropertyChangedEventArgs&gt;))
+            };
+            propertyChangedEventArgs.GetStatements.Add(
+                new CodeMethodReturnStatement(
+                    new CodeFieldReferenceExpression(
+                        new CodeTypeReferenceExpression(type.Name),
+                        propertyChangedEventArgsField.Name
+                    )
+                )
+            );
+            type.Members.Add(propertyChangedEventArgs);
+            #endregion
+
+            #region OnPropertyChanged
+            var onPropertyChanged = new CodeMemberMethod()
+            {
+                Attributes = MemberAttributes.Family | MemberAttributes.VTableMask,
+                Name = "OnPropertyChanged"
+            };
+            onPropertyChanged.Parameters.Add(new CodeParameterDeclarationExpression(typeof(string), "propertyName"));
+            type.Members.Add(onPropertyChanged);
+            var propertyChangedReference = new CodeEventReferenceExpression(
+                thisReference,
+                propertyChanged.Name
+            );
+            onPropertyChanged.Statements.Add(
+                new CodeConditionStatement(
+                    new CodeBinaryOperatorExpression(
+                        propertyChangedReference,
+                        CodeBinaryOperatorType.ValueEquality,
+                        new CodePrimitiveExpression(null)
+                    ),
+                    new CodeMethodReturnStatement()
+                )
+            );
+            var eventArgs = new CodeVariableDeclarationStatement(
+                typeof(PropertyChangedEventArgs),
+                "eventArgs"
+            );
+            onPropertyChanged.Statements.Add(
+                eventArgs
+            );
+            var eventArgsReference = new CodeDirectionExpression(
+                FieldDirection.Out,
+                new CodeVariableReferenceExpression(eventArgs.Name)
+            );
+            var eventArgsVariable = new CodeVariableReferenceExpression(eventArgs.Name);
+            var propertyName = new CodeArgumentReferenceExpression("propertyName");
+            var propertyChangedEventArgsReference = new CodePropertyReferenceExpression(
+                new CodeTypeReferenceExpression(type.Name),
+                propertyChangedEventArgs.Name
+            );
+
+            var conditionStatement = new CodeConditionStatement(
+                new CodeBinaryOperatorExpression(
+                    new CodeMethodInvokeExpression(
+                        propertyChangedEventArgsReference,
+                        "TryGetValue",
+                        propertyName,
+                        eventArgsReference
+                    ),
+                    CodeBinaryOperatorType.ValueEquality,
+                    new CodePrimitiveExpression(false)
+                ),
+                new CodeAssignStatement(
+                    eventArgsVariable,
+                    new CodeObjectCreateExpression(
+                        new CodeTypeReference(typeof(PropertyChangedEventArgs)),
+                        propertyName
+                    )
+                )
+            );
+            conditionStatement.TrueStatements.Add(
+                new CodeMethodInvokeExpression(
+                    propertyChangedEventArgsReference,
+                    "Add",
+                    propertyName,
+                    eventArgsVariable
+                )
+            );
+            onPropertyChanged.Statements.Add(
+                conditionStatement
+            );
+            onPropertyChanged.Statements.Add(
+                new CodeDelegateInvokeExpression(
+                    propertyChangedReference,
+                    thisReference,
+                    eventArgsVariable
+                )
+            );
+            #endregion
+
+            #region Properties
+            var properties = baseType
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .OfType&lt;PropertyInfo&gt;()
+                .Where(a =&gt; a.GetMethod != null &amp;&amp; a.GetMethod.IsVirtual &amp;&amp; !a.GetMethod.IsFinal)
+                .Where(a =&gt; a.SetMethod != null &amp;&amp; a.SetMethod.IsVirtual &amp;&amp; !a.SetMethod.IsFinal)
+                .Where(a =&gt; a.GetIndexParameters().Length == 0)
+                .ToList();
+            var containsNotifyPropertyAttribute = properties
+                .SelectMany(a =&gt; a.CustomAttributes)
+                .Any(a =&gt; a.AttributeType == typeof(NotifyPropertyAttribute));
+            if (containsNotifyPropertyAttribute)
+            {
+                properties = properties
+                    .Where(a =&gt; a.CustomAttributes.Any(b =&gt; b.AttributeType == typeof(NotifyPropertyAttribute)))
+                    .ToList();
+            }
+            foreach (var baseProperty in properties)
+            {
+                var property = new CodeMemberProperty()
+                {
+                    Attributes = MemberAttributes.Override | MemberAttributes.Public,
+                    Name = baseProperty.Name,
+                    Type = new CodeTypeReference(baseProperty.PropertyType),
+                };
+                var basePropertyReference = new CodePropertyReferenceExpression(
+                    baseReference,
+                    baseProperty.Name
+                );
+                var valueArgument = new CodeArgumentReferenceExpression("value");
+
+                #region Getter
+                property.GetStatements.Add(
+                    new CodeMethodReturnStatement(basePropertyReference)
+                );
+                #endregion
+
+                #region Setter
+                property.SetStatements.Add(
+                    new CodeConditionStatement(
+                        new CodeMethodInvokeExpression(
+                            new CodeMethodReferenceExpression(
+                                new CodePropertyReferenceExpression(
+                                    new CodeTypeReferenceExpression(
+                                        typeof(EqualityComparer&lt;&gt;).MakeGenericType(baseProperty.PropertyType)
+                                    ),
+                                    "Default"
+                                ),
+                                "Equals"
+                            ),
+                            basePropertyReference,
+                            valueArgument
+                        ),
+                        new CodeMethodReturnStatement()
+                    )
+                );
+                property.SetStatements.Add(
+                    new CodeAssignStatement(
+                        basePropertyReference,
+                        valueArgument
+                    )
+                );
+                property.SetStatements.Add(
+                    new CodeMethodInvokeExpression(
+                        new CodeMethodReferenceExpression(
+                            thisReference,
+                            onPropertyChanged.Name
+                        ),
+                        new CodePrimitiveExpression(baseProperty.Name)
+                    )
+                );
+                #endregion
+
+                type.Members.Add(property);
+            }
+            #endregion
+
+            #region Constructors
+            foreach (var baseConstructor in baseType.GetConstructors())
+            {
+                var constructor = new CodeConstructor();
+                constructor
+                    .Parameters
+                    .AddRange(baseConstructor
+                        .GetParameters()
+                        .Select(a =&gt; new CodeParameterDeclarationExpression(a.ParameterType, a.Name))
+                        .ToArray()
+                    );
+                constructor
+                    .BaseConstructorArgs
+                    .AddRange(baseConstructor
+                        .GetParameters()
+                        .Select(a =&gt; new CodeVariableReferenceExpression(a.Name))
+                        .ToArray()
+                    );
+                constructor.Attributes = MemberAttributes.Public;
+                type.Members.Add(constructor);
+            }
+            #endregion
+
+            type.BaseTypes.Add(typeof(INotifyPropertyChanged));
+            nameSpace.Types.Add(type);
+            return compileUnit;
+        }
+
+        private static Type CreateType(Type baseType)
+        {
+            var compileUnit = CreateCompileUnit(baseType);
+            var provider = new CSharpCodeProvider();
+            var compilerResults = provider.CompileAssemblyFromDom(new CompilerParameters() { GenerateInMemory = true }, compileUnit);
+            if (compilerResults.Errors.HasErrors)
+            {
+                throw new Exception(string.Join("\n", compilerResults.Errors.OfType&lt;CompilerError&gt;()));
+            }
+            var nameSpace = compileUnit.Namespaces[0];
+            return compilerResults.CompiledAssembly.GetType(nameSpace.Name + "." + nameSpace.Types[0].Name);
+        }
+
+        public static string CreateSource(Type baseType)
+        {
+            var compileUnit = CreateCompileUnit(baseType);
+            var provider = new CSharpCodeProvider();
+            var option = new CodeGeneratorOptions();
+            var sb = new StringBuilder();
+            using (var writer = new StringWriter(sb))
+            {
+                provider.GenerateCodeFromCompileUnit(compileUnit, writer, option);
+            }
+            return sb.ToString();
+        }
+    }
+}
+

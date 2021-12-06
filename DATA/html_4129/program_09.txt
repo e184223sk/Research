@@ -1,0 +1,60 @@
+
+[TinyhandObject(ReuseMember = true)]
+public partial class ReuseTestClass
+{
+    [Key(0)]
+    [Reuse(false)]
+    public ReuseObject ObjectToCreate { get; set; } = new("create");
+
+    [Key(1)]
+    public ReuseObject ObjectToReuse { get; set; } = new("reuse");
+
+    [IgnoreMember]
+    public bool Flag { get; set; } = false;
+}
+
+[TinyhandObject(ImplicitKeyAsName = true)]
+public partial class ReuseObject
+{
+    public ReuseObject()
+        : this(string.Empty)
+    {
+    }
+
+    public ReuseObject(string name)
+    {
+        this.Name = name;
+        this.Length = name.Length;
+    }
+
+    [IgnoreMember]
+    public string Name { get; set; } // Not a serialization target
+
+    public int Length { get; set; }
+}
+
+public class ReuseTest
+{
+    public void Test()
+    {
+        var t = new ReuseTestClass();
+        t.Flag = true;
+        // t2.Flag == true
+        // t2.ObjectToCreate.Name == "create", t2.ObjectToCreate.Length == 6
+        // t2.ObjectToReuse.Name == "reuse", t2.ObjectToReuse.Length == 5
+
+        var t2 = TinyhandSerializer.Deserialize&lt;ReuseTestClass&gt;(TinyhandSerializer.Serialize(t)); // Reuse member
+        // t2.Flag == false
+        // t2.ObjectToCreate.Name == "", t2.ObjectToCreate.Length == 6 // Note that Name is not a serialization target.
+        // t2.ObjectToReuse.Name == "reuse", t2.ObjectToReuse.Length == 5
+
+        t2 = TinyhandSerializer.DeserializeWith&lt;ReuseTestClass&gt;(t, TinyhandSerializer.Serialize(t)); // Reuse ReuseTestClass
+        // t2.Flag == true
+        // t2.ObjectToCreate.Name == "", t2.ObjectToCreate.Length == 6
+        // t2.ObjectToReuse.Name == "reuse", t2.ObjectToReuse.Length == 5
+
+        var reader = new Tinyhand.IO.TinyhandReader(TinyhandSerializer.Serialize(t));
+        t.Deserialize(ref reader, TinyhandSerializerOptions.Standard); ; // Same as above
+    }
+}
+

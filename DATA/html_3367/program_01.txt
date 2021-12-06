@@ -1,0 +1,37 @@
+
+// using Microsoft.Extensions.ObjectPool;
+    // from https://github.com/dotnet/corefx/blob/master/src/Common/tests/System/Threading/Tasks/Sources/ManualResetValueTaskSource.cs
+    sealed class ManualResetValueTaskSource&lt;T&gt; : IValueTaskSource&lt;T&gt;, IValueTaskSource
+    {
+        private ManualResetValueTaskSourceCore&lt;T&gt; _core; // mutable struct; do not make this readonly
+
+        public bool RunContinuationsAsynchronously { get =&gt; _core.RunContinuationsAsynchronously; set =&gt; _core.RunContinuationsAsynchronously = value; }
+        public short Version =&gt; _core.Version;
+        public void Reset() =&gt; _core.Reset();
+        public void SetResult(T result) =&gt; _core.SetResult(result);
+        public void SetException(Exception error) =&gt; _core.SetException(error);
+        public void SetPool(ObjectPool&lt;ManualResetValueTaskSource&lt;T&gt;&gt; pool)
+        {
+            _pool = pool;
+        }
+        ObjectPool&lt;ManualResetValueTaskSource&lt;T&gt;&gt; _pool;
+
+        public T GetResult(short token)
+        {
+            try
+            {
+                var ret = _core.GetResult(token);
+                return ret;
+            }
+            finally
+            {
+                var pool = _pool;
+                _pool = null;
+                pool?.Return(this);
+            }
+        }
+        void IValueTaskSource.GetResult(short token) =&gt; _core.GetResult(token);
+        public ValueTaskSourceStatus GetStatus(short token) =&gt; _core.GetStatus(token);
+        public void OnCompleted(Action&lt;object&gt; continuation, object state, short token, ValueTaskSourceOnCompletedFlags flags) =&gt; _core.OnCompleted(continuation, state, token, flags);
+    }
+

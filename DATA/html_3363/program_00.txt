@@ -1,0 +1,113 @@
+using Npgsql;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Diagnostics;
+using RemotingMessagingAsyncResult = System.Runtime.Remoting.Messaging.AsyncResult;
+using Microsoft.IdentityModel.Threading;
+using Microsoft.IdentityServer.ClaimsPolicy.Engine.AttributeStore;
+
+namespace ClassLibrary1
+{
+    public class CustomAttributeStore : IAttributeStore
+    {
+        static readonly string EVENT_LOG_NAME = "CustomAttributeStore";
+        static readonly string CONFIG_KEY01 = "CONNECTION_INFO";
+
+        NpgsqlConnection _connection = null;
+
+        string _connInfo = null;
+
+        delegate string[][] RunQueryDelegate(string formatQuery);
+
+        ~CustomAttributeStore()
+        {
+            //EventLog.WriteEntry(EVENT_LOG_NAME, "~CustomAttributeStore", EventLogEntryType.Information, 1, 100, null);
+            // コネクションのクローズ
+            _connection.Close();
+        }
+
+        public void Initialize(Dictionary&lt;string, string&gt; config)
+        {
+            /*
+            if (!EventLog.SourceExists(EVENT_LOG_NAME))
+            {
+                EventLog.CreateEventSource(EVENT_LOG_NAME, "");
+            }
+            EventLog.WriteEntry(EVENT_LOG_NAME, "Initialize", EventLogEntryType.Information, 1, 100, null);
+            */
+
+            if (!config.TryGetValue(CONFIG_KEY01, out _connInfo))
+            {
+                throw new AttributeStoreInvalidConfigurationException("DB接続情報未設定");
+            }
+
+            // コネクションのオープン
+            _connection = new NpgsqlConnection(_connInfo);
+            _connection.Open();
+        }
+
+        public IAsyncResult BeginExecuteQuery(string query, string[] parameters, AsyncCallback callback, object state)
+        {
+            //EventLog.WriteEntry(EVENT_LOG_NAME, "BeginExecuteQuery", EventLogEntryType.Information, 1, 100, null);
+
+            if (String.IsNullOrEmpty(query))
+            {
+                throw new AttributeStoreQueryFormatException("クエリ未設定");
+            }
+
+            RunQueryDelegate runQueryDelegate = new RunQueryDelegate(RunQuery);
+            TypedAsyncResult&lt;string[][]&gt; asyncResult = new TypedAsyncResult&lt;string[][]&gt;(callback, state);
+            runQueryDelegate.BeginInvoke(string.Format(query, parameters), new AsyncCallback(AsyncQueryCallback), asyncResult);
+            return asyncResult;
+        }
+
+        public string[][] EndExecuteQuery(IAsyncResult result)
+        {
+            //EventLog.WriteEntry(EVENT_LOG_NAME, "EndExecuteQuery", EventLogEntryType.Information, 1, 100, null);
+            return TypedAsyncResult&lt;string[][]&gt;.End(result);
+        }
+
+        private string[][] RunQuery(string formatQuery)
+        {
+            //EventLog.WriteEntry(EVENT_LOG_NAME, "RunQuery", EventLogEntryType.Information, 1, 100, null);
+            //EventLog.WriteEntry(EVENT_LOG_NAME, formatQuery, EventLogEntryType.Information, 1, 100, null);
+
+            // SQL実行&amp;結果取得
+            NpgsqlCommand command = new NpgsqlCommand(formatQuery, _connection);
+            String data = null;
+            using (NpgsqlDataReader reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    data = reader[0].ToString();
+                }
+            }
+
+            string[][] result = { new[] { data } };
+            return result;
+        }
+
+        private void AsyncQueryCallback(IAsyncResult result)
+        {
+            //EventLog.WriteEntry(EVENT_LOG_NAME, "AsyncQueryCallback", EventLogEntryType.Information, 1, 100, null);
+
+            TypedAsyncResult&lt;string[][]&gt; asyncResult = (TypedAsyncResult&lt;string[][]&gt;)result.AsyncState;
+            RunQueryDelegate runQueryDelegate = (RunQueryDelegate)((RemotingMessagingAsyncResult)result).AsyncDelegate;
+
+            string[][] values = null;
+            Exception originalException = null;
+            try
+            {
+                values = runQueryDelegate.EndInvoke(result);
+            }
+            catch (Exception e)
+            {
+                originalException = e;
+            }
+            asyncResult.Complete(values, false, originalException);
+        }
+    }
+}
+

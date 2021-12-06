@@ -1,0 +1,64 @@
+
+using System.Data.SQLite;
+using System.Data.Linq;
+using System.Data.Linq.Mapping;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var sqlConnectionSb = new SQLiteConnectionStringBuilder { DataSource = ":memory:" };
+
+        using (var cn = new SQLiteConnection(sqlConnectionSb.ToString()))
+        {
+            cn.Open();
+
+            using (var cmd = new SQLiteCommand(cn))
+            {
+                cmd.CommandText = "CREATE TABLE IF NOT EXISTS decimal_table(" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "decimal REAL)";
+                cmd.ExecuteNonQuery();
+
+                using (var context = new DataContext(cn))
+                {
+                    var table = context.GetTable&lt;DecimalTableItem&gt;();
+
+                    table.InsertOnSubmit(new DecimalTableItem(1, 3.14));//AUTOINCREMENTがうまく動かないのでIDを直に指定する
+                    table.InsertOnSubmit(new DecimalTableItem(2, 31415926535897932384626.4338327950288));
+                    table.InsertOnSubmit(new DecimalTableItem(3, double.PositiveInfinity));
+                    table.InsertOnSubmit(new DecimalTableItem(4, double.NegativeInfinity));
+                    table.InsertOnSubmit(new DecimalTableItem(5, double.NaN));
+                    context.SubmitChanges();
+
+                    foreach(var q in table.Where(x =&gt; x.Decimal &gt; 10))
+                    {
+                        Console.WriteLine(q.Dump());
+                    }
+                }
+            }
+        }
+    }
+}
+
+[Table(Name ="decimal_table")]
+public class DecimalTableItem
+{
+    [Column(Name = "id", DbType = "INT", IsPrimaryKey =true)]//IsDbGeneratedやAutoSyncをオンにしてIdを省略するとエラー
+    public int Id { get; set; }
+    [Column(Name ="decimal", DbType ="REAL", CanBeNull =true)]
+    public double? Decimal { get; set; }
+
+    public DecimalTableItem() { }
+    public DecimalTableItem(int id, double val)
+    {
+        Id = id;
+        Decimal = val;
+    }
+
+    public string Dump()
+    {
+        return $"{Id}\t{Decimal}";
+    }
+}
+

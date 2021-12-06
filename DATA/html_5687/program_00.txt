@@ -1,0 +1,244 @@
+    class Compiler
+    {
+        private static readonly char[] codes = { '&gt;', '&lt;', '+', '-', '.', ',', '[', ']', };
+        private static readonly char[] repeatableCodes = { '&gt;', '&lt;', '+', '-', };
+
+        private class Unit
+        {
+            public char Code;
+            public int StartCol;
+            public int StartRow;
+            public int Repeat;
+        }
+
+        private MethodInfo methodConsoleWriteLine;
+        private MethodInfo methodConsoleWriteChar;
+        private MethodInfo methodGetReader;
+        private MethodInfo methodTextReaderRead;
+
+        public Compiler()
+        {
+            var typeConsole = typeof(Console);
+            this.methodConsoleWriteLine = typeConsole.GetMethod("WriteLine", new Type[] { typeof(string), });
+            this.methodConsoleWriteChar = typeConsole.GetMethod("Write", new Type[] { typeof(char), });
+            var piConsoleIn = typeConsole.GetProperty("In", BindingFlags.Static | BindingFlags.Public);
+            this.methodGetReader = piConsoleIn.GetGetMethod();
+            var typeReader = typeof(TextReader);
+            this.methodTextReaderRead = typeReader.GetMethod("Read", new Type[0]);
+        }
+
+        public void Compile(string srcfilePath)
+        {
+            var dirpath = Path.GetDirectoryName(srcfilePath);
+            var exeName = string.Format("{0}.exe", Path.GetFileNameWithoutExtension(srcfilePath));
+            var exePath = Path.Combine(dirpath, exeName);
+            var asmName = new AssemblyName(exeName);
+            var ab = AppDomain.CurrentDomain.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Save);
+            var mb = ab.DefineDynamicModule(exeName, exeName, true);
+
+            var sw = mb.GetSymWriter();
+            var sdw = sw.DefineDocument(srcfilePath, Guid.Empty, Guid.Empty, Guid.Empty);
+            var main = mb.DefineGlobalMethod("Main", MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+            var il = main.GetILGenerator();
+
+            var locdata = il.DeclareLocal(typeof(byte[]));
+            locdata.SetLocalSymInfo("data");
+            var locdp = il.DeclareLocal(typeof(int));
+            locdp.SetLocalSymInfo("dp");
+
+            il.Emit(OpCodes.Ldc_I4, 30000);
+            il.Emit(OpCodes.Newarr, typeof(byte));
+            il.Emit(OpCodes.Stloc_0);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Stloc_1);
+
+            var labelset = new Stack&lt;Tuple&lt;Label, Label&gt;&gt;();
+            var unit = new Unit();
+            using(var sr = new StreamReader(srcfilePath))
+            {
+                var cursor = new Cursor(sr);
+                int precol = cursor.Column;
+                int prerow = cursor.Row;
+                while(cursor.Next())
+                {
+                    char c = cursor.Current[0];
+                    if (repeatableCodes.Contains(c))
+                    {
+                        if (unit.Code == c)
+                        {
+                            unit.Repeat++;
+                            precol = cursor.Column;
+                            prerow = cursor.Row;
+                            continue;
+                        }
+                    }
+                    if (codes.Contains(unit.Code))
+                    {
+                        il.MarkSequencePoint(sdw, unit.StartRow, unit.StartCol, prerow, precol);
+                        EmitCode(il, unit, labelset);
+                    }
+
+                    // unit を初期化
+                    unit.Code = c;
+                    unit.Repeat = 1;
+                    unit.StartCol = precol;
+                    unit.StartRow = prerow;
+
+                    precol = cursor.Column;
+                    prerow = cursor.Row;
+                }
+                if (codes.Contains(unit.Code))
+                {
+                    il.MarkSequencePoint(sdw, unit.StartRow, unit.StartCol, prerow, precol);
+                    EmitCode(il, unit, labelset);
+                }
+            }
+            foreach(var labels in labelset)
+            {
+                il.MarkLabel(labels.Item1);
+            }
+            il.Emit(OpCodes.Ret);
+
+
+            mb.CreateGlobalFunctions();
+            ab.SetEntryPoint(main);
+            ab.Save(exePath);
+            return;
+        }
+
+        private void EmitCode(ILGenerator il, Unit unit, Stack&lt;Tuple&lt;Label, Label&gt;&gt; labelset)
+        {
+            switch (unit.Code)
+            {
+                case '&gt;':
+                    EmitIncPtr(il, unit.Repeat);
+                    break;
+                case '&lt;':
+                    EmitDecPtr(il, unit.Repeat);
+                    break;
+                case '+':
+                    EmitIncVal(il, unit.Repeat);
+                    break;
+                case '-':
+                    EmitDecVal(il, unit.Repeat);
+                    break;
+                case '.':
+                    EmitPutVal(il);
+                    break;
+                case ',':
+                    EmitGetVal(il);
+                    break;
+                case '[':
+                    EmitJmpForward(il, labelset);
+                    break;
+                case ']':
+                    EmitJmpBackward(il, labelset);
+                    break;
+                default:
+                    throw new InvalidProgramException();
+            }
+            return;
+        }
+
+        private void EmitIncPtr(ILGenerator il, int n)
+        {
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldc_I4, n);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stloc_1);
+            return;
+        }
+
+        private void EmitDecPtr(ILGenerator il, int n)
+        {
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldc_I4, n);
+            il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Stloc_1);
+            return;
+        }
+
+        private void EmitIncVal(ILGenerator il, int n)
+        {
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldelem_U1);
+            il.Emit(OpCodes.Ldc_I4, n &amp; 0xFF);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldc_I4, 0xFF);
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stelem_I1);
+            return;
+        }
+
+        private void EmitDecVal(ILGenerator il, int n)
+        {
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldelem_U1);
+            il.Emit(OpCodes.Ldc_I4, n &amp; 0xFF);
+            il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Ldc_I4, 0xFF);
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stelem_I1);
+            return;
+        }
+
+        private void EmitPutVal(ILGenerator il)
+        {
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldelem_U1);
+            il.EmitCall(OpCodes.Call, this.methodConsoleWriteChar, null);
+            return;
+        }
+
+        private void EmitGetVal(ILGenerator il)
+        {
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.EmitCall(OpCodes.Call, this.methodGetReader, null);
+            il.EmitCall(OpCodes.Callvirt, this.methodTextReaderRead, null);
+            il.Emit(OpCodes.Ldc_I4, 0xFF);
+            il.Emit(OpCodes.And);
+            il.Emit(OpCodes.Conv_U1);
+            il.Emit(OpCodes.Stelem_I1);
+            return;
+        }
+
+        private void EmitJmpForward(ILGenerator il, Stack&lt;Tuple&lt;Label, Label&gt;&gt; labelset)
+        {
+            var labelf = il.DefineLabel();
+            var labelb = il.DefineLabel();
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldelem_U1);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Beq, labelf);
+            il.MarkLabel(labelb);
+            labelset.Push(new Tuple&lt;Label, Label&gt;(labelf, labelb));
+            return;
+        }
+
+        private void EmitJmpBackward(ILGenerator il, Stack&lt;Tuple&lt;Label, Label&gt;&gt; labelset)
+        {
+            var labels = labelset.Pop();
+            var labelf = labels.Item1;
+            var labelb = labels.Item2;
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ldloc_1);
+            il.Emit(OpCodes.Ldelem_U1);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Beq, labelf);
+            il.Emit(OpCodes.Br, labelb);
+            il.MarkLabel(labelf);
+            return;
+        }
+    }
+

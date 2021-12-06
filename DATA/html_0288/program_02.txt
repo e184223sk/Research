@@ -1,0 +1,132 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+
+/// &lt;summary&gt;
+/// SimpleCsvWriter
+/// &lt;/summary&gt;
+public class SimpleCsvWriter&lt;T&gt; : IDisposable where T : class, new()
+{
+    #region define
+
+    /// 区切り文字
+    private const string DELIMITER = ",";
+
+    /// 引用符の正規表現
+    private const string QUOTE_REGEX = "[\"\\r\\n,]";
+
+    /// 属性プロパティ情報
+    public class AttributePropertyInfo
+    {
+        public PropertyInfo Property;
+        public SimpleCsvAttribute CsvAttribute;
+    }
+
+    /// 値取得のRegex
+    private static readonly Regex VALUE_REGEX = new Regex(QUOTE_REGEX);
+
+    /// ファイルのエンコードタイプ
+    private static readonly Encoding FILE_ENCODING = Encoding.UTF8;
+
+    #endregion
+
+    #region variable
+
+    /// StreamWriter
+    private StreamWriter _writer;
+
+    /// 属性の情報リスト
+    private List&lt;AttributePropertyInfo&gt; _attirbuteInfos;
+
+    /// データリスト
+    private T[] _records;
+
+    #endregion
+
+    #region method
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    public SimpleCsvWriter(string directory, string fileName, T[] records) {
+        if (!Directory.Exists(directory)) {
+            Directory.CreateDirectory(directory);
+        }
+
+        _records = records;
+        var filePath = directory + Path.DirectorySeparatorChar + fileName + ".csv";
+        _writer = new StreamWriter(filePath, false, FILE_ENCODING);
+
+        var targetType = GetType().GetGenericArguments()[0];
+        _attirbuteInfos = targetType
+            .GetProperties()
+            .Select(x =&gt; new AttributePropertyInfo() {
+                Property = x,
+                CsvAttribute = x.GetCustomAttributes(typeof(SimpleCsvAttribute), false).FirstOrDefault() as SimpleCsvAttribute
+            })
+            .Where(x =&gt; x.CsvAttribute != null)
+            .OrderBy(x =&gt; x.CsvAttribute.Order)
+            .ToList();
+    }
+
+    /// &lt;summary&gt;
+    /// 書き込む
+    /// &lt;/summary&gt;
+    public void Write() {
+        WriteHeader();
+        for (int i = 0; i &lt; _records.Length; i++) {
+            WriteLine(_records[i]);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ヘッダーを書き込む
+    /// &lt;/summary&gt;
+    private void WriteHeader() {
+        var headers = _attirbuteInfos.Select(x =&gt; x.CsvAttribute.Name ?? x.Property.Name)
+            .Select(x =&gt; Quote(x))
+            .ToArray();
+        _writer.WriteLine(string.Join(DELIMITER, headers));
+    }
+
+    /// &lt;summary&gt;
+    /// 1行書き込む
+    /// &lt;/summary&gt;
+    private void WriteLine(T record) {
+        var values = _attirbuteInfos.Select(x =&gt; x.Property.GetValue(record))
+            .Select(x =&gt; Quote(x))
+            .ToArray();
+
+        _writer.WriteLine(string.Join(DELIMITER, values));
+    }
+
+    /// &lt;summary&gt;
+    /// 引用符を変換する (コンマやダブルクォーテーションなど)
+    /// &lt;/summary&gt;
+    private string Quote(object value) {
+        string target = value != null ? value.ToString() : "";
+        if (VALUE_REGEX.Match(target).Success)
+        {
+            return "\"" + target.Replace("\"", "\"\"") + "\"";
+        }
+        else
+        {
+            return target;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 破棄処理
+    /// &lt;/summary&gt;
+    public void Dispose() {
+        _writer.Dispose();
+    }
+
+    #endregion
+}
+

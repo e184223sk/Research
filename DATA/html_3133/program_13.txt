@@ -1,0 +1,37 @@
+
+    public class 本DTO : IReadModel
+    {
+        public 本のID 本のID { get; set; }
+        public 本のタイトル 本のタイトル { get; set; }
+        public 貸出期間 貸出期間 { get; set; }
+        public 利用者のID 利用者のID { get; set; }
+        public 氏名 氏名 { get; set; }
+    }
+
+    public class 本DTOQuery : IQuery&lt;IReadOnlyCollection&lt;本DTO&gt;&gt;
+    {
+    }
+
+    public class 本DTOQueryHandler : IQueryHandler&lt;本DTOQuery, IReadOnlyCollection&lt;本DTO&gt;&gt;
+    {
+        private IInMemoryReadStore&lt;本ReadModel&gt; 本Store { get; }
+        private IInMemoryReadStore&lt;利用者ReadModel&gt; 利用者Store { get; }
+        public 本DTOQueryHandler(IInMemoryReadStore&lt;本ReadModel&gt; _本Store, IInMemoryReadStore&lt;利用者ReadModel&gt; _利用者Store)
+        {
+            本Store = _本Store;
+            利用者Store = _利用者Store;
+        }
+
+        public async Task&lt;IReadOnlyCollection&lt;本DTO&gt;&gt; ExecuteQueryAsync(本DTOQuery query, CancellationToken cancellationToken)
+        {
+            var 本Model = await 本Store.FindAsync(model =&gt; true, cancellationToken);
+            var 利用者Model = await 利用者Store.FindAsync(model =&gt; true, cancellationToken);
+
+            var list = from 本 in 本Model
+                       join _利用者 in 利用者Model on 本.利用者のID equals _利用者.利用者のID into 利用者Join from 利用者 in 利用者Join.DefaultIfEmpty()
+                       select new 本DTO { 本のID = 本.本のID, 本のタイトル = 本.本のタイトル, 利用者のID = 本?.利用者のID, 貸出期間 = 本?.貸出期間, 氏名 = 利用者?.氏名 };
+
+            return list.ToList().AsReadOnly();
+        }
+    }
+

@@ -1,0 +1,255 @@
+More than 1 year has passed since last update.画像の赤色、青色、緑色で別れた画像が欲しくなったので
+その備忘録として残します。
+今回はBitmapでやりましたがOpenCVとか使うともっと楽にできると思います。Visual Studio Community 2017
+言語：C#やりたかった事は下のような事です。
+ついでにヒストグラムも作ってみました。
+しかし、実行するとSplitContainerのバランスが悪くなり気持ち悪い。。。
+適当にRGB処理判別用のenumを作ります。元のBitmap画像から指定したColorEnumで単色画像を生成します。
+処理は参考URLの方法2を参考にしました。
+高速処理めっちゃ速いですね。
+画像から取得したbufはBGRAという順番でデータが入ってるらしく、
+単赤色画像が欲しい場合は緑と青は0を入れるという風に処理をしています。(Aは何もしない)ヒストグラムに必要なデータも上の処理とほぼ同じで作れます。
+色は0~255までしか存在しないので、それをX軸とし
+その0～255でどれだけの頻度があるかを数えるだけです。赤色ばかりの画像で見てみると赤のピクセルの頻度が多いのが分かりますね。
+ソース
+全文はこんな感じ
+けっこう適当です
+Githubはこちら
+
+
+
+Form1.cs
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace RGBImageTest
+{
+    /// &lt;summary&gt;
+    /// 色処理判別用
+    /// &lt;/summary&gt;
+    public enum ColorEnum {
+        Red,
+        Green,
+        Blue
+    }
+
+    public partial class Form1 : Form
+    {
+        public Form1()
+        {
+            InitializeComponent();
+
+            // イベントの登録
+            this.button_fileDialog.Click += Button_fileDialog_Click;
+
+            // チャートの初期化
+            this.ChartInit(this.chart_R);
+            this.ChartInit(this.chart_G);
+            this.ChartInit(this.chart_B);
+        }
+
+        /// &lt;summary&gt;
+        /// ファイルダイアログボタン押下
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void Button_fileDialog_Click(object sender, EventArgs e)
+        {
+            using (var ofd = new OpenFileDialog()
+                {
+                    Title = "画像ファイルを選択してください",
+                    FileName = "Image Selection",
+                    Filter = "画像ファイル(*.png;*.jpg;*.bmp)|*.png;*.jpg;*.bmp",
+                    ValidateNames = false,
+                    CheckFileExists = true,
+                    CheckPathExists = true,
+                    InitialDirectory = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop)
+                })
+            {
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    // 画像パス生成
+                    var imagePath = Path.GetFullPath(ofd.FileName);
+                    // テキストボックスに貼り付け
+                    this.textBox_filePath.Text = imagePath;
+
+                    // RBG画像生成
+                    Bitmap src = new Bitmap(imagePath);
+
+                    // 画像貼り付け
+                    this.pictureBox_src.Image = src;
+                    this.pictureBox_R.Image = this.GetMonoColorImage(src, ColorEnum.Red);
+                    this.pictureBox_G.Image = this.GetMonoColorImage(src, ColorEnum.Green);
+                    this.pictureBox_B.Image = this.GetMonoColorImage(src, ColorEnum.Blue);
+
+                    // ヒストグラムデータ生成
+                    var r_hist = this.GetHistogram(src, ColorEnum.Red);
+                    var g_hist = this.GetHistogram(src, ColorEnum.Green);
+                    var b_hist = this.GetHistogram(src, ColorEnum.Blue);
+
+                    // チャートの初期化
+                    this.ChartInit(this.chart_R);
+                    this.ChartInit(this.chart_G);
+                    this.ChartInit(this.chart_B);
+
+                    // ヒストグラムデータ挿入
+                    this.SetChartData(this.chart_R, ColorEnum.Red, r_hist);
+                    this.SetChartData(this.chart_G, ColorEnum.Green, g_hist);
+                    this.SetChartData(this.chart_B, ColorEnum.Blue, b_hist);
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 指定した色の単色画像を生成します
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private Bitmap GetMonoColorImage(Bitmap src, ColorEnum color) {
+
+            Bitmap bitmap = new Bitmap(src);
+
+            BitmapData data = bitmap.LockBits(
+                new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                ImageLockMode.ReadWrite,
+                PixelFormat.Format32bppArgb);
+            byte[] buf = new byte[bitmap.Width * bitmap.Height * 4];
+            Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+            for (int i = 0; i &lt; buf.Length;)
+            {
+                if (color == ColorEnum.Red) {
+                    //buf[i + 2]        // R
+                    buf[i + 1] = 0;     // G
+                    buf[i] = 0;         // B
+                }
+                else if (color == ColorEnum.Green) {
+                    buf[i + 2] = 0;     // R
+                    //buf[i + 1] = 0;   // G
+                    buf[i] = 0;         // B
+                }
+                else if (color == ColorEnum.Blue) {
+                    buf[i + 2] = 0;     // R
+                    buf[i + 1] = 0;     // G
+                    //buf[i] = 0;       // B
+                }
+                i = i + 4;
+            }
+            Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+            bitmap.UnlockBits(data);
+
+            return bitmap;
+        }
+
+        /// &lt;summary&gt;
+        /// 画像のヒストグラムを取得します
+        /// &lt;/summary&gt;
+        /// &lt;param name="component"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private int[] GetHistogram(Bitmap src, ColorEnum color) {
+            // 画像色用256配列を用意
+            var histogram = new int[256];
+
+            BitmapData data = src.LockBits(
+                new Rectangle(0, 0, src.Width, src.Height),
+                ImageLockMode.ReadWrite,
+                PixelFormat.Format32bppArgb);
+            byte[] buf = new byte[src.Width * src.Height * 4];
+            Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+            for (int i = 0; i &lt; buf.Length;)
+            {
+                if (color == ColorEnum.Red)
+                {
+                    // Rの頻度を数える
+                    histogram[buf[i + 2]]++;
+                }
+                else if (color == ColorEnum.Green)
+                {
+                    // Gの頻度を数える
+                    histogram[buf[i + 1]]++;
+                }
+                else if (color == ColorEnum.Blue)
+                {
+                    // Bの頻度を数える
+                    histogram[buf[i]]++;
+                }
+                i = i + 4;
+            }
+            Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+            src.UnlockBits(data);
+
+            return histogram;
+        }
+
+        /// &lt;summary&gt;
+        /// チャートの初期化
+        /// &lt;/summary&gt;
+        /// &lt;param name="chart"&gt;&lt;/param&gt;
+        private void ChartInit(System.Windows.Forms.DataVisualization.Charting.Chart chart) {
+            // Chartコントロール内のグラフ、凡例、目盛り領域を削除
+            chart.Series.Clear();
+            chart.Legends.Clear();
+            chart.ChartAreas.Clear();
+
+            // 目盛り領域の設定
+            var ca = chart.ChartAreas.Add("Histogram");
+
+            // X軸
+            ca.AxisX.Title = "Pixel";  // タイトル
+            ca.AxisX.Minimum = 0;           // 最小値
+            ca.AxisX.Maximum = 256;         // 最大値
+            ca.AxisX.Interval = 64;         // 目盛りの間隔
+
+            ca.AxisY.Title = "Count";       // Y軸
+            ca.AxisY.Minimum = 0;
+        }
+
+        private void SetChartData(System.Windows.Forms.DataVisualization.Charting.Chart chart, ColorEnum color, int[] data) {
+            // グラフの系列を追加
+            var series = chart.Series.Add("Histogram");
+
+            // グラフの種類を折れ線に設定する
+            series.ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Line;
+
+            series.BorderWidth = 2;
+
+            // 輪郭線の色
+            if (color == ColorEnum.Red)
+            {
+                series.BorderColor = Color.Red;
+            }
+            else if (color == ColorEnum.Green)
+            {
+                series.BorderColor = Color.Green;
+            }
+            else if (color == ColorEnum.Blue)
+            {
+                series.BorderColor = Color.Blue;
+            }
+
+            // データ挿入
+            for (int i = 0; i &lt; data.Length; i++)
+            {
+                series.Points.AddXY(i, data[i]);
+            }
+        }
+    }
+}
+
+
+
+
+https://www.84kure.com/blog/2014/07/13/c-%E3%83%93%E3%83%83%E3%83%88%E3%83%9E%E3%83%83%E3%83%97%E3%81%AB%E3%83%94%E3%82%AF%E3%82%BB%E3%83%AB%E5%8D%98%E4%BD%8D%E3%81%A7%E9%AB%98%E9%80%9F%E3%81%AB%E3%82%A2%E3%82%AF%E3%82%BB%E3%82%B9/
+https://csharpvault.com/image-histogram-processing/
+https://imagingsolution.net/program/csharp/csharp_chart_histogram/
+上記URLに感謝です。
+
+

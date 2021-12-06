@@ -1,0 +1,23 @@
+More than 1 year has passed since last update.Windowsのデスクトップアプリで枠（BORDER）とかタイトルバーを消したいというのはよくあることですが、WINAPIのドキュメントを引用しながら方法を教えてくれるページがそんなに無いようなので作ることにしました。つまりは下記あたりを見るんですね。
+https://docs.microsoft.com/en-us/windows/win32/api/winuser/そもそもQiitaでWINAPI（WindowsAPI）のタグがない？　みんな使っていると思うんですが興味ないんですかね……。
+だらだら説明を書くので、方法だけを知りたい人は別のページをググると良いです。「NICT インターネット時刻供給サービス」を利用するUnity(2018.4.24f1)製のデスクトップ時計を作成しました。
+https://github.com/hakua-doublemoon/NetClock
+なんでこんなものを作ったかといえば、私の富士通製タブレット型PCの時計が半年に一回ぐらい狂いまくる時期が来るからです。（RTCとかがおかしいのかな……）
+ついでについなちゃんの声で時報してもらってます。環境Windowsのアプリケーションですので、WindowsのAPIを使ってWindow（＝アプリの表示）を変えることができるようです。
+このWINAPIは基本的にC/C++のコードですが、DLLImportすることでC#でも使えます。DLLImportについては他の記事が詳しいのではと思います。（これに関してはもう調べてない。）BorderやTitleの表示はWindowの属性として決まっています。なのでWindowを取得し、現在の属性を取得し、必要な部分だけ変更して設定しなおします。https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-findwindowa
+とにかく第二引数に指定した名前のWindow（アプリ）を見つけたい場合は第一引数をNULLにするようです。https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowlonga
+第一引数で指定したハンドラーのWindowの属性（情報）を取得します。ただしWindowの属性は何種類もあり、内部仕様があるのか知りませんが32bitで収まっていません。そこで第二引数で取得/変更したい属性のインデックスを指定します。
+（すなわち、特定の属性を変更したい場合はそれに対応したIndexで取得、設定する必要があるということです）ほかのAPIについてはそれぞれのユースケースに沿って述べていくことにします。BORDERの属性があるのでそれを変更します。すなわち下記です:WS_CAPTION 0x00C00000L
+The window has a title bar (includes the WS_BORDER style).WS_BORDER と WS_DLGFRAME を合わせてこれにしているコードが散見されますが、あまり意味がないようです。
+上のGetWindowLongで書きましたが、Windowの属性は多数あり、取得・設定する際はそれに対応したIndexを使用する必要がありますが、どれなのかはGetWindowLongなどの説明に書いてあります。GWL_STYLE  -16
+  Retrieves the window styles.したがって下記のようなコードで取得ができます。属性の変更は、現在の属性をGetWindowLongで取得し、SetWindowLongで一部変更したものを設定しなおします。説明のとおり、引数はGetWindowLongと同様で、第三引数に設定する値を渡します。BORDERを消すと容易にWindowの位置を変えられなくなります。そこでSetWindowPosで適当な位置に移動させてやります。第二引数はWindowの順序の操作のようです。こだわりがなければHWND_TOPでよいでしょう。前面に出てきます。
+第七引数は（ざっくり言うと）細かい動きを制御できるようです。特にこだわりがなければ0でよさそうです。ここまででこういう感じなります。せっかく枠を消したら背景も消したくなるでしょう。背景の削除は下記の手順で行います。WS_EX_LAYERED   0x00080000
+The window is a layered window. This style cannot be used if the window has a class style of either CS_OWNDC or CS_CLASSDC.Layered Windowについて:
+https://docs.microsoft.com/en-us/windows/win32/winmsg/window-features#layered-windowsvisual effects for a window ... wishes to use alpha blending effects. The system automatically composes and repaints layered windows and the windows of underlying applications
+Alpha Blending 効果を使用したいウィンドウの視覚効果。システムは自動的にLayered Windowと下にあるアプリケーションのウィンドウを構成し再描画します。これだって感じですね。WS_EX_LAYERED属性もSetWindowLongで設定できますが、Indexは-20になります。GWL_EXSTYLE  -20
+Sets a new extended window style. https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setlayeredwindowattributes
+第三引数が難しくて正直に言って理解できていません。
+単純に背景色を透明にするだけなら、第四引数をLWA_COLORKEYにすれば、第二引数（crKey）を透明な色としてくれます。つまりUnityの方で背景色を適当な色にして、そのカラーコードを第二引数に書けばいいです。これでこうなります。いじょ。
+この記事を書きながら改めて各APIを調査し、コードを整理できました。やはり正しい知識が妥当なコードを書く鍵だと思います。
+
+

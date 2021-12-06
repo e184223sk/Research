@@ -1,0 +1,141 @@
+
+public static void AddROSpec(
+    LLRPClient client,
+    uint       roSpecID) {
+  PARAM_ROSpec roSpec = new PARAM_ROSpec();
+
+  roSpec.CurrentState  = ENUM_ROSpecState.Disabled;
+  roSpec.Priority      = 0;
+
+  // ROSpec の削除, 有効化, 無効化, 開始, 停止で同じ ROSpec ID を使用します.
+  roSpec.ROSpecID      = 1234;
+  roSpec.SpecParameter = new UNION_SpecParameter();
+
+  // Boundary Spec
+  PARAM_ROBoundarySpec boundarySpec = new PARAM_ROBoundarySpec();
+  roSpec.ROBoundarySpec = boundarySpec;
+
+
+  // Start trigger
+  PARAM_ROSpecStartTrigger startTrigger = new PARAM_ROSpecStartTrigger();
+  boundarySpec.ROSpecStartTrigger = startTrigger;
+
+  startTrigger.ROSpecStartTriggerType = ENUM_ROSpecStartTriggerType.Null;
+
+
+  // Stop Trigger
+  PARAM_ROSpecStopTrigger stopTrigger = new PARAM_ROSpecStopTrigger();
+  boundarySpec.ROSpecStopTrigger = stopTrigger;
+
+  stopTrigger.ROSpecStopTriggerType = ENUM_ROSpecStopTriggerType.Null;
+
+
+  // Report spec
+  PARAM_ROReportSpec reportSpec = new PARAM_ROReportSpec();
+  roSpec.ROReportSpec = reportSpec;
+
+  // N個のタグを検出もしくは ROSpec の終了を条件にしてタグレポートを発行させる.
+  // 0 にしているため, この場合では ROSpec の終了のみを条件としている.
+  reportSpec.N               = 0;
+  reportSpec.ROReportTrigger = ENUM_ROReportTriggerType.Upon_N_Tags_Or_End_Of_ROSpec;
+
+
+  // Tag report content selector
+  PARAM_TagReportContentSelector tagReportContentSelector = new PARAM_TagReportContentSelector();
+  reportSpec.TagReportContentSelector = tagReportContentSelector;
+
+  // EPC 領域の先頭 2[word] CRC + PCBits の取得
+  tagReportContentSelector.AirProtocolEPCMemorySelector = new UNION_AirProtocolEPCMemorySelector();
+  tagReportContentSelector.AirProtocolEPCMemorySelector.Add(
+    new PARAM_C1G2EPCMemorySelector() {
+      EnableCRC    = true,
+      EnablePCBits = true
+    }
+  );
+
+  // タグ受信時のレポートに
+  // アンテナID, 周波数ID, [初-末]検出時刻, 受信感度, ROSpecID, タグ検出回数
+  // を含める
+  tagReportContentSelector.EnableAntennaID          = true;
+  tagReportContentSelector.EnableChannelIndex       = true;
+  tagReportContentSelector.EnableFirstSeenTimestamp = true;
+  tagReportContentSelector.EnableLastSeenTimestamp  = true;
+  tagReportContentSelector.EnablePeakRSSI           = true;
+  tagReportContentSelector.EnableROSpecID           = true;
+  tagReportContentSelector.EnableTagSeenCount       = true;
+
+
+  // Antenna Inventory spec
+  PARAM_AISpec aiSpec = new PARAM_AISpec();
+  roSpec.SpecParameter.Add(aiSpec);
+
+  // AISpec stop trigger
+  PARAM_AISpecStopTrigger aiSpecStopTrigger = new PARAM_AISpecStopTrigger();
+  aiSpec.AISpecStopTrigger = aiSpecStopTrigger;
+
+  aiSpecStopTrigger.AISpecStopTriggerType = ENUM_AISpecStopTriggerType.Null;
+
+  // 使用するアンテナを指定
+  aiSpec.AntennaIDs = new UInt16Array();
+  // 0 を指定するとリーダが対応しているアンテナすべてを有効化できます.
+  //aiSpec.AntennaIDs.Add(0);
+  aiSpec.AntennaIDs.Add(1);
+  aiSpec.AntennaIDs.Add(2);
+  aiSpec.AntennaIDs.Add(3);
+  aiSpec.AntennaIDs.Add(4);
+
+  aiSpec.InventoryParameterSpec = new PARAM_InventoryParameterSpec[1];
+
+  // Inventory parameter spec
+  PARAM_InventoryParameterSpec inventoryParameterSpec = new PARAM_InventoryParameterSpec();
+  aiSpec.InventoryParameterSpec[0] = inventoryParameterSpec;
+
+  inventoryParameterSpec.ProtocolID               = ENUM_AirProtocols.EPCGlobalClass1Gen2;
+  inventoryParameterSpec.InventoryParameterSpecID = 1235;
+  inventoryParameterSpec.AntennaConfiguration     = new PARAM_AntennaConfiguration[4];
+
+
+  // アンテナ設定
+  for(ushort i = 0; i &lt; 4; ++i) {
+    PARAM_AntennaConfiguration antennaConfig = new PARAM_AntennaConfiguration();
+    inventoryParameterSpec.AntennaConfiguration[i] = antennaConfig;
+
+    antennaConfig.AntennaID = (ushort)(i + 1);
+
+    // RFReceiver
+    PARAM_RFReceiver    rfReceiver = new PARAM_RFReceiver();
+    antennaConfig.RFReceiver = rfReceiver;
+
+    // 受信感度 -80.00[dBm]
+    rfReceiver.ReceiverSensitivity = 1;
+
+    // RFTransmitter
+    PARAM_RFTransmitter rfTransmitter = new PARAM_RFTransmitter();
+    antennaConfig.RFTransmitter = rfTransmitter;
+
+    rfTransmitter.ChannelIndex  = 1;
+    rfTransmitter.HopTableID    = 0;
+    // 出力電力 30.00[dBm]
+    rfTransmitter.TransmitPower = 81;
+  }
+
+
+  MSG_ADD_ROSPEC msg = new MSG_ADD_ROSPEC();
+  msg.ROSpec = roSpec;
+
+  MSG_ERROR_MESSAGE       msgErr  = null;
+  MSG_ADD_ROSPEC_RESPONSE msgResp =
+    client.ADD_ROSPEC(
+        /* msg        = */msg,
+        /* out msgErr = */out msgErr,
+        /* timeout    = */3000);
+
+  if(msgResp != null) {
+    // Success
+  } else if(msgErr != null) {
+    Console.Error.WriteLine(msgErr.LLRPStatus.ErrorDescription);
+  } else {
+    // Timeout
+  }
+}
+

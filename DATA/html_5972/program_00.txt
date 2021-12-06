@@ -1,0 +1,65 @@
+string excelfilepath= "";
+using (var book = new XLWorkbook(excelfilepath))
+{
+var sheet = book.Worksheet(sheetname);
+string path = @"text.txt";
+var lastusedlinenumber = sheet.LastRowUsed().RangeAddress.LastAddress.RowNumber;
+Cell cell = new Cell("C", lastusedlinenumber+2);
+string[] tables =File.ReadAllText(path, Encoding.UTF8).Split(new string[] { "\r\n\r\n" }, StringSplitOptions.None);
+foreach(var table in tables)
+{
+    List&lt;int&gt; cellwidths = new List&lt;int&gt;();
+    if (string.IsNullOrEmpty(table.Trim())) continue;
+    if (table.Contains("見出し"))
+    {
+        int targetline = cell.LineNumber + 2;
+        string[] cells = table.TrimEnd().Split(new string[] { "\r\n", "\r", "\n", "\t" }, StringSplitOptions.None);
+        string startcell = "B";
+        ExcelOperation.SetCellValue(sheet, startcell + targetline, cells[1]);
+        sheet.Range(startcell + targetline + ":" + startcell + targetline).Style.Font.FontSize = 11;
+        cell.LineNumber = cell.LineNumber + 4;
+    }
+    else
+    {
+        string[] lines = table.TrimEnd().Split(new string[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        foreach (var line in lines.Select((Value, Index) =&gt; new { Value, Index }))
+        {
+            if (line.Value.Contains("/"))
+                cellwidths.Clear();
+            int targetline = cell.LineNumber + line.Index;
+            string[] cells = line.Value.TrimEnd().Split(new string[] { "\t" }, StringSplitOptions.None);
+            string endcell = cell.HeadCell;
+            foreach (var c in cells.Select((Value, Index) =&gt; new { Value, Index }))
+            {
+                string[] cellvalues = c.Value.Split(new string[] { "/" }, StringSplitOptions.None);
+                //結合セル
+                int cellwidth = 4;
+                if (1 &lt; cellvalues.Length) cellwidth = int.Parse(cellvalues[1]);
+                if (c.Value.Contains("/")) cellwidths.Add(cellwidth);
+                else if (c.Index &lt; cells.Length) cellwidth = cellwidths[c.Index];
+
+                string startcell = endcell;
+                endcell = cell.ToAlphabet(cell.ToInt(startcell) + cellwidth - 1);
+                ExcelOperation.SetCellValue(sheet, startcell + targetline, cellvalues[0].Replace("☆", "\n").Replace("I・O", "I／O"));
+                sheet.Range(startcell + targetline + ":" + endcell + targetline).Merge().Style.Border.SetOutsideBorder(XLBorderStyleValues.Thin);
+                sheet.Range(startcell + targetline + ":" + endcell + targetline).Style.Alignment.WrapText = true;
+                sheet.Range(startcell + targetline + ":" + startcell + targetline).Style.Font.FontSize = 9;
+
+                //見出し行
+                if (line.Index == 0 || line.Value.Contains("/"))
+                {
+                    sheet.Range(startcell + targetline + ":" + endcell + targetline).Style.Fill.BackgroundColor = XLColor.LightGray;
+                    sheet.Range(startcell + targetline + ":" + endcell + targetline).Style.Font.Bold = true;
+                    sheet.Range(startcell + targetline + ":" + endcell + targetline).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                }
+
+                endcell = cell.ToAlphabet(cell.ToInt(startcell) + cellwidth);
+            }
+        }
+        cell.LineNumber = cell.LineNumber + lines.Length + 3;
+    }
+}
+
+book.SaveAs(savename);
+
+

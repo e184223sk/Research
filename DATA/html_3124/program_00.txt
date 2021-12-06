@@ -1,0 +1,429 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+using System.Windows.Forms.DataVisualization.Charting;
+
+namespace ChartSample1
+{
+    public partial class ScrollChart : Chart
+    {
+        public ScrollChart()
+        {
+            //InitializeComponent();    //カスタムコンポーネントして生成した場合            
+            this.SizeChanged += new System.EventHandler(this.Chart_SizeChanged);
+            //SuppressExceptions = true;    //軽微なエラーを無視する場合
+        }
+
+        /// &lt;summary&gt;
+        /// series#ScrollPointsにデータをAddしたときrepaintするスマートな方法が判らず本メソッドを追加。
+        /// 本メソッドを使わずSeriesプロパティからseriesをgetする場合、メイン側でChart#Invalidateを呼ぶ必要がある。
+        /// &lt;/summary&gt;
+        /// &lt;param name="series"&gt;&lt;/param&gt;
+        public void AddSeries(Series series)
+        {
+            Series.Add(series);
+            if(series is ScrollSeries scrollSeries)
+            {
+                scrollSeries.ScrollPoints.CollectionChanged += ScrollCollectionChanged;
+            }
+        }
+        private void ScrollCollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            Invalidate();
+        }
+
+        public void ChartUpdate()
+        {
+            foreach (var ser in Series)
+            {
+                if(ser is ScrollSeries scrollSeries)
+                    scrollSeries.ResetImage();
+            }
+            Invalidate();
+        }
+
+        protected override void OnPostPaint(ChartPaintEventArgs e)
+        {
+            base.OnPostPaint(e);
+            if(e.ChartElement is ScrollSeries scrollSeries)
+            {
+                var plotArea = new PlotArea(this, e);
+                var g = e.ChartGraphics.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.SetClip(plotArea.Rect);
+                scrollSeries.DrawSeriesChart(g, plotArea, this.Width, this.Height);
+            }
+        }
+
+        private void Chart_SizeChanged(object sender, EventArgs e)
+        {
+            ChartUpdate();
+        }
+    }
+
+    public class ScrollSeries : Series
+    {        
+        public int MaxPoints { get; set; }   //最大プロット数
+        public int SlicePoints { get; set; }   //イメージ更新が発生するプロット更新数            
+        public bool ScrollLeft { get; set; } = true;        
+        public bool CompositeImage { get; set; } = true; //trueのとき前回イメージを合成して新しいイメージを作成
+        public bool UseXValue { get; set; } = false;
+        private bool AlwaysScroll { get; } = true; //UseXValue=falseのとき
+        public ObservableCollection&lt;DataPoint&gt; ScrollPoints;
+        private int _plotCounter; //イメージを作成してから更新されたプロット数
+        private Bitmap _chartImage = null;
+        private int _ImageDataCount = 0; //最大プロット数になるまで平行移動を抑止する（フラグ）        
+
+        public ScrollSeries() : base()
+        {
+            ScrollPoints = new ObservableCollection&lt;DataPoint&gt;();
+            base.Points.Add(new DataPoint(0, 0) { IsEmpty = true });  //軸を表示するため
+        }
+
+        //Pointsプロパティを拡張できれば良いが、専用メソッドを用意する
+        public void AddScrollPoint(DataPoint dataPoint)
+        {
+            ScrollPoints.Add(dataPoint);
+            if (ScrollPoints.Count &gt; MaxPoints + 1)
+            {
+                ScrollPoints.RemoveAt(0);
+            }
+            _plotCounter++;            
+        }
+
+        public void ResetImage()
+        {
+            _plotCounter = Math.Min(ScrollPoints.Count, MaxPoints);
+            _chartImage = null;
+        }
+
+        private void DrawImage(Graphics g, PlotArea plotArea)
+        {
+            if (_chartImage != null)
+            {
+                var shift = 0;
+                if (ScrollPoints.Count &gt;= MaxPoints)
+                {
+                    shift = Math.Max(0, _plotCounter - (ScrollPoints.Count - _ImageDataCount));
+                }
+                if (AlwaysScroll)
+                {
+                    shift = _plotCounter;
+                }
+                var direct = ScrollLeft ? -1 : 1; //スクロール方向
+                                                    //前回保存したイメージを平行移動
+                if (UseXValue)
+                {
+                    var sdata = ScrollPoints[ScrollPoints.Count - shift - 1];
+                    var dWith = plotArea.Rect.Width * (float)((plotArea.ChartArea0.AxisX.Maximum - sdata.XValue) / (plotArea.ChartArea0.AxisX.Maximum - plotArea.ChartArea0.AxisX.Minimum));
+                    g.DrawImage(_chartImage, new PointF(direct * (float)dWith, 0));
+                }
+                else
+                {
+                    g.DrawImage(_chartImage, new PointF(direct * shift * (float)plotArea.Rect.Width / MaxPoints, 0));
+                }
+            }
+        }
+
+        private void PlotData(Graphics g, PlotArea plotArea, int size, bool isFixedColor = false)
+        {
+            if (size &gt; 0)
+            {
+                Pen pen;
+                if (isFixedColor)
+                {
+                    //var hilight = HighLight(BaseSeries.Color, 50);
+                    //pen = new Pen(hilight, BaseSeries.BorderWidth);
+                    pen = new Pen(Color.Cyan, BorderWidth);
+                }
+                else
+                {
+                    pen = new Pen(Color, BorderWidth);
+                }
+
+                if (ChartType == SeriesChartType.FastLine)
+                {
+                    DrawPathLines(g, pen, plotArea, size);
+                }
+                else if (ChartType == SeriesChartType.Line)
+                {
+                    DrawLines(g, pen, plotArea, size);
+                }
+                else if (ChartType == SeriesChartType.Point)
+                {
+                    DrawPoints(g, plotArea, size);
+                }
+                pen.Dispose();
+            }
+        }
+
+        internal void DrawSeriesChart(Graphics g, PlotArea plotArea, int width, int height)
+        {
+            if (_plotCounter &gt; SlicePoints)
+            {
+                var ChartImage2 = new Bitmap(width, height);
+                var gx = Graphics.FromImage(ChartImage2);
+                gx.InterpolationMode = InterpolationMode.NearestNeighbor;
+                gx.SmoothingMode = SmoothingMode.AntiAlias;
+                if (CompositeImage)
+                {
+                    //前回保存したイメージを平行移動し追加分を描画
+                    //画像がだんだんぼやけてくる
+                    DrawImage(gx, plotArea);
+                    PlotData(gx, plotArea, _plotCounter);
+                }
+                else
+                {
+                    //全点描画してイメージを作り直す
+                    PlotData(gx, plotArea, ScrollPoints.Count);
+                }
+                _ImageDataCount = ScrollPoints.Count;
+                _plotCounter = 0;
+                gx.Dispose();
+                _chartImage = ChartImage2;
+            }
+            //イメージを平行移動し追加分を描画
+            DrawImage(g, plotArea);
+            PlotData(g, plotArea, _plotCounter, true);
+        }
+
+        private void DrawLines(Graphics g, Pen pen, PlotArea plotArea, int size)
+        {
+            if (ScrollPoints.Count &gt; 0)
+            {
+                var path = new GraphicsPath();
+                DataPoint prePoint = null;
+                var x0 = 0f;
+                var y0 = 0f;
+                for (var count = 0; count &lt; size + 1; count++)
+                {
+                    var posi = ScrollPoints.Count - size + count - 1;
+                    if (posi &lt; 0) continue;
+                    var dataPoint = ScrollPoints[posi];
+                    if (dataPoint.IsEmpty)
+                    {
+                        prePoint = null;
+                    }
+                    else
+                    {
+                        var xPosi = posi;
+                        if (AlwaysScroll)
+                        {
+                            xPosi = MaxPoints - size + count;
+                        }
+                        float x1;
+                        if (UseXValue)
+                        {
+                            x1 = plotArea.PositionX(ScrollLeft, plotArea.ChartArea0.AxisX.Minimum, plotArea.ChartArea0.AxisX.Maximum, dataPoint.XValue);
+                        }
+                        else
+                        {
+                            x1 = plotArea.PositionX(ScrollLeft, MaxPoints, xPosi);
+                        }
+                        var y1 = plotArea.PositionY((float)plotArea.ChartArea0.AxisY.Minimum, (float)plotArea.ChartArea0.AxisY.Maximum, (float)dataPoint.YValues[0]);
+                        if (prePoint == null)
+                        {
+                            path.StartFigure();
+                            prePoint = dataPoint;
+                            x0 = x1;
+                            y0 = y1;
+                        }
+
+                        path.AddLine(x0, y0, x1, y1);
+                        prePoint = dataPoint;
+                        x0 = x1;
+                        y0 = y1;
+                    }
+                }
+                g.DrawPath(pen, path);
+            }
+        }
+
+        private void DrawPathLines(Graphics g, Pen pen, PlotArea plotArea, int size)
+        {
+            var path = new GraphicsPath();
+            var pathPoints = new List&lt;PointF&gt;();
+            if (ScrollPoints.Count &gt; 0)
+            {
+                //指定数より１つ前からプロット
+                for (var count = 0; count &lt; size + 1; count++)
+                {
+                    var posi = ScrollPoints.Count - size + count - 1;
+                    if (posi &lt; 0) continue;
+                    //var i = sposi + count;
+                    var dataPoint = ScrollPoints[posi];
+                    //欠測の場合線を繋がない                       
+                    if (dataPoint.IsEmpty)
+                    {
+                        //1点の場合「点」は描かない
+                        if (pathPoints.Count &gt; 1)   //2点以上ないとエラーになる
+                        {
+                            path.AddLines(pathPoints.ToArray());
+                        }
+                        path.StartFigure();
+                        pathPoints.Clear();
+                    }
+                    else
+                    {
+                        var xPosi = posi;
+                        if (AlwaysScroll)
+                        {
+                            xPosi = MaxPoints - size + count;
+                        }
+                        float x0;
+                        if (UseXValue)
+                        {
+                            x0 = plotArea.PositionX(ScrollLeft, plotArea.ChartArea0.AxisX.Minimum, plotArea.ChartArea0.AxisX.Maximum, dataPoint.XValue);
+                        }
+                        else
+                        {
+                            x0 = plotArea.PositionX(ScrollLeft, MaxPoints, xPosi);
+                        }
+                        var plot = new PointF(x0, plotArea.PositionY((float)plotArea.ChartArea0.AxisY.Minimum, (float)plotArea.ChartArea0.AxisY.Maximum, (float)dataPoint.YValues[0]));
+                        pathPoints.Add(plot);
+                    }
+                }
+            }
+            if (pathPoints.Count &gt; 1)
+            {
+                path.AddLines(pathPoints.ToArray());
+            }
+            g.DrawPath(pen, path);
+        }
+
+        private void DrawPoints(Graphics g, PlotArea plotArea, int size)
+        {
+            if (ScrollPoints.Count &gt; 0)
+            {
+                SolidBrush brush;
+                if (MarkerStyle != MarkerStyle.None &amp;&amp; MarkerColor != Color.Empty)
+                {
+                    brush = new SolidBrush(MarkerColor);
+                }
+                else
+                {
+                    brush = new SolidBrush(Color);
+                }
+                for (var count = 0; count &lt; size; count++)
+                {
+                    var posi = ScrollPoints.Count - size + count;
+                    var dataPoint = ScrollPoints[posi];
+                    if (!dataPoint.IsEmpty)
+                    {
+                        var xPosi = posi;
+                        if (AlwaysScroll)
+                        {
+                            xPosi = MaxPoints - size + 1 + count;
+                        }
+                        float x;
+                        if (UseXValue)
+                        {
+                            x = plotArea.PositionX(ScrollLeft, plotArea.ChartArea0.AxisX.Minimum, plotArea.ChartArea0.AxisX.Maximum, dataPoint.XValue);
+                        }
+                        else
+                        {
+                            x = (float)plotArea.PositionX(ScrollLeft, MaxPoints, xPosi);
+                        }
+                        var y = (float)plotArea.PositionY((float)plotArea.ChartArea0.AxisY.Minimum, (float)plotArea.ChartArea0.AxisY.Maximum, (float)dataPoint.YValues[0]);
+                        if (MarkerStyle != MarkerStyle.None)
+                        {
+                            DrawMark(g, brush, MarkerStyle, x, y, (float)MarkerSize);
+                        }
+                        else
+                        {
+                            DrawRectangle(g, brush, x, y, BorderWidth);
+                        }
+
+                    }
+                }
+            }
+        }
+
+        private void DrawRectangle(Graphics g, SolidBrush brush, float x, float y, int width)
+        {
+            g.FillRectangle(brush, x - (width / 2f), y - (width / 2f), width, width);
+        }
+
+        private void DrawMark(Graphics g, SolidBrush brush, MarkerStyle style, float x, float y, float size)
+        {
+            var half = size / 2.0f;
+            if (style == MarkerStyle.Circle)
+            {
+                g.FillEllipse(brush, x - half, y - half, size, size);
+            }
+            else if (style == MarkerStyle.Square)
+            {
+                g.FillRectangle(brush, x - half, y - half, size, size);
+            }
+            else if (style == MarkerStyle.Diamond)
+            {
+                PointF[] points = {
+                        new PointF(x, y-half),
+                        new PointF(x+half, y),
+                        new PointF(x, y+half),
+                        new PointF(x-half, y) };
+                g.FillPolygon(brush, points);
+            }
+            else if (style == MarkerStyle.Triangle)
+            {
+                PointF[] points = {
+                        new PointF(x, y-half),
+                        new PointF(x+half, y+half),
+                        new PointF(x-half, y+half) };
+                g.FillPolygon(brush, points);
+            }
+        }
+    }
+
+    internal class PlotArea
+    {
+        public ChartArea ChartArea0;
+        public RectangleF Rect { get; set; }
+        public PlotArea(Chart chart, ChartPaintEventArgs e) 
+        {
+            var g = e.ChartGraphics;
+            ChartArea0 = chart.ChartAreas[0];
+            var xMax = g.GetPositionFromAxis(ChartArea0.Name, AxisName.X, ChartArea0.AxisX.Maximum);
+            var xMin = g.GetPositionFromAxis(ChartArea0.Name, AxisName.X, ChartArea0.AxisX.Minimum);
+            var yMax = g.GetPositionFromAxis(ChartArea0.Name, AxisName.Y, ChartArea0.AxisY.Minimum);
+            var yMin = g.GetPositionFromAxis(ChartArea0.Name, AxisName.Y, ChartArea0.AxisY.Maximum);
+            var width = xMax - xMin;
+            var height = yMax - yMin;
+            Rect = g.GetAbsoluteRectangle(new RectangleF((float)xMin, (float)yMin, (float)width, (float)height));
+        }
+
+        public float PositionX(bool scrollToLeft, double max, double posi)
+        {
+            if (scrollToLeft)
+            {
+                return (float)(Rect.X + (Rect.Width * posi / max));
+            }
+            else
+            {
+                return (float)(Rect.X + Rect.Width * (1 - posi / max));
+            }
+        }
+
+        public float PositionX(bool scrollToLeft, double xmin, double xmax, double xValue)
+        {
+            var per = (xValue - xmin) / (xmax - xmin);
+            if (scrollToLeft)
+            {
+                return (float)(Rect.X + (Rect.Width * per));
+            }
+            else
+            {
+                return (float)(Rect.X + Rect.Width * (1 - per));
+            }
+        }
+
+        public float PositionY(float ymin, float ymax, float yValue)
+        {
+            return (float)(Rect.Y + Rect.Height - (Rect.Height * (yValue - ymin) / (ymax - ymin)));
+        }
+    }
+}
+

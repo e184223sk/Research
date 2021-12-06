@@ -1,0 +1,78 @@
+using System;
+using System.Linq;
+using System.Reactive.Linq;
+using System.Threading;
+using Prism.Mvvm;
+using Reactive.Bindings;
+using Reactive.Bindings.Extensions;
+
+namespace ConsoleExample
+{
+    class Model1 : BindableBase
+    {
+        private int _number = 0;
+        public int Number
+        {
+            get { return _number; }
+            set { SetProperty(ref _number, value); }
+        }
+    }
+
+    class Model2 : BindableBase
+    {
+        private Model1 _model1 = null;
+        public Model1 Model1
+        {
+            get { return _model1; }
+            set { SetProperty(ref _model1, value); }
+        }
+    }
+
+    class ViewModel
+    {
+        public Model2 Model2 { get; }
+        public ReactiveProperty&lt;int&gt; Number { get; }
+
+        public ViewModel()
+        {
+            Model2 = new Model2();
+            Number = Model2
+                .ToReactivePropertyAsSynchronized(m2 =&gt; m2.Model1)
+                .Where(m1 =&gt; m1 != null)
+                // ここのSelectMany
+                .SelectMany(m1 =&gt; m1.ToReactivePropertyAsSynchronized(x =&gt; x.Number))
+                .ToReactiveProperty(0);
+        }
+    }
+
+    class View
+    {
+        private ViewModel _viewModel;
+
+        public View(ViewModel viewModel)
+        {
+            _viewModel = viewModel;
+            _viewModel.Number.Subscribe(x =&gt; Console.WriteLine(x));
+        }
+    }
+
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            var viewModel = new ViewModel();
+            var view = new View(viewModel);
+
+            var model1_1 = new Model1();
+            var model1_2 = new Model1();
+            Observable.Timer(TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(1)).Subscribe(x =&gt; model1_1.Number = (int)x);
+            Observable.Timer(TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(1)).Subscribe(x =&gt; model1_2.Number = (int)(x * 10));
+            viewModel.Model2.Model1 = model1_1; // 1, 2, 3...
+            Thread.Sleep(5500); // 5.5秒待つ
+            viewModel.Model2.Model1 = model1_2; // 10, 20, 30...
+
+            Console.ReadLine();
+        }
+    }
+}
+

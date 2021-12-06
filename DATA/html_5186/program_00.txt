@@ -1,0 +1,57 @@
+using System.Linq;
+using System.Collections.Generic;
+using UnityEngine;
+
+public abstract class SerializableMonoBehaviour : MonoBehaviour
+{
+    private string _prefab_path;
+    /// &lt;summary&gt;
+    /// prefabをインスタンス化する
+    /// &lt;/summary&gt;
+    /// &lt;param name="path"&gt;prefabへのパス&lt;/param&gt;
+    /// &lt;returns&gt;インスタンス&lt;/returns&gt;
+    public static SerializableMonoBehaviour InstantiatePrefab(string path) {
+        var ins = Instantiate&lt;SerializableMonoBehaviour&gt;(Resources.Load&lt;SerializableMonoBehaviour&gt;(path));
+        ins._prefab_path = path;
+        return ins;
+    }
+    /// &lt;summary&gt;
+    /// このインスタンスのセーブデータを得る
+    /// &lt;/summary&gt;
+    /// &lt;returns&gt;セーブデータ&lt;/returns&gt;
+    public string GetSaveData() {
+        /// セーブデータを用意する
+        var dic = new Dictionary&lt;string, string&gt;();
+        dic["_parent"] = transform.parent.name;
+        dic["_prefab"] = _prefab_path;
+        Save(dic);
+        /// Dictionary -&gt; セーブデータ (1行の文字列)
+        var kv = from key in dic.Keys select key + ":" + dic[key];
+        return string.Join(",", kv.ToArray());
+    }
+    /// &lt;summary&gt;
+    /// セーブデータからインスタンスを作成する
+    /// &lt;/summary&gt;
+    /// &lt;param name="data"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;インスタンス&lt;/returns&gt;
+    public static SerializableMonoBehaviour InstantiateSaveData(string data) {
+        /// セーブデータ -&gt; Dictionary
+        string[] csv = data.Split(',');
+        Dictionary&lt;string, string&gt; dic = new Dictionary&lt;string, string&gt;();
+        foreach (string v in csv) {
+            string[] kv = v.Split(':');
+            dic[kv[0]] = kv[1];
+        }
+        /// インスタンス作成
+        var ins = Instantiate&lt;SerializableMonoBehaviour&gt;(Resources.Load&lt;SerializableMonoBehaviour&gt;(dic["_prefab"]));
+        /// 値の設定
+        GameObject parent = GameObject.Find(dic["_parent"]);
+        ins.transform.SetParent(parent.transform);
+        ins._prefab_path = dic["_prefab"];
+        ins.Load(dic);
+        return ins;
+    }
+    protected abstract void Save(Dictionary&lt;string, string&gt; dic);
+    protected abstract void Load(Dictionary&lt;string, string&gt; dic);
+}
+

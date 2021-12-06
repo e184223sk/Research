@@ -1,0 +1,15 @@
+自作のEditor拡張でUVマップを表示しました。
+そのときにComputeShaderを使用したのでその詳細を記していきます。
+MeshDeleterWithTexture v0.5bでは* UVマップの表示* ペンカーソルの表示* 削除処理の高速化などを更新します pic.twitter.com/wBZuvNcsbjHLSLやGLSLといった描画用のシェーダーがありますが、ComputeShaderはGPUを使った数値計算をする(GPGPU)ためのシェーダーです。
+GPUは単純な計算を並列実行できるので、処理によってはCPUに比べて高速に処理が実行できます。
+Unityで使う場合には事前にC#のプログラム上で必要なデータや出力先を指定してComputeShaderを実行させます。
+https://docs.unity3d.com/ja/2018.4/Manual/class-ComputeShader.htmlメッシュのUVマップを取得する実際のコードを見ながら簡単に解説します。実際のコードです。
+今回のComputeShaderではポリゴン単位で並列で計算させています。このComputeShaderで実行される部分はCSMainの部分です。上についているnumthreadsは処理単位のブロックみたいなものですが、今回は特に考えないのですべて1にしています。そうした場合、引数のidには並列処理ごとに割り振られた異なるidが入力されます。
+今回は[numthreads(1,1,1)]としています。
+また、後述のC#のコードではcs.Dispatch(kernel, triangles.Length / 3, 1, 1);で実行しています。
+この(1, 1, 1)とtriangles.Length / 3, 1, 1がuint3型であるidのx, y, zに対応しています。
+これらを見るとxのみが1より大きな値になっており, この数だけ並列で実行されます。
+よってid.xが異なる値でyとzはすべて同じ値になっています。そのidを元にメッシュの3頂点を特定するためのインデックスを取得します。取得したインデックスを元にUV座標を取得してテクスチャ座標に変換します。そして、2頂点間に線を引いていきます。2頂点間に線を引くコードはこちらです。C#コード側ではこのComputeShaderに必要なデータを渡して、実行させています。始めに使用するComputeShaderをResourcesフォルダから読み込んで、実行するKernelを取得します。次に使用するデータを渡すためにBufferを確保して、データを設定します。そして、ComputeShaderを実行します。
+Dispatch(kernel, x, y, z)はComputeShaderの[numthreads(x, y, z)]に対応しています。これで計算結果がテクスチャとしてuvMapTexに出力されています。
+
+

@@ -1,0 +1,45 @@
+
+using System;
+using MessagePipe;
+using UnityEngine;
+using Zenject;
+
+public class Enemy : MonoBehaviour
+{
+    // Zenjectによって自動的に攻撃イベントが注入される
+    [Inject] ISubscriber&lt;PlayerAttackData&gt; OnAttacked { get; set; }
+
+    [SerializeField] private int hp;
+
+    private IDisposable disposable;
+
+    void Awake()
+    {
+        var d = DisposableBag.CreateBuilder();
+
+        OnAttacked.Subscribe(attack =&gt;
+        {
+            if (Vector3.Distance(transform.position, attack.position) &lt;= attack.radius)
+            {
+                // プレイヤーの攻撃範囲内の場合、ダメージを受ける
+                hp -= attack.value;
+                Debug.Log("エネミーはダメージを受けた");
+
+                if (hp &lt;= 0)
+                {
+                    Debug.Log("エネミーは倒れた");
+                    Destroy(gameObject);
+                }
+            }
+        }).AddTo(d);
+
+        disposable = d.Build();
+    }
+
+    void OnDestroy()
+    {
+        // 破棄されるタイミングでOnAttackイベントの購読をやめる
+        disposable.Dispose();
+    }
+}
+

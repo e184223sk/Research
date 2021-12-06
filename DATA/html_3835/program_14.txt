@@ -1,0 +1,96 @@
+
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class DimentionCrack : Item {
+
+    public bool entered = false;
+    public GameObject enteredObject;
+
+    private List&lt;GameObject&gt; DCs;
+    public GameObject PairDimentionCrack;
+    private DimentionCrack PairDC;
+
+    public Vector3 viewPos;
+    public bool isVisible;
+
+    [SerializeField]
+    GameObject EnableEffect;
+
+    protected override void Init(){
+        base.Init ();
+        GameObject objItem = GameObject.Find ("Items");
+        DCs = SOManager.FindStageObjects (objItem, SOType.DimentionCrack);
+        sotype = SOType.DimentionCrack;
+        PairDimentionCrack = SOManager.FindStageObject (transform.parent.gameObject, SOType.DimentionCrack, gameObject);
+        PairDC = PairDimentionCrack.GetComponent&lt;DimentionCrack&gt; ();
+    }
+
+    void OnTriggerEnter2D(Collider2D coll){
+        if (SetPairDC() != 1)
+            return;
+        SOType colltype = coll.GetComponent&lt;StageObject&gt; ().sotype;
+        if (PairDC.isVisible == false || isVisible == false)
+            return;
+        if (coll.tag == "ShiftableItem" || coll.tag == "ShiftableEnemy" || coll.tag == "UnshiftableItem"){
+            if (!PairDC.entered) {
+                Vector3 TelePoint = new Vector3 (0, 0, 0);
+                coll.gameObject.transform.position = PairDimentionCrack.transform.TransformPoint (TelePoint);
+                entered = true;
+                enteredObject = coll.gameObject;
+                EnableEffect.GetComponent&lt;ParticleSystem&gt; ().Emit (30);
+                SEPlayer.PlaySE ("warp");
+            } else {
+                PairDC.entered = false;
+            }
+        }
+    }
+
+    void OnTriggerExit2D(Collider2D coll){
+        if (coll.gameObject == PairDC.enteredObject &amp;&amp; PairDC.entered) {
+            PairDC.entered = false;
+            entered = false;
+            EnableEffect.GetComponent&lt;ParticleSystem&gt; ().Emit (30);
+        }
+    }
+
+    void Update(){
+        viewPos = Camera.main.WorldToViewportPoint (transform.position);
+        SetVisible (viewPos);
+
+        if (SetPairDC() == 1 &amp;&amp; isVisible &amp;&amp; PairDC.isVisible) {
+            EnableEffect.SetActive (true);
+            transform.localScale = new Vector3(1,1,1) * 1f;
+        } else {
+            EnableEffect.SetActive (false);
+            transform.localScale = new Vector3(1,1,1) * 0.4f;
+        }
+        if (enteredObject == null &amp;&amp; PairDC.enteredObject == null) {
+            entered = false;
+        }
+    }
+
+    void SetVisible(Vector3 viewpos){
+        bool isvisible = false;
+        if (0f &lt; viewpos.x &amp;&amp; viewpos.x &lt; 1f &amp;&amp; 0f &lt; viewpos.y &amp;&amp; viewpos.y &lt; 1f) {
+            isvisible = true;
+        }
+        isVisible = isvisible;
+    }
+
+    int SetPairDC(){
+        int visibleCount = 0;
+        foreach(GameObject DC in DCs){
+            DimentionCrack cmpDC = DC.GetComponent&lt;DimentionCrack&gt; ();
+            if (cmpDC.isVisible &amp;&amp; DC != gameObject) {
+                PairDimentionCrack = DC;
+                PairDC = cmpDC;
+                visibleCount++;
+            }
+        }
+        return visibleCount;
+    }
+}
+

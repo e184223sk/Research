@@ -1,0 +1,77 @@
+
+using Zenject;
+
+namespace MemoryPoolsSample.Scripts.ResettingPool
+{
+    public class Foo
+    {
+        private int _index = default;
+
+        public void Reset(int index)
+        {
+            _index = index;
+        }
+
+        // パラメータを追加する場合は、引数を追加する。
+        public class Pool : MemoryPool&lt;int, Foo&gt;
+        {
+            protected override void OnCreated(Foo item)
+            {
+                // オブジェクトがプールされた直後に呼ばれます。
+            }
+
+            protected override void OnDestroyed(Foo item)
+            {
+                // オブジェクトがプールから削除された時によばれます。
+                // WithMaxSizeを設定したときや、ShrinkBy、ResizeメソッドによってPoolのサイズ
+                // が明示的に縮小したときに発生します。
+            }
+
+            protected override void OnSpawned(Foo item)
+            {
+                // オブジェクトがPoolから取り出されたときに呼ばれます。
+            }
+
+            protected override void OnDespawned(Foo item)
+            {
+                // オブジェクトがPoolに戻されたときに呼ばれます。
+            }
+
+            protected override void Reinitialize(int index, Foo foo)
+            {
+                // OnSpawnedと呼ばれるタイミングはほぼ同じです。
+                // ただし、Pool.Spawn（）で渡された引数はここで渡されます。
+                foo.Reset(index);
+            }
+        }
+    }
+
+    public class FooSpawner
+    {
+        private readonly Foo.Pool _fooPool = default;
+        private int _index = 0;
+
+        public FooSpawner(Foo.Pool fooPool)
+        {
+            _fooPool = fooPool;
+        }
+
+        public void AddFoo()
+        {
+            // パラメータを追加するとSpawnに引数が追加される。
+            _fooPool.Spawn(_index);
+            _index++;
+        }
+
+    }
+
+    public class FooInstaller : MonoInstaller&lt;FooInstaller&gt;
+    {
+        public override void InstallBindings()
+        {
+            Container.Bind&lt;FooSpawner&gt;().AsSingle();
+            Container.BindMemoryPool&lt;Foo, Foo.Pool&gt;();
+        }
+    }
+}
+

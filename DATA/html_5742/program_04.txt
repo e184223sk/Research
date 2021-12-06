@@ -1,0 +1,119 @@
+
+
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+
+namespace DynamicSample
+{
+    internal delegate bool CustomConverter(object convertFrom, out object convertTo, out Type convertToType);
+
+    internal class DynamicValue : DynamicObject
+    {
+        private readonly CustomConverter _converter;
+        private readonly object _value;
+
+        public DynamicValue(object value, CustomConverter converter)
+        {
+            _value = value;
+            _converter = converter;
+        }
+
+        public override bool TryConvert(ConvertBinder binder, out object result)
+        {
+            if (_converter(_value, out var to, out var type))
+                if (binder.Type.IsAssignableFrom(type))
+                {
+                    result = to;
+                    return true;
+                }
+
+            result = default;
+            return false;
+        }
+
+
+        public static implicit operator int(DynamicValue value)
+        {
+            return (int) value._value;
+        }
+
+        public static implicit operator double(DynamicValue value)
+        {
+            return (double) value._value;
+        }
+
+        public static implicit operator string(DynamicValue value)
+        {
+            return (string) value._value;
+        }
+    }
+
+    internal class MemberResolver : DynamicObject
+    {
+        private readonly IDictionary&lt;string, object&gt; _data;
+
+        public MemberResolver(IDictionary&lt;string, object&gt; data)
+        {
+            _data = data;
+        }
+
+        public override bool TryGetMember(GetMemberBinder binder, out object result)
+        {
+            bool timeConverter(object from, out object to, out Type type)
+            {
+                if (from is long l)
+                {
+                    to = new DateTime(l);
+                    type = typeof(DateTime);
+
+                    return true;
+                }
+                to = default;
+                type = default;
+                return false;
+            }
+
+
+            if (_data.TryGetValue(binder.Name, out result))
+            {
+                if (binder.Name.Contains("Time") &amp;&amp; result is long)
+                    result = new DynamicValue(result, timeConverter);
+                else
+                    result = new DynamicValue(result, null);
+
+
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+
+    internal class Program
+    {
+        private static void Main(string[] args)
+        {
+            var data = new Dictionary&lt;string, object&gt;
+            {
+                ["SomeTime"] = DateTime.Now.Ticks,
+                ["Hoge"] = 114514,
+                ["Bar"] = "hello world"
+            };
+
+
+            dynamic resolver = new MemberResolver(data);
+
+            DateTime time = resolver.SomeTime;
+            Console.WriteLine(time);
+
+            int num = resolver.Hoge;
+            Console.WriteLine(num);
+
+            Console.WriteLine((string) resolver.Bar);
+        }
+    }
+}
+
+

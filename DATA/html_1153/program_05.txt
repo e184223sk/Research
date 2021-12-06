@@ -1,0 +1,76 @@
+
+/// &lt;summary&gt;
+/// 手のボーンのリストを作成
+/// 後にOculusの持つボーン情報のリストと照らし合わせて値を更新するので順番に一工夫して作成
+/// &lt;/summary&gt;
+/// &lt;param name="hand"&gt;子にボーンを持っている手&lt;/param&gt;
+/// &lt;param name="bones"&gt;空のリスト&lt;/param&gt;
+private void ReadyHand(GameObject hand, List&lt;Transform&gt; bones)
+{
+    //'Bones'と名の付くオブジェクトからリストを作成する
+    foreach (Transform child in hand.transform)
+    {
+        _listOfChildren = new List&lt;Transform&gt;();
+        GetChildRecursive(child.transform);
+
+        //まずは指先以外のリストを作成
+        List&lt;Transform&gt; fingerTips = new List&lt;Transform&gt;();
+        foreach (Transform bone in _listOfChildren)
+        {
+            if (bone.name.Contains("Tip"))
+            {
+                fingerTips.Add(bone);
+            }
+            else
+            {
+                bones.Add(bone);
+            }
+        }
+
+        //指先もリストに追加
+        foreach (Transform bone in fingerTips)
+        {
+            bones.Add(bone);
+        }
+    }
+
+    //動的に生成されるメッシュをSkinnedMeshRendererに反映
+    SkinnedMeshRenderer skinMeshRenderer = hand.GetComponent&lt;SkinnedMeshRenderer&gt;();
+    OVRMesh ovrMesh = hand.GetComponent&lt;OVRMesh&gt;();
+
+    Matrix4x4[] bindPoses = new Matrix4x4[bones.Count];
+    Matrix4x4 localToWorldMatrix = transform.localToWorldMatrix;
+    for (int i = 0; i &lt; bones.Count; ++i)
+    {
+        bindPoses[i] = bones[i].worldToLocalMatrix * localToWorldMatrix;
+    }
+
+    //Mesh、SkinnedMeshRendererにBindPose、Boneを反映
+    ovrMesh.Mesh.bindposes = bindPoses;
+    skinMeshRenderer.bones = bones.ToArray();
+    skinMeshRenderer.sharedMesh = ovrMesh.Mesh;
+}
+
+/// &lt;summary&gt;
+/// 子のオブジェクトのTransformを再帰的に全て取得
+/// &lt;/summary&gt;
+/// &lt;param name="obj"&gt;自身の子を全て取得したいルートオブジェクト&lt;/param&gt;
+private void GetChildRecursive(Transform obj)
+{
+    if (null == obj)
+        return;
+
+    foreach (Transform child in obj.transform)
+    {
+        if (null == child)
+            continue;
+
+        if (child != obj)
+        {
+            _listOfChildren.Add(child);
+        }
+
+        GetChildRecursive(child);
+    }
+}
+

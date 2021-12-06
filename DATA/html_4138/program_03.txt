@@ -1,0 +1,79 @@
+
+using System;
+using System.Collections.Generic;
+using SampleApi.Handlers.Accounts.Interfaces;
+using SampleApi.Models.ApplicationUsers.DataModels;
+using SampleApi.Models.ApplicationUsers.RequestModels;
+using SampleApi.Models.ApplicationUsers.ResponseModels;
+using Microsoft.AspNetCore.Identity;
+using System.Threading.Tasks;
+
+namespace SampleApi.Handlers.Accounts
+{
+    /// &lt;summary&gt;
+    /// Handles all account related operations
+    /// &lt;/summary&gt;
+    public class AccountHandler : IAccountHandler
+    {
+
+        private readonly UserManager&lt;ApplicationUserDataModel&gt; _userManager;
+
+        public AccountHandler(UserManager&lt;ApplicationUserDataModel&gt; userManager)
+        {
+            _userManager = userManager;
+        }
+
+        /// &lt;summary&gt;
+        /// Create new user
+        /// &lt;/summary&gt;
+        /// &lt;param name="user"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task&lt;CreateUserResponseModel&gt; Create(CreateUserRequestModel user)
+        {
+            // Request model
+            ApplicationUserRequestModel request = new ApplicationUserRequestModel();
+
+            // Request model to data model
+            ApplicationUserDataModel applicationUser = request.CreateUserRequestModelToApplicationUserDateModel(user);
+
+            // Timestamping
+            applicationUser.Created = DateTime.UtcNow;
+
+            // Create new user
+            IdentityResult newUser = await _userManager.CreateAsync(
+                applicationUser,
+                user.Password);
+
+            if (newUser.Succeeded)
+            {
+                // Response model
+                ApplicationUserResponseModel response = new ApplicationUserResponseModel();
+
+                // Return created user
+                return response.ApplicationUserDataModelToCreateUserRequestMode(applicationUser);
+
+            }
+
+            // Error
+            CreateUserResponseModel errorResponse = new CreateUserResponseModel();
+
+            if (newUser.Errors != null)
+            {
+                errorResponse.Errors = new List&lt;CreateUserErrorResponseModel&gt;();
+
+                foreach (var error in newUser.Errors)
+                {
+                    errorResponse.Errors.Add(
+                        new CreateUserErrorResponseModel()
+                        {
+                            ErrorCode =  error.Code,
+                            ErrorMessage = error.Description
+                        });
+                }
+            }
+
+            return errorResponse;
+        }
+    }
+}
+

@@ -1,0 +1,120 @@
+
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using Discord;
+using Discord.Commands;
+using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+namespace discordbot1
+{
+    class Program
+    {
+        private DiscordSocketClient client;
+        public static CommandService commands;
+        public static IServiceProvider services;
+
+        private string ErrMsg = null;
+        private static ulong serverid = ulong.Parse(Config.ID.License);
+
+        static void Main(string[] args)
+            =&gt; new Program().MainAsync().GetAwaiter().GetResult();
+
+        public async Task MainAsync()
+        {
+            client = new DiscordSocketClient(new DiscordSocketConfig
+            {
+                LogLevel = LogSeverity.Info
+            });
+            client.Log += Log;
+            commands = new CommandService();
+            services = new ServiceCollection().BuildServiceProvider();
+            client.MessageReceived += CommandRecieved;
+            string token = Config.bot.BotToken;
+            await commands.AddModulesAsync(Assembly.GetEntryAssembly(), services);
+            await client.LoginAsync(TokenType.Bot, token);
+            await client.StartAsync();
+
+            await Task.Delay(-1);
+        }
+
+        /// &lt;summary&gt;
+        /// 何かしらのメッセージの受信
+        /// &lt;/summary&gt;
+        /// &lt;param name="msgParam"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task CommandRecieved(SocketMessage messageParam)
+        {
+            var message = messageParam as SocketUserMessage;
+
+            //メッセージがnullの場合
+            if (message == null)
+                return;
+
+            //発言者がBotの場合無視する
+            if (message.Author.IsBot)
+                return;
+            try
+            {
+                var context = new CommandContext(client, message);
+
+                var CommandContext = message.Content;
+                /* ----- ▲ ----- ここまでは導入部のソースマルコピ ----- ▲ ----- */
+
+                //接頭語が規定でない場合無視(1)
+                if (Common._Left_(CommandContext, Config.bot.StrBotUse.Length) != Config.bot.StrBotUse) { return; }
+                else
+                {
+                    CommandContext = Common._Right_(CommandContext, CommandContext.Length - Config.bot.StrBotUse.Length);
+                }
+
+                // サーバー登録されているか(2)
+                if (context.Guild.Id != serverid)
+                {
+                    await Logger.warning(message, client, "サーバー認証失敗", "サーバーの登録がされていません");
+                    return;
+                }
+
+                // コマンド判定
+                if (CommandContext == "ロール付与") //(3)
+                {
+                    var role = context.Guild.Roles.FirstOrDefault(x =&gt; x.Name == "お手伝い");
+                    await (context.User as IGuildUser).AddRoleAsync(role);
+
+                }
+                else if (Common._Left_(CommandContext, 5) == "引数確認 ") //(4)
+                {
+                    CommandContext = Common._Right_(CommandContext, CommandContext.Length - 5);
+                    string[] hikisuu = Common._argument_(CommandContext);
+                    string[] field = new string[hikisuu.Length];
+                    for (int i = 0; i &lt; hikisuu.Length; i++)
+                    {
+                        field[i] = "引数" + (i + 1);
+                    }
+                    await Logger.CommandMessage(message, client, "引数確認", "入力された引数は以下の通りです", field, hikisuu, true);
+                }
+                else if (CommandContext == "shutdown") //(5)
+                {
+                    await Logger.infomation(message, client, "システムを終了します。", "再起動は所有者までお問い合わせ下さい");
+                    Environment.Exit(0);
+                }
+                else // (6)
+                {
+                    await Logger.warning(message, client, "コマンドが見つかりませんでした", Config.bot.StrBotUse + "helpで使い方を確認");
+                }
+            }
+            catch (Exception ex) // (7)
+            {
+                await Logger.error(message, client, "エラーが発生しました。", ex.Message.ToString(), "CommandRecieved");
+            }
+        }
+/* ----- ▼ ----- ここからは導入部のソースマルコピ ----- ▼ ----- */
+        private Task Log(LogMessage message)
+        {
+            Console.WriteLine(message.ToString());
+            return Task.CompletedTask;
+        }
+    }
+}
+

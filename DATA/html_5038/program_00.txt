@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace qyen.tools {
+    public static class ExtensionForDataTable {
+        private const string FieldConnectorChar = "_";
+        /// &lt;summary&gt;
+        /// Convert IEnumerable&lt;T&gt; To System.Data.DataTable
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="datas"&gt;&lt;/param&gt;
+        /// &lt;param name="expandPropertyOptions"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static System.Data.DataTable ToDataTable&lt;T&gt;(this IEnumerable&lt;T&gt; datas, ExpandPropertyOptions expandPropertyOptions = null) {
+            return datas.ToDataTable(expandPropertyOptions != null, expandPropertyOptions);
+        }
+        /// &lt;summary&gt;
+        /// Convert IEnumerable&lt;T&gt; To System.Data.DataTable
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="datas"&gt;&lt;/param&gt;
+        /// &lt;param name="ExpandNonPrimitiveClass"&gt;&lt;/param&gt;
+        /// &lt;param name="expandPropertyOptions"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static System.Data.DataTable ToDataTable&lt;T&gt;(this IEnumerable&lt;T&gt; datas, bool ExpandNonPrimitiveClass = false, ExpandPropertyOptions expandPropertyOptions = null) {
+                var baseType = typeof(T);
+            var hlist = baseType.BuildPropertyList(ExpandNonPrimitiveClass, expandPropertyOptions);
+            var res = new System.Data.DataTable();
+            //build DataTable Schema
+            foreach (var prop in hlist.Where(x =&gt; !hlist.Any(y =&gt; y.parent == x))) {
+                res.Columns.Add(new System.Data.DataColumn() {
+                    ColumnName = prop.PropertyName,
+                    DataType = NonNullable(prop.Property.PropertyType),
+                });
+            }
+            //Add Contents
+            foreach (var data in datas) {
+                var row = res.NewRow();
+                foreach (var prop in hlist.Where(x =&gt; !hlist.Any(y =&gt; y.parent == x))) {
+                    var d = prop.GetHierarchicalValue(data);
+                    if (d != null)
+                        row[prop.PropertyName] = d;
+                }
+                res.Rows.Add(row);
+            }
+            return res;
+        }
+        /// &lt;summary&gt;
+        /// Build hierarchical Property Info
+        /// &lt;/summary&gt;
+        /// &lt;param name="baseType"&gt;&lt;/param&gt;
+        /// &lt;param name="ExpandNonPrimitiveClass"&gt;&lt;/param&gt;
+        /// &lt;param name="expandPropertyOptions"&gt;&lt;/param&gt;
+        /// &lt;param name="parent"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        internal static IEnumerable&lt;HierarchyPropertyNode&gt; BuildPropertyList(this Type baseType, bool ExpandNonPrimitiveClass = false, ExpandPropertyOptions expandPropertyOptions = null, HierarchyPropertyNode parent = null) {
+            if (expandPropertyOptions == null) {
+                expandPropertyOptions = new ExpandPropertyOptions();
+            }
+            var props = baseType.GetProperties();
+            var res = new List&lt;HierarchyPropertyNode&gt;();
+            foreach (var prop in props) {
+                var hpn = new HierarchyPropertyNode() {
+                    parent = parent,
+                    Property = prop,
+                };
+                res.Add(hpn);
+                if (ExpandNonPrimitiveClass
+                    &amp;&amp; prop.PropertyType.CanExpand()
+                    &amp;&amp; expandPropertyOptions.CanExpand(hpn)) {
+                    res.AddRange(prop.PropertyType.BuildPropertyList(ExpandNonPrimitiveClass, expandPropertyOptions, hpn));
+                }
+            }
+            return res;
+        }
+        /// &lt;summary&gt;
+        /// Option settings
+        /// &lt;/summary&gt;
+        public class ExpandPropertyOptions {
+            public bool ExpandCircularReference { get; set; } = false;
+            public int MaxReferenceLevel { get; set; } = 3;
+            public IList&lt;string&gt; IncludeProperties { get; private set; } = new List&lt;string&gt;();
+            public ExpandPropertyOptions Include(string Property) {
+                if (!string.IsNullOrEmpty(Property))
+                    IncludeProperties.Add(Property.Replace(".", "_"));
+                return this;
+            }
+            internal bool CanExpand(HierarchyPropertyNode hpn) {
+                bool result = true;
+                if (hpn.Level &gt;= MaxReferenceLevel)
+                    result = false;
+                if (!ExpandCircularReference &amp;&amp; hpn.IsCircularReference)
+                    result = false;
+                if (IncludeProperties.Any() &amp;&amp; !IncludeProperties.Contains(hpn.PropertyName))
+                    result = false;
+                return result;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Hierarchical Property Info
+        /// &lt;/summary&gt;
+        /// &lt;remarks&gt;
+        /// parent : key
+        /// &lt;/remarks&gt;
+        internal class HierarchyPropertyNode {
+            public HierarchyPropertyNode parent { get; set; }
+            public PropertyInfo Property { get; set; }
+            public string PropertyName {
+                get {
+                    return string.Join(FieldConnectorChar, this.Hierarchy.Select(x =&gt; x.Property.Name));
+                }
+            }
+            private IEnumerable&lt;HierarchyPropertyNode&gt; Parents {
+                get {
+                    var current = this.parent;
+                    var res = new List&lt;HierarchyPropertyNode&gt;();
+                    while (current != null) {
+                        res.Add(current);
+                        current = current.parent;
+                    }
+                    res.Reverse();
+                    return res;
+                }
+            }
+            private IEnumerable&lt;HierarchyPropertyNode&gt; Hierarchy {
+                get {
+                    var list = Parents.ToList();
+                    list.Add(this);
+                    return list;
+                }
+            }
+            internal int Level {
+                get {
+                    return Hierarchy.Count();
+                }
+            }
+            internal bool IsCircularReference {
+                get {
+                    return ParentHasSameType(Property.PropertyType);
+                }
+            }
+            private bool ParentHasSameType(Type type) {
+                return Parents.Any(x =&gt; x.Property.PropertyType == type);
+            }
+
+            /// &lt;summary&gt;
+            /// Get value from root object
+            /// &lt;/summary&gt;
+            /// &lt;param name="root"&gt;&lt;/param&gt;
+            /// &lt;returns&gt;if any parent gets null,return null &lt;/returns&gt;
+            internal object GetHierarchicalValue(object root) {
+                object value = root;
+                foreach (var h in Hierarchy) {
+                    try {
+                        value = h.Property.GetValue(value, null);
+                    } catch {
+                        return null;
+                    }
+                }
+                return value;
+            }
+        }
+        /// &lt;summary&gt;
+        /// If Type is Nullable&lt;T&gt; return T,else return t
+        /// &lt;/summary&gt;
+        /// &lt;param name="t"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static Type NonNullable(Type t) {
+            return Nullable.GetUnderlyingType(t) ?? t;
+        }
+
+        /// &lt;summary&gt;
+        /// check t is Nullable
+        /// &lt;/summary&gt;
+        /// &lt;param name="t"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static bool IsNullable(Type t) {
+            return Nullable.GetUnderlyingType(t) != null;
+        }
+
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        private static Type[] ExcludeExpands = new Type[] { typeof(DateTime), typeof(string), typeof(decimal) };
+        /// &lt;summary&gt;
+        /// Check objClass can expand
+        /// &lt;/summary&gt;
+        /// &lt;param name="objClass"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private static bool CanExpand(this Type objClass) {
+            return !objClass.IsPrimitive
+                &amp;&amp; !ExcludeExpands.Contains(objClass)
+                &amp;&amp; !IsNullable(objClass)
+                &amp;&amp; !objClass.GetInterfaces().Any(t =&gt; t == typeof(IEnumerable&lt;&gt;));
+        }
+    }
+}
+

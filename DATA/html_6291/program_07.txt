@@ -1,0 +1,56 @@
+
+public class Model
+{
+    public ReactiveCollection&lt;Person&gt; PersonList { get; set; } = new ReactiveCollection&lt;Person&gt;();
+
+    public void ConnectTomdb(string path)
+    {
+        string provider = "Microsoft.Jet.OLEDB.4.0;";
+        string queryString = "SELECT 名前,年齢,性別 FROM テーブル1";
+        OleDbConnection connection = new OleDbConnection("Provider = " + provider + ";Data Source = " + path + ";");
+        OleDbCommand command = new OleDbCommand(queryString, connection);
+        try
+        {
+            connection.Open();
+            var dataReader = command.ExecuteReader();
+            PersonList.Clear();
+            foreach (var person in DataReaderConvertToClass(dataReader))
+            {
+                PersonList.Add(person);
+            }
+        }
+        catch (Exception e)
+        {
+            MessageBox.Show(e.Message);
+        }
+        finally
+        {
+            connection.Close();
+        }
+    }
+
+    private IEnumerable&lt;Person&gt; DataReaderConvertToClass(OleDbDataReader dataReader)
+    {
+        while (dataReader.Read())
+        {
+            var person = new Person();
+            var properties = person.GetType().GetProperties();
+            for (int i = 0; i &lt; properties.Count(); i++)
+            {
+                var data = dataReader.GetValue(i);
+                if (!data.GetType().Equals(DBNull.Value.GetType())) properties[i].SetValue(person, data);
+                //これでもOK
+                //if (!string.IsNullOrWhiteSpace(data.ToString())) properties[i].SetValue(person, data);
+            }
+            yield return person;
+        }
+    }
+}
+
+public class Person
+{
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+    public string Gender { get; set; } = "";
+}
+

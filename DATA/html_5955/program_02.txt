@@ -1,0 +1,43 @@
+
+// RSAで暗号化ファイルを復号する
+private void RsaDecrypt(string FilePath, string OutFilePath)
+{
+  StreamReader sr = new StreamReader(@"PrivateKey.txt", Encoding.UTF8);
+  string PrivateKey = sr.ReadToEnd();
+  sr.Close();
+
+  //RSACryptoServiceProviderオブジェクトの作成
+  RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(2048);
+  rsa.FromXmlString(PrivateKey);  //秘密鍵を指定
+
+  using (FileStream fs = new FileStream(FilePath, FileMode.Open, FileAccess.Read))
+  {
+    using (FileStream outfs = new FileStream(OutFilePath, FileMode.Create, FileAccess.Write))
+    {
+      byte[] byteArray;
+      byte[] outbuffer = new byte[256];
+
+      // ファイルサイズを取り出す
+      byteArray = new byte[8];
+      fs.Read(byteArray, 0, 8);
+      Int64 FileSize = BitConverter.ToInt64(byteArray, 0);
+
+      int len = 0;
+      Int64 TotalSize = 0;
+      while ((len = fs.Read(outbuffer, 0, outbuffer.Length)) &gt; 0)
+      {
+        byte[] decryptedData = rsa.Decrypt(outbuffer, RSAEncryptionPadding.OaepSHA1);
+        if (TotalSize + decryptedData.Length &gt; FileSize)
+        {
+          outfs.Write(decryptedData, 0, (int)(FileSize - TotalSize));
+        }
+        else
+        {
+          outfs.Write(decryptedData, 0, decryptedData.Length);
+        }
+        TotalSize += decryptedData.Length;
+      }
+    }
+  }
+}
+

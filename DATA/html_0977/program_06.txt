@@ -1,0 +1,44 @@
+
+using Reactive.Bindings;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+using System.Reactive.Linq;
+using System.Threading.Tasks;
+
+namespace RxPropLabWpf
+{
+    // WPF のメモリリーク対策で INotifyPropertyChanged は実装しておく
+    public class MainWindowViewModel : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        [Required]
+        public ReactiveProperty&lt;string&gt; Input1 { get; }
+        [Required]
+        public ReactiveProperty&lt;string&gt; Input2 { get; }
+        public AsyncReactiveCommand LongTimeProcess1Command { get; }
+        public AsyncReactiveCommand LongTimeProcess2Command { get; }
+
+        public MainWindowViewModel()
+        {
+            // 必須入力チェックつき ReactiveProperty
+            Input1 = new ReactiveProperty&lt;string&gt;()
+                .SetValidateAttribute(() =&gt; Input1);
+            Input2 = new ReactiveProperty&lt;string&gt;()
+                .SetValidateAttribute(() =&gt; Input2);
+
+            // ObservehasErrors は ReactiveProperty の入力エラーに変化があるたびに値が発行される IObservable&lt;bool&gt;
+            // それをもとに、入力エラーがない状態を表す IObservable&lt;bool&gt; を作成
+            var allInputsAreValid = Input1
+                .ObserveHasErrors.CombineLatest(Input2.ObserveHasErrors, (x, y) =&gt; !x &amp;&amp; !y);
+
+            // 入力エラーがないときに実行できるコマンドを作りつつ、IReactiveProperty&lt;bool&gt; を使って状態を共有するようにする
+            var sharedCanExecuteReactiveProperty = new ReactivePropertySlim&lt;bool&gt;(true);
+            LongTimeProcess1Command = allInputsAreValid.ToAsyncReactiveCommand(sharedCanExecuteReactiveProperty)
+                .WithSubscribe(async () =&gt; await Task.Delay(3000));
+            LongTimeProcess2Command = allInputsAreValid.ToAsyncReactiveCommand(sharedCanExecuteReactiveProperty)
+                .WithSubscribe(async () =&gt; await Task.Delay(3000));
+        }
+    }
+}
+

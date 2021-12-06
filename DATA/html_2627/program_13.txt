@@ -1,0 +1,174 @@
+
+public static class TranslationUnitsParser
+{
+    public static TranslationUnitMap Parse(TranslationUnitParseSetting setting)
+    {
+        var impl = new TranslationUnitsParserImpl();
+
+        var map = impl.Execute(setting);
+
+        return map;
+    }
+
+    public class TranslationUnitsParserImpl : AMessageable
+    {
+        private TranslationUnitParseSetting Setting { get; set; }
+
+        private TranslationUnitInfo CurrentTranslationUnit { get; set; }
+
+        private BehaviorInfo CurrentBehavior { get; set; }
+
+        private TranslationUnitMap TranslationUnitMap { get; set; } = new TranslationUnitMap();
+
+        public TranslationUnitMap Execute(TranslationUnitParseSetting setting)
+        {
+            this.Setting = setting;
+
+            var display_diag = setting.DisplayDiag;
+
+            var src_path_list = setting.Sources;
+
+            var command_line_args = setting.CommandLineArgs.ToArray();
+
+            var options = setting.ParseOptions;
+
+            /* Indexを生成 */
+            using (var index = Clang.CreateIndex(false, display_diag))
+            {
+                /* 解析対象のソースファイルパスリストを走査 */
+                foreach (var src_path in src_path_list)
+                {
+                    /* ソースファイルパスのファイルが存在するかを確認 */
+                    if (File.Exists(src_path))
+                    {
+                        /* ソースファイルをパースし、Translation Unitを生成 */
+                        using (var tu = index.ParseTranslationUnit(src_path, command_line_args, new ClangUnsavedFile[0], options))
+                        {
+                            /* 解析実行 */
+                            this.ExecuteCore(index, tu);
+                        }
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"Source File Not Found :{src_path}");
+                    }
+                }
+            }
+
+            return this.TranslationUnitMap;
+        }
+
+        private void ExecuteCore(ClangIndex index, ClangTranslationUnit tu)
+        {
+            if (this.Setting.DumpAST)
+            {
+                this.SendMessage($"AST Dump:");
+            }
+
+            /* ASTを再帰的にパース */
+            this.VisitChild(tu.Cursor, 0);
+        }
+
+        private ChildVisitResult Visitor(ClangCursor cursor, ClangCursor parent, int depth)
+        {
+            /* カーソル位置を取得 */
+            var loc = cursor.Location;
+
+            /* 解析対象ソースファイル内 */
+            if (loc.IsFromMainFile == true)
+            {
+                /* 子要素をパース */
+                this.VisitChild(cursor, depth);
+            }
+            else
+            {
+                /* システムヘッダ内 */
+                if (loc.IsInSystemHeader == true)
+                {
+                    /* Nothing to do */
+                }
+                /* ユーザヘッダ内 */
+                else
+                {
+                    /* 子要素をパース */
+                    this.VisitChild(cursor, depth);
+                }
+            }
+
+            return ChildVisitResult.Continue;
+        }
+
+        private void VisitChild(ClangCursor cursor, int depth)
+        {
+            /* デバッグ用にASTをダンプ */
+            if (this.Setting.DumpAST)
+            {
+                this.DumpAstInfo(cursor, depth);
+            }
+
+            /* 関数コール情報を解析 */
+            this.AnalyseInvokationInfo(cursor);
+
+            cursor.VisitChildren(this.Visitor, depth + 1);
+        }
+
+        private void DumpAstInfo(ClangCursor cursor, int depth)
+        {
+            var indent = new string(' ', depth * 2);
+
+            var kind = cursor.Kind;
+
+            var name = cursor.Spelling;
+
+            var loc = cursor.Location.ToStringEx();
+
+            this.SendMessage($"{indent}[{kind}] {name} @ {loc}");
+        }
+
+        private void AnalyseInvokationInfo(ClangCursor cursor)
+        {
+            switch (cursor.Kind)
+            {
+                /* 解析対象ソースファイル */
+                case CursorKind.TranslationUnit:
+                    /* Translation Unit Infoを生成し、Translation Unit Mapに追加 */
+                    this.CurrentTranslationUnit = new TranslationUnitInfo(cursor);
+                    this.TranslationUnitMap.Add(this.CurrentTranslationUnit);
+                    break;
+                /* コンストラクタ */
+                case CursorKind.Constructor:
+                    /* Constructor Infoを生成し、Translation Unit Infoに追加 */
+                    this.CurrentBehavior = BehaviorInfoFactory.Create(cursor);
+                    this.CurrentTranslationUnit.AddBehavior(this.CurrentBehavior);
+                    break;
+                /* デストラクタ */
+                case CursorKind.Destructor:
+                    /* Destructor Infoを生成し、Translation Unit Infoに追加 */
+                    this.CurrentBehavior = BehaviorInfoFactory.Create(cursor);
+                    this.CurrentTranslationUnit.AddBehavior(this.CurrentBehavior);
+                    break;
+                /* Cスタイル関数*/
+                case CursorKind.FunctionDeclaration:
+                    /* Function Infoを生成し、Translation Unit Infoに追加 */
+                    this.CurrentBehavior = BehaviorInfoFactory.Create(cursor);
+                    this.CurrentTranslationUnit.AddBehavior(this.CurrentBehavior);
+                    break;
+                /* C++メンバ関数 */
+                case CursorKind.CXXMethod:
+                    /* Cpp Method Infoを生成し、Translation Unit Infoに追加 */
+                    this.CurrentBehavior = BehaviorInfoFactory.Create(cursor);
+                    this.CurrentTranslationUnit.AddBehavior(this.CurrentBehavior);
+                    break;
+                /* 関数コール */
+                case CursorKind.CallExpression:
+                    /* Invokation Infoを生成し、Translation Unit Infoに追加 */
+                    var invokation_info = new InvokationInfo(cursor);
+                    this.CurrentBehavior.AddInvokation(invokation_info);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+

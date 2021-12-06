@@ -1,0 +1,51 @@
+More than 1 year has passed since last update.せっかくQiitaに登録したので、何かしらゲームプログラムマーっぽい記事を書いてみました(後自分の備忘録)。
+初記事+駄文ですがご容赦を。自分は良く趣味プログラミングで使用するステータスなどのマスターデータをGoogleSpreadSheetで管理、その内容をUnityのScriptableObjectに変換して使用しています。
+
+
+しかし、新しくシートを追加したときに発生するUnity側の新規スクリプト作成などが面倒に思えてきたので、出来る限りその手間を削減してみました。※UnityとGASの連携は以下の記事が大変参考になりました。【Unity】セリフやステータスなど大事な情報をGoogleスプレッドシートだけで管理する【GAS】
+https://qiita.com/john95206/items/22ad04e2d30799954c76GoogleDriveに新規でGoogleSpreadSheetを作成して、データを作っていきます。
+※そもそもGoogleDriveが良く分からん、という方はこちらを参考に。
+https://www.appsupport.jp/googleapps/drive/今回は出来る限り処理をまとめたいので、作成するデータに少し条件を付けています※A列のコマンドに関しては任意。自分はコメントアウトしたいので入れているだけです。サンプルとして「Constant」というスプレッドシートに、「text」というシートを作成して以下のようなデータを作成しました。
+自分のGASプロジェクトを開いて、「新規スクリプト」ボタンを押してプロジェクトを作成する
+(今回はMasterDataLoadという名前にしました)
+https://script.google.com/home
+Unity側から呼び出すAPIの内容を書いていきます。
+返す情報最終的に上記をJson形式にまとめます。※補足
+下記コードのfunction GetSpreadSheet(e)で指定しているIDは、スプレッドシートを開いた時のURLに記載されています
+コード上ではhogehogeとなっているので、適宜置き換えて下さい。
+https://docs.google.com/spreadsheets/d/ここの文字列がIDです/edit#gid=0コードが書けたら、デバッグ実行して実際に返却されるJsonテキストを確認します。
+出力されたテキストに、VariableInfo, Tableブロックがそれぞれあり、シート内容と齟齬が無ければおｋです。手順
+1. 関数で「doGet」を指定して、虫マークボタンを押すとデバッグ実行されます。
+2. その後、表示→ログを押すと先ほど実行した処理で出力されたログが表示されます。
+
+
+ここの記事に詳しく載っているので、こちらも参考にしてみてください。Google Spreadsheetに書いたシナリオをUnityのScriptableObjectにする
+https://qiita.com/hideyuki_hori/items/32dd3d65dd447dabe282APIとデータの準備が整ったので、いよいよマスターデータ本体の作成に移ります。※各項目毎にそれぞれコードを載せています。分かりづらそうな部分にはタイトルの直後に補足説明を箇条書きで入れています。データの前提条件に当たる部分はここに記載していきます。
+※このクラス自体はScriptableObjectでは無いので注意実際にScriptableObjectとして定義するクラスの基底クラス
+派生クラスをリストで持つ必要があるため、ジェネリック化している今回サンプルで追加したマスターデータクラスを定義してみました。
+ConstantTextにid以外の必要なパラメーターとコンストラクタを定義、実際のオブジェクトに当たるConstantTextTableは、MasterDataTableBaseを継承して、ConstantTextを指定するだけで終わりです。
+基本的に今後新しくマスターデータを追加するときも上記とやることは同じなので、かなり楽ですね(当社比)。実際にコード上でテキストデータを引っ張ってくる際には、GetItemInfo(id)を使用して該当するデータを取得します。基本的にやっていることは通常のScriptableObjectの作成と変わりありませんが、所々ジェネリック化しています。
+また今回UnityEditor上でコルーチンを回しています。詳しくは以下のサイトを閲覧ください。StartCoroutine(MonoBehaviour)を使わずにコルーチンを実行する【Unity】【エディタ拡張】
+http://kan-kikuchi.hatenablog.com/entry/Coroutine_EditorProjectビューで右クリック、もしくはEditor上部のAssetsをクリック。するとMasterDataという欄が下の方にあります。
+MasterData→Constant→CreateOrUpdateConstantTextTableを実行すると、コードで指定したパスのフォルダにScriptableObjectが生成されます。
+
+
+主に継承とジェネリックを使ってマスターデータ作成・更新処理をスッキリさせてみましたが、やっぱりジェネリックは奥が深いですね。
+この記事を書く前からコード自体は書いてあったものの、その時もwhere Tの指定方法やジェネリック引数付きコンストラクタで頭を悩ませてました。ただ手間は多少削減できたものの、どうしても新規シートを追加した時手動でそのシートに対応するパラメーターなどを記載したクラスと、ScriptableObject作成処理の追加をしているので、ここら辺も出来ればボタン一つで実行できれば大分楽になりそうです。今回は特に扱わなかったですが、シートに型情報と変数は記載してあり、APIからその情報も取得できる状態ではあるのでちょっと頑張ればできそうな気もしますね。理想は新規データをスプレッドシートに記載したら、Unity側で専用ウィンドウを表示。シートIDとシート名をテキスト入力欄に入れて、ボタンを押せばクラスファイルとオブジェクト作成までやってくれる、ってところですかね。MiniJson
+https://gist.github.com/darktable/1411710
+【Unity】セリフやステータスなど大事な情報をGoogleスプレッドシートだけで管理する【GAS】
+https://qiita.com/john95206/items/22ad04e2d30799954c76
+GASでGetパラメータを受け取ってスプレッドシートに書き込む方法
+https://qiita.com/hirohiro77/items/a947416f803f45777338
+StartCoroutine(MonoBehaviour)を使わずにコルーチンを実行する【Unity】【エディタ拡張】
+http://kan-kikuchi.hatenablog.com/entry/Coroutine_Editor
+型パラメーターの制約 (C# プログラミング ガイド)
+https://docs.microsoft.com/ja-jp/dotnet/csharp/programming-guide/generics/constraints-on-type-parameters
+【C#】ジェネリック引数付きコンストラクタ 2
+http://kou-yeung.hatenablog.com/entry/2016/04/22/004627
+Activator.CreateInstance Method
+https://docs.microsoft.com/ja-jp/dotnet/api/system.activator.createinstance?redirectedfrom=MSDN&amp;view=netframework-4.7.2#System_Activator_CreateInstance_System_Type_System_Object___
+ScriptableObjectの変更した値が戻ってしまう場合の対処法【Unity】【ScriptableObject】【トラブルシューティング】
+http://kan-kikuchi.hatenablog.com/entry/ScriptableObject_SetDirty_SaveAssets
+
+

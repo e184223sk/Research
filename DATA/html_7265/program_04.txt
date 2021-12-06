@@ -1,0 +1,53 @@
+
+[Authorize]
+public class AccountController : Controller
+{
+    public ActionResult LogOff()
+    {
+        HttpContext.GetOwinContext().Authentication.SignOut(DefaultAuthenticationTypes.ApplicationCookie);
+        return RedirectToAction("Index", "Home");
+    }
+
+    [AllowAnonymous]
+    public ActionResult ExternalLogin()
+    {
+        return new ChallengeResult("Twitter", Url.Action("ExternalLoginCallback", "Account"));
+    }
+
+    [AllowAnonymous]
+    public async Task&lt;ActionResult&gt; ExternalLoginCallback()
+    {
+        var loginInfo = await HttpContext.GetOwinContext().Authentication.GetExternalLoginInfoAsync();
+
+        if (loginInfo.ExternalIdentity.IsAuthenticated)
+        {
+            var manager = HttpContext.GetOwinContext().GetUserManager&lt;UserManager&lt;User&gt;&gt;();
+            var user = new User { UserName = loginInfo.DefaultUserName};
+            await manager.CreateAsync(user);
+            var identity = manager.CreateIdentity(user, DefaultAuthenticationTypes.ApplicationCookie);
+            HttpContext.GetOwinContext().Authentication.SignIn(identity);
+        }
+        return RedirectToAction("Index", "Home");
+    }
+
+    internal class ChallengeResult : HttpUnauthorizedResult
+    {
+
+        public ChallengeResult(string provider, string redirectUri)
+        {
+            LoginProvider = provider;
+            RedirectUri = redirectUri;
+        }
+
+        public string LoginProvider { get; set; }
+        public string RedirectUri { get; set; }
+
+        public override void ExecuteResult(ControllerContext context)
+        {
+            context.HttpContext.GetOwinContext().Authentication.Challenge(
+                new AuthenticationProperties { RedirectUri = RedirectUri },
+                LoginProvider);
+        }
+    }
+}
+

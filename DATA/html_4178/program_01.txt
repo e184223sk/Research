@@ -1,0 +1,47 @@
+
+using System;
+using System.Threading.Tasks;
+using Foundation;
+using WebKit;
+using Xamarin.Forms;
+using Xamarin.Forms.Platform.iOS;
+
+[assembly: ExportRenderer(typeof(WebView), typeof(WebViewSample.iOS.CustomWebViewRenderer))]
+
+namespace WebViewSample.iOS
+{
+    public class CustomWebViewRenderer : Xamarin.Forms.Platform.iOS.WkWebViewRenderer, IWKScriptMessageHandler
+    {
+        protected override void OnElementChanged(VisualElementChangedEventArgs e)
+        {
+            base.OnElementChanged(e);
+
+            var webView = this.NativeView as WKWebView;
+
+            // JavaScript から呼び出すハンドラを追加。
+            webView.Configuration.UserContentController.AddScriptMessageHandler(this, "MyHeavyAdd");
+
+            // JavaScript 側で MyCalc.heavyAdd(n) が呼ばれた時に window.webkit.messageHandlers.xxx を呼ぶようにする。
+            var script =
+                "MyCalc = {};" +
+                "MyCalc.heavyAdd = function (num) { window.webkit.messageHandlers.MyHeavyAdd.postMessage(num); };";
+            webView.Configuration.UserContentController.AddUserScript(new WKUserScript(
+                new NSString(script), WKUserScriptInjectionTime.AtDocumentStart, true));
+        }
+
+        async void IWKScriptMessageHandler.DidReceiveScriptMessage(WKUserContentController userContentController, WKScriptMessage message)
+        {
+            if (message.Name == "MyHeavyAdd") 
+            {
+                // 時間のかかる処理
+                await Task.Delay(1000);
+                var result = (message.Body as NSNumber).Int32Value * 2;
+
+                // 結果を通知
+                var webView = this.NativeView as WKWebView;
+                webView.EvaluateJavaScript($"MyCalc.onResult({result});", null);
+            }
+        }
+    }
+}
+

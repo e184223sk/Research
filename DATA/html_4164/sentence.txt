@@ -1,0 +1,123 @@
+More than 1 year has passed since last update.この記事はVRChat Advent Calendar 2018の20日目の記事です
+昨日の記事はヨツミフレーム(@y23586)さんによる、仮想世界のつながり：VRChatにおけるソーシャルネットワークの可視化です。こんにちは。あきら(@sh_akira, VRC:sh_akira)です。
+普段はバーチャルモーションキャプチャーというVRMモデルを操作するアプリを作っています。今回はVRChatのトリガーをVRC_Panorama経由でローカルHTTPサーバーで受ける方法と、その使用例としてさらに外部のESP-WROOM-02にTCP接続して、
+VRChat内でトリガーを引くと、外のLEDが付く仕組みを作ってみます。記事中のソースコードはパブリックドメインです。プラグインやGitHubのコード等については各ライセンスに従ってください。VRChatアドカレ20日目、完成品(埋め込み用) pic.twitter.com/nzRBOXSxCW
+まずはUnity 2017.4.15f1で新規プロジェクトを作ります。Untitledシーンを適当な名前(PanoramaRepeater)で保存します。
+まずはメニューのAssets-&gt;Import-&gt;Custom PackageからVRCSDKをインポートします。
+執筆時のパッケージはVRCSDK-2018.12.04.10.25_Public.unitypackageです
+床が無いのでとりあえずPlaneを置きます。
+空のゲームオブジェクトを置いて、VRCPanoramaと名前を付けておきます。
+ここにInspectorのAdd Componentからスクリプトを追加してください。
+VRC_PanoramaのPanoramasのSizeを2にしてそれぞれUrlにと同じものを二つ入れておきます。
+VRC_DataStorageのDataを開きSizeを1にして、displayと入れて右側のNoneをIntにします。
+シーンにUIのButtonを追加します。
+
+表示はいらないのでButtonのRect TransformのPos X, PosY, Width, Heightをそれぞれ0にしてしまいます。
+
+Button追加時に自動で追加されたCanvasのRender ModeをWorld Spaceにして、こちらもPos X, PosY, Width, Heightをそれぞれ0にしてしまいます。そのままボタンとして置きたい場合は、CanvasにVRC_Ui Shapeをアタッチして、ボタンを自由にレイアウトしてください
+次にButtonをVRC_Triggerから押すためのAnimationを作ります。
+AnimatorControllerとAnimationを新規作成します、それぞれButtonPressAnimatorControllerとButtonPressAnimationと名付けました。
+
+WindowメニューからAnimationを選んでAnimationウィンドウを開きます。
+
+
+Add Eventボタンを押して、InspectorのAnimation EventのFunctionにPressと入れます。
+
+
+フレーム番号に1を入れて隣のフレームに移動して、またAddEventを押し、今度は空のEventを作成します。何も入力する必要はありません。
+これによってアニメーションがすぐに終了し、連打することが可能になります。
+0フレーム目のPressだけにすると、アニメーションに1秒かかり、1秒ごとにしか押せなくなります。
+
+次にメニューのWindowからAnimatorを選び、ProjectからButtonPressAnimatorControllerを選択します。
+
+適当なところを右クリックして、Create StateからEmptyを選びます。
+
+ButtonPressAnimationをドラッグしてAnimatorに入れます
+
+Parameters内の＋ボタンからTriggerを選択します。
+
+名前をOneShotとします
+
+New Stateを右クリックしてMake Transitionします。出てきた矢印はButtonPressAnimationをクリックしてくっつけてください。
+
+繋いだ矢印を選択して、InspectorのConditionの＋を押してOneShotを選択し、
+Has Exit Timeのチェックを外して、Settings内のTransition DurationとOffsetを0にします。
+
+同じように今度は逆方向にButtonPressAnimationからNew Stateに矢印を繋いで、
+Settingsの値を全て0にします。こちらはConditionsは空のままで良いです。
+
+ButtonPressAnimatorControllerをButtonにドラッグして、ButtonにAnimatorを付けます。
+VRC_TriggerをつけてボタンにするためのCubeを置きます。とりあえず位置はPos (0, 0.6, 0), Scale (0.3, 0.3, 0.3)にしました。
+
+InspectorのAdd Componentからスクリプトを追加してください。
+VRC_TriggerのAdvancedModeにチェックを入れ、OnInteractを選択してAddを押します。
+
+AlwaysBufferOneをAlwaysにします。
+分かりやすいようにInteraction TextはGPIO SWにします。
+Actionsの＋を押して、AnimationTriggerを選択します。
+
+ButtonをドラッグしてAnimatorが登録されるようにします。
+Triggerに先ほどAnimatorで設定したのと同じ名前のOneShotを入れます。
+
+Buttonを選択し、On Click()の＋ボタンを押して、VRCPanoramaをドラッグで登録したら、VRC_Panorama-&gt;NextPanoを選択します。これでVRC_TriggerからVRC_PanoramaのNextPano関数を呼び出す仕組みが出来ました。
+VRC_Panoramaの関数、ShowPanoAtやNextPano、PrevPanoはRPCからは呼べず、uGUIからなら呼ぶことが出来ます。
+今回はuGUIのButtonのClickイベントでVRCPanoramaのNextPanoを呼び出しています。
+そしてこれをTriggerで制御するために、ボタンをPressするだけのアニメーションを作成し、
+Trigger時にはこのAnimationを呼んでボタンを押したことにすることで、Trigger-&gt;uGUI Button-&gt;VRC_Panoramaを呼べるようにしました。
+VRC_PanoramaのShowPanoAtは同じIndexでは一度しか呼べない為、わざと同じURLを2個登録して、NextPanoで行ったり来たりしています。
+ワールドに入った際に1度一つ目のURLが呼び出されてしまいますが、中継サーバー側で無視します。
+Assets/VRCSDK/Prefabs/WorldのVRCWorldを適当な場所に設置します。設置位置がリスポーン地点です。
+メニューのVRChat SDKからShow Build Control Panelを押します。
+まずはSetup Layers for VRChatを押します。
+
+Do it!
+
+続いてSetup Collision Layer Matrix for VRChatを押します。
+
+Do it !!!!
+
+ついでにEnable 3D spatialization on all 3D AudioSources in scene nowも押します
+
+Do it!!!!
+
+Canvasを選択し、LayerをDefaultに変えます。
+
+Yes, change children
+以上でワールド作成完了です。
+TestのNew Buildを押して、VRChat起動させてきちんとワールド読み込まれるか確認してください。
+Visual Studio 2017と.NET Framework 4.7.1が必要です。まずは中継サーバーのプログラムをダウンロードします。
+VRC_Panorama_TCP_Repeaterを開きます。
+
+緑色のClone or downloadからDownload ZIPを押してダウンロードされるzipを解凍してください。
+解凍したら中に入っているVRC_Panorama_TCP_Repeater.slnを開きます。
+
+そのまま▶開始ボタンを押せば実行できます。
+
+画面が表示されるので開始ボタンを押してください。
+
+初回はファイアウォール警告が出ますのでチェックを入れてアクセスを許可するを押してください。これだけで準備は完了です。
+次回からはVisualStudioを立ち上げなくても、VRC_Panorama_TCP_Repeater-master\VRC_Panorama_TCP_Repeater\bin\DebugフォルダのVRC_Panorama_TCP_Repeater.exeを直接実行出来ます。少しコードの解説をします。この部分で、先ほど設定したVRC_Panoramaの通信を処理しています。
+VRC_Panoramaではhttp://localhost:61221/?TRIGGERというアドレスを設定しましたが、
+最初の行のpathには?TRIGGERが入るようになっていますので、先頭文字が?だった場合コマンドとして処理します。
+そしてコマンドがTRIGGERだった場合に
+初回はワールドに入ったときなので無視
+2回目以降はESP8266に向かってGPIOSWコマンドを送るようになっています。
+これでVRC_Panorama-&gt;このアプリ-&gt;ESP8266の中継を行います。
+そして処理した後、404エラーを返しています。このようにすることでVRC_Panoramaにはテクスチャが設定されず、
+次回以降も再度問い合わせてくれます(一度テクスチャを読み込めると二度と読み込まない)
+ここは404である必要はありません。200でも、テクスチャになる画像を返さなければ良いです。
+例えばVRC_Panoramaだけでなく別のアプリからも同じようにトリガーしたいのであれば、404ではなく200にしてOK等の
+文字列を返す方が親切かと思います。この部分を改造して好きなコマンドを実装すれば、VRC_Panoramaから好きなように通信を受けて何かを実行できます。また、?以外が来たとき、例えばhttp://localhost:61221/image.png等の通常のURLアクセスを行った場合は
+exeと同じフォルダにあるwwwフォルダの中身を返すようになっていますので、www/image.png等を置けば
+VRC_Panoramaに普通にテクスチャ画像を返すことも可能です。今回は自作のESP-WROOM-02ボードを使用していますが、どんなボードでも構いません。
+IO13ピンに付けたLEDを光らせるプログラムを作成します。
+ESP-WROOM-02自体の設定や書き込み方法はボードによって異なる場合があるので、各自調べてください。
+Arduino IDEで書き込みます。早速プログラムを紹介します。各自自分のWi-FiルーターのSSIDとパスワード、固定するためのIPアドレスを書き換えてください。
+参考にテスト時の書き込み設定です。
+最低限動作に必要な参考回路図を置いておきます。無事LEDが押すたびに点灯すれば完成です。AnimatorControllerやAnimationの設定方法について、がとーしょこらさんに教えていただきました。
+ありがとうございました。VRChatの何かしらのトリガーをローカルで受け取ることが出来るようになりました。これで外部のLEDだけでなく、VRChat外で何かをするアプリケーションや、
+例えばワールド内の扇風機のスイッチを押したらリアルの扇風機を動かす装置なんかを作ることも出来ると思います。
+使い方色々、面白い使い方待ってます。今回のVRChatから外部の装置のスイッチを入れる仕組みを使った放送が明日行われます。
+【史上初！失禁実況系Vtuber登場！】まず、フィオが@faruco10032 さんの「失禁体験装置」を装着します。視聴者さんがLiveコメントで「尿意」と打ちます。すると「尿意オブジェクト」が降り注ぎます。徐々に尿意が高まり、限界を超えると装置が起動。そういう配信をするなのだ！クリスマス前だしね。 pic.twitter.com/ZRLAPLDgtzそれでは。明日は、suna(@sunasaji)さんによる記事です。VRChat Advent Calendar 2018
+
+

@@ -1,0 +1,63 @@
+
+   public static class Tsv
+    {
+        public static string ToTsv&lt;T&gt;(this IEnumerable&lt;T&gt; list)
+        {
+            var properties = typeof(T).GetProperties();
+            var columns = properties.Select(n =&gt; new { PropertyInfo = n, TsvNameAttribute = n.GetCustomAttribute&lt;TsvColumnNameAttribute&gt;() }).Where(n=&gt;n.TsvNameAttribute != null);
+
+            var columns_text = string.Join("\t", columns.Select(n =&gt; n.TsvNameAttribute.GetColumnName(n.PropertyInfo)));
+            var method = typeof(Reflection).GetMethod("GetValueFunc");
+
+            List&lt;Delegate&gt; delegeteList = new List&lt;Delegate&gt;();
+            foreach (var item in columns)
+            {
+                var constructed = method.MakeGenericMethod(new Type[] { typeof(T), item.PropertyInfo.PropertyType });
+                delegeteList.Add((Delegate)constructed.Invoke(null, new object[] { item.PropertyInfo.Name }));
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine(columns_text);
+            foreach (var line in list)
+            {
+                foreach (var item in delegeteList)
+                {
+                    sb.Append(item.DynamicInvoke(line).ToString() + "\t");
+                }
+                sb.AppendLine();
+            }
+            return sb.ToString();
+        }
+
+        public static string ToTsv(this IEnumerable list)
+        {
+            // 入れの子のGenericには対応していない
+            var type = list.GetType().GetGenericArguments().First();
+            var properties = type.GetProperties();
+            var columns = properties.Select(n =&gt; new { PropertyInfo = n, TsvNameAttribute = n.GetCustomAttribute&lt;TsvColumnNameAttribute&gt;() }).Where(n =&gt; n.TsvNameAttribute != null);
+
+            var columns_text = string.Join("\t", columns.Select(n =&gt; n.TsvNameAttribute.GetColumnName(n.PropertyInfo)));
+            var method = typeof(Reflection).GetMethod("GetValueFunc");
+
+            List&lt;Delegate&gt; delegeteList = new List&lt;Delegate&gt;();
+            foreach (var item in columns)
+            {
+                var constructed = method.MakeGenericMethod(new Type[] { type, item.PropertyInfo.PropertyType });
+                delegeteList.Add((Delegate)constructed.Invoke(null, new object[] { item.PropertyInfo.Name }));
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine(columns_text);
+            foreach (var line in list)
+            {
+                foreach (var item in delegeteList)
+                {
+                    sb.Append(item.DynamicInvoke(line).ToString() + "\t");
+                }
+                sb.AppendLine();
+            }
+            return sb.ToString();
+        }
+
+   }
+

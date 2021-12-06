@@ -1,0 +1,99 @@
+この記事は「C# Advent Calendar 2020」7日目の記事になります。近年のC#はオープンソースになったこともあり、「よくあるパターンを最小のコードで表現する」「パフォーマンスを最適化する」ことに主眼を置いて言語機能が追加/更新されています。その一方で、新構文は「昔の書き方がエラーにならないよう」に実装されます。
+つまり「昔のC#のノリでプログラムを書いても、誰も指摘してくれない1」ことに繋がるのです。この記事では「最新のC#記法を古いバージョンに持っていき、エラーになった部分を古い記法に切り替えていく」逆マイグレーションをしていくことで、最新記法の良さをアピールしていきます。C# 8以降ではnull許容参照型を使いたいので、その設定もします。C# 1のプロジェクトでは、.NET Coreがクラスを自動生成しないよう、下記のように設定します。
+(自動生成されるクラスに、C# 1で使えない構文が含まれているため。).NET Coreを主軸に置いた最初のバージョン。
+そのため一部の言語機能は.NET Core 3.0でしか使用できない。ImmutableValueClass
+
+
+ImmutableValueClass.cs
+using System;
+
+namespace CSharp80
+{
+    public class ImmutableValueClass : IEquatable&lt;ImmutableValueClass&gt;, IComparable, IComparable&lt;ImmutableValueClass&gt;
+    {
+        public int Id { get; }
+        public string Name { get; }
+        public string? Remarks { get; }
+        public int? ParentId { get; }
+
+        public ImmutableValueClass(int id, string name, string? remarks = null, int? parentId = default)
+            =&gt; (Id, Name, Remarks, ParentId) = (id, name ?? throw new ArgumentNullException(nameof(name)), remarks, parentId);
+
+        public bool Equals(ImmutableValueClass? other)
+            =&gt; !(other is null)
+            &amp;&amp; (Id, Name, Remarks, ParentId) == (other.Id, other.Name, other.Remarks, other.ParentId);
+
+        public override bool Equals(object? obj)
+            =&gt; obj is ImmutableValueClass other &amp;&amp; Equals(other);
+
+        public override int GetHashCode()
+            =&gt; HashCode.Combine(Id, Name, Remarks, ParentId);
+
+        public override string ToString()
+            =&gt; $"{nameof(ImmutableValueClass)}: {{ {nameof(Id)}: {Id}, {nameof(Name)}: {Name}, {nameof(Remarks)}: {Remarks}, {nameof(ParentId)}: {ParentId} }}";
+
+        public void Deconstract(out int id, out string name, out string? remarks, out int? parentId)
+            =&gt; (id, name, remarks, parentId) = (Id, Name, Remarks, ParentId);
+
+        public int CompareTo(object? obj)
+            =&gt; obj is null ? 1
+            : obj is ImmutableValueClass other ? CompareTo(other)
+            : throw new ArgumentException(nameof(obj) + " is not a " + nameof(ImmutableValueClass), nameof(obj));
+
+        public int CompareTo(ImmutableValueClass? other)
+            =&gt; other is null ? 1 : Id - other.Id;
+
+        public static bool operator &gt; (ImmutableValueClass? left, ImmutableValueClass? right)
+            =&gt; (left, right) switch
+            {
+                (ImmutableValueClass l, ImmutableValueClass r) =&gt; l.Id &gt; r.Id,
+                ({}, null) =&gt; true,
+                (null, {}) =&gt; false,
+                (null, null) =&gt; false
+            };
+
+        public static bool operator &lt; (ImmutableValueClass? left, ImmutableValueClass? right)
+            =&gt; (left, right) switch
+            {
+                (ImmutableValueClass l, ImmutableValueClass r) =&gt; l.Id &lt; r.Id,
+                ({}, null) =&gt; false,
+                (null, {}) =&gt; true,
+                (null, null) =&gt; false
+            };
+
+        public static bool operator &gt;= (ImmutableValueClass? left, ImmutableValueClass? right)
+            =&gt; (left, right) switch
+            {
+                (ImmutableValueClass l, ImmutableValueClass r) =&gt; l.Id &gt;= r.Id,
+                ({}, null) =&gt; true,
+                (null, {}) =&gt; false,
+                (null, null) =&gt; true
+            };
+
+        public static bool operator &lt;= (ImmutableValueClass? left, ImmutableValueClass? right)
+            =&gt; (left, right) switch
+            {
+                (ImmutableValueClass l, ImmutableValueClass r) =&gt; l.Id &lt;= r.Id,
+                ({}, null) =&gt; false,
+                (null, {}) =&gt; true,
+                (null, null) =&gt; true
+            };
+    }
+}
+
+
+
+書き換え不能な、いわゆる「値クラス」を想定した実装です。C# 7.2時代に追加されたSpan&lt;T&gt;構造体などを、より広範に扱えるようにするための言語機能が追加された。null許容参照型が使えないため、アノテーション?が外れています。
+このクラスをnull許容参照型を有効にしたプロジェクト側から使用した場合、「null許容か非許容かわからない」判定を受けます。内部実装的には、コンパイル時にSystem.Runtime.CompilerServicesのNullableAttributeが付くようなので、同名のクラスを自作することで再現可能？(未検証)パターン マッチングのプロパティパターン({})と、switch式が使えないため、nullとの定数パターンを利用した式に変更しています。書き換え後のほうが効率のよいメソッドなのでは安全にメモリ空間の処理を行えるSpan&lt;T&gt;構造体関連の言語機能が追加されたバージョン。各プロパティメンバー同士の比較に書き換えています。C# 7.0のバグ(?)修正と言語構文の追加。コードはC# 7.2と同じになるため割愛タプルやローカル関数など「C#をより効率よく実行する」ことに重きを置いた新機能が追加されたバージョン。defaultリテラルを利用できないため、default(T)に変更しています。このバージョン以降、コンパイラがC#での実装(Roslyn)に変更されています。コンストラクターを式形式で書けないため、ステートメントに変更しています。
+また、throw式を書くこともできないため、ifステートメントの分岐で例外をスローするよう変更しています。利用個所を変更しています。
+また、Deconstractメソッドは引き続き定義しているものの、タプルの分解構文が利用できないため、価値が薄れています。2定数パターン(X is null)も含めて利用できないため、ReferenceEquals(X, null)の呼び出し3に変更しています。GetHashCode()の実装に使っているHashCode 構造体は「.NET Core 2.1以降」「.NET Framework 4.6.1以降」にしかありません。
+そのため、それ以前のフレームワークでは、自力で実装する必要があります。C#の特徴である、非同期構文(async)を初めてサポートしたバージョン。読み取り専用プロパティを明示的に実装するか、privateなセッターを持つ自動実装プロパティに変更しています。
+ただし後者はクラス内部で変更が可能なことに留意してください。すべてのメソッドをステートメント形式に変更しています。string.Formatの呼び出しに変更しています。
+ただ、実行速度を考えると+による結合の方が早いかも。同値となる文字列に置き換えています。dynamic型など、外部連携のための機能が強化された。コードはC# 5と変化がないため割愛C#のもう一つの特徴である「LINQ」が初めて登場したバージョン。(ただし利用には.NET Framework 3.5が必要)メソッドをオーバーロードして、引数を省略できるようにしています。ただし厳密にはAPIが異なります。4ようやく「らしく」なってきたバージョン。とはいえまだ「Javaっぽい言語」から脱し切れていない印象を受けました。プロパティを明示的に実装しています。ローカル変数の型を明示的に指定しています。正確にはC# 1.0とC# 1.2があるようですが、1.0を明示的に指定することはできないようです。
+公式が「現在のバージョンと比べると、機能がはぎ取られたように見えます。 気がつくと冗長なコードを記述している場合があるでしょう。」と書くように、今このバージョンを利用するのは単なる苦行です。型パラメーターに対応しないため、IEquatable&lt;ImmutableValueClass&gt;, IComparable&lt;ImmutableValueClass&gt;の記述ができず、実装もできません。同じAPIを持つNullableInt構造体を定義し、代用しています。
+ただし、null許容値型はフレームワーク側でも特別扱いされる5ため、挙動は一致していません。new NullableInt()に変更しています。C# 9.0で追加されたrecord型を用いて書くと、以下のようになります。6
+(解説はあちこちでされているかと思いますので、割愛します)最初にも挙げたとおり、C#言語自体は「昔の記法がエラーにならないよう」実装されています。
+そのためフレームワークやIDEのバージョンに応じた最新のC#を使うことをオススメします。また、古いC#プログラムからのマイグレーション難易度は、「プログラムそのもの」よりも「使用しているフレームワーク(+依存するライブラリ)」に依ります。
+NuGetなどで代替となるライブラリがあるのならば、この機会に汎用性のある.NET Coreへの移行を検討してはいかがでしょうか？メジャーな代替表記であれば、コンパイラやIDEから「新しい構文で書けますよ」と、提案事項として指摘されます。 ↩クラスの利用側がC# 7以上ならば、Deconstractによる分解が利用可能です。 ↩X == nullの真偽はXの型における演算子==の実装に依存するため、X is nullと同じ結果を返すとは限りません。UnityのGameObjectはその一例です。 ↩オーバーロードは実際に複数のメソッドが作られますが、「省略可能な引数」はコンパイル時に呼び出し側へ定数を埋め込むため、メソッドの実体は一つです。また、public const同様にバージョニングの問題を引き起こす可能性にも注意する必要があります。 ↩特にボックス化絡み。HasValueがtrueの場合は値そのものに、falseの場合はnullに変換される。 ↩.NET 5.0以外で利用する場合は、IsExternalInit.csの移植が必要です ↩
+
+

@@ -1,0 +1,92 @@
+
+// Copyright (c) Microsoft Corporation. All rights reserved.
+// Licensed under the MIT License.
+//
+// Generated with Bot Builder V4 SDK Template for Visual Studio EchoBot v4.6.2
+
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Bot.Builder;
+using Microsoft.Bot.Schema;
+
+//for TextAnalytics
+using System;
+using System.Net.Http;
+using Microsoft.Azure.CognitiveServices.Language.TextAnalytics;
+using Microsoft.Azure.CognitiveServices.Language.TextAnalytics.Models;
+using Microsoft.Rest;
+using System.Diagnostics;
+
+namespace YasashiiBot.Bots
+{
+    public class EchoBot : ActivityHandler
+    {
+        //for TextAnalytics
+        private static readonly string key = "&lt;replace-with-your-text-analytics-key-here&gt;";
+        private static readonly string endpoint = "&lt;replace-with-your-text-analytics-endpoint-here&gt;";
+
+        protected override async Task OnMessageActivityAsync(ITurnContext&lt;IMessageActivity&gt; turnContext, CancellationToken cancellationToken)
+        {
+            var replyText = $"Echo: {turnContext.Activity.Text}";
+            await turnContext.SendActivityAsync(MessageFactory.Text(replyText, replyText), cancellationToken);
+
+            //for TextAnalytics
+            var client = authenticateClient();
+            sentimentAnalysisExample(client,turnContext.Activity.Text);//引数turnContext.Activity.Textを追加
+        }
+
+        protected override async Task OnMembersAddedAsync(IList&lt;ChannelAccount&gt; membersAdded, ITurnContext&lt;IConversationUpdateActivity&gt; turnContext, CancellationToken cancellationToken)
+        {
+            var welcomeText = "Hello and welcome!";
+            foreach (var member in membersAdded)
+            {
+                if (member.Id != turnContext.Activity.Recipient.Id)
+                {
+                    await turnContext.SendActivityAsync(MessageFactory.Text(welcomeText, welcomeText), cancellationToken);
+                }
+            }
+        }
+
+        //for TextAnalytics
+        static TextAnalyticsClient authenticateClient()
+        {
+            ApiKeyServiceClientCredentials credentials = new ApiKeyServiceClientCredentials(key);
+            TextAnalyticsClient client = new TextAnalyticsClient(credentials)
+            {
+                Endpoint = endpoint
+            };
+            return client;
+        }
+
+        //for TextAnalytics
+        static void sentimentAnalysisExample(ITextAnalyticsClient client, string message)//引数messageを追加
+        {
+            var result = client.Sentiment(message, "ja");//引数messageを分析対象にし、言語は日本語に設定
+            Debug.WriteLine($"User Message: {message}");//引数messageの内容を出力
+            Debug.WriteLine($"Sentiment Score: {result.Score:0.00}");
+        }
+    }
+
+    //for TextAnalytics
+    class ApiKeyServiceClientCredentials : ServiceClientCredentials
+    {
+        private readonly string apiKey;
+
+        public ApiKeyServiceClientCredentials(string apiKey)
+        {
+            this.apiKey = apiKey;
+        }
+
+        public override Task ProcessHttpRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException("request");
+            }
+            request.Headers.Add("Ocp-Apim-Subscription-Key", this.apiKey);
+            return base.ProcessHttpRequestAsync(request, cancellationToken);
+        }
+    }
+}
+

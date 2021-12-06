@@ -1,0 +1,26 @@
+
+        public IObservable&lt;KeyInfo&gt; CreateCommandObserver(string command)
+        {
+            // 指定したキーの押し下げを通知するObserverを返す
+            IObservable&lt;KeyInfo&gt; getInputObserver(char c)
+            {
+                return this.input.KeyStream.Where(k =&gt; k.Key == c &amp;&amp; k.State);
+            }
+
+            var observer = getInputObserver(command[0]);
+            for (int i = 1; i &lt; command.Length; ++i)
+            {
+                var index = i;  // ループカウンタをラムダ式にキャプチャするために退避
+                observer = observer
+                    .Merge(getInputObserver(command[index]))
+                    .Buffer(2, 1)
+                    // 最初のレバー入力は入れっぱなしでも許容したいので、初回のみ間隔チェックはパス
+                    .Where(b =&gt; index == 1 || b[1].Frame - b[0].Frame &lt; 10)
+                    .Where(b =&gt; b[0].Key == command[index - 1] &amp;&amp; b[1].Key == command[index])
+                    .Select(b =&gt; b[1]);
+            }
+
+            return observer;
+        }
+
+

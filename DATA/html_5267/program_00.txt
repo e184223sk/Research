@@ -1,0 +1,74 @@
+public class MyDialogFragment : DialogFragment, IDialogInterfaceOnShowListener {
+
+    readonly Context    context_;
+    private AlertDialog dialog_;
+
+    public static MyDialogFragment Instance(Context context, string title){
+        Bundle bundle = new Bundle();
+        bundle.PutString("title", title);
+
+        var fragment = new MyDialogFragment(context);
+        fragment.Arguments = bundle;
+        return fragment;
+    }
+
+    public MyDialogFragment(Context context){
+        context_ = context;
+    }
+
+    public override Dialog OnCreateDialog(Bundle savedInstanceState){
+        var title = Arguments.GetString("title");
+
+        var layout = new Android.Widget.LinearLayout(context_);
+        var builder = new AlertDialog.Builder(context_)
+            .SetIcon(Android.Resource.Drawable.IcDialogInfo)
+            .SetTitle(title)
+            .SetView(layout);
+
+        // (1)コールバック関数なしでボタンを登録する
+        builder.SetPositiveButton("OK", (EventHandler&lt;DialogClickEventArgs&gt;)null);
+
+        dialog_ = builder.Create();
+        dialog_.SetOnShowListener(this);
+
+        return dialog_;
+    }
+
+    // (2)ダイアログが表示された時にボタンにコールバックを割当てる
+    public void OnShow(IDialogInterface dialog){
+        // ダイアログが表示された後でないとButtonを取得できない
+        var okButton = dialog_.GetButton((int)Android.Content.DialogButtonType.Positive);
+        okButton.Click += OkEventHandler;
+    }
+
+    // OKボタンが押されたとき
+    private void OkEventHandler(object sender, EventArgs args){
+        // (3)条件を満たした場合はDismiss()でダイアログを閉じる
+        if(is_satisfy_close_condition())
+            dialog_.Dismiss();
+    }
+
+}
+
+public class MyDialog {
+
+    const string    FRAGMENT_TAG    = "MyDialog_Fragment";
+
+    public static MainActivity  CurrentActivity { private get; set; }
+
+    private MyDialogFragment    fragment_   = null;
+
+    public void Show(string title){
+        var manager     = CurrentActivity.FragmentManager;
+        var transaction = manager.BeginTransaction();
+
+        var previous = manager.FindFragmentByTag(FRAGMENT_TAG);
+        if(previous != null)
+            transaction.Remove(previous);
+
+        transaction.DisallowAddToBackStack();
+        fragment_ = MyDialogFragment.Instance(CurrentActivity, title);
+        fragment_.Show(manager, FRAGMENT_TAG);
+    }
+}
+

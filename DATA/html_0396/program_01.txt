@@ -1,0 +1,305 @@
+
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Diagnostics;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+
+namespace WpfTestView
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainView : Window
+    {
+        // 内部的なデータテーブル
+        private DataTable _dataTable = new DataTable();
+        // 次元
+        private readonly int _rank = 50;
+        // 前世代
+        private Dictionary&lt;int, List&lt;bool&gt;&gt; preGeneration = new Dictionary&lt;int, List&lt;bool&gt;&gt;();
+        // 現世代
+        private Dictionary&lt;int, List&lt;bool&gt;&gt; curGeneration = new Dictionary&lt;int, List&lt;bool&gt;&gt;();
+
+        public MainView()
+        {
+            InitializeComponent();
+
+            InitializeDataGrid();
+            InitializeGeneration();
+        }
+
+        private void InitializeDataGrid()
+        {
+            dgSample.Columns.Clear();
+            _dataTable.Rows.Clear();
+            _dataTable.Columns.Clear();
+
+            for (int i = 0; i &lt; _rank; i++)
+            {
+                _dataTable.Columns.Add();
+                _dataTable.Rows.Add();
+            }
+            dgSample.ItemsSource = new DataView(_dataTable);
+
+            ResizeDataGrid();
+        }
+
+        private void InitializeGeneration()
+        {
+            preGeneration.Clear();
+            curGeneration.Clear();
+            preGeneration = Enumerable.Range(0, _rank).ToDictionary(_ =&gt; _, _ =&gt; Enumerable.Repeat(false, _rank).ToList());
+            curGeneration = Enumerable.Range(0, _rank).ToDictionary(_ =&gt; _, _ =&gt; Enumerable.Repeat(false, _rank).ToList());
+        }
+
+        private void ResizeDataGrid()
+        {
+            if (_dataTable.Columns.Count == 0) return;
+
+            double parentHeghit = parentGridSample.ActualHeight;
+            double parentWidth = parentGridSample.ActualWidth;
+            double buttonHeight = gridSample.ActualHeight;
+
+            // ボタンを画面上部に付けているのでその分を全体から引いて、行数で均等に割る
+            dgSample.MinRowHeight = 0;
+            dgSample.RowHeight = (parentHeghit - buttonHeight) / _dataTable.Rows.Count;
+            // 何故か親ウィンドウの幅をそのまま割ると少しズレるので-2というマジックナンバーをつけている
+            foreach (var col in dgSample.Columns)
+            {
+                col.MinWidth = 0;
+                col.Width = (parentWidth - 2) / _dataTable.Columns.Count;
+            }
+        }
+
+        private void dgSample_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            Trace.WriteLine(MethodBase.GetCurrentMethod().Name);
+
+            ResizeDataGrid();
+        }
+
+        private void RefreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            Trace.WriteLine(MethodBase.GetCurrentMethod().Name);
+
+            InitializeDataGrid();
+            InitializeGeneration();
+        }
+
+        private void dgSample_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            Trace.WriteLine(MethodBase.GetCurrentMethod().Name);
+
+            // マウスクリックされたセルを取得して色を反転させる
+            var curCellInfo = dgSample.CurrentCell;
+            var curCell = curCellInfo.Column.GetCellContent(curCellInfo.Item).Parent as DataGridCell;
+            if (curCell == null) return;
+
+            int rowIdx = dgSample.Items.IndexOf(curCellInfo.Item);
+            int colIdx = curCellInfo.Column.DisplayIndex;
+            curGeneration[rowIdx][colIdx] = !curGeneration[rowIdx][colIdx];
+
+            ToggleCellColor(curCell);
+        }
+
+        private void StartButton_Click(object sender, RoutedEventArgs e)
+        {
+            Trace.WriteLine(MethodBase.GetCurrentMethod().Name);
+
+            // とりあえず100世代ライフゲームを実行する
+            int gen = 0;
+            Task.Factory.StartNew(() =&gt;
+            {
+                do
+                {
+                    UpdateGeneration();
+                    System.Threading.Thread.Sleep(200);
+
+                    if (curGeneration.All(_n =&gt; _n.Value.All(_ =&gt; !_))) break;
+                } while (++gen &lt; 100);
+            });
+        }
+
+        private void UpdateGeneration()
+        {
+            for (int i = 0; i &lt; _rank; i++)
+            {
+                for (int j = 0; j &lt; _rank; j++)
+                {
+                    // データのコピー
+                    preGeneration[i][j] = curGeneration[i][j];
+                }
+            }
+
+
+            for (int i = 0; i &lt; _rank; i++)
+            {
+                for (int j = 0; j &lt; _rank; j++)
+                {
+                    int above = i == 0 ? _rank - 1 : i - 1;
+                    int below = i == _rank - 1 ? 0 : i + 1;
+                    int left = j == 0 ? _rank - 1 : j - 1;
+                    int right = j == _rank - 1 ? 0 : j + 1;
+
+                    int aliveCell = 0;
+                    if (preGeneration[above][left]) aliveCell++;
+                    if (preGeneration[above][j]) aliveCell++;
+                    if (preGeneration[above][right]) aliveCell++;
+                    if (preGeneration[i][left]) aliveCell++;
+
+                    if (preGeneration[i][right]) aliveCell++;
+                    if (preGeneration[below][left]) aliveCell++;
+                    if (preGeneration[below][j]) aliveCell++;
+                    if (preGeneration[below][right]) aliveCell++;
+
+                    if (!preGeneration[i][j])
+                    {
+                        if (aliveCell == 3)
+                        {
+                            // 誕生
+                            curGeneration[i][j] = true;
+                        }
+                    }
+                    else if (aliveCell &lt;= 1)
+                    {
+                        // 過疎
+                        curGeneration[i][j] = false;
+                    }
+                    else if (aliveCell &lt;= 3)
+                    {
+                        // 生存
+                        curGeneration[i][j] = true;
+                    }
+                    else if (aliveCell &gt;= 4)
+                    {
+                        // 過密
+                        curGeneration[i][j] = false;
+                    }
+                }
+            }
+
+            for (int i = 0; i &lt; _rank; i++)
+            {
+                for (int j = 0; j &lt; _rank; j++)
+                {
+                    // 前世と現世で状態が変われば反転させる
+                    if (preGeneration[i][j] != curGeneration[i][j])
+                    {
+                        if (Application.Current.Dispatcher.CheckAccess())
+                        {
+                            ToggleCellColor(GetCell(i, j));
+                        }
+                        else
+                        {
+                            Application.Current.Dispatcher.Invoke(() =&gt;
+                            {
+                                ToggleCellColor(GetCell(i, j));
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        private void RandomButton_Click(object sender, RoutedEventArgs e)
+        {
+            Trace.WriteLine(MethodBase.GetCurrentMethod().Name);
+
+            try
+            {
+                InitializeGeneration();
+
+                // 全体の1/3のセルを生存状態にする
+                int totalCellCount = _rank * _rank;
+                var randomList = GetRandomRange(0, totalCellCount, totalCellCount / 3);
+                for (int i = 0; i &lt; _rank; i++)
+                {
+                    for (int j = 0; j &lt; _rank; j++)
+                    {
+                        DataGridCell cell = GetCell(i, j);
+                        SolidColorBrush brush = cell.Background as SolidColorBrush;
+                        if (randomList.Any(_r =&gt; _r / _rank == i &amp;&amp; _r % _rank == j))
+                        {
+                            // 黒
+                            curGeneration[i][j] = true;
+                            if (brush != Brushes.Black) cell.Background = Brushes.Black;
+                        }
+                        else
+                        {
+                            // 白
+                            curGeneration[i][j] = false;
+                            if (brush == Brushes.Black) cell.Background = Brushes.White;
+                        }
+
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "Exception Occurred !!");
+            }
+        }
+
+        private List&lt;int&gt; GetRandomRange(int min, int max, int count)
+        {
+            if (min &gt; max || count &lt;= 0) return null;
+
+            Random random = new Random(DateTime.Now.Millisecond);
+            List&lt;int&gt; list = new List&lt;int&gt;();
+
+            while (list.Count &lt; count)
+            {
+                int r = random.Next(min, max);
+                if (list.Contains(r)) continue;
+
+                list.Add(r);
+            }
+            return list;
+        }
+
+        private DataGridCell GetCell(int i, int j)
+        {
+            DataGridRow row = dgSample.ItemContainerGenerator.ContainerFromIndex(i) as DataGridRow;
+            DataGridCellsPresenter presenter = GetVisualChild&lt;DataGridCellsPresenter&gt;(row);
+            return presenter.ItemContainerGenerator.ContainerFromIndex(j) as DataGridCell;
+        }
+
+        private T GetVisualChild&lt;T&gt; (Visual parent) where T : Visual
+        {
+            T child = default(T);
+            int visCt = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i &lt; visCt; i++)
+            {
+                Visual v = VisualTreeHelper.GetChild(parent, i) as Visual;
+                child = v as T;
+                if (child == null) child = GetVisualChild&lt;T&gt;(v);
+
+                if (child != null) break;
+            }
+            return child;
+        }
+
+        private void ToggleCellColor(DataGridCell cell)
+        {
+            SolidColorBrush curCellColor = cell.Background as SolidColorBrush;
+            if (curCellColor == Brushes.Black)
+            {
+                cell.Background = Brushes.White;
+            }
+            else
+            {
+                cell.Background = Brushes.Black;
+            }
+        }
+    }
+}
+
+

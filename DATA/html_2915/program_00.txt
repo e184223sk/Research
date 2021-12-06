@@ -1,0 +1,180 @@
+using UnityEngine;
+using System;
+using System.IO;
+using System.Security.Cryptography;
+using UnityEngine.UI;
+
+//&lt;JEM&gt;Ignore unity editor and run this code in the hololens instead&lt;/JEM&gt;
+#if !UNITY_EDITOR
+using Windows.Networking.Sockets;
+using Windows.Storage.Streams;
+using WinRTLegacy;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
+#endif
+
+// Able to act as a reciever 
+public class ImageReceiver : MonoBehaviour {
+    RawImage rend;
+    bool socketClosed = false;
+    bool writeStringToFile = false;
+    bool loadTexture = false;
+    bool logSize = false;
+
+    public uint BUFFER_SIZE = 8192;
+    public uint PORT = 8080;
+    private readonly int DELAYMILLISEC = 10;
+    public string textAll = "";
+    string error_message;
+    string error_source;
+    string FILENAME = "received.png"
+
+#if !UNITY_EDITOR
+    StreamSocketListener listener;    
+#endif
+    // Use this for initialization
+    void Start() {
+#if !UNITY_EDITOR
+        rend = this.GetComponent&lt;RawImage&gt;();
+        listener = new StreamSocketListener();
+
+        listener.ConnectionReceived += _receiver_socket_ConnectionReceived;
+        listener.Control.KeepAlive = true;
+        Listener_Start();
+#endif
+    }
+
+#if !UNITY_EDITOR
+    private async void Listener_Start()
+    {
+        try
+        {
+            await listener.BindServiceNameAsync(PORT.ToString());
+            Debug.Log("Listener started");
+            Debug.Log(NetworkUtils.GetMyIPAddress() + " : " + PORT.ToString());
+
+        } catch (Exception e)
+        {
+            Debug.Log("Error: " + e.Message);
+        }
+    }
+
+    private async void _receiver_socket_ConnectionReceived(StreamSocketListener sender, StreamSocketListenerConnectionReceivedEventArgs args)
+    {
+        try
+        {
+            if (loadTexture != true) {
+                string folderPath = System.IO.Directory.GetCurrentDirectory();
+
+                // Create sample file; replace if exists.
+                // Must be set as TemporaryFolder to read files from HoloLens.
+                Windows.Storage.StorageFolder storageFolder = Windows.Storage.ApplicationData.Current.TemporaryFolder;
+
+                using (var dr = new DataReader(args.Socket.InputStream)) {
+                    using (IInputStream input = args.Socket.InputStream) {
+                        using (var imageFile = new FileStream(storageFolder.Path + @"\" + FILENAME, FileMode.Create)) {
+                            using (FromBase64Transform myTransform = new FromBase64Transform(
+                                FromBase64TransformMode.IgnoreWhiteSpaces)) {
+
+                                byte[] data = new byte[BUFFER_SIZE];
+                                IBuffer buffer = data.AsBuffer();
+                                uint dataRead = BUFFER_SIZE;
+                                byte[] dataTransformed = new byte[BUFFER_SIZE];
+
+                                while (dataRead == BUFFER_SIZE) {
+                                    await input.ReadAsync(buffer, BUFFER_SIZE, InputStreamOptions.Partial);
+                                    int bytesWritten = myTransform.TransformBlock(data, 0,
+                                        (int)BUFFER_SIZE, dataTransformed, 0);
+
+                                    await Task.Delay(DELAYMILLISEC);
+                                    imageFile.Write(dataTransformed, 0, bytesWritten);
+                                    dataRead = buffer.Length;
+                                }
+                                dataTransformed = myTransform.TransformFinalBlock(data, 0, data.Length - (int)dataRead);
+                                imageFile.Write(dataTransformed, 0, dataTransformed.Length);
+                                myTransform.Clear();
+                            }
+                            imageFile.Flush();
+                        }
+                    }
+                }
+                loadTexture = true;
+            }
+        }
+        catch (Exception e)
+        {
+            error_source = e.Source;
+            error_message = e.Message;
+            socketClosed = true;
+        }
+        finally {
+            if (loadTexture == true) {
+                using (var dw = new DataWriter(args.Socket.OutputStream)) {
+                    dw.WriteString("OK");
+                    await dw.StoreAsync();
+                    dw.DetachStream();
+                }
+            } else {
+                using (var dw = new DataWriter(args.Socket.OutputStream)) {
+                    dw.WriteString("NG");
+                    await dw.StoreAsync();
+                    dw.DetachStream();
+                }
+            }
+        }
+    }
+
+    void Update() {
+        if (logSize) {
+            Debug.Log("SIZE IS : " + BUFFER_SIZE.ToString());
+            logSize = false;
+        }
+        if (socketClosed) {
+            Debug.Log(error_source);
+            Debug.Log(error_message);
+            Debug.Log("OOPS SOCKET CLOSED ");
+            socketClosed = false;
+            Debug.Log(textAll);
+        }
+        if (writeStringToFile) {
+            Debug.Log("WRITTEN TO FILE");
+            writeStringToFile = false;
+        }
+        if (loadTexture) {
+            Debug.Log("LOADING IMAGE CURRENTLY");
+
+            // Must be set as TemporaryFolder to read files from HoloLens.
+            Windows.Storage.StorageFolder storageFolder = Windows.Storage.ApplicationData.Current.TemporaryFolder;
+
+            string imgpath = storageFolder.Path + @"\" + FILENAME;
+
+            Destroy(this.rend.texture);
+            this.rend.texture = ReadPngAsTexture(imgpath);
+            this.rend.SetNativeSize();
+
+            Debug.Log("LOADED IMAGE");
+            Debug.Log(textAll);
+            loadTexture = false;
+        }
+    }
+#endif
+
+    private static byte[] ReadPngFile(string path) {
+        byte[] values;
+        using (FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read)) {
+            using (BinaryReader bin = new BinaryReader(fileStream)) {
+                values = bin.ReadBytes((int)bin.BaseStream.Length);
+            }
+        }
+        return values;
+    }
+
+    private static Texture2D ReadPngAsTexture(string path) {
+        byte[] readBinary = ReadPngFile(path);
+        Texture2D texture = new Texture2D(1, 1);
+        texture.LoadImage(readBinary);
+        return texture;
+    }
+}
+
+

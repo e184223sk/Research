@@ -1,0 +1,129 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class EnemyCompassControl : MonoBehaviour
+{
+    private GameObject Player;
+    private GameObject Burger;
+    private GameObject Fries;
+    private GameObject Drink;
+    //private Text RadText;
+    [SerializeField]
+    private Image BurgerImage;
+    [SerializeField]
+    private Image FriesImage;
+    [SerializeField]
+    private Image DrinkImage;
+    [SerializeField]
+    [Tooltip("敵のイメージを表示させる円の半径")]
+    private float uiImageRadius=180;
+    //private Text RadText;
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        Player = GameObject.FindWithTag("Player");
+        Burger = GameObject.FindGameObjectWithTag("Burger");
+        Fries = GameObject.FindGameObjectWithTag("Fries");
+        Drink = GameObject.FindGameObjectWithTag("Drink");
+        //RadText = GetComponentInChildren&lt;Text&gt;();
+
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        UpdateEnemyImage(Burger, BurgerImage);
+        if (Fries != null &amp;&amp; Fries.activeInHierarchy)
+        {
+            UpdateEnemyImage(Fries, FriesImage);
+        }
+        else
+        { 
+            FriesImage.enabled = false; 
+        }
+
+        if (Drink != null &amp;&amp; Drink.activeInHierarchy)
+        {
+            UpdateEnemyImage(Drink, DrinkImage);
+        }
+        else
+        {
+            DrinkImage.enabled = false;
+        }
+    }
+
+    float cross_2d(Vector3 aVec,Vector3 bVec)
+    {
+        return (aVec.x * bVec.z) - (aVec.z * bVec.x);
+    }
+
+    float dot_2d(Vector3 aVec, Vector3 bVec)
+    {
+        return (aVec.x * bVec.x + aVec.z * bVec.z);
+    }
+
+    void UpdateEnemyImage(GameObject Enemy,Image EnemyImage)
+    {
+        var PlayerForward = Player.transform.forward;
+        var ToEnemyVec = Enemy.transform.position - Player.transform.position;
+        //正規化することで角度を求めるときに大きさで割るのを省略する
+        ToEnemyVec = ToEnemyVec.normalized;
+
+        float SinPlayerToEnemy = cross_2d(PlayerForward, ToEnemyVec);
+        float CosPlayerToEnemy = dot_2d(PlayerForward, ToEnemyVec);
+
+        //第何象限に敵が位置しているか
+        int State = 0;
+        //第一象限のとき
+        if (SinPlayerToEnemy &gt; 0 &amp;&amp; CosPlayerToEnemy &gt; 0)
+        {
+            State = 0;
+        }
+        //第二象限のとき
+        else if (SinPlayerToEnemy &gt; 0 &amp;&amp; CosPlayerToEnemy &lt; 0)
+        {
+            State = 1;
+        }
+        //第三象限のとき
+        else if (SinPlayerToEnemy &lt; 0 &amp;&amp; CosPlayerToEnemy &lt; 0)
+        {
+            State = 2;
+        }
+        //第四象限のとき
+        else if (SinPlayerToEnemy &lt; 0 &amp;&amp; CosPlayerToEnemy &gt; 0)
+        {
+            State = 3;
+        }
+
+        float Rad = Mathf.Asin(SinPlayerToEnemy);
+        //RadText.text = "Rad:" + Rad;
+
+        //Asinでは(-π/2,π/2)の範囲しか表せないので、象限によって範囲を(-π,π)に拡張する
+        switch (State)
+        {
+            case 0:
+                break;
+            case 1:
+                Rad = Mathf.PI - Rad;
+                break;
+            case 2:
+                Rad = -Mathf.PI - Rad;
+                break;
+            case 3:
+                break;
+        }
+
+        //プレイヤーの正面始まりなので、表示のための計算にはラジアンをπ/2だけ移動させる
+        float RadOffset = Mathf.PI / 2;
+        Rad += RadOffset;
+
+        Vector3 ImageTransform = new Vector3(uiImageRadius * Mathf.Cos(Rad), uiImageRadius * Mathf.Sin(Rad), 0);
+        EnemyImage.rectTransform.localPosition = ImageTransform;
+    }
+}
+
+

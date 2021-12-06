@@ -1,0 +1,53 @@
+
+public class M_Common
+    {
+        public ReactiveProperty&lt;string&gt; _WorkingFolderPath { get; set; } = new ReactiveProperty&lt;string&gt;();
+        public ReactiveCollection&lt;M_ProjectTree&gt; _ProjectTree { get; } = new ReactiveCollection&lt;M_ProjectTree&gt;();
+        public ReactiveCommand C_ShowFolderSelectDialog { get; } = new ReactiveCommand();
+
+        public M_Common()
+        {
+            _WorkingFolderPath.PropertyChanged += _WorkingFolderPath_PropertyChanged;
+            _WorkingFolderPath.Value = Properties.Settings.Default.Working_Directory;
+            C_ShowFolderSelectDialog.Subscribe(_ =&gt; ShowFolderSelectDialog());
+        }
+
+        private void _WorkingFolderPath_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            TreeUpdate();
+        }
+
+        private void TreeUpdate()
+        {
+            var prop = Properties.Settings.Default;
+            prop.Working_Directory = _WorkingFolderPath.Value;
+            prop.Save();
+            _ProjectTree.Clear();
+            _ProjectTree.Add(new M_ProjectTree(_WorkingFolderPath.Value));
+        }
+
+        private void ShowFolderSelectDialog()
+        {
+            var folderSelect = new CommonOpenFileDialog() {IsFolderPicker = true };
+            string appLocation = folderSelect.InitialDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+
+            if (!string.IsNullOrWhiteSpace(_WorkingFolderPath.Value))
+            {
+                DirectoryInfo dir = new DirectoryInfo(_WorkingFolderPath.Value);
+                folderSelect.InitialDirectory = (dir.Exists) ? dir.Parent.FullName : appLocation;
+            }
+            else
+            {
+                folderSelect.InitialDirectory = appLocation;
+            }
+            var dialogResult = folderSelect.ShowDialog(Application.Current.Windows.OfType&lt;Window&gt;().SingleOrDefault(w =&gt; w.IsActive));
+            if (dialogResult == CommonFileDialogResult.Ok)
+            {
+                if (!folderSelect.FileName.Equals(_WorkingFolderPath.Value))
+                {
+                    _WorkingFolderPath.Value = folderSelect.FileName;
+                }
+            }
+        }
+    }
+

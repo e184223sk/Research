@@ -1,0 +1,340 @@
+
+// それを求めるすべてのクラスに対してFooの新しいインスタンスを作成する
+Container.Bind&lt;Foo&gt;().AsTransient();
+
+// IFooを要求するクラスごとにFooの新しいインスタンスを作成する
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().AsTransient();
+
+// 非ジェネリックバージョン
+Container.Bind(typeof(IFoo)).To(typeof(Foo)).AsTransient();
+
+///////////// AsSingle
+
+// Fooの1つの最終的なインスタンスを作成し、それを求めるすべてのクラスに対して再利用します
+Container.Bind&lt;Foo&gt;().AsSingle();
+
+// Fooの1つの最終的なインスタンスを作成し、IFooを要求するすべてのクラスに対してそのインスタンスを再利用します
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().AsSingle();
+
+// この例では、Fooの同じインスタンスが3つのすべてのケースで使用されます
+Container.Bind&lt;Foo&gt;().AsSingle();
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().AsSingle();
+Container.Bind&lt;IFoo2&gt;().To&lt;Foo&gt;().AsSingle();
+
+// 非ジェネリックバージョン
+Container.Bind(typeof(Foo)).AsSingle();
+Container.Bind(typeof(IFoo)).To(typeof(Foo)).AsSingle();
+
+// または、1つのバインドステートメント
+Container.Bind(typeof(Foo), typeof(IFoo)).To(typeof(Foo)).AsSingle();
+
+///////////// BindInterfaces
+
+// Fooが実装するすべてのインターフェイスを、Foo型の新しいシングルトンにバインドする
+Container.BindInterfacesTo&lt;Foo&gt;().AsSingle();
+
+// たとえば、FooがITickableとIInitializableを実装している場合、上記の行は次のようになります。
+Container.Bind&lt;ITickable&gt;().To&lt;Foo&gt;().AsSingle();
+Container.Bind&lt;IInitializable&gt;().To&lt;Foo&gt;().AsSingle();
+
+///////////// FromInstance
+
+// Fooが使用されているあらゆる場所で、指定されたインスタンスを使用する
+Container.Bind&lt;Foo&gt;().FromInstance(new Foo());
+
+// これは単に上記バインディングのショートカットです
+// これは、タイプ引数がパラメータから導き出されることができるので、少し好きかもしれません
+Container.BindInstance(new Foo());
+
+// 複数のバインディングを許可し、複数のバインディングで同じインスタンスをAsSingleで再利用することはできないため、
+// FromInstanceはAsSingleとは異なることに注意してください。
+// たとえば、次のようにしてList &lt;Fooのコンストラクタパラメータ &gt;（単一のFooを要求するパラメータの例外をスローする）
+Container.Bind&lt;Foo&gt;().FromInstance(new Foo());
+Container.Bind&lt;Foo&gt;().FromInstance(new Foo());
+
+///////////// Binding primitive types
+
+// intが要求されるたびに10を使用するあなたはこれをやりたいとは思っていません。
+// プリミティブ値にはほとんどの場合、When条件を使うべきです（下記の条件節を参照）
+Container.Bind&lt;int&gt;().FromInstance(10);
+Container.Bind&lt;bool&gt;().FromInstance(false);
+
+// これらは上記と同じです
+// これは型引数がパラメータから導き出されるためです
+// また、条件を使用して値の使用範囲を制限するように注意してください
+// 上記のようにSettingsオブジェクトを使用することを検討してください
+Container.BindInstance(10);
+Container.BindInstance(false);
+
+///////////// FromMethod
+
+// 要求されたときに、指定されたメソッドを使用してFooのインスタンスを作成するもっと複雑な構築シナリオでは、
+// 代わりにファクトリを使用することを検討してください
+Container.Bind&lt;Foo&gt;().FromMethod(GetFoo);
+
+Foo GetFoo(InjectContext ctx)
+{
+    return new Foo();
+}
+
+// IFooのいくつかの異なる実装のうちの1つをランダムに返します
+// Foo1がそのメンバを注入するように、ここではインスタンス化をnewの代わりに使用します
+Container.Bind&lt;IFoo&gt;().FromMethod(GetFoo);
+
+IFoo GetFoo(InjectContext ctx)
+{
+    switch (UnityEngine.Random.Range(0, 3))
+    {
+        case 0:
+            return ctx.Container.Instantiate&lt;Foo1&gt;();
+
+        case 1:
+            return ctx.Container.Instantiate&lt;Foo2&gt;();
+    }
+
+    return ctx.Container.Instantiate&lt;Foo3&gt;();
+}
+
+// ラムダ構文の使用
+Container.Bind&lt;Foo&gt;().FromMethod((ctx) =&gt; new Foo());
+
+// これはAsTransientと同等です
+Container.Bind&lt;Foo&gt;().FromMethod((ctx) =&gt; ctx.Container.Instantiate&lt;Foo&gt;());
+
+///////////// FromResolveGetter
+
+// 別の依存関係のプロパティにバインドする
+// これは、クラス間の結合を減らすのに役立ちます
+Container.Bind&lt;Foo&gt;().AsSingle();
+
+Container.Bind&lt;Bar&gt;().FromResolveGetter&lt;Foo&gt;(foo =&gt; foo.GetBar());
+
+// 値を使用する別の例
+Container.Bind&lt;string&gt;().FromResolveGetter&lt;Foo&gt;(foo =&gt; foo.GetTitle());
+
+///////////// FromNewComponentOnNewGameObject (singleton)
+
+//シーンのルートに新しいゲームオブジェクトを作成し、そこにFoo MonoBehaviourを追加し、それに "Foo"という名前を付けます。
+Container.Bind&lt;Foo&gt;().FromNewComponentOnNewGameObject().AsSingle();
+
+// WithGameObjectNameを使用して使用するゲームオブジェクト名を指定することもできます
+Container.Bind&lt;Foo&gt;().FromNewComponentOnNewGameObject().WithGameObjectName("Foo1").AsSingle();
+
+// インターフェイスにバインドする
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().FromNewComponentOnNewGameObject().AsSingle();
+
+///////////// FromComponentInNewPrefab (singleton)
+
+// 与えられたプレハブを使ってシーンのルートに新しいゲームオブジェクトを作成する
+// ここではFooはMonoBehaviourであり、Fooは以前にプレハブに追加されているものと仮定しています
+// zenjectが与えられたプレハブから新しいGameObjectを作成すると、 
+// プレファブで 'Foo'型のコンポーネントを検索し、それを返します
+GameObject fooPrefab;
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+
+// 代わりにインターフェイスにバインドする
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+
+// この例では、AsSingleを使用していますが、異なるコンポーネントを使用しています。
+// ここでは、特定のプレハブのインスタンスが1つだけ作成されることに注意してください。 
+// AsSingleはプレハブ自体に適用され、プレハブから返されるタイプには適用されません。
+// これが機能するには、Foo MonoBehaviourとBar MonoBehaviourの両方がプレハブのどこかに存在する必要があります
+GameObject prefab;
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(prefab).AsSingle();
+Container.Bind&lt;Bar&gt;().FromComponentInNewPrefab(prefab).AsSingle();
+
+///////////// FromComponentInNewPrefab (Transient)
+
+// Fooのインスタンスが毎回 'fooPrefab'の新しいコピーをインスタンス化する
+// コンストラクタパラメータ、注入されたフィールドなどによって要求されます。
+GameObject fooPrefab = null;
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab);
+
+// ここでも、AsTransientがデフォルトであるため、これは同等です
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsTransient();
+
+// 代わりにインターフェイスにバインドする
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab);
+
+///////////// Identifiers
+
+// グローバルにアクセス可能な文字列を 'PlayerName'という名前でバインドすることをお勧めします。
+// しかし、より良い選択肢は、Settingsオブジェクトを作成してバインドすることです
+Container.Bind&lt;string&gt;().WithId("PlayerName").FromInstance("name of the player");
+
+// これは上記の行に相当し、もう少し読みやすくなります
+Container.BindInstance("name of the player").WithId("PlayerName");
+
+// IDを使用して、同じタイプの複数のインスタンスをバインドすることもできます。
+Container.Bind&lt;string&gt;().WithId("FooA").FromInstance("foo");
+Container.Bind&lt;string&gt;().WithId("FooB").FromInstance("asdf");
+
+// 次に、これらの依存関係を注入するときには、同じIDを使用する必要があります。
+public class Norf
+{
+    [Inject(Id = "FooA")]
+    string _foo;
+}
+
+public class Qux
+{
+    [Inject(Id = "FooB")]
+    string _foo;
+}
+
+// この例では、Fooの3つのインスタンスをバインドします.1つはIDなし
+Container.Bind&lt;Foo&gt;().AsCached();
+Container.Bind&lt;Foo&gt;().WithId("FooA").AsCached();
+Container.Bind&lt;Foo&gt;().WithId("FooA").AsCached();
+
+// [Inject]フィールドでIDが指定されていない場合は、最初のインスタンスが使用されます.
+// IDなしのBindingsはデフォルトとして使用でき、同じタイプの特定のバージョンのIDを指定できます
+public class Norf
+{
+    [Inject]
+    Foo _foo;
+}
+
+// Qux._fooはNorf._fooと同じインスタンスになります。
+// これは、AsTransではなくAsCachedを使用しているためです。
+// AsSingleを使用しないことに注意してください。
+// この場合、Qux._foo2も同じインスタンスを使用するためです
+public class Qux
+{
+    [Inject]
+    Foo _foo;
+
+    [Inject(Id = "FooA")]
+    Foo _foo2;
+}
+
+///////////// Conditions
+
+// これにより、BarはFooに依存することができます
+// Fooを他のクラスのコンストラクタに追加すると、それを見つけることができません
+Container.Bind&lt;Foo&gt;().AsSingle().WhenInjectedInto&lt;Bar&gt;();
+
+// IFooのさまざまな実装を使用する
+// クラスが注入されている
+Container.Bind&lt;IFoo&gt;().To&lt;Foo1&gt;().AsSingle().WhenInjectedInto&lt;Bar&gt;();
+Container.Bind&lt;IFoo&gt;().To&lt;Foo2&gt;().AsSingle().WhenInjectedInto&lt;Qux&gt;();
+
+// 「Foo1」をデフォルトの実装として使用する場合は、
+// クラスQux、その場合はFoo2を使用する
+Container.Bind&lt;IFoo&gt;().To&lt;Foo1&gt;().AsSingle();
+Container.Bind&lt;IFoo&gt;().To&lt;Foo2&gt;().AsSingle().WhenInjectedInto&lt;Qux&gt;();
+
+// Fooに依存するいくつかの選択されたクラスでのみ許可
+Container.Bind&lt;Foo&gt;().AsSingle().WhenInjectedInto(typeof(Bar), typeof(Qux), typeof(Baz));
+
+// 識別子 "Title"を持つGuiクラスに注入された文字列の "my game"を提供する
+Container.BindInstance("my game").WithId("Title").WhenInjectedInto&lt;Gui&gt;();
+
+// Guiクラスに注入されたすべてのintの5を供給する
+Container.BindInstance(5).WhenInjectedInto&lt;Gui&gt;();
+
+// Guiの中のパラメータやフィールドに注入されたすべてのintを 'width'という名前で入力します。
+// フィールドの名前は簡単に変更でき、バインディングを破ることができますが、ここでは例として示しています。
+Container.BindInstance(5.0f).When(ctx =&gt;
+    ctx.ObjectType == typeof(Gui) &amp;&amp; ctx.MemberName == "width");
+
+// 'Bar'クラスの構築の一部として作成されたすべてのクラスに対して新しい 'Foo'を作成する
+// したがって、BarがQux型のコンストラクタパラメータを持ち、QuxがIFoo型のコンストラクタパラメータを持っている場合、
+// そのケースに対して新しいFooが作成されます
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().AsTransient().When(
+    ctx =&gt; ctx.AllObjectTypes.Contains(typeof(Bar)));
+
+///////////// Complex conditions example
+
+var foo1 = new Foo();
+var foo2 = new Foo();
+
+Container.Bind&lt;Bar&gt;().WithId("Bar1").AsTransient();
+Container.Bind&lt;Bar&gt;().WithId("Bar2").AsTransient();
+
+// ここでは、注入コンテキストの 'ParentContexts'プロパティを使用して、複数の対応する識別子を同期させます
+Container.BindInstance(foo1).When(c =&gt; c.ParentContexts.Where(x =&gt; x.MemberType == typeof(Bar) &amp;&amp; x.Identifier == "Bar1").Any());
+Container.BindInstance(foo2).When(c =&gt; c.ParentContexts.Where(x =&gt; x.MemberType == typeof(Bar) &amp;&amp; x.Identifier == "Bar2").Any());
+
+// これにより、
+// Container.Resolve&lt;Bar&gt;("Bar1").Foo == foo1
+// Container.Resolve&lt;Bar&gt;("Bar2").Foo == foo2
+
+///////////// FromResolve
+
+// これにより、IBar、IFoo、およびFooがすべてFooの同じインスタンスにバインドされます。
+// これは、指定されたプレハブのどこかに存在すると仮定されています
+GameObject fooPrefab;
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+Container.Bind&lt;IBar&gt;().To&lt;Foo&gt;().FromResolve();
+Container.Bind&lt;IFoo&gt;().To&lt;IBar&gt;().FromResolve();
+
+// これにより、上記と同じ動作になります
+GameObject fooPrefab = null;
+Container.Bind&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+Container.Bind&lt;IBar&gt;().To&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().FromComponentInNewPrefab(fooPrefab).AsSingle();
+
+///////////// Rebind
+
+// Rebindは、以前のバインディングを上書きするために使用できます
+// これは、IFooがBarのみにバインドされることになります
+// Fooへのバインディングは削除されます
+// 通常、バインディングが発生する順序はまったく重要ではありませんが、
+// Rebindは順序依存性を作成して慎重に使用します
+Container.Bind&lt;IFoo&gt;().To&lt;Foo&gt;().AsSingle();
+Container.Rebind&lt;IFoo&gt;().To&lt;Bar&gt;().AsSingle();
+
+///////////// Installing Other Installers
+
+// すぐにFooInstallerでInstallBindings（）を呼び出します。
+FooInstaller.Install(Container);
+
+// FooInstallerを呼び出す前に、そのプロパティを設定してください
+Container.BindInstance("foo").WhenInjectedInto&lt;FooInstaller&gt;();
+FooInstaller.Install(Container);
+
+// 引数を直接渡すこともできます
+// この行は上記の2行に相当します
+FooInstaller.Install(Container, new object[] { "foo" });
+
+// FooInstallerを呼び出した後、そのバインディングの1つをオーバーライドします
+// FooInstallerがIFooを何かにBindすると仮定します
+FooInstaller.Install(Container);
+Container.Rebind&lt;IFoo&gt;().To&lt;Bar&gt;().AsSingle();
+
+///////////// Manual Use of Container
+
+// これは、[Inject]とマークされた任意のパラメータを記入し、任意の[Inject]メソッド
+var foo = new Foo();
+Container.Inject(foo);
+
+// 以前に追加されたバインディングを使用して、IFooのインスタンスを返します。
+// 内部的には、IFoo型のコンストラクタパラメータを入力するとトリガされるものです
+// 注：一致が見つからない場合は例外がスローされます
+Container.Resolve&lt;IFoo&gt;();
+
+// 上記と同じですが、指定された型が見つからない場合はnullを返します。
+Container.TryResolve&lt;IFoo&gt;();
+
+// Foo型の2つのインスタンスのリストを返す
+Container.BindInstance(new Foo());
+Container.BindInstance(new Foo());
+var foos = Container.ResolveAll&lt;IFoo&gt;();
+
+// Fooの新しいインスタンスを作成し、そのメンバーのいずれかに注入する
+// Fooが持つ可能性のある任意のコンストラクタパラメータを入力します
+Container.Instantiate&lt;Foo&gt;();
+
+GameObject prefab = null;
+// 新しいプレハブをインスタンス化し、プレハブに注入可能なものを埋め込む
+GameObject go = Container.InstantiatePrefab(prefab);
+
+// 新しいプレハブをインスタンス化し、特定のモノオブジェクトを返す
+Foo foo2 = Container.InstantiatePrefabForComponent&lt;Foo&gt;(prefab);
+
+// 既存のゲームオブジェクトに新しいコンポーネントを追加する
+Foo foo3 = Container.InstantiateComponent&lt;Foo&gt;(gameObject);
+
+
+

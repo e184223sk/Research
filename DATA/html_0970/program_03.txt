@@ -1,0 +1,55 @@
+
+// 32bitアルファチャンネル付bmpを24bitに変換
+// EPSON製のプリンターではアルファチャンネルが無視されて真っ黒になるため、アルファチャンネル無しに変換する必要がある
+BitmapData bmpData = baseBmp.LockBits(new Rectangle(0, 0, baseBmp.Width, baseBmp.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+byte[] basePixels = new byte[bmpData.Stride * bmpData.Height];
+Marshal.Copy(bmpData.Scan0, basePixels, 0, basePixels.Length);
+
+int stride = (int)Math.Ceiling(3.0 * bmpData.Width / 4) * 4;
+byte[] pixels = new byte[14 + 40 + stride * bmpData.Height];
+for (int y = 0; y &lt; bmpData.Height; y++)
+{
+  for (int x = 0; x &lt; bmpData.Width; x++)
+  {
+    int basePos = 4 * x + bmpData.Stride * y;
+    int pos = 14 + 40 + 3 * x + stride * (bmpData.Height - y - 1);
+
+    pixels[pos] = (byte)(255 + (basePixels[basePos] - 255) * basePixels[basePos + 3] / 255);
+    pixels[pos + 1] = (byte)(255 + (basePixels[basePos + 1] - 255) * basePixels[basePos + 3] / 255);
+    pixels[pos + 2] = (byte)(255 + (basePixels[basePos + 2] - 255) * basePixels[basePos + 3] / 255);
+  }
+}
+
+// bmpファイルのヘッダーバイナリを自作
+byte[] bfSize = BitConverter.GetBytes(pixels.GetLength(0));
+byte[] biWidth = BitConverter.GetBytes(bmpData.Width);
+byte[] biHeight = BitConverter.GetBytes(bmpData.Height);
+byte[] biSizeImage = BitConverter.GetBytes(pixels.GetLength(0) - 14 - 40);
+
+byte[] header = new byte[14 + 40]
+{
+  0x42, 0x4d, // bfType
+  bfSize[0], bfSize[1], bfSize[2], bfSize[3], // bfSize
+  0x00, 0x00, // bfReserved1
+  0x00, 0x00, // bfReserved2
+  0x01, 0x00, 0x00, 0x00, // bfOffBits
+
+  0x28, 0x00, 0x00, 0x00, // biSize
+  biWidth[0], biWidth[1], biWidth[2], biWidth[3], // biWidth
+  biHeight[0], biHeight[1], biHeight[2], biHeight[3], // biHeight
+  0x01, 0x00, // biPlanes
+  0x18, 0x00, // biBitCount
+  0x00, 0x00, 0x00, 0x00, // biCompression
+  biSizeImage[0], biSizeImage[1], biSizeImage[2], biSizeImage[3], // biSizeImage
+  0xc4, 0x0e, 0x00, 0x00, // biXPixPerMeter
+  0xc4, 0x0e, 0x00, 0x00, // biYPixPerMeter
+  0x00, 0x00, 0x00, 0x00, // biCirUsed
+  0x00, 0x00, 0x00, 0x00, // biCirImportant
+};
+
+
+Array.Copy(header, 0, pixels, 0, 14 + 40); // ヘッダーとビットマップデータをくっつける
+Bitmap newBmp = new Bitmap(new MemoryStream(pixels)); // Graphicsに汚染されていないBitmapの出来上がり
+posPrinter.PrintMemoryBitmap(PrinterStation.Receipt, newBmp, PosPrinter.PrinterBitmapAsIs, PosPrinter.PrinterBitmapRight); // これでOK
+

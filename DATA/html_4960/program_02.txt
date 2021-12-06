@@ -1,0 +1,112 @@
+
+using System;
+using System.Text;
+
+using System.IO;
+using System.IO.Pipes;
+using System.Threading;
+namespace NamedPipeMng
+{
+    /// &lt;summary&gt;
+    /// 名前つきパイプ クライアント
+    /// &lt;/summary&gt;
+    public class NamedPipeClientMng : NamedPipeCommon
+    {
+        /// &lt;summary&gt;
+        /// スレッド
+        /// &lt;/summary&gt;
+        Thread _Thread { set; get; }
+        /// &lt;summary&gt;
+        /// 送信文字列
+        /// &lt;/summary&gt;
+        string _Message { set; get; }
+        /// &lt;summary&gt;
+        /// 
+        /// &lt;/summary&gt;
+        byte[] buffer { set; get; }
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public NamedPipeClientMng()
+        {
+            this._Thread = null;
+        }
+        /// &lt;summary&gt;
+        /// 文字列送信要求
+        /// &lt;/summary&gt;
+        /// &lt;param name="message"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public bool SendMessage(string message)
+        {
+            Console.WriteLine("{0}.{1:00#} SendMessage 01", DateTime.Now.ToLongTimeString(), DateTime.Now.Millisecond);
+            try
+            {
+                this._Message = message;
+                this._Thread = new Thread(new ThreadStart(this.ThreadProc));
+                this._Thread.IsBackground = true;
+                this._Thread.Start();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            Console.WriteLine("{0}.{1:00#} SendMessage 99", DateTime.Now.ToLongTimeString(), DateTime.Now.Millisecond);
+            return true;
+        }
+        /// &lt;summary&gt;
+        /// 文字列送信処理
+        /// &lt;/summary&gt;
+        private void ThreadProc()
+        {
+            Console.WriteLine("{0}.{1:00#} ThreadProc 01", DateTime.Now.ToLongTimeString(), DateTime.Now.Millisecond);
+            var pipe = new NamedPipeClientStream(".", this._PipeName, PipeDirection.InOut);
+            using (var sw = new StreamWriter(pipe))
+            {
+                pipe.Connect();
+                sw.Write(this._Message);
+                sw.Flush();
+                pipe.WaitForPipeDrain();
+            }
+            Console.WriteLine("{0}.{1:00#} ThreadProc 99", DateTime.Now.ToLongTimeString(), DateTime.Now.Millisecond);
+        }
+        /// &lt;summary&gt;
+        /// パイプサーバープロセス起動要求
+        /// &lt;/summary&gt;
+        /// &lt;param name="ProcName"&gt;プロセス名称&lt;/param&gt;
+        /// &lt;param name="exepath"&gt;実行ファイルフルパス&lt;/param&gt;
+        /// &lt;returns&gt;実行中プロセス名称&lt;/returns&gt;
+        public static string WakeupPipeServerProc(string ProcName, string exepath)
+        {
+            var ps = System.Diagnostics.Process.GetProcessesByName(ProcName);
+            if (ps.Length &lt;= 0)
+            {
+                var p = System.Diagnostics.Process.Start(exepath);
+                System.Threading.Thread.Sleep(1000);
+            }
+
+            ps = System.Diagnostics.Process.GetProcessesByName(ProcName);
+            Console.WriteLine("Process:{0}", ps.Length);
+            foreach (var p in ps)
+            {
+                Console.WriteLine("ProcessName::{0}", p.ProcessName);
+            }
+
+            if (ps.Length &gt; 0)
+                return ps[0].ProcessName;
+            else
+                return string.Empty;
+        }
+        /// &lt;summary&gt;
+        /// パイプサーバープロセス終了要求
+        /// &lt;/summary&gt;
+        public static void ShutdownPipeServerProc(string ProcName)
+        {
+            var ps = System.Diagnostics.Process.GetProcessesByName(ProcName);
+            foreach(var p in ps)
+            {
+                p.CloseMainWindow();
+            }
+        }
+    }
+}
+

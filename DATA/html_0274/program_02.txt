@@ -1,0 +1,91 @@
+
+//各頂点が切断面の表側にあるか裏側にあるか判断.
+bool[] _isfront=new bool[_targetVertices.Length];
+for (int i = 0; i &lt; _targetVertices.Length; i++)
+            {
+                Vector3 pos = _targetVertices[i];
+                //planeの表側にあるか裏側にあるかを判定.(たぶん表だったらtrue)
+                if (_isFront[i] = (pnx * (pos.x - ancx) + pny * (pos.y - ancy) + pnz * (pos.z - ancz)) &gt; 0)
+                {
+                    //頂点の情報もここで入力してしまう
+                    frontVertices_array[frontCount] = pos;
+                    frontNormals_array[frontCount] = _targetNormals[i];
+                    frontUVs_array[frontCount] = _targetUVs[i];
+                    //もとのMeshのn番目の頂点が新しいMeshで何番目になるのかを記録
+                    _trackedArray[i] = frontCount++;
+                }
+                else
+                {
+                    backVertices_array[backCount] = pos;
+                    backNormals_array[backCount] = _targetNormals[i];
+                    backUVs_array[backCount] = _targetUVs[i];
+
+                    _trackedArray[i] = backCount++;
+                }
+            }
+
+//次に, 三角ポリゴンの情報を追加していく
+        int submeshCount = _targetMesh.subMeshCount;
+
+        for (int sub = 0; sub &lt; submeshCount; sub++)
+        {
+
+            int[] indices = _targetMesh.GetIndices(sub);
+
+
+            //ここは後で説明. ポリゴンを形成する頂点の番号を入れるintの配列を作っている.(submeshごとに追加)
+            int indicesLength = indices.Length;
+            _frontSubmeshIndices.AddOnlyCount();
+            _frontSubmeshIndices.Top = _frontSubmeshIndices.Top?.Clear(indicesLength) ?? new UnsafeList&lt;int&gt;(indicesLength);
+            _backSubmeshIndices.AddOnlyCount();
+            _backSubmeshIndices.Top = _backSubmeshIndices.Top?.Clear(indicesLength) ?? new UnsafeList&lt;int&gt;(indicesLength);
+
+
+            //リストから配列を引き出す//ここもあとで説明
+            UnsafeList&lt;int&gt; frontIndices = _frontSubmeshIndices[sub];
+            int[] frontIndices_array = frontIndices.unsafe_array;
+            int frontIndicesCount = 0;
+            UnsafeList&lt;int&gt; backIndices = _backSubmeshIndices[sub];
+            int[] backIndices_array = backIndices.unsafe_array;
+            int backIndicesCount = 0;
+
+            //ポリゴンの情報は頂点3つで1セットなので3つ飛ばしでループ
+            for (int i = 0; i &lt; indices.Length; i += 3)
+            {
+                int p1, p2, p3;
+                p1 = indices[i];
+                p2 = indices[i + 1];
+                p3 = indices[i + 2];
+
+
+                //予め計算しておいた結果を持ってくる(ここで計算すると同じ頂点にたいして何回も同じ計算をすることになるから最初にまとめてやっている(そのほうが処理時間が速かった))
+                bool side1 = _isFront[p1];
+                bool side2 = _isFront[p2];
+                bool side3 = _isFront[p3];
+
+
+
+                if (side1 &amp;&amp; side2 &amp;&amp; side3)//3つとも表側, 3つとも裏側のときはそのまま出力
+                {
+                    //indicesは切断前のMeshの頂点番号が入っているので_trackedArrayを通すことで新しいMeshでの番号に変えている
+                    frontIndices_array[frontIndicesCount++] = _trackedArray[p1];
+                    frontIndices_array[frontIndicesCount++] = _trackedArray[p2];
+                    frontIndices_array[frontIndicesCount++] = _trackedArray[p3];
+                }
+                else if (!side1 &amp;&amp; !side2 &amp;&amp; !side3)
+                {
+                    backIndices_array[backIndicesCount++] = _trackedArray[p1];
+                    backIndices_array[backIndicesCount++] = _trackedArray[p2];
+                    backIndices_array[backIndicesCount++] = _trackedArray[p3];
+                }
+                else  //三角ポリゴンを形成する各点で面に対する表裏が異なる場合, つまり切断面と重なっている平面は分割する.
+                {
+                    Sepalate(new bool[3] { side1, side2, side3 }, new int[3] { p1, p2, p3 }, sub);
+                }
+
+            }
+            //最後にUnsafeListのカウントを進めておく//ここも後で説明
+            frontIndices.unsafe_count = frontIndicesCount;
+            backIndices.unsafe_count = backIndicesCount;
+        }
+

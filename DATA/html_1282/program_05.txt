@@ -1,0 +1,36 @@
+
+protected override Task&lt;AuthenticateResult&gt; HandleAuthenticateAsync()
+{
+    (bool ok, string name, string role) tryGetApiKey(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue("API_KEY", out var apiKey))
+        {
+            return (false, "", "");
+        }
+
+        return apiKey.ToString() switch
+        {
+            "A" =&gt; (true, "a さん", "Admin"),
+            "B" =&gt; (true, "b さん", "User"),
+            _ =&gt; (false, "", ""),
+        };
+    }
+
+    var (ok, name, role) = tryGetApiKey(Context);
+
+    if (!ok)
+    {
+        return Task.FromResult(AuthenticateResult.Fail("Invalid API Key"));
+    }
+
+    var p = new ClaimsPrincipal(new ClaimsIdentity(new[]
+    {
+        new Claim(ClaimTypes.Name, name, ClaimValueTypes.String, "my issuer name"),
+        new Claim(ClaimTypes.Role, role, ClaimValueTypes.String, "my issuer name"),
+    }, "MyAuthType"));
+
+    return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(
+        p, "Api"
+    )));
+}
+

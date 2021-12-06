@@ -1,0 +1,64 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Windows.Forms;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Reflection;
+using System.CodeDom.Compiler;
+
+
+public class ExprTest
+{
+    static SimpleParser sp = new SimpleParser();
+
+    public class SimpleParser
+    {
+        dynamic m_evaluator = null;
+
+        public SimpleParser()
+        {
+            string source = @"package Evaluator{class Evaluator{public function MyEval(expr:String){return eval(expr);}}}";
+            CodeDomProvider prov = new Microsoft.JScript.JScriptCodeProvider();
+            CompilerParameters cparam = new CompilerParameters();
+            cparam.GenerateInMemory = true;
+            CompilerResults result = prov.CompileAssemblyFromSource(cparam, source);
+            Assembly asm = result.CompiledAssembly;
+            m_evaluator = Activator.CreateInstance(asm.GetType("Evaluator.Evaluator"));
+        }
+
+        public object eval(string exp)
+        {
+            try {
+                return m_evaluator.MyEval(exp); // CompileAssemblyFromSource に渡した source の中の function の名前(MyEval)をメソッド名として指定
+            }
+            catch ( Microsoft.JScript.JScriptException e ) { // コンパイルにするには Microsoft.Vsa.dll を参照に追加する必要がある
+                Console.WriteLine(e);
+            }
+            return null;
+        }
+    }
+
+    [STAThread]
+    public static void Main(string[] args)
+    {
+        object a = sp.eval("1+2*3+4");
+
+        if ( a != null ) {
+            Console.Write("ValueType: ");
+            Console.WriteLine(a.GetType());
+            Console.Write("Value: ");
+            Console.WriteLine(a);
+        }
+    }
+}
+
+

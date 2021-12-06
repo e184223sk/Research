@@ -1,0 +1,194 @@
+using System.IO;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace WpfAsyncAwaitCancelSample
+{
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        public MainWindow()
+        {
+            InitializeComponent();
+        }
+
+        #region 左側の処理（キャンセル押してから終了するまでにタイムラグあり）
+
+        /// &lt;summary&gt;
+        /// キャンセルフラグ
+        /// &lt;/summary&gt;
+        private bool isCanceled = false;
+
+        /// &lt;summary&gt;
+        /// 左の開始ボタン処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private async void startButtonL_Click(object sender, RoutedEventArgs e)
+        {
+            // ボタン無効化
+            startButtonL.IsEnabled = false;
+            // キャンセルフラグ初期化
+            isCanceled = false;
+            // ステータス表示更新
+            statusLabelL.Text = "処理中...";
+
+            // リストボックスクリア
+            fileListL.Items.Clear();
+
+            // 時間のかかる処理呼び出し
+            bool complete = await TimeConsumingProcessLAsync();
+
+            // ステータス表示更新
+            statusLabelL.Text = complete ? "処理完了しました。" : "処理を中断しました。";
+
+            // ボタン有効化
+            startButtonL.IsEnabled = true;
+        }
+
+        /// &lt;summary&gt;
+        /// 左の時間のかかる処理
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;処理を途中でキャンセルされたらfalse&lt;/returns&gt;
+        private async Task&lt;bool&gt; TimeConsumingProcessLAsync()
+        {
+            var files = Directory.EnumerateFiles(
+                searchPath.Text, "*", SearchOption.AllDirectories);
+
+            foreach (string item in files)
+            {
+                if (isCanceled)
+                {
+                    // キャンセルされたら終了
+                    return false;
+                }
+
+                // リストボックスにファイルパス追加
+                fileListL.Items.Add(item);
+
+                // （動作確認のため）1500ミリ秒待つ
+                await Task.Delay(1500);
+            }
+
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// 左のキャンセルボタン処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void cancelButtonL_Click(object sender, RoutedEventArgs e)
+        {
+            // キャンセルフラグ設定
+            isCanceled = true;
+        }
+
+        #endregion
+
+        #region 右側の処理
+
+        /// &lt;summary&gt;
+        /// キャンセル用トークンソース
+        /// &lt;/summary&gt;
+        private System.Threading.CancellationTokenSource cts = null;
+
+        /// &lt;summary&gt;
+        /// 右の開始ボタン処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private async void startButtonR_Click(object sender, RoutedEventArgs e)
+        {
+            // ボタン無効化
+            startButtonR.IsEnabled = false;
+            // ステータス表示更新
+            statusLabelR1.Text = "処理中...";
+            statusLabelR2.Text = "-";
+
+            // リストボックスクリア
+            fileListR.Items.Clear();
+
+            // キャンセル用トークンソース生成
+            cts = new System.Threading.CancellationTokenSource();
+
+            // 時間のかかる処理呼び出し
+            bool complete = await TimeConsumingProcessRAsync(cts.Token);
+
+            // ステータス表示更新
+            statusLabelR1.Text = complete ? "処理完了しました。" : "処理を中断しました。";
+
+            // ボタン有効化
+            startButtonR.IsEnabled = true;
+        }
+
+        /// &lt;summary&gt;
+        /// 右の時間のかかる処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="token"&gt;キャンセル用トークン&lt;/param&gt;
+        /// &lt;returns&gt;処理を途中でキャンセルされたらfalse&lt;/returns&gt;
+        private async Task&lt;bool&gt; TimeConsumingProcessRAsync(System.Threading.CancellationToken token)
+        {
+            var files = Directory.EnumerateFiles(
+                searchPath.Text, "*", SearchOption.AllDirectories);
+
+            foreach (string item in files)
+            {
+                try
+                {
+                    // リストボックスにファイルパス追加
+                    fileListR.Items.Add(item);
+
+                    // （動作確認のため）1500ミリ秒待つ
+                    await Task.Delay(1500, token);
+
+                }
+                catch (System.OperationCanceledException ex)
+                {
+                    // キャンセルされた
+
+                    // キャンセル用トークンソース解放
+                    cts?.Dispose();
+                    cts = null;
+                    // ステータス表示更新
+                    statusLabelR2.Text = $"例外、OperationCanceledException:{ex.Message}";
+
+                    // 終了
+                    return false;
+                }
+                catch (System.Exception ex)
+                {
+                    // 例外発生
+                    MessageBox.Show(ex.Message);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// 右のキャンセルボタン処理
+        /// &lt;/summary&gt;
+        /// &lt;param name="sender"&gt;&lt;/param&gt;
+        /// &lt;param name="e"&gt;&lt;/param&gt;
+        private void cancelButtonR_Click(object sender, RoutedEventArgs e)
+        {
+            // まだキャンセル要求されていない？
+            if (cts?.IsCancellationRequested == false)
+            {
+                // キャンセル要求
+                cts.Cancel();
+            }
+        }
+
+        #endregion
+
+    }
+}
+

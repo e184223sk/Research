@@ -1,0 +1,151 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using Org.BouncyCastle.Asn1;
+using Org.BouncyCastle.Asn1.X509;
+using Org.BouncyCastle.Asn1.Pkcs;
+using Org.BouncyCastle.Crypto;
+using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Crypto.Operators;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Crypto.Prng;
+using Org.BouncyCastle.Math;
+using Org.BouncyCastle.OpenSsl;
+using Org.BouncyCastle.Pkcs;
+using Org.BouncyCastle.Security;
+using Org.BouncyCastle.X509;
+
+namespace ConsoleExample
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            // 鍵のジェネレータ
+            var randGen = new CryptoApiRandomGenerator();
+            var rand = new SecureRandom(randGen);
+            var param = new KeyGenerationParameters(rand, 4096);
+
+            // 鍵生成
+            var keyGen = new RsaKeyPairGenerator();
+            keyGen.Init(param);
+            var keyPair = keyGen.GenerateKeyPair();
+
+            // 証明書の属性
+            var attr = new Dictionary&lt;DerObjectIdentifier, string&gt;()
+            {
+                { X509Name.CN, "link.studio-ephyra" },
+                { X509Name.C, "Japan" },
+                { X509Name.ST, "Nagano-Ken" },
+                { X509Name.L, "Nagano-Shi" },
+                { X509Name.O, "Studio-Ephyra" },
+                { X509Name.OU, "None" },
+            };
+            var ord = new List&lt;DerObjectIdentifier&gt;()
+            {
+                X509Name.CN,
+                X509Name.C,
+                X509Name.ST,
+                X509Name.L,
+                X509Name.O,
+                X509Name.OU,
+            };
+
+            // 証明書の生成
+            var name = new X509Name(ord, attr);
+            var certGen = new X509V3CertificateGenerator();
+            certGen.SetSerialNumber(BigInteger.One);
+            certGen.SetIssuerDN(name);
+            certGen.SetSubjectDN(name);
+            certGen.SetNotBefore(DateTime.Now);
+            certGen.SetNotAfter(DateTime.Now.AddYears(10));
+            certGen.SetPublicKey(keyPair.Public);
+            var cert = certGen.Generate(new Asn1SignatureFactory(PkcsObjectIdentifiers.Sha512WithRsaEncryption.Id, keyPair.Private, rand));
+
+            // 秘密鍵の出力
+            using (var writer = new StreamWriter(@"D:\Downloads\privatekey.pem", false, Encoding.ASCII))
+            {
+                var pemWriter = new PemWriter(writer);
+                pemWriter.WriteObject(keyPair.Private);
+                pemWriter.Writer.Flush();
+            }
+
+            // 公開鍵の出力
+            using (var writer = new StreamWriter(@"D:\Downloads\publickey.pem", false, Encoding.ASCII))
+            {
+                var pemWriter = new PemWriter(writer);
+                pemWriter.WriteObject(keyPair.Public);
+                pemWriter.Writer.Flush();
+            }
+
+            // 証明書の出力
+            using (var writer = new StreamWriter(@"D:\Downloads\certificate.crt", false, Encoding.ASCII))
+            {
+                var pemWriter = new PemWriter(writer);
+                pemWriter.WriteObject(cert);
+                pemWriter.Writer.Flush();
+            }
+
+            AsymmetricCipherKeyPair privateKey;
+            RsaKeyParameters publicKey;
+            Org.BouncyCastle.X509.X509Certificate readedCert;
+
+            // 秘密鍵の読み込み
+            using (var reader = new StreamReader(@"D:\Downloads\privatekey.pem", Encoding.ASCII))
+            {
+                var pemReader = new PemReader(reader);
+                privateKey = (AsymmetricCipherKeyPair)pemReader.ReadObject();
+            }
+
+            // 公開鍵の読み込み
+            using (var reader = new StreamReader(@"D:\Downloads\publickey.pem", Encoding.ASCII))
+            {
+                var pemReader = new PemReader(reader);
+                publicKey = (RsaKeyParameters)pemReader.ReadObject();
+            }
+
+            // 証明書の読み込み
+            using (var reader = new StreamReader(@"D:\Downloads\certificate.crt", Encoding.ASCII))
+            {
+                var pemReader = new PemReader(reader);
+                readedCert = (Org.BouncyCastle.X509.X509Certificate)pemReader.ReadObject();
+            }
+
+            // PKCS12の生成
+            var certEntry = new X509CertificateEntry(cert);
+            var keyEntry = new AsymmetricKeyEntry(privateKey.Private);
+            var p12 = new Pkcs12Store();
+            p12.SetCertificateEntry(attr[X509Name.CN], new X509CertificateEntry(cert));
+            p12.SetKeyEntry("tana", keyEntry, new X509CertificateEntry[] { certEntry });
+
+            // PKCS12の出力
+            using (var stream = new FileStream(@"D:\Downloads\pkcs12.p12", FileMode.Create))
+            {
+                p12.Save(stream, "password".ToCharArray(), rand);
+                stream.Flush();
+            }
+
+            Pkcs12Store readedP12;
+
+            // PKCS12の読み込み
+            using (var stream = new FileStream(@"D:\Downloads\pkcs12.p12", FileMode.Open))
+            {
+                readedP12 = new Pkcs12Store(stream, "password".ToCharArray());
+            }
+
+            // 秘密鍵の取得と書き込み
+            using (var writer = new StreamWriter(@"D:\Downloads\pkcs12privatekey.pem", false, Encoding.ASCII))
+            {
+                var pemWriter = new PemWriter(writer);
+                pemWriter.WriteObject(readedP12.GetKey("tana").Key);
+                pemWriter.Writer.Flush();
+            }
+
+            Console.WriteLine("OK");
+            Console.ReadLine();
+        }
+    }
+}
+
+

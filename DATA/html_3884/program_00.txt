@@ -1,0 +1,244 @@
+using System;
+using System.Text.RegularExpressions;
+
+public static class StringCalculation
+{
+    // 有効桁数
+    public const int SIGNIFICANT_DIGIT = 16;
+
+    // 小数点も取得する数値を表すPattern
+    private const string DECIMAL = @"[\+\-]?\d+(?:\.\d+)?";
+
+    // 文字列を計算して結果を返す
+    public static string Calculation(string calcStr)
+    {
+        string result = "";
+
+        // 対象文字列の半角スペースを削除
+        result = Regex.Replace(calcStr, @"\s", "");
+
+        // +-の符号重複を整理
+        result = OperatorOrganize(result);
+
+        // 余分な括弧を整理する
+        result = BracketsOrganize(result);
+
+        // 関数の計算
+        result = ProcFunction(result);
+
+        // ()内を計算
+        result = CalculationBrackets(result);
+
+        // カッコが全て計算された後の通常計算
+        result = NormalCalculation(result);
+
+        // 先頭の + は削除する
+        result = Regex.Replace(result, @"^\+", "");
+
+        return result;
+    }
+
+    // + または - 演算子の重複を解消する
+    private static string OperatorOrganize(string calcStr)
+    {
+        // + または - が２個連続している箇所を検出
+        string pattern = @"[\+\-]{2}";
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            string result;
+
+            // ２つ続いている演算子を取得
+            Match match = Regex.Match(baseMatch.Value, @"([\+\-])([\+\-])");
+
+            result = (match.Result("$1") == match.Result("$2")) ? "+" : "-";
+
+            return result;
+        });
+    }
+
+    // 余計な括弧をまとめる
+    private static string BracketsOrganize(string calcStr)
+    {
+        string d = @"[\+\-\*\/]|" + DECIMAL;
+        string pattern = @"\({2}((?:" + d + @"|\((?:" + d + @")+\))+)\){2}";
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            string result = baseMatch.Result("($1)");
+            return result;
+        });
+    }
+
+    // 関数の計算
+    private static string ProcFunction(string calcStr)
+    {
+        // Sin() や Cos() など関数の形に一致
+        string d = @"[\+\-\*\/]|" + DECIMAL;
+        string d1 = d + @"\,?";
+        string d2 = @"\((?:" + d + @")+\)\,?";
+        string f = @"[a-zA-Z_]\w+";
+        string pattern = "(" + f + @")\(((?:" + d1 + "|" + d2 + @")*)\)";
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            // 後ろで正規表現を使用するので、$1が消える前に関数名を取得しておく
+            string func = baseMatch.Result("$1");
+
+            // 引数をカンマ区切りで取得し、それぞれを計算する
+            string[] args = baseMatch.Result("$2").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i &lt; args.Length; i++)
+            {
+                args[i] = CalculationBrackets(args[i]);
+                args[i] = NormalCalculation(args[i]);
+            }
+
+            // 関数呼び出し
+            string result = StringCalculationFunctions.InvokeMethod(func, args);
+
+            // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+            result = result.ToDouble().ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+            return result;
+        });
+    }
+
+    // カッコ付きの箇所の計算
+    private static string CalculationBrackets(string calcStr)
+    {
+        // 一番内側の括弧に一致
+        string d = DECIMAL;
+        string pattern = @"\(((?:[\-\+\*\/]|" + d + @")+)\)";
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            string result = baseMatch.Result("$1");
+            result = OperatorOrganize(result);
+            result = NormalCalculation(result);
+
+            return result;
+        });
+    }
+
+    // カッコなしの通常の計算を行う
+    private static string NormalCalculation(string calcStr)
+    {
+        // 掛け算と割り算
+        string result = MultiDiv(calcStr);
+
+        // 足し算と引き算
+        result = AddSub(result);
+
+        return result;
+    }
+
+    //  * または / の計算を行う
+    private static string MultiDiv(string calcStr)
+    {
+        // 掛け算、または割り算に一致
+        string d = DECIMAL;
+        string pattern = d + @"\*" + d + "|" + d + @"\/" + d;
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            double nResult = 0;
+
+            // 演算子で分割し、計算
+            Match match = Regex.Match(baseMatch.Value, @"\*|\/");
+
+            string l = match.Result("$`");
+            string r = match.Result("$'");
+
+            if (match.Value == "*")
+            {
+                nResult = (l.ToDouble() * r.ToDouble());
+            }
+            else if (match.Value == "/")
+            {
+                nResult = (l.ToDouble() / r.ToDouble());
+            }
+            else
+            {
+                nResult = match.Value.ToDouble();
+            }
+
+            // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+            string result = nResult.ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+            // 計算結果が + の場合、前方の文字と結合する際に符号なしでくっついてしまう※ので、符号を追加
+            // ※この関数の結果が10、前方の文字が123だとした場合、123 10 =&gt; 12310 になってしまう。
+            // 　+ を記述しておけば、 123 +10 =&gt; 123+10 と正しい数式の形に戻せる。
+            string prefix = nResult &gt;= 0 ? "+" : "";
+
+            return prefix + result;
+        });
+    }
+
+    // + または - の計算を行う
+    private static string AddSub(string calcStr)
+    {
+        // 足し算、または引き算に一致
+        string d = DECIMAL;
+        string pattern = d + @"\+" + d + "|" + d + @"\-" + d;
+
+        return CalculationBase(calcStr, pattern, (baseMatch) =&gt;
+        {
+            double nResult = 0;
+
+            // 演算子で分割し、計算
+            Match match = Regex.Match(baseMatch.Value, @"(" + d + @")([\+\-])(" + d + @")");
+            string l = match.Result("$1");
+            string r = match.Result("$3");
+            string op = match.Result("$2");
+
+            if (op == "+")
+            {
+                nResult = (l.ToDouble() + r.ToDouble());
+            }
+            else if (op == "-")
+            {
+                nResult = (l.ToDouble() - r.ToDouble());
+            }
+            else
+            {
+                nResult = match.Value.ToDouble();
+            }
+
+            // 小数点第n位まで取得し、後ろの余分な0を切り捨てる
+            string result = nResult.ToStringWithDigit(SIGNIFICANT_DIGIT);
+
+            return result;
+        });
+    }
+
+    // 各種計算用メソッドのベース
+    private static string CalculationBase(string calcStr, string pattern, Func&lt;Match, string&gt; callback, Match argMatch = null)
+    {
+        // 指定したパターンに一致する
+        Match match = argMatch ?? Regex.Match(calcStr, pattern);
+        if (match.Success)
+        {
+            // あとで結合するので、計算する文字列の前後を取得しておく
+            string pre = match.Result("$`");
+            string suf = match.Result("$'");
+
+            // 計算はコールバックに任せる
+            string result = callback(match);
+
+            // 計算結果を元の場所に結合
+            result = string.Format("{0}{1}{2}", pre, result, suf);
+
+            // まだ計算するべき数式があるかチェック
+            Match nMatch = Regex.Match(result, pattern);
+            if (nMatch.Success)
+            {
+                result = CalculationBase(result, pattern, callback, nMatch);
+            }
+
+            return result;
+        }
+
+        return calcStr;
+    }
+}
+

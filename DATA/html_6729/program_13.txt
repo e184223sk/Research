@@ -1,0 +1,234 @@
+
+public class AsyncTextFileLoader&lt;T&gt; : IDisposable
+where T : class, ITextFileParser, new()
+{
+    private List&lt;string&gt; _pathList;
+    private Encoding _encoding;
+
+    private Allocator _alloc;
+    private Dictionary&lt;int, ParseJob&lt;T&gt;&gt; _parserPool;
+    private int _gen;
+
+    private int _blockSize;
+    private int _maxJobCount;
+    private NativeList&lt;RunningJobInfo&gt; _runningJob;
+
+    private List&lt;PtrHandle&lt;ReadStateImpl&gt;&gt; _state;
+    private List&lt;T&gt; _data;
+
+    private struct RunningJobInfo
+    {
+        public int FileIndex { get; }
+        public int ParserID { get; }
+        public RunningJobInfo(int file_index, int parser_index)
+        {
+            FileIndex = file_index;
+            ParserID = parser_index;
+        }
+    }
+    private enum FileAction
+    {
+        Store = 1,
+        UnLoad = -1,
+    }
+    private struct Request
+    {
+        public int fileIndex { get; }
+        public FileAction action { get; }
+
+        public Request(int index, FileAction action)
+        {
+            fileIndex = index;
+            this.action = action;
+        }
+    }
+
+    private NativeQueue&lt;int&gt; _parserAvail;
+    private NativeList&lt;Request&gt; _requestList;
+    private NativeList&lt;int&gt; _updateLoadTgtTmp;
+    private NativeList&lt;int&gt; _updateUnLoadTgtTmp;
+
+    private UnLoadJob&lt;T&gt; _unLoadJob;
+
+    /* 中略 */
+
+    public int MaxJobCount
+    {
+        get { return _maxJobCount; }
+        set { if(value &gt; 0) _maxJobCount = value; }
+    }
+    public int LoadWaitingQueue { get { return _loadWaitingQueueNum; } }
+    public bool FlushLoadJobs { get; set; }
+
+    // 管理対象のファイルが追加されたら担当のデータクラス T を生成
+    public unsafe void AddFile(string str)
+    {
+        _pathList.Add(str);
+
+        _data.Add(new T());
+        _data[_data.Count - 1].Init();
+
+        var s_tmp = new PtrHandle&lt;ReadStateImpl&gt;(_alloc);
+        s_tmp.Target-&gt;Clear();
+        _state.Add(s_tmp);
+    }
+
+    // データとJobの状態について index でアクセス
+    public unsafe T this[int fileIndex]
+    {
+        get
+        {
+            if (!_state[fileIndex].Target-&gt;IsStandby)
+                throw new InvalidOperationException($"the job running now for fileIndex = {fileIndex}.");
+            return _data[fileIndex];
+        }
+    }
+    public unsafe ReadState GetState(int index)
+    {
+        return _state[index].Target-&gt;GetState();
+    }
+
+    // Load, UnLoad ともに外部からの注文はいったんリストにためて Update() で処理
+    public void LoadFile(int index)
+    {
+        _loadWaitingQueueNum++;
+        _requestList.Add(new Request(index, FileAction.Store));
+    }
+    public void UnLoadFile(int index)
+    {
+        _requestList.Add(new Request(index, FileAction.UnLoad));
+    }
+
+    public void Update()
+    {
+        this.UpdateImpl(this.FlushLoadJobs);
+        this.FlushLoadJobs = false;
+    }
+
+    // リストにためた注文を一気に処理する
+    private unsafe void UpdateImpl(bool flush_all_jobs = false)
+    {
+        // check job completed or not
+        for (int i= _runningJob.Length-1; i&gt;=0; i--)
+        {
+            var job_info = _runningJob[i];
+            var read_state = _state[job_info.FileIndex];
+            if (read_state.Target-&gt;JobState == ReadJobState.WaitForCallingComplete)
+            {
+                _parserPool[job_info.ParserID].Complete();
+                read_state.Target-&gt;JobState = ReadJobState.Completed;
+
+                this.ReleaseParser(job_info.ParserID);
+                _runningJob.RemoveAt(i);
+            }
+        }
+        if(_unLoadJob.JobState == ReadJobState.WaitForCallingComplete)
+        {
+            _unLoadJob.Complete();
+            _unLoadJob.Clear();
+        }
+
+        // no requests. or all available parser were running. retry in next Update().
+        if (_requestList.Length == 0 || (_maxJobCount - _runningJob.Length &lt;= 0 &amp;&amp; !flush_all_jobs))
+        {
+            return;
+        }
+
+        //--- extract action
+        _updateLoadTgtTmp.Clear();
+        _updateUnLoadTgtTmp.Clear();
+        for (int i=0; i&lt;_requestList.Length; i++)
+        {
+            var act = _requestList[i];
+            if (act.action == FileAction.Store)
+            {
+                var tgt_state = _state[act.fileIndex];
+                if (tgt_state.Target-&gt;RefCount == 0)
+                {
+                    _updateLoadTgtTmp.Add(act.fileIndex);
+                }
+                tgt_state.Target-&gt;RefCount++;
+            }
+            else
+            {
+                _updateUnLoadTgtTmp.Add(act.fileIndex);
+            }
+        }
+        _requestList.Clear();
+
+        //--- preprocess unload action
+        for (int i=0; i&lt; _updateUnLoadTgtTmp.Length; i++)
+        {
+            int id = _updateUnLoadTgtTmp[i];
+            var tgt_state = _state[id];
+            tgt_state.Target-&gt;RefCount--;
+
+            if (tgt_state.Target-&gt;RefCount == 0)
+            {
+                int found_index = _updateLoadTgtTmp.IndexOf(id);
+                if (found_index &gt;= 0)
+                {
+                    // remove from loading order (file loading is not performed)
+                    _updateLoadTgtTmp.RemoveAtSwapBack(found_index);
+                }
+                else
+                {
+                    // remove from loaded data
+                    if (_unLoadJob.JobState == ReadJobState.Completed &amp;&amp; tgt_state.Target-&gt;IsStandby)
+                    {
+                        //--- unload in job (workaround for LargeAllocation.Free() cost in T.UnLoad().)
+                        _unLoadJob.AddUnLoadTarget(id, _data[id], _state[id].Target);
+                    }
+                    else
+                    {
+                        // now loading. unload request will try in next update.
+                        tgt_state.Target-&gt;RefCount++;  // reset ref count
+                        this.UnLoadFile(id);
+                    }
+                }
+            }
+            if (tgt_state.Target-&gt;RefCount &lt; 0)
+            {
+                throw new InvalidOperationException($"invalid UnLoading for index = {id}.");
+            }
+        }
+        _updateUnLoadTgtTmp.Clear();
+
+        // schedule jobs
+        //--- unload job
+        _unLoadJob.UnLoadAsync();
+
+        //--- supply parsers for load job
+        int n_add_parser = Math.Max(_updateLoadTgtTmp.Length - _parserAvail.Count, 0);
+        if (!flush_all_jobs)
+        {
+            n_add_parser = Math.Min(this.MaxJobCount - _parserPool.Count, n_add_parser);
+        }
+        for (int i = 0; i &lt; n_add_parser; i++) this.GenerateParser();
+
+        //--- run jobs
+        int n_job = Math.Min(_parserAvail.Count, _updateLoadTgtTmp.Length);
+        for(int i=0; i&lt;n_job; i++)
+        {
+            int file_index = _updateLoadTgtTmp[i];
+            int p_id = _parserAvail.Dequeue();
+            var p_tmp = _parserPool[p_id];
+            var p_state = _state[file_index];
+            p_tmp.BlockSize = _blockSize;
+            p_tmp.ReadFileAsync(_pathList[file_index], _encoding, _data[file_index], p_state);
+            _runningJob.Add(new RunningJobInfo(file_index, p_id));
+        }
+
+        //--- write back excessive queue
+        _loadWaitingQueueNum = 0;
+        for (int i=n_job; i&lt;_updateLoadTgtTmp.Length; i++)
+        {
+            int id = _updateLoadTgtTmp[i];
+            _state[id].Target-&gt;RefCount--; // reset ref count
+            this.LoadFile(id);
+            _loadWaitingQueueNum++;
+        }
+        _updateLoadTgtTmp.Clear();
+    }
+}
+

@@ -1,0 +1,35 @@
+More than 1 year has passed since last update.モータ駆動実験の目標：
+先週までの実験で、加速度センサが置かれた状態、あるいは加速度センサにより計測できる「動き」を検出するための準備調査を行った。
+今週は、より高度な状態や「動き」を検出し、ユニークな出力に繋げるIoTシステムの設計・実装を行うため、Arduinoに接続されたLEDではなく、PCを介してモータサーバを制御することを狙う。このページはモータサーバの構築内容についてのメモである。実験者の準備としては、ev3devのイメージをダウンロードしてSDカードに焼いたものを持参することを仮定する。※情報工学実験の3週目の内容は3.3の内容からスタートする。
+https://qiita.com/takelab/items/ed4435f0278fd58fd286#33-%E3%82%B7%E3%83%AA%E3%82%A2%E3%83%AB%E9%80%9A%E4%BF%A1%E3%81%A8%E3%81%AE%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B%E3%83%97%E3%83%AD%E3%82%B0%E3%83%A9%E3%83%A0宿題にしてあったソフトのインストールと設定を前提に作業を行います。
+https://qiita.com/takelab/items/ebde398893d05ca7a56a
+OpenDHCPサーバでクロスケーブルにより有線接続されたev3がIPを自動取得。
+その後、TeraTermでSSHアクセスを行う（ユーザ名:robot パスワード:maker）リスト表示dpkg -l |grep ev3devこんな結果が出るはず。
+基本的に、最初にインストールされているpython3-ev3dev2の2.0.0~beta3を基準に実験を進める。つまり、'apt-get update'等はしない。一応、何をセレクトしているか表示dpkg --get-selections公式資料の内容で確認する。コマンドラインからpython3で起動。
+先頭の「&gt;&gt;&gt;」は対話入力をしている印。
+その後ろに以下の各行を一行づつ入力し、Enterキーを押す。
+pythonの対話モード終了の際は「&gt;&gt;&gt;」の後にexit()でEnterキーを押す。同様にモータの動作も確認する。AポートとBポートにモータを接続する。
+ここで、レポートのために、モータの接続図を作成するためのメモを取っておくこと。ちなみに、各要素は次のような結果を返す。モータ動作の仕様は、以下の通り（今回はサーバ経由で制御するので直接制御は行わない）
+https://python-ev3dev.readthedocs.io/en/ev3dev-stretch/motors.html#ev3dev.motor.Motor.on_for_degrees
+https://sites.google.com/site/ev3devpython/learn_ev3_python/using-motorspython3 -m http.server 8000
+が使える。1.4のようにpythonの標準ライブラリである、http.serverを使うことができることまで確認した。デモ中のEV3D4WebControl.pyの先頭部分
+WebControlledTankをimportして、それをEV3D4WebControlledに継承させて使っている。importされているWebControlledTankがある。ev3dev2.control.webserver.pyの先頭部分を見る。
+from http.server import BaseHTTPRequestHandler, HTTPServerの行を見ると分かるように、やはりhttp.serverからimportをしているので、python3の標準的な実装を行っている様子。具体的には、/usr/lib/python3.5/の下のhttp/server.pyを見てやると具体的なことは分かる。
+Webを検索すると、from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServerとやっている例があるが、python2とpython3の違いか？具体的には、MoveJoyStickの継承をして、TankWebHandlerをハンドラにして、RobotWebServerを使ったサーバ起動を行う。具体的なソース。サーバはself.content_server = HTTPServer(('', self.port_number), self.handler_class)でハンドラを分岐する。
+具体的には、’’は自分のIPアドレス、ポート番号は8000, self.handler_classはTankWebHandlerになる。2.1で説明したようにWebサーバのハンドラ制御部分が中心的になる。RobotWebHandlerは後述のソースように標準的なBaseHTTPRequestHandlerを継承している。実際のRobotWebHandlerは以下の通り。以上までのソースを参考に、プログラム的には褒められないが、馬鹿正直なハンドラ部分を作ると次のようになる。
+もちろんテストはブラウザからテストできる。2.3のプログラムに単にモータ管理用オブジェクトをグローバル変数化してif-elifで制御する単純プログラム。
+まずはここから。これから良いプログラムにしてください。実行は、python3 motorHttp.pyでOK。
+終了はCtrl+C。各if文の分岐先にある
+m2.on(SpeedPercent(10),brake=False)がev3devに対する制御部分。キーボード入力の先頭文字列を使い、3.1のサーバプログラムと連携する。
+IPアドレスを固定で書いてあるので、IPアドレスで置換をかけて対処する。前節の3.2節でkey2HTTP.csでモータ制御のコツをつかんだら、キーボード入力に応じてモータ駆動するのではなく、シリアル通信の内容に応じてモータ駆動するプログラムに改造する。
+前提としては、ミニLinux Boxで、
+python3 motorHttp.py
+でモータサーバが起動している必要がある。
+また、Arduinoでシリアルポートで接続され、COMポート番号が振られていることを確認すること。シリアル通信の基礎プログラムである以下のプログラムを、改造し、より自分たちの目的に適合したプログラムを作成せよ。
+プログラム中のCOMポート番号とIPアドレスは、それぞれ自分たちのArduinoとモータサーバに変更して使うこと。Arduinoの加速度センサのx軸の計測値変化だけを見て、シリアルポートに文字出力を行うプログラム例。
+連携がうまく行かないときは、一旦は連携を辞め、モータ側ならkey2HTTP.csで動作確認する。
+Arduino側のデバッグはC#のプログラムを止め、      Serial.println("DEBUG");
+関数を使って、Arduinoのシリアルモニタを使って、動作確認すると良い。
+Serialは先頭が大文字なので注意すること。
+
+

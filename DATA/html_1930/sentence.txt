@@ -1,0 +1,19 @@
+More than 1 year has passed since last update..NET Core のアプリで、.NET Framework同様にlog4netを使いたかったのですが、多少迷うところがありました。
+同様の情報は見つけられなかったので記しておきます。下記のようにアセンブリ属性を記載することにより.NET Core 3.1でも楽にlog4netが利用できます。dotnet create console でプロジェクトを作成し、nugetでlog4netをインポートして、さっそくログを出力しようとしましたが、出力されません。
+生成されたプロジェクトにはAssemblyInfo.csはなく、.NET Frameworkでlog4netを使うときに書くXmlConfigurator属性等の記載を行っていないのでそれが原因かと思われました。Webでワークアラウンドを探しました。
+過去の記事ですが、自前でXmlConfiguratorを利用し、Loggerのインスタンスをセットアップするパターンの情報が見つかりました。
+このやり方は公式のマニュアルにも記載があります。
+この方法で確かに動作しますが、log4netの普段の使い勝手と比べると納得できません。ワークアラウンド参考How to Configure log4net for .NET CoreHow To Use Log4Net In ASP.NET Core Application期待するコード上記のワークアラウンドから推測すると、同等の処理をどこかでやっていたのではないかと思われます。
+.NET Frameworkではどのようにlog4netをセットアップしているのか調べてみました。
+結局 LogManager.GetLogger() からの呼び出して、アセンブリに付与した XmlConfiguratorAttribute に設定したファイルを見ていることがわかりました。
+
+
+
+LogManager.GetLogger(Type) -&gt; LogManager.GetLogger(Assembly,String)
+
+
+このリンクは2020/02/06時点のURLです。masterブランチが更新されると役に立たないリンクになります。https://github.com/apache/logging-log4net/blob/master/src/LogManager.cs#L260https://github.com/apache/logging-log4net/blob/master/src/LogManager.cs#L244https://github.com/apache/logging-log4net/blob/master/src/Core/LoggerManager.cs#L406https://github.com/apache/logging-log4net/blob/master/src/Core/DefaultRepositorySelector.cs#L143https://github.com/apache/logging-log4net/blob/master/src/Core/DefaultRepositorySelector.cs#L220https://github.com/apache/logging-log4net/blob/master/src/Core/DefaultRepositorySelector.cs#L313https://github.com/apache/logging-log4net/blob/master/src/Core/DefaultRepositorySelector.cs#L683https://github.com/apache/logging-log4net/blob/master/src/Config/XmlConfiguratorAttribute.cs#L218https://github.com/apache/logging-log4net/blob/master/src/Config/XmlConfiguratorAttribute.cs#L305https://github.com/apache/logging-log4net/blob/master/src/Config/XmlConfiguratorAttribute.cs#L330結局のところ、XmlConfigurator属性をアセンブリに付与することで.NET Coreでも動作するであろうことがわかりました。では、.NET CoreではAssemblyInfo.csはどこへ行ったのでしょうか。.NET Coreのドキュメントを見ると.NET Frameworkで、AssemblyInfo.csに記載していたような情報は、.NET Coreではビルド時に各所から情報を集めて自動生成されるようになったとのこと。参考：.NET Core の csproj 形式に追加されたもの通常、AssemblyInfo ファイル内に存在していたアセンブリ属性は、プロパティから自動的に生成されるようになりました。objフォルダ配下にAssemblyInfoという名前のファイルが生成されているのでそういうことなのだと理解しました。objファイル配下のファイル.NET Standardのドキュメントを見ると、結局のところコードで下記のように記載すればアセンブリ属性が定義できることがわかりました。特にAssemblyInfo.csに書く必要は無いようです。[assembly:AssemblyKeyFileAttribute("myKey.snk")]
+[assembly:AssemblyDelaySignAttribute(true)]ドキュメントに倣い、プログラムを下記のように修正すると無事log4netが動作するようになりました。
+遠回りしたわりには答えは近くにありましたというオチでした。実行結果
+
+

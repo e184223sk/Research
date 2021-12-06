@@ -1,0 +1,181 @@
+
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System;
+using UnityEngine;
+
+    public class StageConstructor : MonoBehaviour
+    {
+
+        private Transform mTrans;
+
+        void Awake()
+        {
+            mTrans = GetComponent&lt;Transform&gt;();
+        }
+
+        // ファイルデータ整形用
+        private const string WHITE_EXPRESSION = "[ 　\t]"; // ホワイトスペース除去用（半角・全角スペース、タブ文字）
+        private readonly Regex REGEX_WHITE = new Regex(WHITE_EXPRESSION);
+        private readonly char[] DELIMITER = { ',' };
+
+        // 規格
+        private const float BLOCK_SIZE = 0.5f;
+        private const float BLOCK_SIZE_HALF = 0.25f;
+        private const int ID_BUSH = 1;
+
+        // ステージサイズと構造の配列
+        private int mStageX;
+        private int mStageY;
+        private int[,] mStageMap;
+
+        /// &lt;summary&gt;
+        /// 指定IDのファイルを読み込んでステージを生成
+        /// &lt;/summary&gt;
+        /// &lt;param name="stageId"&gt;&lt;/param&gt;
+        public void LoadStage(int stageId)
+        {
+            // 指定されたステージファイルを読み込んで1行ずつ処理
+            string filePath = "stage_" + stageId;
+            TextAsset textAsset = Resources.Load(filePath) as TextAsset;
+            string text = textAsset.text;
+            string line;
+            using (TextReader reader = new StringReader(text)) // usingとは、処理終わりにstreamの解放を自動で行う構文（finally句でDisposeを実行するコードと同じ）
+            {
+                while ((line = reader.ReadLine()) != null)
+                {
+                    // ステージサイズ
+                    if (line.StartsWith("@size"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] mapSize = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        mStageX = int.Parse(mapSize[1]);
+                        mStageY = int.Parse(mapSize[2]);
+                        mStageMap = new int[mStageY, mStageX];
+                        InstantiateFloor();
+                        continue;
+                    }
+
+                    // ステージ構造（ブッシュ）
+                    if (line.StartsWith("@bush"))
+                    {
+                        // ステージ構造は16進数表記の文字列なため、10進数のint配列に変換
+                        StringBuilder sbStage = new StringBuilder();
+                        for (int y = 0; y &lt; mStageY; y++)
+                        {
+                            sbStage.Append(reader.ReadLine());
+                        }
+                        int start = 0;
+                        for (int y = 0; y &lt; mStageY; y++)
+                        {
+                            for (int x = 0; x &lt; mStageX; x++)
+                            {
+                                mStageMap[y, x] = Convert.ToInt32(sbStage.ToString(start, 2), 16);
+                                start += 2;
+                            }
+                        }
+                        // ステージ構造を元にブッシュを生成
+                        InstantiateBushs();
+                        continue;
+                    }
+
+                    // プレイヤー初期位置
+                    if (line.StartsWith("@player"))
+                    {
+                        line = REGEX_WHITE.Replace(line, "");
+                        string[] strPlayerPos = line.Split(DELIMITER, System.StringSplitOptions.RemoveEmptyEntries);
+                        InstantiatePlayer(int.Parse(strPlayerPos[1]), int.Parse(strPlayerPos[2]));
+                        continue;
+                    }
+
+                }
+            }
+        }
+
+        //----------
+        // フロア //
+        //---------------------------------------------------------------------------------
+
+        [SerializeField]
+        private GameObject prefabFloor;
+
+        /// &lt;summary&gt;
+        /// ステージサイズに合わせて床を生成
+        /// &lt;/summary&gt;
+        private void InstantiateFloor()
+        {
+            float sizeX = mStageX * BLOCK_SIZE;
+            float sizeZ = mStageY * BLOCK_SIZE - BLOCK_SIZE_HALF;
+            Vector3 pos = new Vector3(sizeX / 2.0f, 0.0f, sizeZ / -2.0f);
+            GameObject obj = Instantiate(prefabFloor, pos, Quaternion.identity);
+            float scaleX = sizeX / 10.0f;
+            float scaleZ = sizeZ / 10.0f;
+            obj.transform.localScale = new Vector3(scaleX, 1.0f, scaleZ);
+            obj.transform.parent = mTrans;
+        }
+
+        //-----------------------
+        // ブッシュ（ブロック） //
+        //---------------------------------------------------------------------------------
+
+        [SerializeField]
+        private GameObject prefabBush;
+
+        /// &lt;summary&gt;
+        /// ステージを構成するブッシュを生成
+        /// &lt;/summary&gt;
+        private void InstantiateBushs()
+        {
+            for (int y = 0; y &lt; mStageY; y++)
+            {
+                for (int x = 0; x &lt; mStageX; x++)
+                {
+                    switch (mStageMap[y, x])
+                    {
+                        case ID_BUSH:
+                            InstantiateBush(x, y);
+                            break;
+                    }
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// ブロックを指定されたステージ座標に生成
+        /// &lt;/summary&gt;
+        /// &lt;param name="x"&gt;&lt;/param&gt;
+        /// &lt;param name="y"&gt;&lt;/param&gt;
+        private void InstantiateBush(int x, int y)
+        {
+            Vector3 pos = new Vector3(x * BLOCK_SIZE + BLOCK_SIZE_HALF, 0.0f, y * -BLOCK_SIZE - BLOCK_SIZE_HALF);
+            GameObject obj = Instantiate(prefabBush, pos, Quaternion.identity);
+            obj.transform.parent = mTrans;
+        }
+
+        //-------------
+        // プレイヤー //
+        //---------------------------------------------------------------------------------
+
+        [SerializeField]
+        private GameObject prefabPlayer;
+        public GameObject Player { get; private set; }
+
+        /// &lt;summary&gt;
+        /// プレイヤーを指定されたステージ座標に生成
+        /// Player#GameObjectの参照を保持する
+        /// &lt;/summary&gt;
+        /// &lt;param name="posX"&gt;&lt;/param&gt;
+        /// &lt;param name="posY"&gt;&lt;/param&gt;
+        private void InstantiatePlayer(int posX, int posY)
+        {
+            Vector3 pos = new Vector3(posX * BLOCK_SIZE + BLOCK_SIZE, 0.0f, posY * -BLOCK_SIZE - BLOCK_SIZE);
+            Player = Instantiate(prefabPlayer, pos, Quaternion.Euler(new Vector3(0.0f, 180.0f, 0.0f)));
+        }
+
+    }
+
+

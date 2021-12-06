@@ -1,0 +1,14 @@
+More than 1 year has passed since last update.CQRSの実現方法について記載されている.NETのエンタープライズアプリケーションアーキテクチャ: .NETを例にしたアプリケーション設計原則にてコマンドバスを用いてコマンドを管理したほうが良い、という旨が記載されているのですがあんまり必要性を感じられず以下のような実装を行っていました。
+(EventStoreを用いたCQRS+イベントソーシングの実践と考察で考えた業務知識を例にして)
+必要ないと感じる理由としては書き込み先(EventStoreとかRDBMSとか)に対して送信する際、イベントベースではなく状態ベースで送信しているからかなと。けれど最近ネットの情報を漁っていたところ、以下の文言に出会い、考えを改めました。
+引用先:What am I missing with this whole command bus craze?Command Buses have other advantages. One of my favorites is that they give you a central interface for wrapping all the write operations to your Service Layer. Want to log every operation? Write a decorator for your Command Bus. Want to run a framework validator on every command that gets dropped in? Write a decorator for your Command Bus. It ain't AOP but it gives you that wrapping power where it counts.google翻訳↓コマンドバスには他にも利点があります。私のお気に入りの1つは、それらがあなたのサービス層へのすべての書き込み操作をラップするための中心的なインターフェースをあなたに与えるということです。すべての操作を記録したいですか？あなたのコマンドバスのためのデコレータを書きなさい。ドロップインされたすべてのコマンドに対してフレームワークバリデーターを実行したいですか？あなたのコマンドバスのためのデコレータを書きなさい。それはAOPではありませんが、それはあなたがそれが重要なところにその包み込む力を与えます。なるほどDecoratorパターン。たしかにコマンドに共通の処理を入れたいと考えるとそれぞれに実装しなくてはいけないので大変ですよね。
+そこでEventStoreを用いたCQRS+イベントソーシングの実践と考察で使用したソースにコマンドバスを導入したたため、何が嬉しくなったか投稿します。
+必要な個所だけ抜粋します。(元ソース)こんな感じでコマンドハンドラとコマンド、コマンドバスのインターフェースを定義しました。
+コマンドはそのコマンドを実行するために必要なものを格納するクラス。
+コマンドハンドラはコマンドの情報を基に処理するクラス。
+コマンドバスはコマンドを引数にコマンドハンドラを特定し処理を実行します。使用するときは、コマンドバスのインスタンスをどこかから持ってきて(Containerとか)コマンドを実行するための情報をかき集めてコマンドを生成してExecuteAsyncをコールする感じです。(ソース)コマンドバスの実装は以下な感じ。コマンドを引数にコマンドハンドラを特定したら実行します。(ソース)コンテナへの登録は以下な感じ。(ソース)これで後はみたいなのを作ってコンテナへの登録をとすればいくらでもデコレートできるようになります。コマンドの終了後にEventStoreに対してCommandHandlerとCommandをWriteしておけば全てのコマンドの履歴がEventStoreで確認できるようになりました。(ソース)大した話ではないんですけど、コマンド実行前後にストップウォッチで計ってEventDataのMetadataに格納すればひとつのコマンドの実行時間がわかります。(↑の画像参照)
+これに限らずMetadaに見たい情報を付与して送信すればシステムのボトルネックの調査とかに利用できそうです。CQRSのコマンド部におけるコマンドバスの有用性についてでした。
+今回はコマンドハンドラをすぐに実行していますが、Queueを導入すれば直列処理にもできそうです。あとEventStoreはRDBMSよりも履歴を取るのが楽だなと思いました。
+それからデザインパターンは勉強した気になってもなかなか適用箇所に気付けませんね。
+
+

@@ -1,0 +1,94 @@
+
+public static class AsyncEnumerableExtensions
+{
+    /// &lt;summary&gt;
+    /// 指定された非同期ストリームから一定個数ずつオブジェクトを列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="enumerable"&gt;列挙対象の非同期ストリーム&lt;/param&gt;
+    /// &lt;param name="chunkSize"&gt;一度に取得する個数&lt;/param&gt;
+    /// &lt;param name="cancellationToken"&gt;キャンセルトークン&lt;/param&gt;
+    /// &lt;returns&gt;一定個数ずつオブジェクトを列挙する非同期ストリーム&lt;/returns&gt;
+    public static IAsyncEnumerable&lt;IAsyncEnumerable&lt;T&gt;&gt; Chunk&lt;T&gt;(
+        this IAsyncEnumerable&lt;T&gt; enumerable
+        , int chunkSize
+        , CancellationToken cancellationToken = default
+    )
+    {
+        return Chunk(enumerable, chunkSize, new NullState(), cancellationToken);
+    }
+
+    /// &lt;summary&gt;
+    /// 指定された非同期ストリームから一定個数ずつオブジェクトを列挙します。
+    /// &lt;/summary&gt;
+    /// &lt;param name="enumerable"&gt;列挙対象の非同期ストリーム&lt;/param&gt;
+    /// &lt;param name="chunkSize"&gt;一度に取得する個数&lt;/param&gt;
+    /// &lt;param name="state"&gt;列挙状態を管理するオブジェクト&lt;/param&gt;
+    /// &lt;param name="cancellationToken"&gt;キャンセルトークン&lt;/param&gt;
+    /// &lt;returns&gt;一定個数ずつオブジェクトを列挙する非同期ストリーム&lt;/returns&gt;
+    public static async IAsyncEnumerable&lt;IAsyncEnumerable&lt;T&gt;&gt; Chunk&lt;T&gt;(
+        this IAsyncEnumerable&lt;T&gt; enumerable
+        , int chunkSize
+        , IAsyncEnumerablorState state
+        , [EnumeratorCancellation]CancellationToken cancellationToken = default
+    )
+    {
+        await using IAsyncEnumerator&lt;T&gt; enumerator = enumerable.GetAsyncEnumerator(cancellationToken);
+
+        while (!state.IsEof)
+        {
+            yield return new ChunkAsyncEnumerable&lt;T&gt;(enumerator, chunkSize, state);
+        }
+    }
+
+    private class NullState : IAsyncEnumerablorState
+    {
+        bool IAsyncEnumerablorState.IsEof { get; set; }
+        void IAsyncEnumerablorState.OnMoveNext() {}
+    }
+
+    private readonly struct ChunkAsyncEnumerable&lt;T&gt; : IAsyncEnumerable&lt;T&gt;
+    {
+        internal ChunkAsyncEnumerable(
+            IAsyncEnumerator&lt;T&gt; enumerator
+            , int chunkSize
+            , IAsyncEnumerablorState state
+            )
+        {
+            m_Enumerator = enumerator;
+            m_ChunkSize = chunkSize;
+            m_State = state;
+        }
+
+        private readonly IAsyncEnumerator&lt;T&gt; m_Enumerator;
+        private readonly int m_ChunkSize;
+        private readonly IAsyncEnumerablorState m_State;
+
+        private async IAsyncEnumerable&lt;T&gt; Enumerate()
+        {
+            int count = 0;
+
+            while (await m_Enumerator.MoveNextAsync().ConfigureAwait(false))
+            {
+                yield return m_Enumerator.Current;
+                ++count;
+                m_State.OnMoveNext();
+                if (count &gt;= m_ChunkSize) { yield break; }
+            }
+
+            m_State.IsEof = true;
+        }
+
+        public IAsyncEnumerator&lt;T&gt; GetAsyncEnumerator(CancellationToken cancellationToken = default)
+        {
+            return Enumerate().GetAsyncEnumerator(cancellationToken);
+        }
+    }
+
+}
+
+public interface IAsyncEnumerablorState
+{
+    bool IsEof { get; set; }
+    void OnMoveNext();
+}
+

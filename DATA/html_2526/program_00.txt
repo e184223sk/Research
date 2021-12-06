@@ -1,0 +1,271 @@
+using System.Collections.Generic;
+using System.Diagnostics;
+using UnityEngine;
+
+[DefaultExecutionOrder(-1)]
+public class DebugLineDrawer : MonoBehaviour
+{
+    #region Constants
+
+#if UNITY_EDITOR
+    private static readonly string PREVIEW_CAMERA_NAME = "Preview Camera";
+#endif
+
+    #endregion
+
+
+    #region Inner Class
+
+    private class LineInfo
+    {
+        public Vector3[] Points { get; set; }
+        public Color LineColor { get; set; }
+        public Camera RenderCamera { get; set; }
+        public int LayerMask { get; set; } = -1;
+    }
+
+    #endregion
+
+
+    #region Fields
+
+    private Material _lineMaterial;
+    private List&lt;LineInfo&gt; _lineList = new List&lt;LineInfo&gt;();
+    private Color _lineColor = Color.white;
+
+#if UNITY_EDITOR
+    private List&lt;Camera&gt; _selectedCamera = new List&lt;Camera&gt;();
+#endif
+
+    #endregion
+
+
+    #region Singleton
+
+    private static DebugLineDrawer _instance = null;
+    private static DebugLineDrawer Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                GameObject gameObj = new GameObject
+                {
+                    name = typeof(DebugLineDrawer).Name
+                };
+
+                gameObj.AddComponent&lt;DebugLineDrawer&gt;();
+            }
+
+            return _instance;
+        }
+    }
+
+    #endregion
+
+
+    #region Unity Methods
+
+    void Awake()
+    {
+        // Singleton
+        if (_instance == null)
+        {
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+        else if (_instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        // material
+        CreateLineMaterial();
+    }
+
+    void Start()
+    {
+    }
+
+    void Update()
+    {
+        _lineList.Clear();
+        _lineColor = Color.white;
+
+        ExtractionSelectedCameraInHierarchy();
+    }
+
+    void OnRenderObject()
+    {
+        _lineMaterial.SetPass(0);
+
+        GL.PushMatrix();
+
+        var currentCamera = Camera.current;
+
+        ChangePreviewCameraToSelectionCamera(ref currentCamera);
+
+        foreach (var line in _lineList)
+        {
+#if UNITY_EDITOR
+            // Sceneビューには必ず映す
+            if (currentCamera.cameraType != CameraType.SceneView)
+#endif
+            {
+                // It is not a camera for drawing this line.
+                if (line.RenderCamera != null &amp;&amp; currentCamera != line.RenderCamera)
+                {
+                    continue;
+                }
+
+                // The current camera does not draw this layer.
+                if ((currentCamera.cullingMask &amp; line.LayerMask) == 0)
+                {
+                    continue;
+                }
+            }
+
+            GL.Begin(GL.LINES);
+
+            GL.Color(line.LineColor);
+
+            foreach (var p in line.Points)
+            {
+                GL.Vertex3(p.x, p.y, p.z);
+            }
+
+            GL.End();
+        }
+
+        GL.PopMatrix();
+    }
+
+    #endregion
+
+
+    #region Methods
+
+    /// &lt;summary&gt;
+    /// マテリアル生成
+    /// &lt;/summary&gt;
+    private void CreateLineMaterial()
+    {
+        if (!_lineMaterial)
+        {
+            // Unity has a built-in shader that is useful for drawing
+            // simple colored things.
+            Shader shader = Shader.Find("Hidden/Internal-Colored");
+            _lineMaterial = new Material(shader);
+            _lineMaterial.hideFlags = HideFlags.HideAndDontSave;
+
+            // Turn on alpha blending
+            _lineMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _lineMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+
+            // Turn backface culling off
+            _lineMaterial.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
+
+            // Turn off depth writes
+            _lineMaterial.SetInt("_ZWrite", 0);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Hierarchyにて選択中のCameraを抽出
+    /// &lt;/summary&gt;
+    [Conditional("UNITY_EDITOR")]
+    private void ExtractionSelectedCameraInHierarchy()
+    {
+#if UNITY_EDITOR
+        _selectedCamera.Clear();
+        foreach (var selectedGO in UnityEditor.Selection.gameObjects)
+        {
+            var camera = selectedGO.GetComponent&lt;Camera&gt;();
+            if (camera != null)
+            {
+                _selectedCamera.Add(camera);
+            }
+        }
+#endif
+    }
+
+    /// &lt;summary&gt;
+    /// currentCameraがPreviewCameraの場合、Hierarchy上で選択中のカメラで置き換える
+    /// &lt;/summary&gt;
+    [Conditional("UNITY_EDITOR")]
+    private void ChangePreviewCameraToSelectionCamera(ref Camera currentCamera)
+    {
+#if UNITY_EDITOR
+        // Preview Cameraの場合、選択中のカメラの中にRenderCameraと一致するカメラがあるかチェックする
+        // Camera.current.cameraType == CameraType.Previewではチェックできない(PreviewCameraもCameraType.Gameになる)ので名前で判定
+        if (currentCamera.name == PREVIEW_CAMERA_NAME)
+        {
+            foreach (var camera in _selectedCamera)
+            {
+                // 位置、角度、マスクなどの情報から一致するカメラを推測
+                // 推測制度を高めたい場合は一致させるデータを増やす
+                if (currentCamera.transform.position == camera.transform.position &amp;&amp;
+                    currentCamera.transform.rotation == camera.transform.rotation &amp;&amp;
+                    currentCamera.cullingMask == camera.cullingMask)
+                {
+                    currentCamera = camera;
+                    break;
+                }
+            }
+        }
+#endif
+    }
+
+    #endregion
+
+
+    #region API
+
+    /// &lt;summary&gt;
+    /// 色指定無しの場合の線の色を変更する
+    /// &lt;/summary&gt;
+    /// &lt;param name="color"&gt;&lt;/param&gt;
+    public static void SetColor(Color color)
+    {
+        Instance._lineColor = color;
+    }
+
+    public static void DrawLine(Vector3 startPos, Vector3 endPos, Color? color = null, Camera camera = null, int layerMask = -1)
+    {
+        var points = new Vector3[]
+        {
+            startPos,
+            endPos,
+        };
+
+        DrawLine(points, color, camera, layerMask);
+    }
+
+    public static void DrawRay(Vector3 position, Vector3 dir, Color? color = null, Camera camera = null, int layerMask = -1)
+    {
+        DrawLine(position, position + dir, color, camera, layerMask);
+    }
+
+    private static void DrawLine(Vector3[] points, Color? color, Camera camera, int layerMask)
+    {
+        if (points == null || points.Length &lt; 2)
+        {
+            return;
+        }
+
+        var line = new LineInfo()
+        {
+            Points = points,
+            LineColor = color ?? Instance._lineColor,
+            RenderCamera = camera,
+            LayerMask = layerMask,
+        };
+
+        Instance._lineList.Add(line);
+    }
+
+    #endregion
+}
+
+

@@ -1,0 +1,65 @@
+
+    [Serializable]
+    public class WindowManager
+    {
+        public List&lt;WindowObj&gt; WindowList;
+        private MultiMonitor Monitor;
+        public void GetWindowList()
+        {
+            WindowList.Clear();
+            //すべてのウィンドウを列挙する
+            Common.EnumWindows(EnumWindowCallBack, (IntPtr)null);
+        }
+
+        private bool EnumWindowCallBack(IntPtr hWnd, IntPtr lparam)
+        {
+            // 可視状態でないものを除く
+            if ((Common.GetWindowLongStyle(hWnd) &amp; Common.WS_VISIBLE) == 0)
+            {
+                return true;
+            }
+            if ((Common.GetWindowLongExStyle(hWnd) &amp; Common.WS_EX_NOREDIRECTIONBITMAP) != 0)
+            {
+                return true;
+            }
+            // タスクバーに表示されているものを除く
+            if ((Common.GetWindowLongExStyle(hWnd) &amp; Common.WS_EX_TOOLWINDOW) != 0)
+            {
+                return true;
+            }
+
+            //ウィンドウのタイトルの長さを取得する
+            int textLen = Common.GetWindowTextLength(hWnd);
+            if (0 &lt; textLen)
+            {
+                WindowObj TempWindow = new WindowObj(hWnd);
+                //ウィンドウのタイトルを取得する
+                StringBuilder tsb = new StringBuilder(textLen + 1);
+                Common.GetWindowText(hWnd, tsb, tsb.Capacity);
+                TempWindow.TitleName = tsb.ToString();
+
+                //ウィンドウのクラス名を取得する
+                StringBuilder csb = new StringBuilder(256);
+                Common.GetClassName(hWnd, csb, csb.Capacity);
+                TempWindow.ClassName = csb.ToString();
+
+                // ウィンドウ位置を取得する
+                var rc = new RECT();
+                Common.GetWindowRect(hWnd, out rc);
+                RECTSIZE rsize = (RECTSIZE)rc;
+                TempWindow.Rect = rc;
+                TempWindow.Size = rsize;
+
+                // ウィンドウ情報を取得する
+                WINDOWPLACEMENT wp = new WINDOWPLACEMENT();
+                Common.GetWindowPlacement(hWnd, out wp);
+                TempWindow.WindowPlacement = wp;
+
+                if (rsize.Height != 0 || rsize.Width != 0)
+                {
+                    WindowList.Add(TempWindow);
+                }
+            }
+            return true;
+        }
+

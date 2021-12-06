@@ -1,0 +1,118 @@
+More than 1 year has passed since last update.Durable Functions は、サーバーレス コンピューティング環境でステートフル関数を記述できる Azure Functions の拡張機能です。(以下のURLからコピペした)
+https://docs.microsoft.com/ja-jp/azure/azure-functions/durable/durable-functions-overview?tabs=csharpチュートリアルに「ファンイン／ファンアウト」というパターンがある。これのエラーハンドリングについて調べてみた。オーケストレーター関数が複数のアクティビティ関数を呼び出したとする。このとき、特定のアクティビティ関数だけエラーが発生したらどうなるのか？そもそもエラーハンドリングできるのか？エラーハンドリングをできたとして、エラーが発生したアクティビティ関数は特定できるのか？エラーが発生した場合、成功した他のアクティビティ関数の結果はどうなるのか？使えるのか、使えないのか？このあたりを知りたくて、簡単な関数を作成して、デバッグしてみた。HTTPトリガーで起動するオーケストレーター関数と、オーケストレーター関数により起動するアクティビティ関数。オーケストレーター関数はアクティビティ関数を10回並列で呼び出す。アクティビティ関数は、引数のintをそのまま呼び出し元にリターンする。ただし、アクティビティ関数は引数が4の倍数(0を除く)の時だけ例外をスローする。オーケストレーターのソースは以下。(クリックするとソースが表示されます)
+
+
+TaskOrch.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.DurableTask;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.Azure.WebJobs.Host;
+using Microsoft.Extensions.Logging;
+
+namespace FunctionApp1
+{
+    public static class TaskOrch
+    {
+        [FunctionName("Function2")]
+        public static async Task&lt;int&gt; RunOrchestrator(
+            [OrchestrationTrigger] IDurableOrchestrationContext context)
+        {
+            var tasks = new Task&lt;int&gt;[10];
+            var errorMessageList = new List&lt;string&gt;();
+
+            for (int index = 0; index &lt; 10; index++)
+            {
+                // アクティビティ関数を並列で10回呼び出す
+                tasks[index] = context.CallActivityAsync&lt;int&gt;("TaskActivity", index);
+            }
+
+            try
+            {
+                // 10個のタスクが終わるまで待つ
+                await Task.WhenAll(tasks);
+            }
+            catch
+            {
+                // エラーが発生したことをキャッチする
+                Console.WriteLine("Error has occured.");
+            }
+            // 成功の結果だけ集めてくる
+            int total = tasks.Where(t =&gt; t.Status == TaskStatus.RanToCompletion).Sum(t =&gt; t.Result);
+            // エラー結果だけを取得する
+            var errors = tasks.Where(t =&gt; t.Status == TaskStatus.Faulted).ToList();
+            foreach (var item in errors)
+            {
+                Console.WriteLine(item.Exception.InnerException.InnerException.Message);
+            }
+
+            return total;
+        }
+
+        [FunctionName("Function2_HttpStart")]
+        public static async Task&lt;HttpResponseMessage&gt; HttpStart(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
+            // Function input comes from the request content.
+            string instanceId = await starter.StartNewAsync("Function2", null);
+
+            log.LogInformation($"Started orchestration with ID = '{instanceId}'.");
+
+            return starter.CreateCheckStatusResponse(req, instanceId);
+        }
+    }
+}
+
+
+
+アクティビティのソースは以下。(クリックするとソースが表示されます)
+
+
+TaskActivity.cs
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Microsoft.Azure.WebJobs.Extensions.DurableTask;
+
+namespace FunctionApp1
+{
+    public static class TaskActivity
+    {
+        [FunctionName("TaskActivity")]
+        public static async Task&lt;int&gt; Run(
+            //[HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            [ActivityTrigger] int number,
+            ILogger log)
+        {
+            log.LogInformation("TaskActivity start. index:" + number.ToString());
+            log.LogInformation("Run datetime:" + DateTime.Now.ToString());
+            await Task.Delay(1000);
+
+            if ((number % 4 == 0) &amp;&amp; (number != 0))
+            {
+                // 0以外の4の倍数の時に例外をスロー
+                throw new Exception("number:" + number.ToString() + " is a mulriple of 4.");
+            }
+
+            return number;
+        }
+    }
+}
+
+
+
+結論から言うと、成功した結果だけを取得できたし、エラーが発生したアクティビティを特定することもできた。オーケストレーター関数が最終的に取得した結果は「33」。4の倍数だけカウントしてないから、1～9の和である45から12(=4+8)引いてるので結果も妥当。例外はTask.WhenAllでキャッチする。というか、こうやってソースを見ると、Azure FunctionsというよりはTaskに関する知識な気がする･･･・Exceptionの取り出し方にクセがある。アクティビティ関数の例外で投げたメッセージを取得するために、innerExceptionを2回も使う羽目になるとは｡｡｡｡便利ですね、Azure Functions。サーバーレスコンピューティングだし、エラーハンドリングどうなのかと思ってたけど、普通にできるんですね。まあ、できるんだろうなー、程度には思ってたけど････実際目で見ないとわからないからなぁ････
+
+

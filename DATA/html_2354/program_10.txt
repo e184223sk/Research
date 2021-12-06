@@ -1,0 +1,90 @@
+
+private const int PointCount = 1000000;
+
+private async void Check(CancellationToken token)
+{
+    var anchor = new GameObject().transform;
+
+    while (true)
+    {
+        anchor.position = UnityEngine.Random.insideUnitSphere;
+        anchor.rotation = UnityEngine.Random.rotation;
+        anchor.localScale = UnityEngine.Random.insideUnitSphere + Vector3.one;
+
+        var matrix = anchor.transform.localToWorldMatrix;
+        var randomVectors = await Task.Run(() =&gt; GenerateRandomVectorAsync(_cancellationTokenSource.Token, PointCount), token);
+
+        // Rustによる変換
+        Profiler.BeginSample("#ByRust");
+        var r = TransByRust(matrix, randomVectors);
+        Profiler.EndSample();
+
+        // Rust(Releaseビルド)による変換
+        Profiler.BeginSample("#ByRustR");
+        var rr = TransByRustRelease(matrix, randomVectors);
+        Profiler.EndSample();
+
+        // C#による変換
+        Profiler.BeginSample("#ByCSharp");
+        var c = TransByCsharp(matrix, randomVectors);
+        Profiler.EndSample();
+
+        Debug.Log(r.Length + " - " + rr.Length + " - " + c.Length);
+    }
+}
+
+// C#による変換
+private static Vector3[] TransByCsharp(Matrix4x4 matrix, IReadOnlyList&lt;Vector3&gt; points)
+{
+    var ret = new Vector3[points.Count];
+    for (var count = 0; count &lt; points.Count; count++)
+    {
+        ret[count] = matrix.MultiplyPoint(points[count]);
+    }
+
+    return ret;
+}
+
+// RustDebugビルドによる変換
+private static Vector3[] TransByRust(Matrix4x4 matrix, IReadOnlyList&lt;Vector3&gt; points)
+{
+    var ret = new Vector3[points.Count];
+    for (var count = 0; count &lt; points.Count; count++)
+    {
+        ret[count] = multiply_point(matrix, points[count]);
+    }
+
+    return ret;
+}
+
+// RustReleaseビルドによる変換
+private static Vector3[] TransByRustRelease(Matrix4x4 matrix, IReadOnlyList&lt;Vector3&gt; points)
+{
+    var ret = new Vector3[points.Count];
+    for (var count = 0; count &lt; points.Count; count++)
+    {
+        ret[count] = multiply_point_r(matrix, points[count]);
+    }
+
+    return ret;
+}
+
+// ランダムなVector3の配列を生成
+private static Task&lt;Vector3[]&gt; GenerateRandomVectorAsync(CancellationToken cancellationToken, int length)
+{
+    var random = new System.Random();
+    var points = new Vector3[length];
+    for (var count = 0; count &lt; points.Length; count++)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        // UnityEngine.RandomのAPIはメインスレッドからしか呼べない...
+        // なので無理矢理ランダムなVector3を生成する
+        points[count].x = (float) (random.NextDouble() * random.Next(-100, 100));
+        points[count].y = (float) (random.NextDouble() * random.Next(-100, 100));
+        points[count].z = (float) (random.NextDouble() * random.Next(-100, 100));
+    }
+
+    return Task.FromResult(points);
+}
+
+

@@ -1,0 +1,79 @@
+
+        /// &lt;summary&gt;
+        /// Attempt to load configuration from the local file system
+        /// &lt;/summary&gt;
+        /// &lt;param name="sourceAssembly"&gt;The assembly that this attribute was defined on.&lt;/param&gt;
+        /// &lt;param name="targetRepository"&gt;The repository to configure.&lt;/param&gt;
+        private void ConfigureFromFile(Assembly sourceAssembly, ILoggerRepository targetRepository)
+        {
+            // Work out the full path to the config file
+            string fullPath2ConfigFile = null;
+
+            // Select the config file
+            if (m_configFile == null || m_configFile.Length == 0)
+            {
+                if (m_configFileExtension == null || m_configFileExtension.Length == 0)
+                {
+                    // Use the default .config file for the AppDomain
+                    try
+                    {
+                        fullPath2ConfigFile = SystemInfo.ConfigurationFileLocation;
+                    }
+                    catch(Exception ex)
+                    {
+                        LogLog.Error(declaringType, "XmlConfiguratorAttribute: Exception getting ConfigurationFileLocation. Must be able to resolve ConfigurationFileLocation when ConfigFile and ConfigFileExtension properties are not set.", ex);
+                    }
+                }
+                else
+                {
+                    // Force the extension to start with a '.'
+                    if (m_configFileExtension[0] != '.')
+                    {
+                        m_configFileExtension = "." + m_configFileExtension;
+                    }
+
+                    string applicationBaseDirectory = null;
+                    try
+                    {
+                        applicationBaseDirectory = SystemInfo.ApplicationBaseDirectory;
+                    }
+                    catch(Exception ex)
+                    {
+                        LogLog.Error(declaringType, "Exception getting ApplicationBaseDirectory. Must be able to resolve ApplicationBaseDirectory and AssemblyFileName when ConfigFileExtension property is set.", ex);
+                    }
+
+                    if (applicationBaseDirectory != null)
+                    {
+                        fullPath2ConfigFile = Path.Combine(applicationBaseDirectory, SystemInfo.AssemblyFileName(sourceAssembly) + m_configFileExtension);
+                    }
+                }
+            }
+            else
+            {
+                string applicationBaseDirectory = null;
+                try
+                {
+                    applicationBaseDirectory = SystemInfo.ApplicationBaseDirectory;
+                }
+                catch(Exception ex)
+                {
+                    LogLog.Warn(declaringType, "Exception getting ApplicationBaseDirectory. ConfigFile property path ["+m_configFile+"] will be treated as an absolute path.", ex);
+                }
+
+                if (applicationBaseDirectory != null)
+                {
+                    // Just the base dir + the config file
+                    fullPath2ConfigFile = Path.Combine(applicationBaseDirectory, m_configFile);
+                }
+                else
+                {
+                    fullPath2ConfigFile = m_configFile;
+                }
+            }
+
+            if (fullPath2ConfigFile != null)
+            {
+                ConfigureFromFile(targetRepository, new FileInfo(fullPath2ConfigFile));
+            }
+        }
+

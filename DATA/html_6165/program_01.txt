@@ -1,0 +1,144 @@
+
+
+    /// &lt;summary&gt;
+    /// Propertyマッパー
+    /// &lt;/summary&gt;
+    public class PropertyMapper
+    {
+        /// &lt;summary&gt;
+        /// デフォルトコンストラクタ
+        /// &lt;/summary&gt;
+        private PropertyMapper()
+        {
+        }
+
+        /// &lt;summary&gt;
+        /// 型:TModel の CanRead なプロパティの値を 型:TEntity の対応する CanWrite なプロパティの値へ設定します。
+        /// 設定可能なプロパティは PropertyName と PropertyType が同一でなければなりません。
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="TModel"&gt;設定元タイプ&lt;/typeparam&gt;
+        /// &lt;typeparam name="TEntity"&gt;設定先タイプ&lt;/typeparam&gt;
+        /// &lt;param name="items"&gt;IEnmerableを実装した TModel&lt;/param&gt;
+        /// &lt;returns&gt;IEnumerableを実装した TEntity&lt;/returns&gt;
+        public static IEnumerable&lt;TEntity&gt; Mapper&lt;TModel, TEntity&gt;(IEnumerable&lt;TModel&gt; items)
+            where TModel : class, new()
+            where TEntity : class, new()
+        {
+            // 戻り値
+            var entities = new List&lt;TEntity&gt;();
+
+            // Getアクセッサ デリゲートキャッシュ
+            var getterDelegateItems = new Dictionary&lt;int, Func&lt;TModel, object&gt;&gt;();
+
+            // Setアクセッサ デリゲートキャッシュ
+            var setterDelegateItems = new Dictionary&lt;int, Action&lt;TEntity, object&gt;&gt;();
+
+            // Getアクセッサ デリゲート
+            Func&lt;TModel, object&gt; getter = null;
+
+            // Setアクセッサ デリゲート
+            Action&lt;TEntity, object&gt; setter = null;
+
+            // 設定対象プロパティリスト
+            var entityTargetProps = new List&lt;PropertyInfo&gt;();
+
+            // TEntityプロパティリスト ディクショナリ(パフォーマンス対策)
+            var entityProps = typeof(TEntity).GetProperties().Where(a =&gt; a.CanWrite).ToDictionary(a =&gt; a.Name);
+
+            // TModel プロパティリスト
+            var modelProps = typeof(TModel).GetProperties().Where(a =&gt; a.CanRead);
+
+            // 設定対象プロパティを抽出
+            PropertyInfo entityProp = null;
+            foreach (var modelProp in modelProps)
+            {
+                // TEntityプロパティリストに TModelプロパティと同一の名前で存在する、且つ、型が完全一致する場合
+                if (entityProps.TryGetValue(modelProp.Name, out entityProp) &amp;&amp; entityProp.PropertyType == modelProp.PropertyType)
+                {
+                    // 設定対象プロパティに追加
+                    entityTargetProps.Add(entityProp);
+                }
+            }
+
+            // プロパティ設定
+            foreach (var item in items)
+            {
+                // 設定先TEntity
+                var entity = new TEntity();
+
+                // 設定対象プロパティ
+                foreach (var setProp in entityTargetProps)
+                {
+                    // キャッシュされていないかどうかを判定し、未キャッシュの場合は生成
+                    if (!getterDelegateItems.TryGetValue(setProp.MetadataToken, out getter))
+                    {
+                        // Getアクセッサ デリゲートを生成
+                        getter = CreateGetDelegate&lt;TModel&gt;(setProp.Name);
+
+                        // 生成したGetデリゲートをキャッシュ
+                        getterDelegateItems.Add(setProp.MetadataToken, getter);
+
+                        // Setアクセッサ デリゲートを生成
+                        setter = CreateSetDelegate&lt;TEntity&gt;(setProp.Name);
+
+                        // 生成したSetデリゲートをキャッシュ
+                        setterDelegateItems.Add(setProp.MetadataToken, setter);
+                    }
+
+                    setter = setterDelegateItems[setProp.MetadataToken];
+
+                    // プロパティ値を取得
+                    var val = getter(item);
+
+                    // プロパティ値を設定
+                    setter(entity, val);
+                }
+
+                entities.Add(entity);
+            }
+
+            return entities;
+        }
+
+        /// &lt;summary&gt;
+        /// Setアクセッサ デリゲートを生成します
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="TModel"&gt;プロパティ値が設定されるオブジェクト型&lt;/typeparam&gt;
+        /// &lt;param name="memberName"&gt;設定するプロパティ名&lt;/param&gt;
+        /// &lt;returns&gt;Setアクセッサ デリゲート&lt;/returns&gt;
+        private static Action&lt;TModel, object&gt; CreateSetDelegate&lt;TModel&gt;(string memberName)
+        {
+            var target = Expression.Parameter(typeof(TModel), "target");
+            var value = Expression.Parameter(typeof(object), "value");
+
+            var left = Expression.PropertyOrField(target, memberName);
+            var right = Expression.Convert(value, left.Type);
+
+            var lambda = Expression.Lambda&lt;Action&lt;TModel, object&gt;&gt;(
+                            Expression.Assign(left, right),
+                            target,
+                            value);
+
+            return lambda.Compile();
+        }
+
+        /// &lt;summary&gt;
+        /// Getアクセッサ デリゲートを生成します
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="TModel"&gt;プロパティ値が返されるオブジェクト型&lt;/typeparam&gt;
+        /// &lt;param name="propertyName"&gt;取得するプロパティ名&lt;/param&gt;
+        /// &lt;returns&gt;Getアクセッサ デリゲート&lt;/returns&gt;
+        private static Func&lt;TModel, object&gt; CreateGetDelegate&lt;TModel&gt;(string propertyName)
+        {
+            var target = Expression.Parameter(typeof(TModel), "target");
+
+            var lambda = Expression.Lambda&lt;Func&lt;TModel, object&gt;&gt;(
+                            Expression.Convert(
+                                Expression.PropertyOrField(target, propertyName),
+                                typeof(object)),
+                            target);
+
+            return lambda.Compile();
+        }
+    }
+

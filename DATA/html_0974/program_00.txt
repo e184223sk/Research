@@ -1,0 +1,234 @@
+using UnityEngine;
+using UnityEngine.XR.MagicLeap;
+
+
+
+/// &lt;summary&gt;
+/// ハンドトラッキング.
+/// &lt;/summary&gt;
+public class HandController : MonoBehaviour
+{
+
+    [System.Serializable]
+    public class HandJointData
+    {
+        [SerializeField] GameObject wrist;
+        [SerializeField] GameObject[] thumb;
+        [SerializeField] GameObject[] index;
+        [SerializeField] GameObject[] middle;
+        [SerializeField] GameObject[] ring;
+        [SerializeField] GameObject[] pinky;
+        [SerializeField] Material handMaterial;
+        [SerializeField] Color color;
+
+        public Vector3 Wrist { get; private set; }
+        public Vector3[] Thumb { get; private set; }
+        public Vector3[] Index { get; private set; }
+        public Vector3[] Middle { get; private set; }
+        public Vector3[] Ring { get; private set; }
+        public Vector3[] Pinky { get; private set; }
+        MLHandTracking.Hand hand;
+        LineRenderer[] lines;
+
+        public void Initialize(
+            MLHandTracking.Hand _hand)
+        {
+            hand = _hand;
+            Wrist = Vector3.zero;
+
+            // 各関節 + 手首の分, 配列をとる.
+            Thumb = new Vector3[thumb.Length + 1];
+            Index = new Vector3[index.Length + 1];
+            Middle = new Vector3[middle.Length + 1];
+            Ring = new Vector3[ring.Length + 1];
+            Pinky = new Vector3[pinky.Length + 1];
+
+            lines = new LineRenderer[5];
+            lines[0] = thumb[0].transform.parent.gameObject.AddComponent&lt;LineRenderer&gt;();
+            lines[0].positionCount = 4;
+
+            lines[1] = index[0].transform.parent.gameObject.AddComponent&lt;LineRenderer&gt;();
+            lines[1].positionCount = 4;
+
+            lines[2] = middle[0].transform.parent.gameObject.AddComponent&lt;LineRenderer&gt;();
+            lines[2].positionCount = 4;
+
+            lines[3] = ring[0].transform.parent.gameObject.AddComponent&lt;LineRenderer&gt;();
+            lines[3].positionCount = 3;
+
+            lines[4] = pinky[0].transform.parent.gameObject.AddComponent&lt;LineRenderer&gt;();
+            lines[4].positionCount = 3;
+
+            // LineRendererの初期セッティング.
+            foreach (var line in lines)
+            {
+                line.material = handMaterial;
+                line.startColor = color;
+                line.endColor = color;
+                line.startWidth = 0.01f;
+                line.endWidth = 0.01f;
+            }
+        }
+
+
+        public void UpdatePositions()
+        {
+            if (hand == null) return;
+
+            Thumb[0] = hand.Wrist.KeyPoints[0].Position;
+            Thumb[1] = hand.Thumb.KeyPoints[0].Position;
+            Thumb[2] = hand.Thumb.KeyPoints[1].Position;
+            Thumb[3] = hand.Thumb.KeyPoints[2].Position;
+            for (var i = 1; i &lt; Thumb.Length; ++i)
+            {
+                thumb[i - 1].transform.position = Thumb[i];
+            }
+            lines[0].SetPositions(Thumb);
+
+            Index[0] = hand.Wrist.KeyPoints[0].Position;
+            Index[1] = hand.Index.KeyPoints[0].Position;
+            Index[2] = hand.Index.KeyPoints[1].Position;
+            Index[3] = hand.Index.KeyPoints[2].Position;
+            for (var i = 1; i &lt; Index.Length; ++i)
+            {
+                index[i - 1].transform.position = Index[i];
+            }
+            lines[1].SetPositions(Index);
+
+            Middle[0] = hand.Wrist.KeyPoints[0].Position;
+            Middle[1] = hand.Middle.KeyPoints[0].Position;
+            Middle[2] = hand.Middle.KeyPoints[1].Position;
+            Middle[3] = hand.Middle.KeyPoints[2].Position;
+            for (var i = 1; i &lt; Middle.Length; ++i)
+            {
+                middle[i - 1].transform.position = Middle[i];
+            }
+            lines[2].SetPositions(Middle);
+
+            Ring[0] = hand.Wrist.KeyPoints[0].Position;
+            Ring[1] = hand.Ring.KeyPoints[0].Position;
+            Ring[2] = hand.Ring.KeyPoints[1].Position;
+            for (var i = 1; i &lt; Ring.Length; ++i)
+            {
+                ring[i - 1].transform.position = Ring[i];
+            }
+            lines[3].SetPositions(Ring);
+
+            Pinky[0] = hand.Wrist.KeyPoints[0].Position;
+            Pinky[1] = hand.Pinky.KeyPoints[0].Position;
+            Pinky[2] = hand.Pinky.KeyPoints[1].Position;
+            for (var i = 1; i &lt; Pinky.Length; ++i)
+            {
+                pinky[i - 1].transform.position = Pinky[i];
+            }
+            lines[4].SetPositions(Pinky);
+
+        }
+    }
+
+
+    // ジェスチャ.
+    public enum HandPoses
+    {
+        Ok,
+        Finger,
+        Thumb,
+        OpenHand,
+        Fist,
+        NoPose,
+        NoHand,
+    }
+
+    public enum HandId
+    {
+        RightHand,
+        LeftHand
+    }
+
+
+    [SerializeField] HandPoses handPose = HandPoses.NoPose;
+    [SerializeField] HandJointData handData;
+    [SerializeField] HandId handId;
+    MLHandTracking.HandKeyPose[] gestures;
+    MLHandTracking.Hand hand;
+
+
+    void Start()
+    {
+        // HandTrackingを開始する.
+        MLHandTracking.Start();
+
+        hand = handId == HandId.LeftHand ? MLHandTracking.Left : MLHandTracking.Right;
+        handData.Initialize(hand);
+
+        gestures = new MLHandTracking.HandKeyPose[6];
+
+        // 各ジェスチャを登録.
+        gestures[0] = MLHandTracking.HandKeyPose.Ok;
+        gestures[1] = MLHandTracking.HandKeyPose.Finger;
+        gestures[2] = MLHandTracking.HandKeyPose.OpenHand;
+        gestures[3] = MLHandTracking.HandKeyPose.Fist;
+        gestures[4] = MLHandTracking.HandKeyPose.Thumb;
+        gestures[5] = MLHandTracking.HandKeyPose.NoHand;
+
+        MLHandTracking.KeyPoseManager.EnableKeyPoses(gestures, true, false);
+
+    }
+
+
+    void OnDestroy()
+    {
+        MLHandTracking.Stop();
+    }
+
+
+    void Update()
+    {
+        handData.UpdatePositions();
+
+        if (GetGesture(hand, MLHandTracking.HandKeyPose.Ok))
+        {
+            handPose = HandPoses.Ok;
+        }
+        else if (GetGesture(hand, MLHandTracking.HandKeyPose.Finger))
+        {
+            handPose = HandPoses.Finger;
+        }
+        else if (GetGesture(hand, MLHandTracking.HandKeyPose.OpenHand))
+        {
+            handPose = HandPoses.OpenHand;
+        }
+        else if (GetGesture(hand, MLHandTracking.HandKeyPose.Fist))
+        {
+            handPose = HandPoses.Fist;
+        }
+        else if (GetGesture(hand, MLHandTracking.HandKeyPose.Thumb))
+        {
+            handPose = HandPoses.Thumb;
+        }
+        else
+        {
+            handPose = HandPoses.NoPose;
+        }
+    }
+
+
+    /// &lt;summary&gt;
+    /// ジェスチャの取得.
+    /// &lt;/summary&gt;
+    /// &lt;param name="hand"&gt;&lt;/param&gt;
+    /// &lt;param name="type"&gt;&lt;/param&gt;
+    /// &lt;returns&gt;&lt;/returns&gt;
+    private bool GetGesture(
+        MLHandTracking.Hand hand, 
+        MLHandTracking.HandKeyPose type)
+    {
+        if (hand == null) return false;
+
+        return 0.9f &lt; hand.HandKeyPoseConfidence &amp;&amp; hand.KeyPose == type;
+    }
+
+}
+
+
+

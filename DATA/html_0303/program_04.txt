@@ -1,0 +1,150 @@
+
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Reflection;
+
+namespace EnumSample
+{
+    public static class EnumHelper
+    {
+        /// &lt;summary&gt;
+        /// 列挙体フィールドのDescriptionを取得する。
+        /// &lt;/summary&gt;
+        /// &lt;param name="value"&gt;列挙体値&lt;/param&gt;
+        /// &lt;returns&gt;Description文字列&lt;/returns&gt;
+        public static string GetEnumDescriptionFromValue&lt;T&gt;(object value)
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+
+            string description = null;
+
+            if (value != null)
+            {
+                string strValue = value.ToString();
+
+                description = strValue;
+
+                if (strValue.Length &gt; 0)
+                {
+                    FieldInfo fieldInfo = type.GetField(strValue);
+
+                    // Descriptionが複数ある場合はこちらのコードにします
+                    //var attrebutes = (DescriptionAttribute[])fi.GetCustomAttributes(typeof(DescriptionAttribute), false);
+                    //var dcs = attrebutes.Select(x =&gt; x.Description).FirstOrDefault();
+                    //if(dcs != null)
+                    //{
+                    //    description = dcs;
+                    //}
+
+                    Attribute attribute = Attribute.GetCustomAttribute(fieldInfo, typeof(DescriptionAttribute));
+                    if (attribute != null)
+                    {
+                        DescriptionAttribute descriptionAttribute = (DescriptionAttribute)attribute;
+                        description = descriptionAttribute.Description;
+                    }
+                }
+            }
+
+            return description;
+        }
+
+
+        /// &lt;summary&gt;
+        /// Descriptionから列挙体の値を取得する
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="description"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static T GetEnumValueFromDescription&lt;T&gt;(string description)
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+            FieldInfo[] fields = type.GetFields();
+            var field = fields
+                            .SelectMany(f =&gt; f.GetCustomAttributes(typeof(DescriptionAttribute), false),
+                                        (f, a) =&gt; new { Field = f, Att = a })
+                            .Where(a =&gt; ((DescriptionAttribute)a.Att)
+                                .Description == description).SingleOrDefault();
+            return field == null ? default(T) : (T)field.Field.GetRawConstantValue();
+        }
+
+        /// &lt;summary&gt;
+        /// int値からDescriptionを取得する
+        /// 逆は(int)enum value で取得できます
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="value"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static string GetEnumDescriptionFromInt&lt;T&gt;(int value)
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+
+            var enumValue = (T)Enum.ToObject(type, value);
+
+            return GetEnumDescriptionFromValue&lt;T&gt;(enumValue);
+
+        }
+
+        /// &lt;summary&gt;
+        /// int値からenum value値を取得する
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;param name="value"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static T GetEnumValueFromInt&lt;T&gt;(int value)
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+
+            return (T)Enum.ToObject(type, value);
+        }
+
+        /// &lt;summary&gt;
+        /// enumの値リストを取得
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static List&lt;T&gt; GetEnumList&lt;T&gt;()
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+
+            List&lt;T&gt; values = new List&lt;T&gt;();
+            foreach (T value in Enum.GetValues(type))
+            {
+                values.Add(value);
+            }
+            return values;
+        }
+
+        /// &lt;summary&gt;
+        /// enumのDescripntionリストを取得
+        /// &lt;/summary&gt;
+        /// &lt;typeparam name="T"&gt;&lt;/typeparam&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public static List&lt;string&gt; GetEnumDescriptionList&lt;T&gt;()
+        {
+            var type = typeof(T);
+            if (!type.IsEnum)
+                throw new ArgumentException();
+
+            List&lt;string&gt; descriptions = new List&lt;string&gt;();
+            foreach (T value in Enum.GetValues(type))
+            {
+                var description = GetEnumDescriptionFromValue&lt;T&gt;(value);
+                descriptions.Add(description);
+            }
+            return descriptions;
+        }
+    }
+}
+
+

@@ -1,0 +1,55 @@
+・この記事ではUnityでマリオギャラクシーのように惑星の表面を歩くシステムを実装します。・アセットは使用せず、初めからUnityに搭載されている機能のみを使って実装します。・動けば良い！の精神でおねがいします。・筆者の環境：Windows10 Unity 2020.1.3f1 Personalみなさんが子どもの頃に遊んだ好きなゲームってなんですか？私は小さいころWiiで遊んだマリオギャラクシーが特に大好きです。マリオギャラクシーのステージは惑星（平面でないステージ）が多く、印象的ですよね。このシステム、Unityで再現できれば面白いと思いませんか？というわけで、今回はこの「惑星の表面を歩くシステム」をUnityで実装してみましょう。画像では伝わりにくいので動画↓でどうぞ。※クリックすると新規タブでYouTubeが開きます。
+１：惑星オブジェクトのポリゴンに沿って運動できるようにする
+２：惑星を複数配置し、惑星間を飛び回るUnityを起動し、3Dでプロジェクトを新規作成する。（名前はなんでもよい）Hierarchy +タブ -&gt; 3D Object -&gt; CapsuleCapsuleの名前を「 Player 」に変更する。Playerのポジションを[ x = 0, y = 13, z = 0 ]に変更する。Player -&gt; Inspector -&gt; Add Component -&gt; Physics -&gt; Rigidbodyを追加する。 Player -&gt; Rigidbody の Use Gravityのチェックを外す。Player -&gt; Rigidbody -&gt; Constraints -&gt; Freeze Rotaionのx, y, zにチェックを入れる。このままだと正面がどこかわからないので、Cubeを子オブジェクトにして鼻を付けると分かりやすいかも。（お好みでどうぞ）Hierarchy +タブ -&gt; 3D Object -&gt; Sphere Sphereの名前を「 Planet_Sphere 」に変更する。Planet_Sphereのスケールを[ x = 20, y = 20, z = 20 ]程度に変更する。Planet_Sphere -&gt; Inspector -&gt; Tag -&gt; Add Tag...から「 Planet 」というタグを新しく設定する。Planet_Sphereのタグを「 Planet 」に変更する。Project +タブ -&gt; C# Script から「 Player_Logic 」という名前でスクリプトを新規作成する。Player_Logic を　Player　にアタッチする。Player_Logicに以下のコードをコピペする。・宣言部分コメントアウトそのままです。特に説明しなくても大丈夫でしょう。・Start関数部分スクリプトがアタッチされているオブジェクトのコンポーネントを参照し、Rigidbodyを取得しています。・Update関数部分Jump関数を呼び出しています。Jump関数の中身は↓に・Jump関数部分
+順番が入れ替わりますが、先にJump関数の説明です。ジャンプ機能が重複しない（無限ジャンプができない）ようにしています。
+ここのポイントはAddForceで力を加える際に、上方向を「Playerオブジェクトからみて垂直方向(transform.up)」にしてあるところです。
+惑星単位で重力を操るので、ワールド基準の垂直方向では意味がなくなってしまうためです。・OnCollisionEnter関数部分
+順番が入れ替わりますが、ジャンプ機能に関連するので先に説明します。ジャンプ機能の回復について制御しています。
+Jump関数では Spaceキー を押すと Grounded変数が false に設定されます。このままだと二度とジャンプすることができません (´;ω;｀)
+OnCollisionEnter関数では他のオブジェクトに接触した際、そのオブジェクトのタグがPlanetであった場合に Grounded変数を true に設定します。
+これで再びジャンプすることができます。＾＾ ﾔｯﾀﾈ!・FixedUpdate関数部分
+順番が前後しましたがFixedUpdate関数の説明です。一行目ではHorizontal_Rotate関数を呼び出しています。二行目ではキーボードの入力に対して、Playerの進行方向を設定しています。
+また、「 方向 」なので .normalized を用いて正規化しています。三行目ではRigidbody.MovePositionを用いてPlayerの位置を変更しています。
+Rigidbody.MovePositionは移動したい先の座標（ワールド座標・絶対座標）を引数とすることで、オブジェクトを指定した座標に移動させます。
+Time.deltaTimeをかける（補間する）ことでスムーズ遷移となります。（本当は違いますが...）より詳しい説明や考察は以下の記事からどうぞ...Unity DOCUMENTION Rigidbody.MovePosition
+https://docs.unity3d.com/ja/2018.4/ScriptReference/Rigidbody.MovePosition.htmlQiita [Unity初心者Tips]どれが良いかわかる！ものを動かす方法はこうして決める
+https://qiita.com/JunShimura/items/ab243cbd29e63e4f27c5弱火でじっくり [Unity] positionとMovePositionの違いを比べた
+https://yowabi.blogspot.com/2017/12/unity-positionmoveposition-rigidbody.html?m=1また、transform.TransformDirectionは「ローカルな方向・ベクトル・座標」を「ワールドな方向・ベクトル・座標」に変換します。
+より詳しい説明は以下の記事を参考にしてください,,,Unity DOCUMENTION Transform.TransformDirection
+https://docs.unity3d.com/ja/current/ScriptReference/Transform.TransformDirection.htmlTECH Pjin 【Unity】Transformコンポーネントの便利な関数まとめ
+https://tech.pjin.jp/blog/2016/03/29/unity_transform_compo/・Horizontal_Rotate関数部分ここではプレイヤーからみた水平方向の回転について制御しています。また、Quaternionの合成は積で行うのですが、この部分で「Playerオブジェクトからみた上方向（transform.up）」を軸として回転させるQuaternionを生成しています。回転量はrotate_speedで指定し、回転方向はrotate_directionで指定しています。rotate_direction はキーボード入力（Ｑキーで反時計回り（-1）、Ｅキーで時計回り（+1））を設定します。何も入力がないときは 0 を設定します。これがポイントです。感覚としてはオブジェクトに長い棒をぶっさしてクルクルまわしている感じです。また、Quaternionは線形代数などで学ぶ回転行列と強い関係を持ちます。そのため交換法則が必ず成り立つとは限りません。もし、Quaternionの回転で意図しない動きをしてしまったら、積の順番を入れ替えてみるのもおすすめです。行列の交換法則についてのわかりやすい説明です。よかったらどうぞ↓高校数学の基本問題　高卒～大学数学　行列の乗法の性質
+http://www.geisya.or.jp/~mwm48961/kou2/matrix3.htmlQuaternion（クォータニオン）ってなんだ？と思う方もいるかもしれません。QuaternionはUnityやゲームエンジン、その他の分野で「回転」を扱う際に非常に重要な概念です。Unityでは回転にかかわることを全てこのQuaternionで制御しています。「全てだって？！インスペクターではオブジェクトの回転はオイラー角で制御しているじゃないか！(°д°) 」と思う人もいるでしょう。これはUnityが気を利かせて、内部処理でオイラー角をQuaternionに変形してくれているのです。Unityちゃんありがとう！(≧▽≦)さて、Quaternionとは何かを語ると非常に面倒くさい大変なので、Quaternionの本質を考えたい方は以下の記事を参考にしてください。特にセガ公式の記事はおすすめです。大企業の資料を見ることなんてなかなかできません！公開されているうちにぜひ見ましょう！Twitter セガ公式アカウント クォータニオンとは何ぞや？
+https://twitter.com/SEGA_OFFICIAL/status/1404648102477262849XR-HU3 【Unity】Quaternionでオブジェクトを回転させる方法
+https://xr-hub.com/archives/11515SAMURAIENGINEER 【Unity入門】必ず分かる!一番簡単なQuaternionの使い方入門!
+https://www.sejuku.net/blog/55596クォータニオン (Quaternion) を総整理！ ～ 三次元物体の回転と姿勢を鮮やかに扱う ～
+https://qiita.com/drken/items/0639cf34cce14e8d58a5さて、ここで一度再生ボタンを押して動作を確認してみましょう。！注意！　ジャンプ力を表す変数Jumppowerは初期値では０に設定されています。重力の概念を追加していないので、同じ高さで動き回ることが出来れば成功です。これでプレイヤーの動作を実装できました。次は重力とその他もろもろについて実装しましょう。Project +タブ -&gt; C# Script から「 Gravity_Logic 」という名前でスクリプトを新規作成する。Gravity_Logic を　Player　にアタッチする。Gravity_Logicに以下のコードをコピペする。・宣言部分コメントアウトしている説明そのままです。特に解説する必要はないでしょう。
+Normal_vecにゼロベクトルを代入し、初期化しています。（開始後数フレームの間Normal_vecに何も入っていない（わけのわからない数）が代入されてしまうのを防ぐためです。）・Start関数部分一行目では Player の Rigidbody であるrigにコンポーネント経由でPlayerのRigidbodyを格納しています。二行目・三行目では実装・その１の6番目7番目で行った設定を念のためスクリプト側からも設定しています。四行目では、このスクリプトがアタッチされているオブジェクトのTransformをmyTransformに格納しています。・Update関数部分一行目では Attract関数 を呼び出しています。Attract関数 は重力とPlayerの回転について制御する関数です。二行目では RayTest関数 を呼び出しています。RayTest関数 は Attract関数 内で使用されるNormal_vec にRayが接触したポリゴンの法線を格納する役割を持ちます。・Attract関数内部一行目では、gravityUpというVector3型の変数にNormal_vecを代入しています。GravityUpという分かりやすい名前にしたかったので代入しました。意味としては重力の逆ベクトルを表しています。二行目では、bodyUpというVector3型の変数にmyTransform.upを代入しています。
+こちらも分かりやすい名前にしたかったので代入しました。意味としてはPlayerオブジェクトからみた頭上のベクトルを表しています。三行目では、コンポーネント経由でmyTransformからRigidbodyを参照し、AddForceで力を加えています。
+力を加える向きは先ほど指定したgravityUpで、力の大きさはGravityです。この引数からわかる通り、Gravityは負の数で指定する必要があります。四行目では、Quaternion.FromToRotationを用いてQuaternionを生成しています。
+自身がどれだけ回転しているかという情報をmyTransform.rotationで表し加算しています。つまり現在の姿勢からどれだけ回転させるかを計算しtargetRotationに格納しています。五行目では、Quaternion.Lerpを用いて第一引数と第二引数の間の角度を第三引数で指定した秒数で「線形補間」しながら回転させています。五行目でQuaternion.Lerpを用いて回転させていましたが、「線形補間」のほかに「球面補間」というものがあります。「線形補間」は直線を意識した回転を。
+「球面補間」は球面に沿うような回転をします。より詳しい解説はこちらの記事↓からどうぞ！【Unity入門】LerpとSlerpの使い方と違い!自在に補間をかけよう
+ https://www.sejuku.net/blog/83510今回のプログラムではどちらを使っても特に違いは出ないと思います。ステージの形状の傾向などを考慮してお好みで変更してあげてください。順番が前後しますが先にRayTest関数の解説です。
+・RayTest関数部分一行目では、Choose_Planet関数 の戻り値を Planet に代入しています。
+Choose_Planet関数 をざっくり説明すると、Planetタグ を持っているオブジェクトで一番 Player に近いオブジェクトを返す関数です。二行目では、Direction にプレイヤーから見た惑星中心のベクトルを代入しています。三行目では、Rayを宣言しています。Rayの発射地点はPlayerの座標で、Rayを飛ばす方向はDirectionです。四行目では、Rayが当たったオブジェクトの情報を入れるhitを宣言しています。五行目以降では、Rayがオブジェクトに接触した際の処理を書いています。
+Rayが接触したオブジェクトのタグがPlanetである場合にRayが接触した惑星のポリゴンの法線（hit.normal）をNormal_vecに代入します。
+この代入をすることで、惑星の表面に沿ってPlayerが回転するようになります。
+なにげに重要な部分です笑順番が前後しましたがChoose_Planet関数の解説です。
+・Choose_Planet関数部分Choose_Planet関数はPlanetタグ を持っているオブジェクトで一番 Player に近いオブジェクトを返す関数です。アルゴリズムは有名なので解説は不要でしょう。
+C#には配列の最大値を返す便利な機能もありますが今回は使っていません。その機能を使えばコードはもう少し短くなると思います。さて、ここまできたら再生ボタンを押して実行してみましょう！Player が惑星( Planet )の側面に沿って歩くことが出来れば実装成功です！！注意！　ジャンプ力を表す変数 Jumppower は初期値では０に設定されています。お好みで変更してください。今回はUnityでマリオギャラクシーのように惑星の表面を歩くシステムを実装しました。これを機にゲーム技術への関心を持っていただけたら嬉しいです。長い記事になりましたがここまで読んでくれてありがとうございました。それではまた次の記事でお会いしましょう！お疲れさまでした。(´∇｀)Unity Tutorial: Planet Spherical Gravity (Multiple Planets!) - Super Mario Galaxy Movement
+https://www.youtube.com/watch?v=UeqfHkfPNh4&amp;t=164sHow Did They Do That - Mario Galaxy's Gravity
+https://www.youtube.com/watch?v=vALtyrp87mIUnityでのジャンプ【Rigidbody,CharacterControllerどちらも対応】
+https://getabakoclub.com/2019/12/01/unity%E3%81%A7%E3%81%AE%E3%82%B8%E3%83%A3%E3%83%B3%E3%83%97%E3%80%90rigidbodycharactercontroller%E3%81%A9%E3%81%A1%E3%82%89%E3%82%82%E5%AF%BE%E5%BF%9C%E3%80%91/#Rigidbody【Unity】Time.deltaTimeの正しい使い方わかってる？適当に掛ければいいてもんじゃない！
+https://qiita.com/toRisouP/items/930100e25e666494fcd6[Unity初心者Tips]どれが良いかわかる！ものを動かす方法はこうして決める
+https://qiita.com/JunShimura/items/ab243cbd29e63e4f27c5#%E6%96%B9%E6%B3%952iskinematic%E3%81%A8moveposition%E3%81%A7%E3%82%B4%E3%83%AA%E6%8A%BC%E3%81%97Twitter セガ公式アカウント クォータニオンとは何ぞや？
+https://twitter.com/SEGA_OFFICIAL/status/1404648102477262849XR-HU3 【Unity】Quaternionでオブジェクトを回転させる方法
+https://xr-hub.com/archives/11515SAMURAIENGINEER 【Unity入門】必ず分かる!一番簡単なQuaternionの使い方入門!
+https://www.sejuku.net/blog/55596クォータニオン (Quaternion) を総整理！ ～ 三次元物体の回転と姿勢を鮮やかに扱う ～
+https://qiita.com/drken/items/0639cf34cce14e8d58a5基礎線形代数講座 - 線形代数・回転の表現 - 株式会社 セガ 開発技術部
+https://www.slideshare.net/SEGADevTech/ss-249343092【Unity入門】LerpとSlerpの使い方と違い!自在に補間をかけよう
+ https://www.sejuku.net/blog/83510高校数学の基本問題　高卒～大学数学　行列の乗法の性質
+http://www.geisya.or.jp/~mwm48961/kou2/matrix3.htmlUnity DOCUMENTION Rigidbody.MovePosition
+https://docs.unity3d.com/ja/2018.4/ScriptReference/Rigidbody.MovePosition.htmlQiita [Unity初心者Tips]どれが良いかわかる！ものを動かす方法はこうして決める
+https://qiita.com/JunShimura/items/ab243cbd29e63e4f27c5弱火でじっくり [Unity] positionとMovePositionの違いを比べた
+https://yowabi.blogspot.com/2017/12/unity-positionmoveposition-rigidbody.html?m=1
+
+

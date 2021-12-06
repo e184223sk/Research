@@ -1,0 +1,146 @@
+
+//
+// 優先度１
+//
+
+// 整数値
+Matcher Number = '1'.To('9') + '0'.To('9')._0Max();
+//アルファベット
+Matcher Alphabet = ('A'.To('Z') | 'a'.To('z'));
+// 識別子
+Matcher Identifier = (Alphabet | '_') + (Alphabet | '0'.To('9') | '_')._0Max();
+
+// 「リテラル値式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher LiteralExp = new RecursionMatcher();
+
+// 「括弧式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher ParenExp = new RecursionMatcher();
+
+// 「代入可能式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher AssignableExp = new RecursionMatcher();
+
+// 「関数呼び出し式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher FunctionCallExp = new RecursionMatcher();
+
+// 「メンバアクセス式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher MemberAccessExp = new RecursionMatcher();
+
+// 「インデックスアクセス式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher IndexAccessExp = new RecursionMatcher();
+
+// 「後置デクリメント」のマッチャーを作る。(但し中身は空っぽ)
+Matcher PostDecrementExp = AssignableExp + "--";
+
+// 「後置インクリメント」のマッチャーを作る。(但し中身は空っぽ)
+Matcher PostIncrementExp = AssignableExp + "++";
+
+// 優先順位１式
+Matcher Priority1Exp = LiteralExp | Identifier | ParenExp | AssignableExp | 
+    FunctionCallExp | IndexAccessExp | MemberAccessExp | PostDecrementExp | PostIncrementExp ;
+
+
+//
+// 優先度２
+//
+
+// 「前置デクリメント」のマッチャーを作る。(但し中身は空っぽ)
+Matcher PreDecrementExp = "--" + AssignableExp;
+
+// 「前置インクリメント」のマッチャーを作る。(但し中身は空っぽ)
+Matcher PreIncrementExp = "++" + AssignableExp;
+
+// 「前置マイナス」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher PreMinusExp = new RecursionMatcher();
+
+// 「前置プラス」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher PrePlusExp = new RecursionMatcher();
+
+// 優先順位２式
+Matcher Priority2Exp = PreDecrementExp | PreIncrementExp | PreMinusExp | PrePlusExp ;
+
+// 優先順位２以上式
+Matcher PriorityAbove2Exp = Priority1Exp | Priority2Exp ;
+
+
+//
+// 優先度３
+//
+
+// 「乗除算式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher MulDivExp = new RecursionMatcher();
+
+// 優先順位３式
+Matcher Priority3Exp = MulDivExp ;
+
+// 優先順位３以上式
+Matcher PriorityAbove3Exp = PriorityAbove2Exp | Priority3Exp ;
+
+
+//
+// 優先度４
+//
+
+// 「加減算式」のマッチャーを作る。(但し中身は空っぽ)
+RecursionMatcher AddSubExp = new RecursionMatcher();
+
+// 優先順位４式
+Matcher Priority4Exp = AddSubExp ;
+
+// 優先順位４式
+Matcher PriorityAbove4Exp = PriorityAbove3Exp | Priority4Exp ;
+
+//
+// (優先順位の低い演算子を増やしたい場合はここに挿入する。)
+//
+
+// 式の全て
+Matcher Exp = PriorityAbove4Exp;
+
+//
+// 優先度９９９
+//
+
+// 代入演算文
+Matcher AssignStatement = AssignableExp + '=' + Exp;
+
+
+//
+// 以下、中身が未設定なマッチャーの中身を設定
+//
+
+// 括弧式の中身
+ParenExp.Inner = '(' + 
+    (
+    // 代入可能式を除く優先順位１式
+    LiteralExp | Identifier | ParenExp | FunctionCallExp | 
+    IndexAccessExp | MemberAccessExp | PostDecrementExp | PostIncrementExp |
+
+    // 優先順位２以下の全ての式
+    Priority2Exp | Priority3Exp | Priority4Exp
+    )
+     + ')';
+
+// 代入可能式の中身
+AssignableExp.Inner = Identifier | MemberAccessExp | IndexAccessExp | ( '(' + AssignableExp + ')' );
+
+// 関数呼び出し式の中身
+FunctionCallExp.Inner = (FunctionCallExp | IndexAccessExp | AssignableExp) + '(' + Exp._0Max(',') + ')';
+
+// インデックスアクセス式の中身
+IndexAccessExp.Inner = (FunctionCallExp | IndexAccessExp | AssignableExp) + '[' + Exp._1Max(',') + ']';
+
+// メンバアクセス式の中身
+MemberAccessExp.Inner = Priority1Exp + '.' + Identifier;
+
+// 前置マイナス式の中身
+PreMinusExp.Inner = '-' + (Priority1Exp | PreDecrementExp | PreIncrementExp | PrePlusExp);
+
+// 前置プラス式の中身
+PrePlusExp.Inner = '+' + (Priority1Exp | PreDecrementExp | PreIncrementExp | PreMinusExp);
+
+// 乗除算式の中身
+MulDivExp.Inner =  PriorityAbove3Exp + ('*'._() | '/') + PriorityAbove2Exp;
+
+// 加減算式の中身
+AddSubExp.Inner =  PriorityAbove4Exp + ('+'._() | '-') + PriorityAbove3Exp;
+

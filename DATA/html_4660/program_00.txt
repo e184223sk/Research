@@ -1,0 +1,84 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Data;
+using Npgsql;
+
+namespace DateTimeOffsetTestNpgsql
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            DateTime dateTimeLocal       = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Local      );
+            DateTime dateTimeUtc         = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Utc        );
+            DateTime dateTimeUnspecified = new DateTime(2018, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+
+            NpgsqlConnection conn = new NpgsqlConnection("Server=xxx.xxx.xxx.xxx;User Id=xxxx;Password=xxxx;Database=xxxx;Pooling=false;");
+            conn.Open();
+
+            using (NpgsqlCommand cmd = new NpgsqlCommand("DELETE FROM table1", conn))
+            {
+                cmd.ExecuteNonQuery();
+            }
+
+            using (NpgsqlCommand cmd = new NpgsqlCommand("INSERT INTO table1 (id, datetime_tz, datetime) VALUES (:id, :datetime_tz, :datetime)", conn))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter("id"         , NpgsqlTypes.NpgsqlDbType.Integer    , 0, "id"         ));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime_tz", NpgsqlTypes.NpgsqlDbType.TimestampTz, 0, "datetime_tz"));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime"   , NpgsqlTypes.NpgsqlDbType.Timestamp  , 0, "datetime"   ));
+                cmd.Parameters["id"         ].Value = 1;
+                cmd.Parameters["datetime_tz"].Value = dateTimeLocal;
+                cmd.Parameters["datetime"   ].Value = dateTimeLocal;
+                cmd.ExecuteNonQuery();
+            }
+            using (NpgsqlCommand cmd = new NpgsqlCommand("INSERT INTO table1 (id, datetime_tz, datetime) VALUES (:id, :datetime_tz, :datetime)", conn))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter("id"         , NpgsqlTypes.NpgsqlDbType.Integer    , 0, "id"         ));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime_tz", NpgsqlTypes.NpgsqlDbType.TimestampTz, 0, "datetime_tz"));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime"   , NpgsqlTypes.NpgsqlDbType.Timestamp  , 0, "datetime"   ));
+                cmd.Parameters["id"         ].Value = 2;
+                cmd.Parameters["datetime_tz"].Value = dateTimeUtc;
+                cmd.Parameters["datetime"   ].Value = dateTimeUtc;
+                cmd.ExecuteNonQuery();
+            }
+            using (NpgsqlCommand cmd = new NpgsqlCommand("INSERT INTO table1 (id, datetime_tz, datetime) VALUES (:id, :datetime_tz, :datetime)", conn))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter("id"         , NpgsqlTypes.NpgsqlDbType.Integer    , 0, "id"         ));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime_tz", NpgsqlTypes.NpgsqlDbType.TimestampTz, 0, "datetime_tz"));
+                cmd.Parameters.Add(new NpgsqlParameter("datetime"   , NpgsqlTypes.NpgsqlDbType.Timestamp  , 0, "datetime"   ));
+                cmd.Parameters["id"         ].Value = 3;
+                cmd.Parameters["datetime_tz"].Value = dateTimeUnspecified;
+                cmd.Parameters["datetime"   ].Value = dateTimeUnspecified;
+                cmd.ExecuteNonQuery();
+            }
+
+            using (NpgsqlCommand cmd = new NpgsqlCommand("SELECT id, datetime_tz, datetime FROM table1 ORDER BY id", conn))
+            {
+                using (NpgsqlDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.HasRows)
+                    {
+                        while (reader.Read())
+                        {
+                            var id          = reader["id"         ];
+                            var datetime_tz = reader["datetime_tz"];
+                            var datetime    = reader["datetime"   ];
+                            Console.WriteLine("id="          + id.ToString());
+                            Console.WriteLine("datetime_tz=" + datetime_tz.ToString() + " Kind=" + ((DateTime)datetime_tz).Kind.ToString());
+                            Console.WriteLine("datetime   =" + datetime   .ToString() + " Kind=" + ((DateTime)datetime   ).Kind.ToString());
+                            Console.WriteLine();
+                        }
+                    }
+                    reader.Close();
+                }
+            }
+
+            conn.Close();
+            Console.ReadKey();
+        }
+    }
+}
+

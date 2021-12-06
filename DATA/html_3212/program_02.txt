@@ -1,0 +1,731 @@
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+
+namespace Flow
+{
+    public class SyntaxVisitor : CSharpSyntaxWalker
+    {
+        private FlowGraph FlowGraph;
+        private List&lt;GraphNode&gt; UpstreamNodes { get; set; } = new List&lt;GraphNode&gt;();
+        private ScopeInfo&lt;GraphNode&gt; Scope;
+        private SyntaxNode _root;
+        public SyntaxVisitor(FlowGraph graph)
+        {
+            FlowGraph = graph;
+            Scope = new ScopeInfo&lt;GraphNode&gt;();
+        }
+
+        public SyntaxVisitor(FlowGraph graph, ScopeInfo&lt;GraphNode&gt; scope)
+        {
+            FlowGraph = graph;
+            Scope = scope;
+        }
+
+        public List&lt;GraphNode&gt; VisitSyntax(SyntaxNode root, List&lt;GraphNode&gt; upstreamNodes)
+        {
+            return VisitSyntax(root, upstreamNodes, "");
+        }
+        public List&lt;GraphNode&gt; VisitSyntax(SyntaxNode root, List&lt;GraphNode&gt; upstreamNodes, string edegLabel)
+        {
+            //想定としてupstreamNodesが複数要素になることは無いと思うがListとして扱う
+            if (UpstreamNodes == null)
+            {
+                UpstreamNodes = new List&lt;GraphNode&gt;();
+            }
+            else
+            {
+                UpstreamNodes = new List&lt;GraphNode&gt;(upstreamNodes);
+            }
+            if (edegLabel.Length &gt; 0)
+            {
+                foreach (GraphNode gNode in UpstreamNodes)
+                {
+                    gNode.TransitEdgeLabel = edegLabel;
+                }
+            }
+            if (root is SyntaxNode)
+            {
+                base.Visit(root);
+            }
+            return UpstreamNodes;
+        }
+
+        public List&lt;GraphNode&gt; VisitRootSyntax(SyntaxNode root)
+        {
+            var property = root.GetType().GetProperty("Body");
+            var body = (SyntaxNode)property.GetMethod.Invoke(root, new object[] {  });
+
+            _root = root;
+            GraphNode startNode = FlowGraph.CreateGraphNode(root, GetNodeLabeStatementPart(_root, false) + "\\nstart", "ellipse");
+            VisitSyntax(body, new List&lt;GraphNode&gt;() { startNode });
+            GraphNode endNode = FlowGraph.CreateGraphNode(body, "end", "ellipse");
+            UpstreamNodes = ConnectUpstreamNodes(endNode, UpstreamNodes, Param.connect_ReturnStatement);
+            return UpstreamNodes;
+        }
+
+        private void CreateEdge(GraphNode headNode)
+        {
+            if (UpstreamNodes != null)
+            {
+                foreach (GraphNode upstreamNode in UpstreamNodes)
+                {
+                    FlowGraph.AddEdge(upstreamNode, headNode, upstreamNode.TransitEdgeLabel);
+                }
+            }
+        }
+
+        private string GetDefaultNodeLabe(SyntaxNode node)
+        {
+            string commnet = GetNodeLabelCommentPart(node, true, false, true);
+            return commnet + (commnet.Length &gt; 0 ? "\\n" : "") + GetNodeLabeStatementPart(node, false);
+        }
+
+        private string GetNodeLabeStatementPart(SyntaxNode node, bool isAddKey = true)
+        {
+            string label;
+            if (node is IfStatementSyntax ||
+                node is ForStatementSyntax ||
+                node is WhileStatementSyntax ||
+                node is ForEachStatementSyntax ||
+                node is SwitchStatementSyntax ||
+                node is DoStatementSyntax)
+            {
+                var nodesTokens = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.IsToken);
+                var nodeToken = nodesTokens.ElementAt(0);
+                var parent = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.IsKind(SyntaxKind.OpenParenToken) || _.IsKind(SyntaxKind.CloseParenToken));
+                int st = parent.First().SpanStart - node.SpanStart;
+                int en = parent.Last().SpanStart - parent.First().SpanStart + 1;
+                int bcount = 0;
+                foreach (var p in parent)
+                {
+                    if (p.IsKind(SyntaxKind.OpenParenToken))
+                    {
+                        bcount++;
+                    }
+                    else if (p.IsKind(SyntaxKind.CloseParenToken))
+                    {
+                        bcount--;
+                        if (bcount == 0)
+                        {
+                            en = p.SpanStart - parent.First().SpanStart + 1;
+                            break;
+                        }
+                    }
+                }
+                label = nodeToken.ToString() + node.ToString().Substring(st, en);
+            }
+            else if (node is MethodDeclarationSyntax methodDecl)
+            {
+                label = methodDecl.Identifier.ToString();
+            }
+            else if (node is LocalFunctionStatementSyntax funcDecl)
+            {
+                label = funcDecl.Identifier.ToString();
+            }
+            else if (node is ConstructorDeclarationSyntax constructorDecl)
+            {
+                label = constructorDecl.Identifier.ToString();
+            }
+            else
+            {
+                label = node.ToString();
+            }
+            return (isAddKey ? node.Kind() + ":" : "") + label;
+        }
+
+        private string GetNodeLabelCommentPart(SyntaxNode node, bool singleLineComment, bool multiLineComment = false, bool narrowRange = true)
+        {
+            int endOfLine = 0;
+            StringBuilder sb = new StringBuilder("");
+            var nodesOrTokens = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.HasLeadingTrivia || _.IsToken);
+            if (nodesOrTokens.Count() &gt; 0)
+            {
+                var leadingTrvia = nodesOrTokens.First().GetLeadingTrivia();
+                for (var i = leadingTrvia.Count - 1; i &gt;= 0; i--)
+                {
+                    var tr = leadingTrvia[i];
+                    if (tr.IsKind(SyntaxKind.EndOfLineTrivia))
+                    {
+                        if (narrowRange &amp;&amp; endOfLine &gt; 0)
+                        {
+                            break;
+                        }
+                        endOfLine++;
+                    }
+                    if ((singleLineComment &amp;&amp; tr.Kind() == SyntaxKind.SingleLineCommentTrivia))
+                    {
+                        string str = leadingTrvia[i].ToString();
+                        str = Regex.Replace(str, "^//[( |\t|)]*", "");
+                        sb.Insert(0, str + (sb.Length &gt; 0 ? "\\n" : ""));
+                        endOfLine = 0;
+                    }
+                    if ((multiLineComment &amp;&amp; tr.Kind() == SyntaxKind.MultiLineCommentTrivia))
+                    {
+                        string str = leadingTrvia[i].ToString();
+                        string[] strLines = leadingTrvia[i].ToString().Split('\n');
+                        for (var j = strLines.Length - 1; j &gt;= 0; j--)
+                        {
+                            string strl = strLines[j];
+                            if (j == strLines.Length - 1)
+                            {
+                                strl = Regex.Replace(strl, "[( |\t|)]*\\*/$", "");
+                            }
+                            if (j == 0)
+                            {
+                                strl = Regex.Replace(strl, "^/\\*[( |\t|)]*", "");
+                            }
+                            if (j &gt; 0)
+                            {
+                                strl = Regex.Replace(strl, "^[( |\t|)]*\\*[( |\t|)]*", "");
+                            }
+                            sb.Insert(0, strl + (sb.Length &gt; 0 ? "\\n" : ""));
+                        }
+                        endOfLine = 0;
+                    }
+                }
+            }
+            return sb.ToString();
+        }
+
+        private bool IsAncesterdNode(SyntaxNode cand, SyntaxNode breakNode)
+        {
+            foreach (var ancester in breakNode.Ancestors(true))
+            {
+                if (ancester == cand)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool IsAncesterHasSameMember(SyntaxNode root, SyntaxNode gotoNode)
+        {
+            foreach (var ancester in gotoNode.Ancestors(true))
+            {
+                if (ancester == root)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public override void DefaultVisit(SyntaxNode node)
+        {
+            base.DefaultVisit(node);
+        }
+
+        public override void VisitLocalFunctionStatement(LocalFunctionStatementSyntax node)
+        {
+            SyntaxVisitor ast = new SyntaxVisitor(FlowGraph);
+            ast.VisitRootSyntax(node);
+        }
+
+        public override void VisitVariableDeclaration(VariableDeclarationSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_shortStatement);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+            base.DefaultVisit(node);
+        }
+
+        public override void VisitParenthesizedLambdaExpression(ParenthesizedLambdaExpressionSyntax node)
+        {
+            foreach (var ancester in node.Ancestors(true))
+            {
+                if (ancester is VariableDeclarationSyntax || ancester is ExpressionStatementSyntax)
+                {
+                    GraphNode ancGNode = FlowGraph.GetGraphNode(ancester);                    
+                    if (ancGNode != null)
+                    {
+                        Regex re = new Regex("{.*}", RegexOptions.Singleline);
+                        ancGNode.LabelName = re.Replace(ancGNode.LabelName, "{}");
+                        ancGNode.NodeShape = "hexagon";
+                    }
+                }
+            }
+            UpstreamNodes = ConnectProgeny(node.Body, UpstreamNodes, "");
+        }
+
+        public override void VisitIfStatement(IfStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_kindAndStatement, Param.shape_diamond);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+            List&lt;GraphNode&gt; destList = ConnectProgeny(node.Statement, UpstreamNodes, "true");
+            destList.AddRange(ConnectProgeny(node.Else, UpstreamNodes, "false"));
+            UpstreamNodes = destList;
+        }
+
+        public override void VisitForStatement(ForStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_kindAndStatement, Param.shape_hexagon);
+            List&lt;GraphNode&gt; destNoeds = ConnectProgeny(node.Statement, new List&lt;GraphNode&gt; { gNode }, "true");
+            UpstreamNodes.AddRange(destNoeds);
+            //ループ脱出
+            gNode.TransitEdgeLabel = "false";
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.connect_ContinueStatement, Param.join_BreakStatement);
+        }
+
+        public override void VisitDoStatement(DoStatementSyntax node)
+        {
+            //無理やりdoノードを表示する
+            var doNode = CreateGraphNoed(node, "do", Param.shape_circle);
+            var gNode = CreateGraphNoed(node.Condition, Param.label_statement, Param.shape_hexagon);
+            UpstreamNodes.Add(gNode);
+            UpstreamNodes = ConnectUpstreamNodes(doNode, UpstreamNodes);
+            UpstreamNodes = ConnectProgeny(node.Statement, UpstreamNodes);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.shape_hexagon, Param.connect_ContinueStatement, Param.join_BreakStatement);
+
+            //doノードを表示しない
+            //var gNode = CreateGraphNoed(node, Param.expression_kindAndStatement, Param.shape_hexagon);
+            //TailNodes.Add(gNode);
+            //TailNodes = ConnectProgeny(node.Statement, TailNodes);
+            //TailNodes = ConnectTailNodes(gNode, TailNodes, Param.shape_hexagon, Param.connect_ContinueStatement, Param.connect_BreakStatement);
+        }
+
+        public override void VisitSwitchStatement(SwitchStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_kindAndStatement, Param.shape_hexagon);
+            List&lt;GraphNode&gt; switchNode = new List&lt;GraphNode&gt;() { gNode };
+            List&lt;GraphNode&gt; terminalNoedsList = new List&lt;GraphNode&gt;();
+            foreach (var section in node.Sections)
+            {
+                terminalNoedsList.AddRange(ConnectProgeny(section, switchNode, section.Labels.ToString()));
+            }
+            terminalNoedsList.AddRange(ConnectUpstreamNodes(gNode, UpstreamNodes, Param.join_BreakStatement));
+            //Switch文からのEdgeは無いはずなので削除します
+            terminalNoedsList.RemoveAt(0);
+            UpstreamNodes = terminalNoedsList;
+        }
+
+        public override void VisitForEachStatement(ForEachStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_kindAndStatement, Param.shape_hexagon);
+            List&lt;GraphNode&gt; destNoeds = ConnectProgeny(node.Statement, new List&lt;GraphNode&gt; { gNode });
+            UpstreamNodes.AddRange(destNoeds);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.shape_hexagon, Param.connect_ContinueStatement, Param.join_BreakStatement);
+        }
+
+        public override void VisitWhileStatement(WhileStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_kindAndStatement, Param.shape_hexagon);
+            List&lt;GraphNode&gt; destNoeds = ConnectProgeny(node.Statement, new List&lt;GraphNode&gt; { gNode }, "true");
+            UpstreamNodes.AddRange(destNoeds);
+            gNode.TransitEdgeLabel = "false";
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.shape_hexagon, Param.connect_ContinueStatement, Param.join_BreakStatement);
+            if (node.Condition.Kind() == SyntaxKind.TrueLiteralExpression)
+            {
+                UpstreamNodes.Remove(gNode);
+            }
+        }
+
+        public override void VisitGotoStatement(GotoStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.link_none);
+        }
+
+        public override void VisitTryStatement(TryStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, "Try", Param.shape_Mdiamond);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+            List&lt;GraphNode&gt; downstreamNodes = ConnectProgeny(node.Block, UpstreamNodes);
+            gNode.TransitEdgeLabel = "catch";
+            List&lt;GraphNode&gt; catchDownstream = new List&lt;GraphNode&gt;();
+            foreach (var catchSyntax in node.Catches)
+            {
+                catchDownstream.AddRange(ConnectProgeny(catchSyntax, UpstreamNodes));
+            }
+            downstreamNodes.AddRange(catchDownstream);
+            UpstreamNodes = downstreamNodes;
+            if (node.Finally != null)
+            {
+                //finallyノードを作る場合
+                UpstreamNodes = ConnectProgeny(node.Finally.Block, UpstreamNodes, "finally");
+            }
+        }
+
+        public override void VisitLabeledStatement(LabeledStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+        }
+
+        public override void VisitBreakStatement(BreakStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.link_none);
+        }
+
+        public override void VisitContinueStatement(ContinueStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.link_none);
+        }
+
+        public override void VisitExpressionStatement(ExpressionStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+            base.DefaultVisit(node);
+        }
+
+        public override void VisitReturnStatement(ReturnStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes, Param.link_none);
+        }
+
+        public override void VisitUsingStatement(UsingStatementSyntax node)
+        {
+            var gNode = CreateGraphNoed(node, Param.label_key, Param.label_shortStatement);
+            UpstreamNodes = ConnectUpstreamNodes(gNode, UpstreamNodes);
+            UpstreamNodes = ConnectProgeny(node.Statement, UpstreamNodes);
+        }
+
+        private enum Param
+        {
+            comment_wide,
+            comment_medium,
+            comment_nallow,
+            label_key,
+            label_statement,
+            label_shortStatement, //｛以降は無視
+            label_noInnerBlock,
+            label_kindAndStatement,
+            label_none,
+            edgeLabel_center,
+            edgeLabel_tail,
+            connect_ContinueStatement,
+            connect_ReturnStatement,
+            join_BreakStatement,
+            direct_child,
+            shape_rect,
+            shape_ellipse,
+            shape_diamond,
+            shape_hexagon,
+            shape_circle,
+            shape_point,
+            shape_Mdiamond,
+            link_replace,
+            link_pass,
+            link_none
+        }
+
+        private IEnumerable&lt;Param&gt; GetParameters(params Param[] opts)
+        {
+            List&lt;Param&gt; paramList = new List&lt;Param&gt;(opts);
+            paramList.AddRange(defaultOpts.Where(x =&gt; !paramList.Any(y =&gt; x.ToString().StartsWith(y.ToString().Substring(0, y.ToString().IndexOf("_") + 1)))).ToList());
+            return paramList;
+        }
+
+        private Param[] defaultOpts = {
+            Param.comment_nallow,
+            Param.label_statement,
+            Param.edgeLabel_center,
+            Param.shape_rect,
+            Param.link_replace
+            };
+
+        private GraphNode CreateGraphNoed(SyntaxNode node, params Param[] args)
+        {
+            return CreateGraphNoed(node, "", args);
+        }
+
+        private GraphNode CreateGraphNoed(SyntaxNode node, string label = "", params Param[] args)
+        {
+            var allOpts = GetParameters(args);
+            string _label = label;
+            if (_label == string.Empty)
+            {
+                if (allOpts.Contains(Param.label_none))
+                {
+                    _label = string.Empty;
+                }
+                else
+                {
+                    _label = DefaultNodeLabel(node, allOpts);
+                }
+            }
+            string nodeShape = allOpts.First(x =&gt; x.ToString().StartsWith("shape_")).ToString().Replace("shape_", ""); ;
+            return FlowGraph.CreateGraphNode(node, _label, nodeShape);
+        }
+
+        private List&lt;GraphNode&gt; ConnectUpstreamNodes(GraphNode gNode, List&lt;GraphNode&gt; tailNodes, params Param[] args)
+        {
+            var allOpts = GetParameters(args);
+            var bandleNodes = new List&lt;GraphNode&gt;(tailNodes);
+            //goto受付
+            if (gNode.AstNode is LabeledStatementSyntax labelNode)
+            {
+                bandleNodes.AddRange(GotoNoeds(labelNode));
+            }
+            //return受付
+            if (allOpts.Contains(Param.connect_ReturnStatement))
+            {
+                bandleNodes.AddRange(JumpInNodes(gNode.AstNode, "ReturnStatement"));
+            }
+            //continue受付
+            if (allOpts.Contains(Param.connect_ContinueStatement))
+            {
+                bandleNodes.AddRange(JumpInNodes(gNode.AstNode, "ContinueStatement"));
+            }
+            //リンク作成
+            foreach (GraphNode tailNode in bandleNodes)
+            {
+                FlowGraph.AddEdge(tailNode, gNode, tailNode.TransitEdgeLabel);
+            }
+            //下流へ渡すノード作成
+            if (allOpts.Any(x =&gt; x == Param.direct_child))
+            {
+                bandleNodes = new SyntaxVisitor(FlowGraph,Scope).VisitSyntax(gNode.AstNode, tailNodes);
+            }
+            else
+            {
+                if (allOpts.Contains(Param.link_replace))
+                {
+                    bandleNodes.Clear();
+                    bandleNodes.Add(gNode);
+                }
+                else if (allOpts.Contains(Param.link_none))
+                {
+                    bandleNodes.Clear();
+                    Scope.KeywordNodes[gNode.AstNode.Kind().ToString()].Add(gNode);
+                }
+            }
+            //break受付
+            if (allOpts.Contains(Param.join_BreakStatement))
+            {
+                bandleNodes.AddRange(JumpInNodes(gNode.AstNode, "BreakStatement"));
+            }
+
+            return bandleNodes;
+        }
+
+        private List&lt;GraphNode&gt; ConnectProgeny(SyntaxNode node, List&lt;GraphNode&gt; tailNodes, string edgeLabel, params Param[] args)
+        {
+            var allOpts = GetParameters(args);
+            var bandleNodes = new List&lt;GraphNode&gt;(tailNodes);
+            //continue受付
+            if (allOpts.Contains(Param.connect_ContinueStatement))
+            {
+                bandleNodes.AddRange(JumpInNodes(node, "ContinueStatement"));
+            }
+            bandleNodes = new SyntaxVisitor(FlowGraph,Scope).VisitSyntax(node, tailNodes, edgeLabel);
+            return bandleNodes;
+        }
+
+        private List&lt;GraphNode&gt; ConnectProgeny(SyntaxNode node, List&lt;GraphNode&gt; tailNodes, params Param[] args)
+        {
+            return ConnectProgeny(node, tailNodes, string.Empty, args);
+        }
+
+        private IEnumerable&lt;GraphNode&gt; GotoNoeds(LabeledStatementSyntax labelNode)
+        {
+            var gotoNodes = new List&lt;GraphNode&gt;();
+            var gotoList = Scope.KeywordNodes["GotoStatement"];
+            for (int i = gotoList.Count - 1; i &gt;= 0; i--)
+            {
+                var bNode = gotoList.ElementAt(i);
+                if (IsAncesterHasSameMember(_root, bNode.AstNode))
+                {
+                    ExpressionSyntax expr = ((GotoStatementSyntax)bNode.AstNode).Expression;
+                    if (((IdentifierNameSyntax)expr).Identifier.ToString() == labelNode.Identifier.ToString())
+                    {
+                        gotoNodes.Add(bNode);
+                        gotoList.Remove(bNode);
+                    }
+                }
+            }
+            return gotoNodes;
+        }
+
+        private IEnumerable&lt;GraphNode&gt; JumpInNodes(SyntaxNode node, string key)
+        {
+            var jumpNodes = new List&lt;GraphNode&gt;();
+            for (int i = Scope.KeywordNodes[key].Count - 1; i &gt;= 0; i--)
+            {
+                var bNode = Scope.KeywordNodes[key].ElementAt(i);
+
+                if (IsAncesterdNode(node, bNode.AstNode))
+                {
+                    jumpNodes.Add(bNode);
+                    Scope.KeywordNodes[key].Remove(bNode);
+                }
+            }
+            return jumpNodes;
+        }
+
+        private string DefaultNodeLabel(SyntaxNode node, IEnumerable&lt;Param&gt; opts)
+        {
+            string commnet = NodeLabelCommentPart(node, opts);
+            return commnet + (commnet.Length &gt; 0 ? "\\n" : "") + NodeLabeStatementPart(node, opts);
+        }
+
+        private string NodeLabeStatementPart(SyntaxNode node, IEnumerable&lt;Param&gt; allOpts)
+        {
+            var condTypes = new List&lt;Type&gt;() {
+                typeof(IfStatementSyntax),
+                typeof(ForStatementSyntax),
+                typeof(WhileStatementSyntax),
+                typeof(ForEachStatementSyntax),
+                typeof(SwitchStatementSyntax),
+                typeof(DoStatementSyntax),
+                typeof(UsingStatementSyntax)
+            };
+            var keyStr = string.Empty;
+            var nodesTokens = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.IsToken);
+            var nodeToken = nodesTokens.ElementAt(0);
+            if (allOpts.Contains(Param.label_key))
+            {
+                keyStr = nodeToken.ToString();
+            }
+            else if (allOpts.Contains(Param.label_kindAndStatement))
+            {
+                if (node is DoStatementSyntax doStatement)
+                {
+                    keyStr = doStatement.WhileKeyword.ToString();
+                }
+                else
+                {
+                    keyStr = nodeToken.ToString();
+                }
+            }
+            string statementStr = string.Empty;
+            if (allOpts.Contains(Param.label_kindAndStatement) || allOpts.Contains(Param.label_shortStatement) || allOpts.Contains(Param.label_statement) || allOpts.Contains(Param.label_noInnerBlock))
+            {
+                if (condTypes.Contains(node.GetType()))
+                {
+                    var parent = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.IsKind(SyntaxKind.OpenParenToken) || _.IsKind(SyntaxKind.CloseParenToken));
+                    if (parent.Count() &gt; 0)
+                    {
+                        int st = parent.First().SpanStart - node.SpanStart;
+                        int en = parent.Last().SpanStart - parent.First().SpanStart + 1;
+                        int bracketsCount = 0;
+                        foreach (var p in parent)
+                        {
+                            if (p.IsKind(SyntaxKind.OpenParenToken))
+                            {
+                                bracketsCount++;
+                            }
+                            else if (p.IsKind(SyntaxKind.CloseParenToken))
+                            {
+                                bracketsCount--;
+                                if (bracketsCount == 0)
+                                {
+                                    en = p.SpanStart - parent.First().SpanStart + 1;
+                                    break;
+                                }
+                            }
+                        }
+                        statementStr = node.ToString().Substring(st, en);
+                    }
+                    else
+                    {
+                        statementStr = node.ToString();
+                    }
+                }
+                else if (node is ConstructorDeclarationSyntax constructorDecl)
+                {
+                    statementStr = constructorDecl.Identifier.ToString();
+                }
+                else if (node is MethodDeclarationSyntax mesthodDecl)
+                {
+                    statementStr = mesthodDecl.Identifier.ToString();
+                }
+                else
+                {
+                    statementStr = node.ToString();
+                }
+                statementStr = Regex.Replace(statementStr, "[ |\t|;]*$", "");
+                if (allOpts.Contains(Param.label_noInnerBlock))
+                {
+                    Regex re = new Regex("{.*}", RegexOptions.Singleline);
+                    statementStr = re.Replace(statementStr, "{}");
+                }
+                if (allOpts.Contains(Param.label_shortStatement))
+                {
+                    statementStr = Regex.Replace(statementStr, "{.*$", "");
+                }
+            }
+            return keyStr + statementStr;
+        }
+
+        private string NodeLabelCommentPart(SyntaxNode node, IEnumerable&lt;Param&gt; allOpts)
+        {
+            if (!allOpts.Any(_ =&gt; _.ToString().StartsWith("comment_")))
+            {
+                return string.Empty;
+            }
+            int endOfLine = 0;
+            StringBuilder sb = new StringBuilder("");
+            var nodesOrTokens = node.DescendantNodesAndTokens(_ =&gt; true).Where(_ =&gt; _.HasLeadingTrivia || _.IsToken);
+            if (nodesOrTokens.Count() &gt; 0)
+            {
+                var leadingTrvia = nodesOrTokens.First().GetLeadingTrivia();
+                for (var i = leadingTrvia.Count - 1; i &gt;= 0; i--)
+                {
+                    var tr = leadingTrvia[i];
+                    if (tr.IsKind(SyntaxKind.EndOfLineTrivia))
+                    {
+                        if (allOpts.Contains(Param.comment_nallow) &amp;&amp; endOfLine &gt; 0)
+                        {
+                            break;
+                        }
+                        endOfLine++;
+                    }
+                    if ((allOpts.Contains(Param.comment_medium) || allOpts.Contains(Param.comment_nallow)) &amp;&amp; tr.Kind() == SyntaxKind.SingleLineCommentTrivia)
+                    {
+                        string str = leadingTrvia[i].ToString();
+                        str = Regex.Replace(str, "^//[( |\t|)]*", "");
+                        sb.Insert(0, str + (sb.Length &gt; 0 ? "\\n" : ""));
+                        endOfLine = 0;
+                    }
+                    if ((allOpts.Contains(Param.comment_wide) &amp;&amp; tr.Kind() == SyntaxKind.MultiLineCommentTrivia))
+                    {
+                        string[] strLines = leadingTrvia[i].ToString().Split('\n');
+                        for (var j = strLines.Length - 1; j &gt;= 0; j--)
+                        {
+                            string strl = strLines[j];
+                            if (j == strLines.Length - 1)
+                            {
+                                strl = Regex.Replace(strl, "[( |\t|)]*\\*/$", "");
+                            }
+                            if (j == 0)
+                            {
+                                strl = Regex.Replace(strl, "^/\\*[( |\t|)]*", "");
+                            }
+                            if (j &gt; 0)
+                            {
+                                strl = Regex.Replace(strl, "^[( |\t|)]*\\*[( |\t|)]*", "");
+                            }
+                            sb.Insert(0, strl + (sb.Length &gt; 0 ? "\\n" : ""));
+                        }
+                        endOfLine = 0;
+                    }
+                }
+            }
+            return sb.ToString();
+        }
+
+        public class ScopeInfo&lt;T&gt;
+        {
+            public Dictionary&lt;string, List&lt;T&gt;&gt; KeywordNodes { get; } = new Dictionary&lt;string, List&lt;T&gt;&gt;();
+            public ScopeInfo()
+            {
+                KeywordNodes["ReturnStatement"] = new List&lt;T&gt;();
+                KeywordNodes["BreakStatement"] = new List&lt;T&gt;();
+                KeywordNodes["GotoStatement"] = new List&lt;T&gt;();
+                KeywordNodes["ContinueStatement"] = new List&lt;T&gt;();
+            }
+        }
+    } 
+}
+

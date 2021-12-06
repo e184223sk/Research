@@ -1,0 +1,36 @@
+
+        // GET: Salaries
+        public async Task&lt;IActionResult&gt; Index(DateTime? dateFrom, DateTime? dateTo)
+        {
+            //return View(await _context.Salary.ToListAsync());
+
+            var refUrl = Request.Headers["Referer"].ToString();
+            var refUri = new System.Uri(refUrl);
+            if (refUri.Segments.Length &gt; 2 &amp;&amp; (refUri.Segments[2] == "Details/" || refUri.Segments[2] == "Edit/"))
+            {
+                dateFrom = TempData["CurrentFilterDateFrom"] as DateTime?;
+                dateTo = TempData["CurrentFilterDateTo"] as DateTime?;
+            }
+
+            TempData["CurrentFilterDateFrom"] = dateFrom?.ToString("yyyy-MM-dd") ?? (TempData["CurrentFilterDateFrom"] as DateTime?)?.ToString("yyyy-MM-dd");
+            TempData["CurrentFilterDateTo"] = dateTo?.ToString("yyyy-MM-dd") ?? (TempData["CurrentFilterDateTo"] as DateTime?)?.ToString("yyyy-MM-dd");
+
+            TempData.Keep();
+
+            var salaries = from s in _context.Salary select s;
+            salaries = salaries.Where(x =&gt; x.RegisterUser == (User.Identity.Name ?? "DUMMY"));
+
+            if (!(dateFrom == null) &amp;&amp; !(dateTo == null))
+            {
+                salaries = salaries.Where(x =&gt; x.PaymentDate &gt;= dateFrom &amp;&amp; x.PaymentDate &lt;= dateTo);
+            } else if (!(dateFrom == null))
+            {
+                salaries = salaries.Where(x =&gt; x.PaymentDate &gt;= dateFrom);
+            } else if (!(dateTo == null))
+            {
+                salaries = salaries.Where(x =&gt; x.PaymentDate &lt;= dateTo);
+            }
+
+            return View(await salaries.ToListAsync());
+        }
+

@@ -1,0 +1,295 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Profiling;
+
+public class script : MonoBehaviour
+{
+    /// &lt;summary&gt;指の状態&lt;/summary&gt;
+    private enum Finger
+    {
+        Zero = 0,
+        /// &lt;summary&gt;押している&lt;/summary&gt;
+        Hold,
+        /// &lt;summary&gt;押した&lt;/summary&gt;
+        Pressed,
+    }
+    /// &lt;summary&gt;キーの指定&lt;/summary&gt;
+    [Flags]
+    private enum Key
+    {
+        Zero = 0,
+        /// &lt;summary&gt;十字キー左下方向&lt;/summary&gt;
+        J1 = 0x00000001,
+        /// &lt;summary&gt;十字キー↓方向&lt;/summary&gt;
+        J2 = 0x00000002,
+        /// &lt;summary&gt;十字キー右下方向&lt;/summary&gt;
+        J3 = 0x00000004,
+        /// &lt;summary&gt;十字キー←方向&lt;/summary&gt;
+        J4 = 0x00000010,
+        /// &lt;summary&gt;十字キー真ん中&lt;/summary&gt;
+        J5 = 0x00000020,
+        /// &lt;summary&gt;十字キー→方向&lt;/summary&gt;
+        J6 = 0x00000040,
+        /// &lt;summary&gt;十字キー左上方向&lt;/summary&gt;
+        J7 = 0x00000100,
+        /// &lt;summary&gt;十字キー↑方向&lt;/summary&gt;
+        J8 = 0x00000200,
+        /// &lt;summary&gt;十字キー右上方向&lt;/summary&gt;
+        J9 = 0x00000400,
+        /// &lt;summary&gt;弱パンチ（ライトパンチ）&lt;/summary&gt;
+        LP = 0x00010000,
+        /// &lt;summary&gt;中パンチ（ミドルパンチ）&lt;/summary&gt;
+        MP = 0x00020000,
+        /// &lt;summary&gt;強パンチ（ハードパンチ）&lt;/summary&gt;
+        HP = 0x00040000,
+        /// &lt;summary&gt;弱キック（ライトキック）&lt;/summary&gt;
+        LK = 0x00100000,
+        /// &lt;summary&gt;中キック（ミドルキック）&lt;/summary&gt;
+        MK = 0x00200000,
+        /// &lt;summary&gt;強キック（ハードキック）&lt;/summary&gt;
+        HK = 0x00400000,
+    }
+
+    /// &lt;summary&gt;技のコマンド保持用&lt;/summary&gt;
+    private class MoveCommand
+    {
+        /// &lt;summary&gt;入力コマンドキー（enum Finger）&lt;/summary&gt;
+        public Finger DoFinger;
+        /// &lt;summary&gt;入力コマンドキー（enum Key）&lt;/summary&gt;
+        public Key InputKey;
+        /// &lt;summary&gt;次のコマンドキー受付猶予時間（最終コマンドは必ず0にすること）&lt;/summary&gt;
+        public int NextTime;
+        /// &lt;summary&gt;次のコマンドキー同時押し可否（最終コマンドは必ず0にすること）0はThisFrame判定 1はNextFrame判定&lt;/summary&gt;
+        public int SlipTime;
+    }
+    /// &lt;summary&gt;GC Alloc 対策用&lt;/summary&gt;
+    private static Key StaticInputKey;
+    private static int StaticNextTime;
+    private static int StaticSlipTime;
+    private static int StaticFrameCount;
+
+    /// &lt;summary&gt;技のコマンドリスト（二次元リスト）&lt;/summary&gt;
+    private List&lt;List&lt;MoveCommand&gt;&gt; MoveCommandList = new List&lt;List&lt;MoveCommand&gt;&gt;()
+    {
+        new List&lt;MoveCommand&gt;()
+        {
+            // 波動拳                    状態は押している         キーは左   次の入力は 6フレーム以内 次の入力同時押し不可NextFrame判定
+            new MoveCommand { DoFinger = Finger.Hold,    InputKey = Key.J2, NextTime =  6,            SlipTime = 1 },
+            // 波動拳                    状態は押している         キーは左下 次の入力は 6フレーム以内 次の入力同時押し不可NextFrame判定
+            new MoveCommand { DoFinger = Finger.Hold,    InputKey = Key.J3, NextTime =  6,            SlipTime = 1 },
+            // 波動拳                    状態は押している         キーは右   次の入力は 7フレーム以内 次の入力同時押し可能ThisFrame判定
+            new MoveCommand { DoFinger = Finger.Hold,    InputKey = Key.J6, NextTime =  7,            SlipTime = 0 },
+            // 波動拳                    状態は押した             キーはP    最後なので 0に必ずする   最後なので 0に必ずする
+            new MoveCommand { DoFinger = Finger.Pressed, InputKey = Key.HP, NextTime =  0,            SlipTime = 0 },
+        },
+    };
+
+    /// &lt;summary&gt;
+    /// InputGetKeyData追加処理。
+    /// Update()を毎フレームにてキー情報の更新のために1回呼ぶ。
+    /// &lt;/summary&gt;
+    /// 
+    /// Update()メソッド
+    /// 毎フレームにてキー情報の更新
+    /// 
+    /// 下記プロパティに各種状態を保持（読み取り専用）
+    /// 設定される数値は enum Key 参照
+    /// Hold          =  Input.GetKey
+    /// Pressed       =  Input.GetKeyDown
+    /// 
+    private class InputGetKeyDataForMoveCommand
+    {
+        public Key Hold    { get; private set; } = Key.Zero;
+        public Key Pressed { get; private set; } = Key.Zero;
+
+        public void Update()
+        {
+            //十字キーの状態を取得
+            float x = Input.GetAxisRaw("Horizontal");
+            float y = Input.GetAxisRaw("Vertical");
+            int joyStick = 5;
+            joyStick += (int)x;
+            joyStick += (int)y * 3;
+
+            //十字キーおよびパンチキックの"押している"状態を変数に設定
+            Hold = Key.Zero;
+            if (joyStick == 1) Hold |= Key.J1;
+            if (joyStick == 2) Hold |= Key.J2;
+            if (joyStick == 3) Hold |= Key.J3;
+            if (joyStick == 4) Hold |= Key.J4;
+            if (joyStick == 5) Hold |= Key.J5;
+            if (joyStick == 6) Hold |= Key.J6;
+            if (joyStick == 7) Hold |= Key.J7;
+            if (joyStick == 8) Hold |= Key.J8;
+            if (joyStick == 9) Hold |= Key.J9;
+            if (Input.GetKey(KeyCode.I)) Hold |= Key.LP;
+            if (Input.GetKey(KeyCode.O)) Hold |= Key.MP;
+            if (Input.GetKey(KeyCode.P)) Hold |= Key.HP;
+            if (Input.GetKey(KeyCode.J)) Hold |= Key.LK;
+            if (Input.GetKey(KeyCode.K)) Hold |= Key.MK;
+            if (Input.GetKey(KeyCode.L)) Hold |= Key.HK;
+
+            //パンチキックの"押した"状態を変数に設定
+            Pressed = Key.Zero;
+            if (Input.GetKeyDown(KeyCode.I)) Pressed |= Key.LP;
+            if (Input.GetKeyDown(KeyCode.O)) Pressed |= Key.MP;
+            if (Input.GetKeyDown(KeyCode.P)) Pressed |= Key.HP;
+            if (Input.GetKeyDown(KeyCode.J)) Pressed |= Key.LK;
+            if (Input.GetKeyDown(KeyCode.K)) Pressed |= Key.MK;
+            if (Input.GetKeyDown(KeyCode.L)) Pressed |= Key.HK;
+        }
+    }
+
+    /// &lt;summary&gt;InputGetKeyData追加処理用&lt;/summary&gt;
+    private InputGetKeyDataForMoveCommand InputGetKeyData = new InputGetKeyDataForMoveCommand();
+
+    /// &lt;summary&gt;
+    /// InputGetKeyDataの履歴保持用（極小版）
+    /// &lt;/summary&gt;
+    /// 以下を保持。
+    /// 何フレーム目の情報か
+    /// どのキーを押しているか
+    /// どのキーを押したか
+    private class InputGetKeyTinyHistory
+    {
+        public int FrameCount;
+        public Key Hold;
+        public Key Pressed;
+    }
+
+    /// &lt;summary&gt;InputGetKeyDataの履歴保持最大フレーム数&lt;/summary&gt;
+    private static readonly int InputGetKeyDataHistoryMax = 150;
+    /// &lt;summary&gt;InputGetKeyDataの履歴保持用（極小版）&lt;/summary&gt;
+    private List&lt;InputGetKeyTinyHistory&gt; InputGetKeyTinyHistoryList = new List&lt;InputGetKeyTinyHistory&gt;(InputGetKeyDataHistoryMax);
+    private InputGetKeyTinyHistory[]     InputGetKeyTinyHistoryData = new InputGetKeyTinyHistory[InputGetKeyDataHistoryMax];
+    private InputGetKeyTinyHistory       InputGetKeyTinyHistoryDataRow = null;
+
+    /// &lt;summary&gt;処理時間計測用のストップウォッチ&lt;/summary&gt;
+    private System.Diagnostics.Stopwatch DebugStopwatch1 = new System.Diagnostics.Stopwatch();
+    private System.Diagnostics.Stopwatch DebugStopwatch2 = new System.Diagnostics.Stopwatch();
+    private System.Diagnostics.Stopwatch DebugStopwatch3 = new System.Diagnostics.Stopwatch();
+
+    void Start()
+    {
+        // 技のコマンドリストの順序を反転
+        // 波動拳は下⇒右下⇒右⇒Pだが、
+        // 処理順はP⇒右⇒右下⇒下の順序で判定を行なうため反転。
+        foreach (List&lt;MoveCommand&gt; MoveCommandData in MoveCommandList) MoveCommandData.Reverse();
+
+        // InputGetKeyDataの履歴保持用のインスタンス作成
+        for (int i = 0; i &lt; InputGetKeyDataHistoryMax; ++i)
+        {
+            InputGetKeyTinyHistoryData[i] = new InputGetKeyTinyHistory();
+        }
+
+        // フレームレートの設定
+        Application.targetFrameRate = 60;
+    }
+
+    void Update()
+    {
+        // GC Alloc 等確認用プロファイラースタート
+        Profiler.BeginSample("check_GC_Alloc");
+
+        // 処理時間計測用のストップウォッチスタート
+        DebugStopwatch1.Restart();
+        DebugStopwatch1.Start();
+
+        // InputGetKeyData追加処理更新
+        InputGetKeyData.Update();
+
+        // InputGetKeyDataの履歴保持用に今回のフレームのキー情報を取得
+        int i = Time.frameCount % InputGetKeyDataHistoryMax;
+        InputGetKeyTinyHistoryData[i].FrameCount = Time.frameCount;
+        InputGetKeyTinyHistoryData[i].Hold = InputGetKeyData.Hold;
+        InputGetKeyTinyHistoryData[i].Pressed = InputGetKeyData.Pressed;
+        // InputGetKeyDataの履歴保持用Listが最大数以上の場合には先頭から順次削除
+        while (InputGetKeyTinyHistoryList.Count &gt;= InputGetKeyDataHistoryMax) InputGetKeyTinyHistoryList.RemoveAt(0);
+        // InputGetKeyDataの履歴保持用Listの末尾に今回のフレームのキー情報を追加
+        InputGetKeyTinyHistoryList.Add(InputGetKeyTinyHistoryData[i]);
+
+        // 技のコマンドリストを順次判定処理
+        // 本コードは波動拳だけなので1回転のみ
+        foreach (List&lt;MoveCommand&gt; MoveCommandData in MoveCommandList)
+        {
+            bool allow = false;
+            int  index = 0;
+
+            StaticFrameCount = Time.frameCount;
+
+            // 処理時間計測用のストップウォッチスタート
+            DebugStopwatch2.Restart();
+            DebugStopwatch2.Start();
+
+            // 技のコマンドのひとつひとつを順次判定処理
+            // 波動拳は下⇒右下⇒右⇒Pなので4回転
+            // foreach1回目はP 　の判定
+            // foreach2回目は右　の判定
+            // foreach3回目は右下の判定
+            // foreach4回目は下　の判定
+            foreach (MoveCommand record in MoveCommandData)
+            {
+                // GC Alloc 対策
+                StaticInputKey = record.InputKey;
+                StaticNextTime = record.NextTime;
+                StaticSlipTime = record.SlipTime;
+
+                // 処理時間計測用のストップウォッチスタート
+                DebugStopwatch3.Restart();
+                DebugStopwatch3.Start();
+
+                // 技のコマンドのひとつひとつを順次判定処理
+                // 波動拳は下⇒右下⇒右⇒Pなので4回判定
+                // foreach1回目はP 　の判定
+                // foreach2回目は右　の判定
+                // foreach3回目は右下の判定
+                // foreach4回目は下　の判定
+                InputGetKeyTinyHistoryDataRow = record.DoFinger switch
+                {
+                    Finger.Hold    =&gt; InputGetKeyTinyHistoryList.FindLast(row =&gt; ((StaticFrameCount - StaticNextTime) &lt;= row.FrameCount) &amp;&amp; (row.FrameCount &lt;= (StaticFrameCount - StaticSlipTime)) &amp;&amp; ((row.Hold    &amp; StaticInputKey) == StaticInputKey)),
+                    Finger.Pressed =&gt; InputGetKeyTinyHistoryList.FindLast(row =&gt; ((StaticFrameCount - StaticNextTime) &lt;= row.FrameCount) &amp;&amp; (row.FrameCount &lt;= (StaticFrameCount - StaticSlipTime)) &amp;&amp; ((row.Pressed &amp; StaticInputKey) == StaticInputKey)),
+                    _ =&gt; null
+                };
+
+                // 抽出データが存在する場合
+                if (InputGetKeyTinyHistoryDataRow != null)
+                {
+                    //次の判定用に判定用のStaticFrameCountを更新。allowを1にする。
+                    StaticFrameCount = InputGetKeyTinyHistoryDataRow.FrameCount;
+                    allow = true;
+                }
+                // 抽出データが存在しない場合は波動拳コマンド入力受付否認。
+                else
+                {
+                    allow = false;
+                    break;
+                }
+                index++;
+                // 処理時間計測用のストップウォッチストップ
+                if (DebugStopwatch3.IsRunning) DebugStopwatch3.Stop();
+            }
+            // 処理時間計測用のストップウォッチストップ
+            if (DebugStopwatch2.IsRunning) DebugStopwatch2.Stop();
+            // コマンド入力受付承認?
+            if (allow)
+            {
+                // Consoleデバック表示
+                Debug.Log($"{Time.frameCount}fr [判定所要時間]{DebugStopwatch2.ElapsedTicks,6:D}ticks, [受付承認技名]波動拳");
+            }
+            else if (index &gt; 0)
+            {
+                // Consoleデバック表示
+                Debug.Log($"{Time.frameCount}fr [判定所要時間]{DebugStopwatch2.ElapsedTicks,6:D}ticks, [受付否認技名]波動拳");
+            }
+        }
+        // 処理時間計測用のストップウォッチストップ
+        if (DebugStopwatch1.IsRunning) DebugStopwatch1.Stop();
+
+        // GC Alloc 等確認用プロファイラーストップ
+        Profiler.EndSample();
+    }
+}
+

@@ -1,0 +1,30 @@
+Windows 10のウィンドウキャプチャAPI (Windows.Graphics.Capture) を使うと、指定したウィンドウのキャプチャイメージを取得することができます。
+画面の取り込み - UWP applications | Microsoft Docs最小化されていない限り、他のウィンドウが上から重なっていたりしても問題なし。こんな感じで。
+しかしC++からは使えるっぽいけど、C#の方が書きやすいんだよな。
+UWPアプリだとセットアップが面倒なので、デスクトップアプリから使いたい。無理なのかな？
+いえいえ、大丈夫。このサンプル、実はC#のデスクトップアプリだよ！（マジで？）正確に言えば、WinRTを呼び出すためのラッパーライブラリをC++で書き、C#側から呼び出しています。
+概要は以前の記事をどうぞ。
+[C#] C++/WinRTのブリッジを作ってC#から呼び出す方法 - Qiitaこれを応用して、Windows 10のウィンドウキャプチャAPIをラッパーライブラリ化してみましょう。Visual Studio Installerからコンポーネントを追加インストールします。さらに、C++/WinRT開発のためのVSIXをインストールしておきます。
+C++/WinRT - Visual Studio Marketplace以下の内容を実行したソースコード一式をGitHubに置いておきます。手っ取り早く動作確認したい方はそちらをどうぞ。
+build1024/GraphicsCaptureCSharp: Sample of C# project using features of Windows.Graphics.Capture through a C++/WinRT bridge libraryまずは、Windows Runtime Component (C++/WinRT) プロジェクトを以下の設定で作ります。こうなっています。
+ラッパークラスの名前、Class ではあんまりなので、Capture に変えておきます。
+
+Capture.idl, Capture.cpp, Capture.h の中で、 Class と書いてあるところを全部 Capture に変えます。ClassT も CaptureT に変えます。
+そのままプロジェクトをビルドすると Capture.g.cpp が見つからない、といったエラーが出ますが、一度Visual Studioを終了し、再度このソリューションを開いて、プロジェクトをリビルドすると成功します。さらに、プロジェクトのプロパティ「構成プロパティ」→「C/C++」→「プリプロセッサ」と進み、「プリプロセッサの定義」に以下の2つを追加します（順番も大事です）。これを書かないと後々ハマることになります。DebugとReleaseの両方に追加するのをお忘れなく。必要なパッケージを追加します。
+プロジェクト名を右クリック→「NuGet パッケージの管理」から以下の2つを追加します。ここからの実装は↓の記事をかなり参考にしています。
+Windows 10のウィンドウキャプチャAPI - Qiita↓を参考に、実装に必要なヘッダファイルを書いていきます。
+examples/stdafx.h at master · opysky/examples · GitHub新しくヘッダファイルを追加します。中身は↓のコードをそのまま使います。
+examples/Direct3DHelper.h at master · opysky/examples · GitHubベースは↓です。
+examples/CaptureView.h at master · opysky/examples · GitHub元記事では CWindowImpl を継承してウィンドウのサブクラスとして実装し、そのウィンドウにキャプチャされた画像が描画されるようになっています。しかしこれではC#から使いにくいので、代わりにキャプチャ出力先のウィンドウハンドルをコンストラクタで受け取るようにします。キャプチャ対象のウィンドウ指定について、ピッカーを使用する点は同じですが、GraphicsCapturePicker や GraphicsCaptureItem オブジェクトをC#側に見せる必要はないので、「ピッカーを表示し、選択されたらそのウィンドウに対してキャプチャを開始する」というメソッドとして公開します。それが以下の部分です。IAsyncOperation 型のオブジェクトは、C#側では .AsTask() メソッドで Task オブジェクトに変換することにより await で待機できるようになります。WindowsRuntimeSystemExtensions.AsTask Method (System) | Microsoft Docsあとは、ウィンドウサイズの変更時に拡大率を再計算できるように Resize() メソッドを追加しました（これは今回の本筋からは若干外れます）。クラスの実装です。ベースは↓です。
+examples/CaptureView.cpp at master · opysky/examples · GitHubCapture::Capture(int64_t ownerHwnd) はキャプチャ内容の描画先ウィンドウを引数に取りますが、後述のidlファイルとの関係で int64_t にしてあります（内部では HWND などにキャストして用います）。先ほどの StartCaptureForPickedWindowAsync について、co_return で値を返すように書くことで、戻り値は IAsyncOperation&lt;T&gt; 型になります。このオブジェクトは前述のように、C#側で Task を介して await することができます。以下に例が載っています。
+C++/WinRT を使用した同時実行操作と非同期操作 - UWP applications | Microsoft DocsC#側から見えるインタフェースになります。もともと入っている内容を消して、以下のように書きます。int64_t 型は Int64 になり、bool 型は Boolean になります。ここまで来たら、プロジェクトをビルドしておきましょう。ビルドが通ればC++側はクリアです。今あるソリューション GraphicsCaptureCSharp に、新しいプロジェクトを追加します。「Windows フォーム アプリケーション (.NET Framework)」プロジェクトを作ります。「WPF アプリ」でもよいのですが、ウィンドウハンドルを得るのがちょっと面倒なので。このプロジェクト名を右クリック→「スタートアップ プロジェクトに設定」をしておきます。まず、ソリューションの構成マネージャから、C#側プロジェクトのプラットフォームを設定します。Any CPU のままだと動きません。32ビット向けの設定はこんな感じで追加します（x64も同様）。
+
+プロジェクトの「参照」を右クリック→「参照の追加」で「参照マネージャ」を開き、画面左側「プロジェクト」を選び、ブリッジライブラリである GraphicsCaptureBridge にチェックを入れます。
+また、画面下側の「参照」ボタンから、以下の3ファイルを順に追加します。次に、プロジェクト名を右クリック→「NuGet パッケージの管理」から以下のパッケージを追加します。
+パッケージを追加する時に「Packages.config」か「PackageReference」を選ぶ画面が出たら、「Packages.config」にしておきます。Form1 に Button と PictureBox を配置します。この PictureBox にキャプチャした画像を描画します。
+PitureBox の Anchor プロパティに Right と Bottom を追加して、ウィンドウサイズ変更時に自動的にリサイズさせるようにするとよいです。Form1 の中身は以下のようになります。コードをコピペする場合は、先にデザイナでイベントハンドラを追加してから行ってください。
+コメントにも書いていますが、GraphicsCaptureBridge.Capture(pictureBox1.Handle.ToInt64()); はウィンドウハンドルを使うため Load イベントに書いています。コンストラクタに書くと動きません。過去の記事でも書いたのですが、クラスの実装がどのDLLに入っているかを、C#側で明示的に指定しなければなりません。
+[C#] C++/WinRTのブリッジを作ってC#から呼び出す方法 - Qiitaプロジェクト名を右クリック→「追加」から、「アプリケーション マニフェスト ファイル (Windows のみ)」を追加します。
+追加した app.manifest の最後の方に以下の記述を追加します。C#プロジェクトをF5キーで実行してみましょう。動きましたか？[C#] C++/WinRTのブリッジを作ってC#から呼び出す方法 - Qiita もあわせてご覧ください。C#側 プロジェクトに追加すべき参照のどれかが足りないみたいです。IntelliSenseのエラーは C++側 のエラーとして出るので分かりにくい。C#側プロジェクトで、winmdファイルの参照が足りないみたいです。最小化されているウィンドウのキャプチャは取ることができません（他ウィンドウの後ろに隠れているだけなら問題なく取れます）。これはAPIの仕様なので、C++で開発している場合も同じ制約を受けます。
+
+

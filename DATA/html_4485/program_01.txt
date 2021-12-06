@@ -1,0 +1,128 @@
+
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Windows.UI.Notifications.Management;
+using Windows.Foundation.Metadata;
+using System.Collections.Generic;
+using Windows.UI.Notifications;
+using Windows.Foundation;
+using Windows.ApplicationModel.Background;
+
+namespace ConsoleApplication2
+{
+
+
+    class Program
+    {
+        static UserNotificationListener listener;
+        static int Main(string[] args)
+        {
+            //コンソールアプリケーションからAsyncを呼び出す大本はTaskを使用する;
+            return MainAsync().Result;
+        }
+
+
+
+        //AsyncなMain
+        private static async Task&lt;int&gt; MainAsync()
+        {
+            if (!ApiInformation.IsTypePresent("Windows.UI.Notifications.Management.UserNotificationListener"))
+            {
+                Console.WriteLine("IsTypePresent: NG");
+                return -1;
+            }
+            Console.WriteLine("IsTypePresent: OK");
+
+            // And request access to the user's notifications (must be called from UI thread)
+            listener = UserNotificationListener.Current;
+            UserNotificationListenerAccessStatus accessStatus = await listener.RequestAccessAsync();
+
+            Console.Write("accessStatus: ");
+            Console.WriteLine(accessStatus);
+
+            if (accessStatus != UserNotificationListenerAccessStatus.Allowed)
+            {
+                Console.WriteLine("アクセス拒否");
+                return -1;
+            }
+            Console.WriteLine("アクセス許可");
+
+
+            while (true)
+            {
+                newnotice();
+                Thread.Sleep(1000);
+            }
+
+            return 0;
+        }
+
+
+        private static void show(UserNotification u)
+        {
+            NotificationBinding toastBinding = u.Notification.Visual.GetBinding(KnownNotificationBindings.ToastGeneric);
+
+            if (toastBinding != null)
+            {
+                // And then get the text elements from the toast binding
+                IReadOnlyList&lt;AdaptiveNotificationText&gt; textElements = toastBinding.GetTextElements();
+
+                // Treat the first text element as the title text
+                string titleText = textElements.FirstOrDefault()?.Text;
+
+                // We'll treat all subsequent text elements as body text,
+                // joining them together via newlines.
+                string bodyText = string.Join("\n", textElements.Skip(1).Select(t =&gt; t.Text));
+
+                Console.Write("Title:");
+                Console.WriteLine(titleText);
+                Console.Write("Body:");
+                Console.WriteLine(bodyText);
+            }
+
+        }
+
+        static List&lt;uint&gt; notificationIds = new List&lt;uint&gt;(); //通知リスト
+        private static async void newnotice()
+        {
+            IReadOnlyList&lt;UserNotification&gt; userNotifications = await listener.GetNotificationsAsync(NotificationKinds.Toast);
+            List&lt;uint&gt; notificationIdsNow = new List&lt;uint&gt;();
+
+            //新しい通知を検出する
+            foreach (UserNotification n in userNotifications)
+            {
+                if (!notificationIds.Contains(n.Id))
+                {
+                    //新しい通知だ！
+                    Console.WriteLine("------------- Add! : " + n.Id + "------------- ");
+                    show(n);
+                    notificationIds.Add(n.Id);
+                }
+                //現在の通知を記録していく
+                notificationIdsNow.Add(n.Id);
+            }
+
+            //存在しなくなった通知を検出する
+            List&lt;uint&gt; removeIdList = new List&lt;uint&gt;();
+            foreach (uint id in notificationIds)
+            {
+                if (!notificationIdsNow.Contains(id))
+                {
+                    //消えた通知だ！
+                    Console.WriteLine("------------- Remove! : " + id + "------------- ");
+                    removeIdList.Add(id);
+                }
+            }
+
+            //foreach中に削除できないので一旦別のに入れて削除している
+            foreach (uint id in removeIdList)
+            {
+                notificationIds.Remove(id);
+            }
+        }
+    }
+}
+

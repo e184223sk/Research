@@ -1,0 +1,28 @@
+
+        public static async Task&lt;IEnumerable&lt;R&gt;&gt; ParallelForEachAsync&lt;T,R&gt;(this IReadOnlyList&lt;T&gt; items, int maxConcurrency, Func&lt;T, Task&lt;R&gt;&gt; action)
+        {
+            using (var semaphore = new SemaphoreSlim(maxConcurrency))
+            {
+                var tasks = new Task&lt;R&gt;[items.Count];
+                for (int i = 0; i &lt; items.Count; i++)
+                {
+                    tasks[i] = InvokeThrottledAction&lt;T,R&gt;(items[i], action, semaphore);
+                }
+
+                return await Task.WhenAll&lt;R&gt;(tasks.AsEnumerable());
+            }
+        }
+
+        static async Task&lt;R&gt; InvokeThrottledAction&lt;T, R&gt;(T item, Func&lt;T, Task&lt;R&gt;&gt; action, SemaphoreSlim semaphore)
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                return await action(item);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+

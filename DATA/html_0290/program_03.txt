@@ -1,0 +1,118 @@
+
+using Microsoft.Azure.Cosmos;
+using System;
+using System.Threading.Tasks;
+
+namespace Hoge
+{
+    public class Hoge
+    {
+        // CosmosDB エンドポイント
+        private static readonly string EndpointUri = "todo";
+        // プライマリキー 
+        private static readonly string PrimaryKey = "todo";
+
+        // CosmosDB クライアント
+        public CosmosClient cosmosClient;
+
+        // DB
+        public Database database;
+
+        // コンテナ 
+        public Container container;
+
+        // DB名 
+        private string databaseName = "todo";
+
+        // コンテナ名 
+        private string containerName = "todo";
+
+
+        public static async Task Main(string[] args)
+        {
+            try
+            {
+                Console.WriteLine("開始しています...\n");
+                Hoge app = new Hoge();
+
+                app.cosmosClient = new CosmosClient(EndpointUri, PrimaryKey);
+
+                // DBへ接続する、存在しなければDBを作成する
+                await app.CreateDatabaseAsync();
+                // コンテナへ接続する、存在しなければコンテナを作成する
+                await app.CreateContainerAsync();
+                // SQLを実行し、検索結果の取得と各UPDATEを実行する
+                await app.QueryAndUpdateItemsAsync();
+            }
+            catch (CosmosException de)
+            {
+                Exception baseException = de.GetBaseException();
+                Console.WriteLine("{0} error occurred: {1}", de.StatusCode, de);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Error: {0}", e);
+            }
+            finally
+            {
+                Console.WriteLine("終了しました、何かキーを押してください。");
+                Console.ReadKey();
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// DBの情報を取得、存在しなければDBを作成する
+        /// &lt;/summary&gt;
+        public async Task CreateDatabaseAsync()
+        {
+            this.database = await this.cosmosClient.CreateDatabaseIfNotExistsAsync(databaseName);
+            Console.WriteLine("Created Database: {0}\n", this.database.Id);
+        }
+
+        /// &lt;summary&gt;
+        /// コンテナの情報を取得、存在しなければコンテナを作成する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task CreateContainerAsync()
+        {
+            // コンテナ名とパーティションキーを指定する。
+            // 存在しなければ指定したコンテナ名とパーティションキーでコンテナが作成される
+            this.container = await this.database.CreateContainerIfNotExistsAsync(containerName, "/partitionKey");
+            Console.WriteLine("Created Container: {0}\n", this.container.Id);
+        }
+
+        /// &lt;summary&gt;
+        /// SQLを実行し、検索結果の取得と各UPDATEを実行する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public async Task QueryAndUpdateItemsAsync()
+        {
+            // クエリ、今回は全件検索
+            var sqlQueryText = "SELECT * FROM c ";
+
+            // クエリを実行する
+            QueryDefinition queryDefinition = new QueryDefinition(sqlQueryText);
+            FeedIterator&lt;dynamic&gt; queryResultSetIterator = 
+                                     this.container.GetItemQueryIterator&lt;dynamic&gt;(queryDefinition);
+
+
+            while (queryResultSetIterator.HasMoreResults)
+            {
+                FeedResponse&lt;dynamic&gt; currentResultSet = await queryResultSetIterator.ReadNextAsync();
+                foreach (var item in currentResultSet)
+                {
+                   // データを整形する
+                   item.Date = example(item);                    
+
+                   // ドキュメントを更新する
+                   await this.container.ReplaceItemAsync&lt;dynamic&gt;(
+                        item, 
+                        item.id.ToString(), 
+                        new PartitionKey(item.partitionKey.ToString())
+                   );
+                }
+            }
+        }
+    }
+}
+

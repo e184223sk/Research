@@ -1,0 +1,65 @@
+
+
+    /// &lt;summary&gt;TypeSafeEnumBase&lt;/summary&gt;
+    public class TypeSafeEnumBase&lt;TSelf, TKey&gt; where TSelf : TypeSafeEnumBase&lt;TSelf, TKey&gt;
+    {
+        /// &lt;summary&gt;Dictionary{Key, Value}&lt;/summary&gt;
+        private static readonly Dictionary&lt;TKey, TSelf&gt; KeyValueDictionary = new Dictionary&lt;TKey, TSelf&gt;();
+
+        static TypeSafeEnumBase()
+        {
+            // touch myself to initialize values
+            // without this, Count might be 0 on first time
+            var value =(typeof(TSelf).GetFields(BindingFlags.GetField | BindingFlags.Public | BindingFlags.Static |
+                                                BindingFlags.DeclaredOnly)
+                .Where(f =&gt; !f.IsLiteral)).FirstOrDefault()?.GetValue(null);
+        }
+
+        /// &lt;summary&gt;Initializes a new instance of the &lt;see cref="TypeSafeEnumBase{TSelf, TKey}" /&gt; class.&lt;/summary&gt;
+        /// &lt;param name="key"&gt;The key.&lt;/param&gt;
+        protected TypeSafeEnumBase(TKey key)
+         : this(key, key.ToString())
+        {
+        }
+
+        /// &lt;summary&gt;Initializes a new instance of the &lt;see cref="TypeSafeEnumBase{TSelf, TKey}"/&gt; class.&lt;/summary&gt;
+        /// &lt;param name="key"&gt;The key.&lt;/param&gt;
+        /// &lt;param name="name"&gt;The name.&lt;/param&gt;
+        protected TypeSafeEnumBase(TKey key, string name)
+        {
+            if (KeyValueDictionary.ContainsKey(key))
+            {
+                throw new ArgumentException($"The key [{key}] has been already registered.");
+            }
+
+            Key = key;
+            Name = name;
+
+            // Add {key, self} to dictionary
+            KeyValueDictionary.Add(key, this as TSelf);
+        }
+
+        /// &lt;summary&gt;Key&lt;/summary&gt;
+        public TKey Key { get; }
+
+        /// &lt;summary&gt;Name&lt;/summary&gt;
+        public string Name { get; }
+
+        /// &lt;summary&gt;AllValues&lt;/summary&gt;
+        public static IReadOnlyCollection&lt;TSelf&gt; Values =&gt; KeyValueDictionary.Values;
+
+        /// &lt;summary&gt;Count&lt;/summary&gt;
+        public static int Count =&gt; KeyValueDictionary.Count;
+
+        /// &lt;summary&gt;Get value by key&lt;/summary&gt;
+        /// &lt;param name="key"&gt;The key.&lt;/param&gt;
+        /// &lt;param name="defaultValue"&gt;The default value.&lt;/param&gt;
+        /// &lt;returns&gt;value&lt;/returns&gt;
+        public static TSelf FromKey(TKey key, TSelf defaultValue = null) 
+                      =&gt; KeyValueDictionary.TryGetValue(key, out var ret) ? ret : defaultValue;
+
+        /// &lt;summary&gt;Converts to string.&lt;/summary&gt;
+        /// &lt;returns&gt;A &lt;see cref="System.String" /&gt; that represents this instance.&lt;/returns&gt;
+        public override string ToString() =&gt; $" {Name}";
+    }
+

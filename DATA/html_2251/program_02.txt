@@ -1,0 +1,44 @@
+
+using System;
+using System.Linq;
+using UnityEditor;
+using System.Reflection;
+
+namespace MainWindowTitleModifier
+{
+    public class Solution1_Reflection
+    {
+        [MenuItem("MainWindowTitleModifier/Solution1_Reflection", priority = 1)]
+        static void Update()
+        {
+            // ApplicationTitleDescriptorのTypeを取得.
+            Type tEditorApplication = typeof(EditorApplication);
+            Type tApplicationTitleDescriptor = tEditorApplication.Assembly.GetTypes()
+                .First(x =&gt; x.FullName == "UnityEditor.ApplicationTitleDescriptor");
+
+            // 関係するイベントとメソッドのInfoを取得.
+            EventInfo eiUpdateMainWindowTitle = tEditorApplication.GetEvent("updateMainWindowTitle", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo miUpdateMainWindowTitle = tEditorApplication.GetMethod("UpdateMainWindowTitle", BindingFlags.Static | BindingFlags.NonPublic);
+
+            // Action&lt;object&gt;をAction&lt;ApplicationTitleDescriptor&gt;に変換.
+            Type delegateType = typeof(Action&lt;&gt;).MakeGenericType(tApplicationTitleDescriptor);
+            MethodInfo methodInfo = ((Action&lt;object&gt;)UpdateMainWindowTitle).Method;
+            Delegate del = Delegate.CreateDelegate(delegateType, null, methodInfo);
+
+            // UpdateMainWindowTitleを呼び出す前後にイベントの追加/削除.
+            eiUpdateMainWindowTitle.GetAddMethod(true).Invoke(null, new object[] { del });
+            miUpdateMainWindowTitle.Invoke(null, new object[0]);
+            eiUpdateMainWindowTitle.GetRemoveMethod(true).Invoke(null, new object[] { del });
+        }
+
+        static void UpdateMainWindowTitle(object desc)
+        {
+            // UnityEditor.ApplicationTitleDescriptor.title = "Solution1_Reflection"; と同様
+            typeof(EditorApplication).Assembly.GetTypes()
+                .First(x =&gt; x.FullName == "UnityEditor.ApplicationTitleDescriptor")
+                .GetField("title", BindingFlags.Instance | BindingFlags.Public)
+                .SetValue(desc, "Solution1_Reflection");
+        }
+    }
+}
+

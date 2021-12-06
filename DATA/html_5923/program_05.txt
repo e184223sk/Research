@@ -1,0 +1,63 @@
+
+        // COM のイベントに関連する enum も記載しておく。（後述の「イベント受信インターフェース記述の手順」を参照）
+        public enum LibStatus
+        {
+            LibStatus_Fatal = -1, // 0xFFFFFFFF
+            LibStatus_Unknown = 0,
+            LibStatus_Ready = 1,
+            LibStatus_Busy = 2,
+            LibStatus_Done = 3,
+            LibStatus_Error = 1000
+        }
+
+        // イベント受信インターフェース（後述の「イベント受信インターフェース記述の手順」を参照）
+        [TypeLibType(4096)]
+        [Guid("00000000-0000-0000-0000-000000000000")] // ← 具体的なイベントIF の ID を記載します
+        [InterfaceType(2)]
+        [ComImport]
+        public interface _IOutOfProcessSampleEvents
+        {
+            [DispId(1)]
+            [MethodImpl(MethodImplOptions.PreserveSig | MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime)]
+            void ClickIn([ComAliasName("stdole.OLE_XPOS_PIXELS")] int xCoord, [ComAliasName("stdole.OLE_YPOS_PIXELS")] int yCoord);
+
+            [DispId(2)]
+            [MethodImpl(MethodImplOptions.PreserveSig | MethodImplOptions.InternalCall, MethodCodeType = MethodCodeType.Runtime)]
+            void StatusChange(LibStatus Status);
+        }
+
+　　　　// イベント受信クラス（イベント受信インターフェースのラッパークラスを自前で実装します）
+       // 基本的にイベントインターフェース名やメソッドはインターフェースからそのまま持ってくればよいです。
+        [ClassInterface(ClassInterfaceType.None)]
+        public sealed class OutOfProcessEvents_SinkHelper : _IOutOfProcessSampleEvents
+        {
+            public MainWindow win = null;   // GUI にイベントを表示するための独自実装（無くてもよい）
+
+            public void ClickIn(int xCoord, int yCoord)
+            {
+                Debug.WriteLine("ClickIn {0}, {1}.", xCoord, yCoord);
+
+                // GUI にイベントを表示するための独自実装（無くてもよい） ===&gt;&gt;&gt;
+                Application.Current.Dispatcher.BeginInvoke(
+                      DispatcherPriority.Background,
+                      new Action(() =&gt; {
+                          win.ClickLabel.Content = String.Format("{0}, {1}", xCoord, yCoord);
+                      }));
+                // GUI にイベントを表示するための独自実装（無くてもよい） ===&lt;&lt;&lt;&lt;
+
+            }
+
+            public void StatusChange(LibStatus Status)
+            {
+                Debug.WriteLine("StatusChange : {0}", Status);
+
+                // GUI にイベントを表示するための独自実装（無くてもよい） ===&gt;&gt;&gt;
+                Application.Current.Dispatcher.BeginInvoke(
+                      DispatcherPriority.Background,
+                      new Action(() =&gt; {
+                          win.StatusLabel.Content = Status;
+                      }));
+                // GUI にイベントを表示するための独自実装（無くてもよい） ===&lt;&lt;&lt;&lt;
+            }
+        }
+

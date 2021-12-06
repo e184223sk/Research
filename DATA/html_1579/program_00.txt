@@ -1,0 +1,219 @@
+
+        [SerializeField] private GameObject CreateButtonObj;
+        [SerializeField] private GameObject DeleteButtonObj;
+        private GameObject objChild;
+
+        void Start()
+        {
+            // nullの場合エラーメッセージ出力
+            Debug.Assert(CreateButtonObj, "CreateButtonObj が null");
+            Debug.Assert(DeleteButtonObj, "DeleteButtonObj が null");
+
+            // Buttonコンポーネントにクリックイベント追加
+            CreateButtonObj.GetComponent&lt;Button&gt;().onClick.AddListener(OnClickCreateButton);
+            DeleteButtonObj.GetComponent&lt;Button&gt;().onClick.AddListener(OnClickDeleteButton);
+
+            // Resorcesフォルダからプレハブを取得
+            GameObject resourceButtonObj = Resources.Load("Button") as GameObject;
+            Debug.Assert(resourceButtonObj, "resourceButtonObj が null");
+            // 不要になったらリソースは開放する
+            // Resources.UnloadUnusedAssets();
+
+            // コールバック処理
+            System.Func&lt;GameObject, int&gt; callBack;
+            callBack = delegate (GameObject callObj)
+            {
+                Debug.Log("No Delet Obj");
+                return 1;
+            };
+
+            // 自身のオブジェクト取得
+            GameObject obj = this.gameObject;
+
+            // オブジェクトを検索して取得（非アクティブオブジェクトは検索できない）
+            // GameObject.Findは処理が重いのでなるべく使わないこと
+            GameObject canvas = GameObject.Find("Canvas");
+
+            // ルートオブジェクト取得
+            GameObject rootObj = this.transform.root.gameObject;
+
+            // シーンが移動しても消えないオブジェクトを登録
+            // シーンが呼ばれるごとに増えてしまうため登録するオブジェクトはシングルトンにする
+            DontDestroyOnLoad(rootObj);
+
+            // "cube"タグのついたオブジェクトをすべて格納
+            GameObject[] cubes = GameObject.FindGameObjectsWithTag("cube");
+            // "cube"タグのついたオブジェクトをすべて削除
+            foreach (GameObject cube in cubes) {
+                Destroy(cube);
+            }
+
+            // 孫オブジェクトを検索して取得（階層を/で指定）（非アクティブオブジェクトも検索可能）
+            objChild = this.gameObject.transform.Find("Viewport/Content").gameObject;
+
+            // 子オブジェクトの数取得
+            int a = objChild.transform.childCount;
+
+            // 子オブジェクトを複数取得
+            int number = 0;
+            foreach (Transform childTransform in objChild.transform)
+            {
+                GameObject child = childTransform.gameObject;
+
+                // Buttonコンポーネントの取得
+                Button button = child.GetComponent&lt;Button&gt;();
+                // Buttonコンポーネントにクリックイベント追加（引数あり）
+                button.onClick.AddListener(() =&gt; OnClickButton(child));
+
+                // Buttonのテキスト変更（番号順）
+                number++;
+                child.transform.GetComponentInChildren&lt;Text&gt;().text += number;
+            }
+        }
+
+        // Update is called once per frame
+        void Update()
+        {
+            // Find系の処理は重いのでUpdate内では使わないこと
+
+            // 現在選択中のオブジェクト（SetSelectedGameObject で変更できる）
+            Debug.Log(UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject);
+
+            // プラットフォームがアンドロイドかチェック
+            if (Application.platform == RuntimePlatform.Android)
+            {
+                // バックボタンのチェック
+                if (Input.GetKeyDown(KeyCode.Escape))
+                {
+                    // アプリケーション終了
+                    Application.Quit();
+                    return;
+                }
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// 新しいボタン追加
+        /// &lt;/summary&gt;
+        public void OnClickCreateButton()
+        {
+            // プレハブを元にオブジェクトを生成する
+            GameObject instance = Instantiate(resourceButtonObj, new Vector3(0.0f, 0.0f, 0.0f), Quaternion.identity);
+
+            // Buttonの色を変える
+            instance.GetComponent&lt;Image&gt;().color = new Color32(255, 0, 0, 128);
+
+            // 生成したオブジェクトを子として登録
+            instance.transform.SetParent(objChild.transform);
+        }
+
+        /// &lt;summary&gt;
+        /// 新しいボタン追加
+        /// &lt;/summary&gt;
+        public void OnClickCreateButtonMessage()
+        {
+            // メソッドを呼び出す（引数は１つだけ持たせられるが戻り値は持てない）
+            // 参照関係がわからなくなるためなるべく使用しない（非アクティブなオブジェクトにも使えない）
+            SendMessage("OnClickCreateButton");
+        }
+
+        /// &lt;summary&gt;
+        /// ボタンオブジェクトを破棄
+        /// &lt;/summary&gt;
+        public void OnClickDeleteButton(GameObject button)
+        {
+            // オブジェクトを破棄
+            Destroy(button);
+        }
+
+        /// &lt;summary&gt;
+        /// ボタンクリックイベント
+        /// &lt;/summary&gt;
+        /// &lt;param name="buttonObj"&gt;ボタンオブジェクト&lt;/param&gt;
+        public void OnClickButton(GameObject buttonObj)
+        {
+            // 同階層におけるオブジェクトの順序取得
+            int index = buttonObj.transform.GetSiblingIndex();
+            // 押されたボタンの名前出力
+            Debug.Log(buttonObj.name + " index : " + index);
+
+            if (index &lt; 10)
+            {
+                // 親オブジェクトを取得
+                GameObject parentObj = buttonObj.transform.parent.gameObject;
+
+                // 子オブジェクトの数取得
+                int childMax = parentObj.transform.childCount;
+
+                // Buttonオブジェクトの順序を一番下に移動（セットした時点で移動する）
+                // buttonObj.transform.SetAsLastSibling(); でもいい
+                buttonObj.transform.SetSiblingIndex(childMax - 1);
+            }
+            else
+            {
+                // Buttonオブジェクトの順序を一番上に移動（セットした時点で移動する）
+                // buttonObj.transform.SetAsFirstSibling(); でもいい
+                buttonObj.transform.SetSiblingIndex(0);
+            }
+
+            // スクロールバーをコルーチンを使って移動
+            StartCoroutine(ScrollDelay(index));
+        }
+
+        /// &lt;summary&gt;
+        /// ゆっくりスクロール
+        /// Animation使った方が滑らかなスクロールになるかも
+        /// &lt;/summary&gt;
+        /// &lt;param name="bar"&gt;Scrollbarコンポーネント&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private IEnumerator ScrollDelay(int index)
+        {
+            // 子オブジェクトを検索して取得
+            GameObject obj = this.gameObject.transform.Find("Scrollbar Vertical").gameObject;
+            // Scrollbarコンポーネント取得
+            Scrollbar bar = obj.GetComponent&lt;Scrollbar&gt;();
+
+            //コルーチンの内容
+            while (true)
+            {
+                // 0.01秒処理を待つ
+                yield return new WaitForSeconds(0.01f);
+
+                // 1フレーム待つ（フレーム時間によって時間が変わるので注意）
+                // yield return null;
+
+                if (index &lt; 10)
+                {
+                    // スクロールバーを徐々に1番下へ移動
+                    bar.value -= 0.2f;
+                }
+                else
+                {
+                    // スクロールバーを徐々に1番上へ移動
+                    bar.value += 0.2f;
+                }
+
+                if (bar.value &lt;= 0.0f || bar.value &gt;= 1.0f)
+                {
+                    // コルーチン終了
+                    yield break;
+                }
+            }
+        }
+
+
+        public void Link(string url)
+        {
+            // ブラウザでwebページを開く
+            Application.OpenURL(url);
+        }
+
+        // イメージファイルをダウンロードしてRawImageに表示
+        private IEnumerator DownloadImage(string url)
+        {
+            WWW www = new WWW(url);
+            yield return www;
+            RawImage img = GameObject.Find("WebRawImage").GetComponent&lt;RawImage&gt;();
+            img.texture = www.texture;
+        }
+

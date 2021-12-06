@@ -1,0 +1,72 @@
+
+using System.IO;
+using SharpCompress.Readers;
+using SharpCompress.Writers;
+using XZ.NET;
+
+var zipRootDir = @"C:\data\zip";
+var zipFiles = Directory.EnumerateFiles(zipRootDir, "*.zip", SearchOption.AllDirectories);
+
+var destRootDir = @"C:\data\tarxz";
+
+foreach (var zip in zipFiles)
+{
+    var destFileName = zip.Replace(zipRootDir, destRootDir).Replace(".zip", ".tar.xz");
+    var destDirectory = Path.GetDirectoryName(destFileName);
+    if (!Directory.Exists(destDirectory)) Directory.CreateDirectory(destDirectory);
+
+    using (var tarMs = new MemoryStream())
+    {
+        //Zip Read
+        var tmpdata = new List&lt;Tuple&lt;string, byte[], DateTime?&gt;&gt;();
+        using (var infs = new FileStream(zip, FileMode.Open, FileAccess.Read))
+        using (var zipReader = ReaderFactory.Open(infs, new ReaderOptions()))
+        {
+            while (zipReader.MoveToNextEntry())
+            {
+                if (!zipReader.Entry.IsDirectory)
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        using (var entryStream = zipReader.OpenEntryStream())
+                        {
+                            entryStream.CopyTo(ms);
+                        }
+                        var item = new Tuple&lt;string, byte[], DateTime?&gt;(zipReader.Entry.Key, ms.ToArray(), zipReader.Entry.ArchivedTime);
+                        tmpdata.Add(item);
+                    }
+                }
+            }
+        }
+
+        //Create Tar
+        using (var tarWriter = WriterFactory.Open(tarMs, SharpCompress.Common.ArchiveType.Tar,
+            new WriterOptions(SharpCompress.Common.CompressionType.None) { LeaveStreamOpen = true }))
+        {
+            foreach (var item in tmpdata)
+            {
+                using (var ms = new MemoryStream(item.Item2))
+                {
+                    tarWriter.Write(item.Item1, ms, DateTime.Now);
+                }
+            }
+        }
+        tarMs.Position = 0;
+
+        //Compress XZ
+        using (var outfs = new FileStream(destFileName, FileMode.Create, FileAccess.Write))
+        using (var xzStream = new XZOutputStream(outfs))
+        {
+            var buf = new byte[1 * 1024 * 1024];
+            var bytesRead = (long)0;
+
+            while (bytesRead &lt; tarMs.Length)
+            {
+                var count = tarMs.Read(buf, 0, buf.Length);
+                xzStream.Write(buf, 0, count);
+                bytesRead += count;
+            }
+        }
+    }
+}
+

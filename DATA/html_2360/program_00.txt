@@ -1,0 +1,107 @@
+using System;
+using UnityEngine;
+using UnityEditor;
+using System.Collections;
+using System.Collections.Generic;
+
+#if UNITY_EDITOR
+public class EditorWindowScript : EditorWindow{
+    [MenuItem("Editor/SceneEditWindow")]
+    private static void Create(){
+        // エディタウインドウ生成
+        GetWindow&lt;EditorWindowScript&gt;("SceneEditWindow");
+    }
+
+    //テキストフィールド用変数
+    string textField1 = "";
+    string textField2 = "";
+
+    void OnGUI(){
+        //エディタレイアウト
+        //２行開ける
+        EditorGUILayout.Space();
+        EditorGUILayout.Space();
+        //セーブ用テキストフィールド作成
+        textField1 = EditorGUILayout.TextField( "セーブするシーン名",textField1 );
+
+        using (new GUILayout.HorizontalScope()){
+            //セーブ用ボタン作成
+            if (GUILayout.Button("Save Scene")){
+                //Castle Object内のTag付きObjectを全てセーブします
+                GameObject castle = GameObject.Find("Castle");
+                //Resources内のCastleObjectData(ScriptableObject)をtextField1を用いてアクセス
+                CastleObjectData data = Resources.Load&lt;CastleObjectData&gt;("CastleObjectData/CastleObjectData"+textField1);
+                //すでに存在するデータ名であれば上書きして良いか警告する
+                if(data != null){
+                    //Canselボタンあり、OKかCanselかで処理分けする場合のUnityDialog
+                    bool b = EditorUtility.DisplayDialog("警告", "上書きしますか？?", "はい", "いいえ");
+                    if(!b) {
+                        //”いいえ”ならセーブに必要なTextField1をリセット
+                        textField1 = "";
+                    } 
+                }
+                Resources.UnloadUnusedAssets();
+
+                if(textField1!=""){
+                    //データ保存用CastleObjectData(ScriptableObject)を作成
+                    CastleObjectData castleObjectData = ScriptableObject.CreateInstance&lt;CastleObjectData&gt;();
+                    //Castle Object以下の全てのTag付きObjectのPosition,Rotation,ObjectType(Tag)を保存します。（形式についてはCastleObjectDataクラスを参照）(GetAllメソッドについてはGetAllChildrenクラスを参照)
+                    List&lt;GameObject&gt; list = GetAllChildren.GetAll(castle);
+                    foreach (GameObject obj in list) {
+                        ObjectInfo objectInfo = new ObjectInfo();
+                        if(obj.tag!="Untagged"){
+                            objectInfo.objectTransform = obj.transform.position;
+                            objectInfo.objectRotation  = obj.transform.rotation;
+                            objectInfo.objectType = obj.tag;
+
+                            castleObjectData.castleObjects.Add(objectInfo);
+                        }
+                    }
+                    //ファイル書き出し
+                    AssetDatabase.CreateAsset(castleObjectData, "Assets/Resources/CastleObjectData/CastleObjectData"+textField1+".asset");
+                }
+            }
+        }
+        //２行開ける
+        EditorGUILayout.Space();
+        EditorGUILayout.Space();
+        //ロード用テキストフィールド作成
+        textField2 = EditorGUILayout.TextField( "ロードするシーン名",textField2);
+
+        using (new GUILayout.HorizontalScope()){
+            //ロードボタン
+            if (GUILayout.Button("Load Scene")){
+                int prefabNum = 0;
+                GameObject castle = GameObject.Find("Castle");
+                //Canselボタンあり、OKかCanselかで処理分けする場合
+                bool b = EditorUtility.DisplayDialog("警告", "ロードしますか？?", "はい", "いいえ");
+                if(b) {
+                    //castle以下のObjectを取得（GetAllメソッドについてはGetAllChildrenクラスを参照）
+                    List&lt;GameObject&gt; list = GetAllChildren.GetAll(castle);
+                    //元々のシーン上のオブジェクトを破棄
+                    foreach(GameObject obj in list){
+                        DestroyImmediate(obj);
+                    }
+
+                    CastleObjectData data = Resources.Load&lt;CastleObjectData&gt;("CastleObjectData/CastleObjectData"+textField2);
+                    foreach(ObjectInfo objectInfo in data.castleObjects){
+                        prefabNum++;
+                        //プレハブを取得(Tag名とPrefab名は便宜上同じにしておく)
+                        GameObject prefab;
+                        prefab = (GameObject)Resources.Load("Prefabs/"+objectInfo.objectType);
+                        string prefabName = objectInfo.objectType;
+
+                        //プレハブからインスタンスを生成
+                        if(prefab!=null){
+                            var obj = Instantiate(prefab, objectInfo.objectTransform , objectInfo.objectRotation ,castle.transform);
+                            obj.name = prefabName;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
+

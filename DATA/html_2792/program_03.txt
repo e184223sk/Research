@@ -1,0 +1,133 @@
+
+
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using LineApiApp.Models;
+using System.Text;
+using System.Security.Cryptography;
+using System.Net.Http;
+using System.Collections.Generic;
+using System.Net.Http.Headers;
+
+namespace LineApiApp
+{
+    public class LineReply
+    {
+
+        private const string _secret = "";
+        private const string _token = "";
+        private readonly HttpClient _httpClient;
+
+        public LineReply()
+        {
+            _httpClient = new HttpClient();
+        }
+
+        [FunctionName("ReplyToMessage")]
+        public async Task&lt;IActionResult&gt; Run(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            // Get headear value (signature)
+            req.Headers.TryGetValue("X-Line-Signature", out var xlinesignature);
+
+            // Get body
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+
+            // Check for signature
+            if (IsSingatureOk(xlinesignature, requestBody, _secret))
+            {
+
+                // Deserialize
+                var data = JsonConvert.DeserializeObject&lt;LineWebhookMessageObject&gt;(requestBody);
+
+                // Log
+                log.LogInformation("Type is : " + data.events[0].type);
+
+                // Let's make sure I am responding to text msg only 
+                if (data.events[0].type == "message")
+                {
+
+                    // Reply
+                    await SendImageReply(data.events[0].replyToken);
+
+                    // OK!
+                    return new OkResult();
+                }
+
+                // Log
+                log.LogInformation("Data type was not appropriate");
+
+                // I am not yet able to handle your request
+                return new BadRequestResult();
+            }
+
+            // Log
+            log.LogInformation("Signature verification fail");
+
+            // Uh.. NOT OK
+            return new BadRequestResult();
+
+        }
+
+        /// &lt;summary&gt;
+        /// Return if signature matches
+        /// &lt;/summary&gt;
+        /// &lt;param name="signature"&gt;&lt;/param&gt;
+        /// &lt;param name="text"&gt;&lt;/param&gt;
+        /// &lt;param name="key"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private bool IsSingatureOk(string signature, string text, string key)
+        {
+
+            var textBytes = Encoding.UTF8.GetBytes(text);
+            var keyBytes = Encoding.UTF8.GetBytes(key);
+
+            using (HMACSHA256 hmac = new HMACSHA256(keyBytes))
+            {
+                var hash = hmac.ComputeHash(textBytes, 0, textBytes.Length);
+                var hash64 = Convert.ToBase64String(hash);
+
+                return signature == hash64;
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// Send image reply
+        /// &lt;/summary&gt;
+        /// &lt;param name="replyToken"&gt;&lt;/param&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        private async Task SendImageReply(string replyToken)
+        {
+            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+
+            var response = await _httpClient.PostAsJsonAsync&lt;LineTextReplyObject&gt;("https://api.line.me/v2/bot/message/reply", new LineTextReplyObject()
+            {
+                replyToken = replyToken,
+                messages = new List&lt;Message&gt;()
+                {
+                    new Message()
+                    {
+                        type="image",
+                        originalContentUrl = "https://sqlvaidccykhi26mlc.blob.core.windows.net/misc-sho-junkbox/handstand-scropion-big.jpg",
+                        previewImageUrl = "https://sqlvaidccykhi26mlc.blob.core.windows.net/misc-sho-junkbox/handstand-scropion-small.jpg"
+                    }
+                }
+            });
+
+            response.EnsureSuccessStatusCode();
+        }
+
+    }
+
+
+}
+

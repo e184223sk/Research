@@ -1,0 +1,153 @@
+class CelestialPositionCalculation
+{
+    public enum Type
+    {
+        SunRa,
+        SunDec,
+        SunAu
+    }
+
+    public struct Data
+    {
+        public int Year { get; set; }
+        public int a { get; set; }
+        public int b { get; set; }
+        public double[] Value { get; set; }
+
+        public Data(int Year, int a, int b, double[] Value)
+        {
+            this.Year = Year;
+            this.a = a;
+            this.b = b;
+            this.Value = Value;
+        }
+    }
+
+    private static readonly ReadOnlyDictionary&lt;Type, Data[]&gt; dataDic = generateValuesetDic();
+    private static readonly ReadOnlyDictionary&lt;int, int&gt; deltaTDic = generateDeltaTdic();
+
+    public static double Calc(DateTimeOffset Date, Type title)
+    {
+        double t = CalcT(Date);
+
+        Data page;
+        if (!searchPage(title, Date, t, out page))
+        {
+            return (double.NaN);
+        }
+
+        int a = page.a;
+        int b = page.b;
+        double theta = Math.Acos((2.0 * t - (a + b)) / (b - a));
+        double f = page.Value.Select((tmp, i) =&gt; tmp * Math.Cos(i * theta)).Sum();
+
+        return (f);
+    }
+
+    public static double CalcT(DateTimeOffset Date)
+    {
+        DateTime UTC = Date.UtcDateTime;
+
+        int P = UTC.Month - 1;
+        int Q = (int)Math.Floor((UTC.Month + 7) / 10.0);
+        int Y = (int)Math.Floor(UTC.Year / 4.0 - Math.Floor(UTC.Year / 4.0) + 0.77);
+        int S = (int)Math.Floor(P * 0.55 - 0.33);
+        int T = 30 * P + Q * (S - Y) + P * (1 - Q) + UTC.Day;
+        double F = UTC.Hour / 24.0 + UTC.Minute / 1440.0 + UTC.Second / 86400.0;
+        double t = T + F + deltaTDic[UTC.Year] / 86400.0;
+
+        return (t);
+    }
+
+    private static bool searchPage(Type title, DateTimeOffset Date, double t, out Data page)
+    {
+        if (dataDic.ContainsKey(title))
+        {
+            var tmp = dataDic[title].Where(a =&gt; a.Year == Date.UtcDateTime.Year &amp;&amp; a.a &lt;= t &amp;&amp; t &lt;= a.b);
+
+            if (tmp.Any())
+            {
+                page = tmp.First();
+                return (true);
+            }
+        }
+
+        page = new Data();
+        return (false);
+    }
+
+    private static ReadOnlyDictionary&lt;Type, Data[]&gt; generateValuesetDic()
+    {
+        return (
+            new ReadOnlyDictionary&lt;Type, Data[]&gt;(new Dictionary&lt;Type, Data[]&gt;()
+            {
+                {
+                    Type.SunRa, new Data[] {
+                        new Data(2020, 0, 122, new[] {
+                            22.71187, 3.929287, -0.104071, 0.035631, 0.006885,
+                            -0.002385, 0.000138, 0.00005, -0.000056, 0.000014,
+                            -0.000054, -0.000018, 0.000062, 0.000008, -0.000027,
+                            -0.000002, 0.000003, 0, }),
+                        new Data(2020, 121, 245, new[] {
+                            6.6489, 4.134433, -0.04333, -0.04038, 0.005603,
+                            0.003175, -0.000428, -0.000194, 0.000005, 0.000005,
+                            -0.000046, 0.000041, 0.000056, -0.000028, -0.000029,
+                            0.00001, 0.000007, -0.000004, }),
+                        new Data(2020, 244, 367, new[] {
+                            14.575618, 4.056804, 0.152148, 0.012255, -0.01366,
+                            -0.002129, 0.000302, 0.000116, 0.000024, -0.000018,
+                            0, 0.000069, 0.000002, -0.000045, -0.000002,
+                            0.000014, -0.000001, -0.000005, }),
+                    } },
+                {
+                    Type.SunDec, new Data[] {
+                        new Data(2020, 0, 122, new [] {
+                            -5.75369, 20.14227, 1.7549, -1.00916, 0.01301,
+                            0.00848, -0.00361, 0.00073, 0.00003, -0.00011,
+                            -0.00025, -0.00014, 0.00027, 0.00016, -0.00012,
+                            -0.00008, 0.00001, 0.00002, }),
+                        new Data(2020, 121, 245, new []
+                        {
+                            17.14314, -3.5435, -5.77996, 0.22272, 0.1592,
+                            -0.01133, -0.00458, 0.00086, 0.00031, 0.00019,
+                            -0.00009, -0.00001, -0.00003, -0.00011, 0.00004,
+                            0.00007, -0.00001, -0.00004, }),
+                        new Data(2020, 244, 367, new []
+                        {
+                            -10.75539, -16.72221, 3.56387, 0.97158, -0.02871,
+                            -0.02364, -0.00538, 0.00036, 0.00024, 0.00008,
+                            0.00011, -0.00034, -0.00003, 0.00028, -0.00001,
+                            -0.00012, 0.00001, 0.00004, }),
+                    } },
+                {
+                    Type.SunAu, new Data[] {
+                        new Data(2020, 0, 122, new []
+                        {
+                            0.993193, 0.012806, 0.002311, -0.000662, -0.000048,
+                            0.000004, 0.000002, -0.000014, -0.000002, -0.000004,
+                            -0.000004, 0.000017, 0.000004, -0.000011, -0.000002,
+                            0.000004, 0.000001, -0.000001, }),
+                        new Data(2020, 121, 245, new []
+                        {
+                            1.012388, 0.000983, -0.004213, -0.000046, 0.000088,
+                            -0.000009, -0.000003, -0.000012, 0.000006, -0.000001,
+                            0.000007, 0.000015, -0.000009, -0.000011, 0.000004,
+                            0.000004, -0.000002, -0.000001, }),
+                        new Data(2020, 244, 367, new []
+                        {
+                            0.994543, -0.013788, 0.00185, 0.000719, -0.000052,
+                            -0.000012, -0.000006, 0, 0.000009, 0,
+                            0.000014, 0, -0.000017, 0, 0.000008,
+                            0, -0.000002, 0, }),
+                    } },
+            }));
+    }
+
+    private static ReadOnlyDictionary&lt;int, int&gt; generateDeltaTdic()
+    {
+        return (new ReadOnlyDictionary&lt;int, int&gt;(new Dictionary&lt;int, int&gt;() {
+                { 2020, 70 }
+            }));
+    }
+}
+

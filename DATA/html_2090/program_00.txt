@@ -1,0 +1,89 @@
+   public class CsvToDatabaseConvert {
+        const int MAX_READ_LINE_LENGTH = 100000;
+        const string DATABASE_NAME = @"./password-hashs.db";
+        const string CSV_NAME = @"./password-hashs.csv";
+        static void Main(string[] args) {
+            try {
+                var prg = new CsvToDatabaseConvert();
+                Console.WriteLine("Start");
+                prg.Go(DATABASE_NAME, CSV_NAME);
+            } catch(Exception e) {
+                Console.WriteLine(e.ToString());
+                Console.ReadKey();
+            }
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+        }
+        private void Go(string dbName, string csvName) {
+            //SQLite設定
+            var builder = new SQLiteConnectionStringBuilder() {
+                DataSource = dbName,
+                Version = 3,
+                LegacyFormat = false,
+                SyncMode = SynchronizationModes.Off,
+                JournalMode = SQLiteJournalModeEnum.Memory
+            };
+
+            //Database,CSVFileオープン
+            using(var db = new SQLiteConnection(builder.ToString()))
+            using(var file = new FileStream(csvName, FileMode.Open, FileAccess.Read, FileShare.Read, 65536))
+            using(var csv = new StreamReader(file)) {
+                db.Open();
+                SkipCSV(db, csv);
+                WriteDatabase(db, csv);
+                db.Close();
+            }
+        }
+
+        //DBから入力済みの行数を取得し、読み飛ばす。
+        private void SkipCSV(SQLiteConnection db, StreamReader csv) {
+            long len = context.GetTable&lt;PwnedPasswordsRow&gt;().Count();
+            for(long i = 0; i &lt; len; i++) {
+                csv.ReadLine();
+            }
+        }
+
+        private void WriteDatabase(SQLiteConnection db, StreamReader csv) {
+            //CSVFile終端まで繰り返し
+            while(!csv.EndOfStream) {
+                InsertRowsMultiple(db, csv);
+                Task.Run(() =&gt; Console.Write('.'));
+            }
+        }
+        private void InsertRowsMultiple(SQLiteConnection db, StreamReader csv) {
+            using(var command = new SQLiteCommand(db)) {
+                command.Transaction = db.BeginTransaction();
+                var sb = new StringBuilder();
+                sb.Append("insert into passwordhashs values");
+
+                long i = 0;
+                while(i &lt; MAX_READ_LINE_LENGTH &amp;&amp; !csv.EndOfStream) {
+                    var row = new PwnedPasswordsRow(csv.ReadLine().Split(':'));
+                    if(row.hash == null)
+                        continue;
+                    sb.Append("(" + $"'{row.hash}', {row.prevalence}),");
+                    i++;
+                }
+                sb.Remove(sb.Length-1,1);
+                sb.Append(";");
+                command.CommandText = sb.ToString();
+                command.ExecuteNonQuery();
+                command.Transaction.Commit();
+            }
+            return;
+        }
+    }
+    [Table(Name = "passwordhashs")]
+    public class PwnedPasswordsRow {
+        public PwnedPasswordsRow(string[] v) {
+            hash = v[0];
+            prevalence = int.Parse(v[1]);
+        }
+        public PwnedPasswordsRow() {}
+        [Column(Name = "hash", CanBeNull = false, DbType = "TEXT", IsPrimaryKey = true)]
+        public string hash { get; set; }
+
+        [Column(Name = "prevalence", CanBeNull = false, DbType = "INT")]
+        public int prevalence { get; set; }
+    }
+

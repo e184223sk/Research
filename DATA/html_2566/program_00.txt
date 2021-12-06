@@ -1,0 +1,289 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+using System.Runtime.CompilerServices;
+
+using Word = Microsoft.Office.Interop.Word;
+
+
+// 再度実行するには、本アプリケーションで起動したWordを閉じ、本アプリケーションを再起動してください。
+
+class WordTest : Form
+{
+    const int ForwardLentgh = 50;
+
+    Word.Application app;
+    Word.Document doc;
+
+    Button btnLoad;
+    TextBox txtFindPrefix;           // 検索対象の接頭語
+    TextBox txtFindRegex;            // 検索対象の正規表現(接頭語を含める)
+    TextBox txtReplacerPrefix;       // 置換後のIDの接頭語
+    NumericUpDown nudReplacerDigits; // 置換後のIDの数値部の桁数
+    NumericUpDown nudReplacerId;     // 置換後のIDの数値部
+    Button btnResetPos;
+    Button btnFindReplace;
+
+    WordTest()
+    {
+        btnLoad = new Button();
+        btnLoad.Text = "Open Word File.";
+        btnLoad.Size = new Size(150,25);
+        btnLoad.Click += (sender,e)=&gt;{LoadWordFile();};
+        Controls.Add(btnLoad);
+
+        txtFindPrefix = new TextBox();
+        txtFindPrefix.Location = new Point(0,50);
+        txtFindPrefix.Text = "BeforeID"; // Wordが認識する特殊文字あり注意(^t や ^p など))
+        Controls.Add(txtFindPrefix);
+
+        txtFindRegex = new TextBox();
+        txtFindRegex.Location = new Point(0,75);
+        txtFindRegex.Width = 150;
+        txtFindRegex.Text = @"BeforeID[0-9]{5}\b"; //  \b は(C#の正規表現では)単語境界を示す。
+        Controls.Add(txtFindRegex);
+
+        nudReplacerDigits = new NumericUpDown();
+        nudReplacerDigits.Location = new Point(150,75);
+        nudReplacerDigits.Width = 45;
+        nudReplacerDigits.Maximum = 7;
+        nudReplacerDigits.Value = 5;
+        nudReplacerDigits.Minimum = 1;
+        Controls.Add(nudReplacerDigits);
+
+        txtReplacerPrefix = new TextBox();
+        txtReplacerPrefix.Location = new Point(0,120);
+        txtReplacerPrefix.Text = "AfterID";
+        Controls.Add(txtReplacerPrefix);
+
+        nudReplacerId = new NumericUpDown();
+        nudReplacerId.Location = new Point(100,120);
+        nudReplacerId.Width = 80;
+        nudReplacerId.Maximum = 9999999;
+        nudReplacerId.Value = 1;
+        nudReplacerId.Minimum = 0;
+        Controls.Add(nudReplacerId);
+
+
+        btnResetPos = new Button();
+        btnResetPos.Location = new Point(0,200);
+        btnResetPos.Text = "検索位置を先頭に戻す";
+        btnResetPos.Size = new Size(150,25);
+        btnResetPos.Click += (sender,e)=&gt;{ResetFindPos();};
+        btnResetPos.Enabled = false;
+        Controls.Add(btnResetPos);
+
+
+        btnFindReplace = new Button();
+        btnFindReplace.Location = new Point(0,250);
+        btnFindReplace.Text = "Find and Replace";
+        btnFindReplace.Size = new Size(150,25);
+        btnFindReplace.Click += (sender,e)=&gt;{FindAndReplace();};
+        btnFindReplace.Enabled = false;
+        Controls.Add(btnFindReplace);
+
+        ClientSize = new Size(350,400);
+        Text = "Word ID replacer";
+    }
+
+
+    void LoadWordFile()
+    {
+        object oMis = Missing.Value; // System.Reflection.Missing.Value
+        object oTru = true;
+        object oFal = false;
+
+
+        object oPth = GetOpenFileNameFromDialog();
+        if ( oPth == null ) {
+            return;
+        }
+
+        btnLoad.Enabled = false;
+        btnResetPos.Enabled = true;
+        btnFindReplace.Enabled = true;
+
+        app = new Word.Application();
+
+        app.Application.Visible = true; // true:Wordを表示させる  false:表示させない
+        // app.Application.DisplayAlerts = Word.WdAlertLevel.wdAlertsNone; // ← 表示させない場合はこれも併せて指定するとよいらしい
+
+        // https://docs.microsoft.com/ja-jp/dotnet/api/microsoft.office.interop.word.documents.open?view=word-pia
+        // ※Revert引数は検討必要。
+        doc = app.Documents.Open(
+            ref oPth,// FileName
+                     // ※相対パスで指定すると、ドキュメントフォルダを探しにいくようなので注意。
+                     //   (Fileクラスと同じような振る舞いを期待しているとはまります。)
+            ref oMis,// ConfirmConversions:
+                     //   True to display the Convert File dialog box if the file isn't in Microsoft Word format.
+            ref oFal,// ReadOnly: True to open the document as read-only.
+            ref oMis,// AddToRecentFiles:
+                     //   True to add the file name to the list of recently used files at the bottom of the File menu.
+            ref oMis,// PasswordDocument:  The password for opening the document.
+            ref oMis,// PasswordTemplate:  The password for opening the template.
+            ref oFal,// Revert:  Controls what happens if FileName is the name of an open document. 
+                     //   True to discard any unsaved changes to the open document and reopen the file.
+                     //   False to activate the open document.
+            ref oMis,// WritePasswordDocument: The password for saving changes to the document.
+            ref oMis,// WritePasswordTemplate: The password for saving changes to the template.
+            ref oMis,// Format: The file converter to be used to open the document. Can be a WdOpenFormat constant.
+            ref oMis,// Encoding: Can be any valid MsoEncoding constant. The default value is the system code page.
+            ref oMis,// Visible:
+            ref oMis,// OpenAndRepair
+            ref oMis,// DocumentDirection: wdLeftToRight or wdRightToLeft
+            ref oMis,// NoEncodingDialog:
+                     //   True to skip displaying the Encoding dialog box that Word displays if the text encoding cannot be recognized.
+            ref oMis // XMLTransform
+        );
+    }
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void FindAndReplace()
+    {
+        object oMis = Missing.Value; // System.Reflection.Missing.Value
+        object oTru = true;
+        object oFal = false;
+        object oFindStop = Word.WdFindWrap.wdFindStop;
+        object oNoReplace = Word.WdReplace.wdReplaceNone;
+
+        Regex r;
+        try {
+            r = new Regex("^" + txtFindRegex.Text); 
+        }
+        catch(ArgumentException e) {
+            MessageBox.Show(e.ToString());
+            return;
+        }
+
+        object oFindText = txtFindPrefix.Text;
+        string prefixNew = txtReplacerPrefix.Text;
+        int idNew = (int)nudReplacerId.Value;
+        int digits = (int)nudReplacerDigits.Value;
+
+
+
+        if ( app.Selection.Document != doc ) {
+            // テキスト選択
+            doc.Select();
+            app.Selection.Start = 0;
+            app.Selection.End = 0;
+        }
+        else {
+            app.Selection.End = app.Selection.Start;
+        }
+
+        // https://docs.microsoft.com/ja-jp/dotnet/api/microsoft.office.interop.word.find.execute?view=word-pia
+
+        for (;;) {
+            // 固定部分を探す
+            bool foundPrefix = app.Selection.Find.Execute (
+                ref oFindText,// FindText: 特殊文字あり注意。
+                            //   You can search for special characters by specifying appropriate character codes.
+                            //   For example, "^p" corresponds to a paragraph mark and "^t" corresponds to a tab character. 
+                ref oTru,// MatchCase: True to specify that the find text be case-sensitive.
+                ref oFal,// MatchWholeWord: 単語単位での検索
+                ref oFal,// MatchWildcards
+                ref oFal,// MatchSoundsLike: あいまい検索
+                ref oFal,// MatchAllWordForms:
+                        //   True to have the find operation locate all forms of the find text (for example, "sit" locates "sitting" and "sat").
+                ref oTru,// Forward: Trueで前方検索
+                ref oFindStop,// Wrap: 検索しきった後に、最初から検索しなおすかどうかを指定する
+                ref oMis,// Format: よくわからない
+                ref oMis,// ReplaceWith
+                ref oNoReplace,// Replace: ここではReplaceしない指定とする (oMisでもよいのかも)
+                ref oMis,// MatchKashida: アラビア語関連の機能らしい。
+                ref oMis,// MatchDiacritics: 右から左に読む言語関連の機能らしい。
+                ref oMis,// MatchAlefHamza: アラビア語関連の機能らしい。
+                ref oMis // MatchControl: 右から左に読む言語関連の機能らしい。
+            );
+
+            // 見つからなかったら検索終了
+            if ( !foundPrefix ) {
+                MessageBox.Show("Not found.");
+                app.Selection.Start = 0;
+                app.Selection.End = 0;
+                break;
+            }
+
+            // 選択範囲を拡張する。
+            app.Selection.End += ForwardLentgh;
+
+            // 指定された正規表現にマッチするかチェックする
+            string s = app.Selection.Text;
+            Match m = r.Match(s);
+
+            if ( m.Success ) {
+                string matchPart = m.Groups[0].Value;
+                int startPos = app.Selection.Start;
+                string replacerStr = prefixNew + idNew.ToString("D"+digits.ToString());
+
+                app.Selection.End = startPos + matchPart.Length; // 選択範囲を変更。(先頭は一致している前提。)
+                app.Selection.Text = replacerStr;
+
+                nudReplacerId.Value++;
+
+                // 次に検索ボタンを押したときのために、検索位置を進める
+                app.Selection.Start = startPos + replacerStr.Length;
+                app.Selection.End = app.Selection.Start;
+
+                break;
+            }
+            else { // 正規表現にはマッチしなかった。
+                // 次を検索させる。
+                Console.WriteLine("Info: Regex mismatch. " + s);
+                app.Selection.Start = app.Selection.End;
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    void ResetFindPos()
+    {
+        app.Selection.Start = 0;
+        app.Selection.End = 0;
+    }
+
+    string GetOpenFileNameFromDialog()
+    {
+        var ofd = new OpenFileDialog();
+        ofd.Filter = "MS Word File(*.doc;*.docx)|*.doc;*.docx|All files|*";
+        ofd.Title = "Select file";
+        ofd.RestoreDirectory = true;
+
+        if ( ofd.ShowDialog() == DialogResult.OK ) {
+            return ofd.FileName;
+        }
+        else {
+            return null;
+        }
+    }
+
+
+    // RunApp()に処理を分離して属性指定している目的:
+    //   JITによるinline展開を禁止することで、
+    //   Mainメソッド内のGC.Collect()までに余計な(Wordの)COM参照オブジェクトが残らないことを期待する。
+    //   ただし、期待通りに動作しているかは確認していない。(そもそも要るのか不明。。)
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void RunApp()
+    {
+        Application.Run(new WordTest());
+    }
+
+    [STAThread]
+    static void Main()
+    {
+        RunApp();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+    }
+}
+

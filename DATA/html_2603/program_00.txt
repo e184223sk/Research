@@ -1,0 +1,82 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Linq;
+using System.Linq.Expressions;
+
+    class Program
+    {
+
+        static void Main(string[] args)
+        {
+            var buzz = new Buzz();
+            buzz.ClearReference();
+
+            Console.WriteLine("process end.");
+            Console.ReadLine();
+        }
+    }
+
+    static class ClearReferencesExtension
+    {
+        static Dictionary&lt;Type, ClearReferenceActions&gt; ClearEntityReferences = new Dictionary&lt;Type, ClearReferenceActions&gt;();
+
+        public static void ClearReference&lt;TEntity&gt;(this TEntity entity)
+        {
+            if (!ClearEntityReferences.ContainsKey(typeof(TEntity)))
+            {
+                CreateClearReference&lt;TEntity&gt;();
+            }
+            var clearActions = ClearEntityReferences[typeof(TEntity)];
+            foreach(var action in clearActions.Actions)
+            {
+                action.Invoke(entity);
+            }
+        }
+        static void CreateClearReference&lt;TEntity&gt;()
+        {
+            var clear = new ClearReferenceActions();
+            var entityType = typeof(TEntity);
+            var parameter = Expression.Parameter(typeof(object), "$entity");
+
+            var properties = typeof(Buzz).GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.SetProperty);
+            foreach (var property in properties)
+            {
+                if (property.PropertyType.IsValueType)
+                {
+                    continue;
+                }
+                if (property.PropertyType == typeof(string))
+                {
+                    continue;
+                }
+                var nullable = property.PropertyType.IsGenericType &amp;&amp; property.PropertyType.GetGenericTypeDefinition() == typeof(Nullable&lt;&gt;);
+                if (nullable)
+                {
+                    var baseType = Nullable.GetUnderlyingType(property.PropertyType);
+                    if (baseType.IsValueType)
+                    {
+                        continue;
+                    }
+                    if (baseType == typeof(string))
+                    {
+                        continue;
+                    }
+                }
+                var propertyAccess = Expression.Property(Expression.Convert(parameter, entityType), property);
+                var assign = Expression.Assign(propertyAccess, Expression.Constant(null, property.PropertyType));
+                Expression&lt;Action&lt;object&gt;&gt; lambda = Expression.Lambda&lt;Action&lt;object&gt;&gt;(assign, parameter);
+                var action = lambda.Compile();
+                clear.Actions.Add(action);
+            }
+
+            ClearEntityReferences.Add(entityType, clear);
+        }
+        class ClearReferenceActions
+        {
+            public List&lt;Action&lt;object&gt;&gt; Actions = new List&lt;Action&lt;object&gt;&gt;();
+
+        }
+    }
+
+

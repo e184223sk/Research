@@ -1,0 +1,108 @@
+
+using System;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Media;
+
+public class Ellipsis
+{
+    [Flags]
+    public enum EllipsisFormat
+    {
+        None = 0,
+        End = 1,
+        Start = 2,
+        Middle = 3,
+        Word = 4
+    }
+
+    public static string EllipsisChars = "...";
+
+    private static Regex prevWord = new Regex(@"\W*\w*$");
+    private static Regex nextWord = new Regex(@"\w*\W*");
+
+    public static string Trimming(string text, Typeface face, double fontSize, double width, EllipsisFormat options)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        if ((EllipsisFormat.Middle &amp; options) == 0)
+            return text;
+
+        if (face == null)
+            throw new ArgumentNullException("face");
+
+        Size s = MeasureText(text, face, fontSize);
+
+        if (s.Width &lt;= width)
+            return text;
+
+        string mid = text;
+        string fit = "";
+        int len = 0;
+        int seg = mid.Length;
+
+        while (seg &gt; 1)
+        {
+            seg -= seg / 2;
+
+            int left = len + seg;
+            int right = mid.Length;
+
+            if (left &gt; right)
+                continue;
+
+            if ((EllipsisFormat.Middle &amp; options) == EllipsisFormat.Middle)
+            {
+                right -= left / 2;
+                left -= left / 2;
+            }
+            else if ((EllipsisFormat.Start &amp; options) != 0)
+            {
+                right -= left;
+                left = 0;
+            }
+
+            if ((EllipsisFormat.Word &amp; options) != 0)
+            {
+                if ((EllipsisFormat.End &amp; options) != 0)
+                {
+                    int left2 = left - prevWord.Match(mid, 0, left).Length;
+                    if (left2 != 0) left = left2; 
+                }
+                if ((EllipsisFormat.Start &amp; options) != 0)
+                {
+                    int right2 = right + nextWord.Match(mid, right).Length;
+                    if (right2 != 0) right = right2;
+                }
+            }
+
+            string str = mid.Substring(0, left) + EllipsisChars + mid.Substring(right);
+            s = MeasureText(str, face, fontSize);
+            if (s.Width &lt;= width)
+            {
+                len += seg;
+                fit = str;
+            }
+        }
+
+        return fit;
+    }
+
+    static private Size MeasureText(string text, Typeface face, double fontSize)
+    {
+        var formattedText = new FormattedText(text,
+                                              CultureInfo.
+                                              CurrentCulture,
+                                              FlowDirection.LeftToRight,
+                                              face,
+                                              fontSize,
+                                              Brushes.Black,
+                                              new NumberSubstitution(),
+                                              1);
+
+        return new Size(formattedText.Width, formattedText.Height);
+    }
+}
+

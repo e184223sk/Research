@@ -1,0 +1,56 @@
+
+private void btnExecute_Click(object sender, EventArgs e)
+{
+    // メッセージボックスを表示する
+    DialogResult result = MessageBox.Show("実行します。よろしいですか ? ",
+                                          "処理実行",
+                                          MessageBoxButtons.YesNo,
+                                          MessageBoxIcon.Question,
+                                          MessageBoxDefaultButton.Button2);
+    if (result == DialogResult.Yes)
+    {
+        // 処理実行
+        string path = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        string assemblyPath = Path.Combine(path, "DoWork.dll");
+        ExecuteAndUnload(assemblyPath, out WeakReference alcWeakRef);
+
+        // アンロードされるまで待つ
+        int counter = 0;
+        for (counter = 0; alcWeakRef.IsAlive &amp;&amp; (counter &lt; 10); counter++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        if (counter &lt; 10)
+        {
+            System.Diagnostics.Debug.WriteLine("アンロード成功");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine("アンロード失敗");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void ExecuteAndUnload(string assemblyPath, out WeakReference alcWeakRef)
+    {
+        // アセンブリをロードするAssemblyLoadContextを作成
+        var alc = new MyAssemblyLoadContext();
+
+        // アセンブリをロード
+        Assembly a = alc.LoadFromAssemblyPath(assemblyPath);
+
+        // 外からアンロードを検知するために弱参照を設定
+        alcWeakRef = new WeakReference(alc, trackResurrection: true);
+
+        // リフレクションで関数コール
+        var type = a.GetType("DoWork.frmDoWork");
+        var instance = Activator.CreateInstance(type);
+        var method = type.GetMethod("Execute");
+        method.Invoke(instance, new object[] { "SUB00001", "", alc});
+        // アンロード実施
+        alc.Unload();
+    }
+}
+

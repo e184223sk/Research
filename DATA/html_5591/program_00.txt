@@ -1,0 +1,104 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class ThrowingScript : MonoBehaviour
+{
+    /// &lt;summary&gt;
+    /// 射出するオブジェクト
+    /// &lt;/summary&gt;
+    [SerializeField, Tooltip("射出するオブジェクトをここに割り当てる")]
+    private GameObject ThrowingObject;
+
+    /// &lt;summary&gt;
+    /// 標的のオブジェクト
+    /// &lt;/summary&gt;
+    [SerializeField, Tooltip("標的のオブジェクトをここに割り当てる")]
+    private GameObject TargetObject;
+
+    /// &lt;summary&gt;
+    /// 射出角度
+    /// &lt;/summary&gt;
+    [SerializeField, Range(0F, 90F), Tooltip("射出する角度")]
+    private float ThrowingAngle;
+
+    private void Start()
+    {
+        Collider collider = GetComponent&lt;Collider&gt;();
+        if (collider != null)
+        {
+            // 干渉しないようにisTriggerをつける
+            collider.isTrigger = true;
+        }
+    }
+
+    private void Update()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            // マウス左クリックでボールを射出する
+            ThrowingBall();
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// ボールを射出する
+    /// &lt;/summary&gt;
+    private void ThrowingBall()
+    {
+        if (ThrowingObject != null &amp;&amp; TargetObject != null)
+        {
+            // Ballオブジェクトの生成
+            GameObject ball = Instantiate(ThrowingObject, this.transform.position, Quaternion.identity);
+
+            // 標的の座標
+            Vector3 targetPosition = TargetObject.transform.position;
+
+            // 射出角度
+            float angle = ThrowingAngle;
+
+            // 射出速度を算出
+            Vector3 velocity = CalculateVelocity(this.transform.position, targetPosition, angle);
+
+            // 射出
+            Rigidbody rid = ball.GetComponent&lt;Rigidbody&gt;();
+            rid.AddForce(velocity * rid.mass, ForceMode.Impulse);
+        }
+        else
+        {
+            throw new System.Exception("射出するオブジェクトまたは標的のオブジェクトが未設定です。");
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 標的に命中する射出速度の計算
+    /// &lt;/summary&gt;
+    /// &lt;param name="pointA"&gt;射出開始座標&lt;/param&gt;
+    /// &lt;param name="pointB"&gt;標的の座標&lt;/param&gt;
+    /// &lt;returns&gt;射出速度&lt;/returns&gt;
+    private Vector3 CalculateVelocity(Vector3 pointA, Vector3 pointB, float angle)
+    {
+        // 射出角をラジアンに変換
+        float rad = angle * Mathf.PI / 180;
+
+        // 水平方向の距離x
+        float x = Vector2.Distance(new Vector2(pointA.x, pointA.z), new Vector2(pointB.x, pointB.z));
+
+        // 垂直方向の距離y
+        float y = pointA.y - pointB.y;
+
+        // 斜方投射の公式を初速度について解く
+        float speed = Mathf.Sqrt(-Physics.gravity.y * Mathf.Pow(x, 2) / (2 * Mathf.Pow(Mathf.Cos(rad), 2) * (x * Mathf.Tan(rad) + y)));
+
+        if (float.IsNaN(speed))
+        {
+            // 条件を満たす初速を算出できなければVector3.zeroを返す
+            return Vector3.zero;
+        }
+        else
+        {
+            return (new Vector3(pointB.x - pointA.x, x * Mathf.Tan(rad), pointB.z - pointA.z).normalized * speed);
+        }
+    }
+}
+

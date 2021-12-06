@@ -1,0 +1,43 @@
+    function doLoadEEPROM (inInit)
+    {
+        var OSName="Unknown OS";
+        if (navigator.appVersion.indexOf("Win")!=-1) OSName="Windows";
+        if (navigator.appVersion.indexOf("Mac")!=-1) OSName="MacOS";
+        if (navigator.appVersion.indexOf("X11")!=-1) OSName="UNIX";
+        if (navigator.appVersion.indexOf("Linux")!=-1) OSName="Linux";
+
+        var ws = new WebSocket('ws://localhost:11222/');
+        var finished = function () {
+            ws.close();
+        };
+        var timeout = setTimeout(function () { 
+            var errstr = "Calibration not found in internal memory.";
+            if (inInit) {
+                console.log(errstr); 
+            } else { 
+                alert(errstr);
+            }
+            finished();
+        }, 800);
+        ws.onmessage = function(event) {
+            console.log("New calibration loaded from internal memory.");
+            saveCalibration(event.data);
+            applyCalibration(event.data);
+            clearTimeout(timeout);
+            initialized = true;
+            finished();
+        };
+        ws.onerror = function(event) {
+            if (confirm("Three.js driver not detected! Click OK to download. If you have already installed the driver, please make sure port 11222 is open.")){
+                if(OSName == "Windows"){
+                    window.location.href = "https://s3.amazonaws.com/static-files.lookingglassfactory.com/WebCalibrationBridge/LKG_ThreeJsDriver_Win.exe";
+                } else if(OSName == "MacOS"){
+                    window.location.href = "https://s3.amazonaws.com/static-files.lookingglassfactory.com/WebCalibrationBridge/LKG_ThreeJsDriver_Mac.pkg"
+                } else{
+                    alert("Only Windows and OSX operating systems are currently supported for the Three.js library.")
+                }
+            }
+            finished();
+        };
+    }
+

@@ -1,0 +1,57 @@
+
+private async Task GetImages()
+{
+    Grpc.Core.Channel channel = GetChannel();
+    LargeSearch.LargeSearchClient client = new LargeSearch.LargeSearchClient(channel);
+
+    Condition condition = new Condition
+    {
+        Keyword = "***"
+    };
+
+    using (MemoryStream stream = new MemoryStream())
+    using (AsyncServerStreamingCall&lt;BufferResponse&gt; call = client.GetImages(condition))
+    {
+        while (await call.ResponseStream.MoveNext().ConfigureAwait(false))
+        {
+            BufferResponse response = call.ResponseStream.Current;
+
+            if (response.Data != null &amp;&amp; response.Data.Length &gt; 0)
+            {
+                response.Data.WriteTo(stream);
+            }
+
+            if (response.Eof)
+            {
+                stream.Position = 0;
+                ShowImage(stream);
+                stream.SetLength(0);
+            }
+        }
+    }
+
+}
+
+/// &lt;summary&gt;
+/// 指定された画像を表示します。
+/// &lt;/summary&gt;
+/// &lt;param name="stream"&gt;画像データを格納しているストリーム&lt;/param&gt;
+private void ShowImage(Stream stream)
+{
+    if (this.InvokeRequired)
+    {
+        this.Invoke(new Action&lt;Stream&gt;(ShowImage), new object[] { stream });
+        return;
+    }
+    // 単純にダイアログフォームで表示します。
+    using (Image image = Image.FromStream(stream))
+    using (Form frm = new Form())
+    {
+        PictureBox box = new PictureBox();
+        box.Dock = DockStyle.Fill;
+        box.Image = image;
+        frm.Controls.Add(box);
+        frm.ShowDialog(this);
+    }
+}
+

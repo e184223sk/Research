@@ -1,0 +1,190 @@
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+
+/// &lt;summary&gt;
+/// SimpleCsvReader
+/// &lt;/summary&gt;
+public class SimpleCsvReader&lt;T&gt; : IDisposable where T : class, new()
+{
+    #region define
+
+    /// 引用符
+    private const string QUOTE = "\"";
+    /// 改行正規表現
+    private const string NEW_LINE_PATTERN = "(?:\x0D\x0A|[\x0D\x0A])?$";
+    /// 区切り正規表現
+    private const string DELIMITER_PATTERN = "(\"[^\"]*(?:\"\"[^\"]*)*\"|[^,]*),";
+
+    /// 属性プロパティ情報
+    public class AttributePropertyInfo
+    {
+        public PropertyInfo Property;
+        public SimpleCsvAttribute CsvAttribute;
+    }
+
+    /// 引用符の正規表現
+    private static readonly Regex QUOTE_REGEX = new Regex(QUOTE);
+    /// 改行コードの正規表現
+    private static readonly Regex NEW_LINE_REGEX = new Regex(NEW_LINE_PATTERN, RegexOptions.Singleline);
+    /// 区切り文字の正規表現
+    private static readonly Regex DELIMITER_REGEX = new Regex(DELIMITER_PATTERN);
+
+    /// ファイルのエンコードタイプ
+    private static readonly Encoding FILE_ENCODING = Encoding.UTF8;
+
+    #endregion
+
+    #region variable
+
+    /// StreamReader
+    private StreamReader _reader;
+
+    /// 属性の情報リスト
+    private List&lt;AttributePropertyInfo&gt; _attirbuteInfos;
+
+    /// データリスト
+    private T[] _records;
+
+
+    #endregion
+
+    #region method
+
+    /// &lt;summary&gt;
+    /// コンストラクタ
+    /// &lt;/summary&gt;
+    public SimpleCsvReader(string directory, string fileName) {
+        if (!Directory.Exists(directory)) {
+            Directory.CreateDirectory(directory);
+        }
+
+        var filePath = directory + Path.DirectorySeparatorChar + fileName + ".csv";
+        try {
+            _reader = new StreamReader(filePath, FILE_ENCODING);
+        } catch (Exception ex) {
+            throw ex;
+        }
+
+        var targetType = GetType().GetGenericArguments()[0];
+        _attirbuteInfos = targetType
+            .GetProperties()
+            .Select(x =&gt; new AttributePropertyInfo() {
+                Property = x,
+                CsvAttribute = x.GetCustomAttributes(typeof(SimpleCsvAttribute), false).FirstOrDefault() as SimpleCsvAttribute
+            })
+            .Where(x =&gt; x.CsvAttribute != null)
+            .OrderBy(x =&gt; x.CsvAttribute.Order)
+            .ToList();
+    }
+
+    /// &lt;summary&gt;
+    /// 読み込み
+    /// &lt;/summary&gt;
+    public T[] Read(bool hasHeader = true) {
+        if (_reader == null) {
+            return null;
+        }
+
+        if (hasHeader) {
+            // ヘッダー分だけ進める
+            _reader.ReadLine();
+        }
+
+        List&lt;T&gt; dataList = new List&lt;T&gt;();
+        while (!_reader.EndOfStream) {
+            var line = _reader.ReadLine();
+            if (line == null) {
+                break;
+            }
+
+            // 改行を考慮して行を読み込む
+            while (!HasEnoughQuote(line)) {
+                line += "\n" + _reader.ReadLine();
+                if (_reader.EndOfStream) {
+                    break;
+                }
+            }
+
+            // 改行コードを排除する
+            line = NEW_LINE_REGEX.Replace(line, "");
+
+            // 要素分解を行う
+            line += ",";
+            var matches = DELIMITER_REGEX.Matches(line);
+            var columns = matches.Cast&lt;Match&gt;()
+                .Select(x =&gt; Dequote(x))
+                .ToArray();
+
+            // データを作成する
+            var data = new T();
+            for (int i = 0; i &lt; columns.Length; i++) {
+                var attribute = _attirbuteInfos[i];
+                attribute.Property.SetValue(data, Convert.ChangeType(columns[i], attribute.Property.PropertyType));
+            }
+            dataList.Add(data);
+        }
+
+        return dataList.ToArray();
+    }
+
+    /// &lt;summary&gt;
+    /// バイト配列で読み込む
+    /// &lt;/summary&gt;
+    public byte[] ReadBytes() {
+        if (_reader == null) {
+            return null;
+        }
+
+        byte[] readBytes = null;
+        using (MemoryStream memoryStream = new MemoryStream()) {
+            _reader.BaseStream.CopyTo(memoryStream);
+            readBytes = memoryStream.ToArray();
+        }
+
+        return readBytes;
+    }
+
+    /// &lt;summary&gt;
+    /// 引用符が十分であるかどうか
+    /// &lt;/summary&gt;
+    private bool HasEnoughQuote(string line) {
+        return (QUOTE_REGEX.Matches(line).Count % 2) == 0;
+    }
+
+    /// &lt;summary&gt;
+    /// 引用符を変換する
+    /// &lt;/summary&gt;
+    private string Dequote(Match match)
+    {
+        var s = match.Groups[1].Value;
+        var quoted = Regex.Match(s, "^\"(.*)\"$", RegexOptions.Singleline);
+
+        if (quoted.Success)
+        {
+            return quoted.Groups[1].Value.Replace("\"\"", "\"");
+        }
+        else
+        {
+            return s;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// 破棄処理
+    /// &lt;/summary&gt;
+    public void Dispose() {
+        if (_reader != null) {
+            _reader.Dispose();
+        }
+    }
+
+    #endregion
+}
+
+

@@ -1,0 +1,45 @@
+
+void AsyncProcTest2()
+{
+    var si = new ProcessStartInfo("dotnet", "--info");
+    // ウィンドウ表示を完全に消したい場合
+    // si.CreateNoWindow = true;
+    si.RedirectStandardError = true;
+    si.RedirectStandardOutput = true;
+    si.UseShellExecute = false;
+    using(var proc = new Process())
+    using(var ctoken = new CancellationTokenSource())
+    {
+        proc.EnableRaisingEvents = true;
+        proc.StartInfo = si;
+        // コールバックの設定
+        proc.Exited += (sender, ev) =&gt;
+        {
+            Console.WriteLine($"exited");
+            // プロセスが終了すると呼ばれる
+            ctoken.Cancel();
+        };
+        // プロセスの開始
+        proc.Start();
+        Task.WaitAll(
+            Task.Run(() =&gt;
+            {
+                while(true)
+                {
+                    var l = proc.StandardOutput.ReadLine();
+                    if(l == null)
+                    {
+                        break;
+                    }
+                    Console.WriteLine($"stdout = {l}");
+                }
+            }),
+            Task.Run(() =&gt;
+            {
+                ctoken.Token.WaitHandle.WaitOne();
+                proc.WaitForExit();
+            })
+        );
+    }
+}
+

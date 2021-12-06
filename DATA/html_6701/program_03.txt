@@ -1,0 +1,58 @@
+
+// 矢のプレハブ
+[SerializeField] GameObject arrow;
+// クールダウン
+int cooldown = 0;
+
+void Start()
+{
+    // 1.矢を撃つスキル実装
+    this.UpdateAsObservable()
+        .Where(_ =&gt; Input.GetButtonDown("Attack1"))  //攻撃ボタンを押した時のみ 
+        .Subscribe(_ =&gt;
+        {
+            // クールダウンが解消されている時、処理に入る
+            if (cooldown &lt;= 0)
+            {
+                // 矢を発射する(スキルを使用する)
+                Debug.Log("矢を発射");
+                Instantiate(arrow, transform.position, transform.rotation);
+                cooldown = 300;  // スキル使用後なので、クールダウンに入る(5秒)
+            }
+            else
+            {
+                Debug.Log("スキルはクールダウン中");
+            }
+        });
+
+    // 2.クールダウン実装
+    Observable
+        .FromMicroCoroutine&lt;string&gt;(observer =&gt; UseSkillCoroutine(observer))
+        .Subscribe(x =&gt;
+        {
+            // 3. 残りクールダウンに対応した処理実装
+            // OnNextされた値を確認
+            if (x == "ArrowSet") { 矢を準備するアニメーション開始 }
+            else if (x == "CoolDownEnd") { クールダウン終了エフェクト表示 }
+        })
+        .AddTo(this);
+}
+
+IEnumerator UseSkillCoroutine(IObserver&lt;string&gt; observer)
+{
+    while (true)
+    {
+        // クールダウン中の時のみ
+        if (cooldown &gt; 0)
+        {
+            // 毎フレーム、クールダウンを消費していく
+            cooldown--;
+            // クールダウンが残り1秒になった時、通知する
+            if (cooldown == 0) { observer.OnNext("CoolDownEnd"); }
+            // クールダウン終了時、通知する
+            if (cooldown == 60) { observer.OnNext("ArrowSet"); }
+        }
+        yield return null; // 1フレーム待機
+    }
+}
+

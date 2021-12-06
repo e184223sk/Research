@@ -1,0 +1,37 @@
+
+using System;
+using System.IO.Pipes;
+using System.Threading.Tasks;
+
+class PipeServer {
+  static void Main(string[] args) {
+    string name = args[0];
+    NamedPipeServerStream stream1 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+                          stream2 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+    try {
+      Console.WriteLine("Waiting for client connection at \\\\.\\pipe\\" + name + " ...");
+      stream1.WaitForConnection();
+      stream2.WaitForConnection();
+      Console.WriteLine("Connected.");
+      while (true) {
+        Task.WaitAny(new [] {
+          stream1.CopyToAsync(stream2),
+          stream2.CopyToAsync(stream1),
+        });
+        if (!stream1.IsConnected) {
+          stream1.Close();
+          stream1 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+          stream1.WaitForConnection();
+        } else if (!stream2.IsConnected) {
+          stream2.Close();
+          stream2 = new NamedPipeServerStream(name, PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+          stream2.WaitForConnection();
+        }
+      }
+    } finally {
+      stream1.Dispose();
+      stream2.Dispose();
+    }
+  }
+}
+

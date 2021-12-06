@@ -1,0 +1,298 @@
+
+using System;
+using System.Collections.Generic;
+using Mastodot.Enums;
+using Mastodot.Utils;
+using Mastodot;
+using System.IO;
+using System.Threading.Tasks;
+using System.Threading;
+
+
+namespace TodoListDon
+{
+
+    class Program
+    {
+
+        public List&lt;string&gt; TodoList = new List&lt;string&gt;();
+
+        static void Main(string[] args)
+        {
+            int id = 0;
+            var p = new Program();
+            var edit = new TodoEditMode(id, p, p.TodoList);
+
+            p.ModeSelect(id, p, edit);
+
+        }
+
+
+        public bool Conform()
+        {
+            Console.WriteLine("Continue?");
+            var answer = Console.ReadLine();
+            if (answer == "y")
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        static void Toot(string url, string AccessToken, Program p)
+        {
+                var client = new MastodonClient(url, AccessToken);
+                string paste = "";
+                int i = 0;
+                foreach (var s in p.TodoList)
+                {
+                    i++;
+                    paste += i + ":[ ]" + s + Environment.NewLine;
+                }
+                client.PostNewStatus(status: paste + "#On_TodoListDon試験運用中");
+        }
+
+        static void Toot(string url, string AccessToken, Program p, int id)
+        {
+            var client = new MastodonClient(url, AccessToken);
+            string paste = "時間です"+Environment.NewLine + id + ":[ ]" + p.TodoList[id-1] + Environment.NewLine;
+
+            client.PostNewStatus(status: paste + "#On_TodoListDon試験運用中");
+        }
+
+        static void Save(Program p){
+
+             //ファイルを上書きし、Shift JISで書き込む
+            System.IO.StreamWriter sw = new System.IO.StreamWriter(
+                @"TodoList.txt",
+                false,
+                System.Text.Encoding.GetEncoding("utf-8"));
+            //TextBox1.Textの内容を1行ずつ書き込む
+            foreach (string line in p.TodoList)
+            {
+                sw.WriteLine(line);
+            }
+            //閉じる
+            sw.Close();
+        }
+
+        static void Road(Program p){
+            //"C:\test\1.txt"をShift-JISコードとして開く
+            System.IO.StreamReader sr = new System.IO.StreamReader(
+                @"TodoList.txt",
+                System.Text.Encoding.GetEncoding("utf-8"));
+            //内容を一行ずつ読み込む
+            while (sr.Peek() &gt; -1)
+            {
+                p.TodoList.Add(sr.ReadLine());
+                //Console.WriteLine(sr.ReadLine());
+            }
+
+            //閉じる
+            sr.Close();
+        }
+
+        static string OAuth(Program p){
+            try
+            {
+                //"C:\test\1.txt"をShift-JISコードとして開く
+                System.IO.StreamReader sr = new System.IO.StreamReader(
+                    @"AccessToken.txt",
+                    System.Text.Encoding.GetEncoding("utf-8"));
+                //内容を一行ずつ読み込む
+                var AccessToken = sr.ReadLine();
+                //Console.WriteLine(sr.ReadLine());
+                //閉じる
+                sr.Close();
+                var registeredApp = ApplicaionManager.RegistApp("qiitadon.com", "TodoListDon", Scope.Read | Scope.Write | Scope.Follow).Result;
+
+                return AccessToken;
+
+            }
+            catch (FileNotFoundException)
+            {
+                Console.WriteLine("What is your host?(ex:pawoo.net, qiitadon.com):");
+                var host = Console.ReadLine();
+                var registeredApp = ApplicaionManager.RegistApp(host, "TodoListDon", Scope.Read | Scope.Write | Scope.Follow).Result;
+                var url = ApplicaionManager.GetOAuthUrl(registeredApp);
+                Console.WriteLine(url);
+                Console.Write("please copy and peaste AccessToken:");
+                var code = Console.ReadLine();
+                var tokens = ApplicaionManager.GetAccessTokenByCode(registeredApp, code).Result;
+
+                //ファイルを上書きし、Shift JISで書き込む
+                System.IO.StreamWriter sw = new System.IO.StreamWriter(
+                    @"AccessToken.txt",
+                    false,
+                    System.Text.Encoding.GetEncoding("utf-8"));
+                //TextBox1.Textの内容を1行ずつ書き込む
+                sw.WriteLine(tokens.AccessToken);
+                //閉じる
+                sw.Close();
+                return OAuth(p);
+            }
+
+        }
+
+        public void AutoToot(int interval, Program p, int boot_time)
+        {
+            TaskFactory taskFactory = new TaskFactory();
+            CancellationTokenSource cancellationToken = new CancellationTokenSource();
+            Task task =  taskFactory.StartNew(() =&gt; {
+                while (true)
+                {
+                    cancellationToken.Token.ThrowIfCancellationRequested();
+
+                    DateTime t = DateTime.Now;
+                    int now_m = t.Minute;
+                    now_m = t.Minute;
+                    if (now_m == boot_time + interval)
+                    {
+                        var token = OAuth(p);
+                        Toot("qiitadon.com", token, p);
+                        interval *= 2;
+                        if(interval &gt; 60){
+                            interval %= 60;
+                        }
+                        AutoToot(interval, p, boot_time);
+
+                    }
+                    Thread.Sleep(500);
+                }
+
+            }, cancellationToken.Token);
+
+            Console.ReadLine();
+            try
+            {
+                // キャンセル要求出す
+                cancellationToken.Cancel();
+
+                // タスクがキャンセルされるまで待機
+                task.Wait();
+            }
+
+
+            catch (AggregateException)
+            {
+                // タスクがキャンセルされるとここが実行される
+                Console.WriteLine("Task is cancelled.");
+
+            }
+  }
+
+        public void Alerm(int interval, Program p, int boot_time,int id){
+            TaskFactory taskFactory = new TaskFactory();
+            CancellationTokenSource cancellationToken = new CancellationTokenSource();
+            Task task = taskFactory.StartNew(() =&gt; {
+                while (true)
+                {
+                    cancellationToken.Token.ThrowIfCancellationRequested();
+
+                    DateTime t = DateTime.Now;
+                    int now_m = t.Minute;
+                    now_m = t.Minute;
+                    if (now_m == boot_time + interval)
+                    {
+                        var token = OAuth(p);
+                        Toot("qiitadon.com", token, p, id);
+                        interval *= 2;
+                        AutoToot(interval, p, boot_time);
+
+                    }
+                    Thread.Sleep(500);
+                }
+
+            }, cancellationToken.Token);
+
+            Console.ReadLine();
+            try
+            {
+                // キャンセル要求出す
+                cancellationToken.Cancel();
+
+                // タスクがキャンセルされるまで待機
+                task.Wait();
+            }
+
+
+            catch (AggregateException)
+            {
+                // タスクがキャンセルされるとここが実行される
+                Console.WriteLine("Task is cancelled.");
+
+            }
+
+        }
+
+        public void ModeSelect(int id, Program p, TodoEditMode edit){
+            Console.Write(
+@"Please select Mode 
+(Add mode:a, Insert_Mode:i, TootMode(Manual):t, View_Mode:v, 
+exit:e, save:s, road:r, delete:d AutoTootMode:at):");
+            var Mode = Console.ReadLine();
+            switch (Mode)
+            {
+                case "a":
+                    id++;
+                    edit.Adding(id, p);
+                    break;
+                case "i":
+                    edit.Insert(p);
+                    break;
+                case "v":
+                    edit.View(p);
+                    ModeSelect(id, p, edit);
+                    break;
+                case "e":
+                    return;
+                case "t":
+                    var token = OAuth(p);
+                    Toot("qiitadon.com", token, p);
+                    ModeSelect(id, p, edit);
+                    break;
+                case "s":
+                    Save(p);
+                    ModeSelect(id, p, edit);
+                    break;
+                case "r":
+                    Road(p);
+                    ModeSelect(id, p, edit);
+                    break;
+                case "d":
+                    edit.View(p);
+                    Console.WriteLine("Please Write id to delete");
+                    int i = int.Parse(Console.ReadLine());
+                    edit.Delete(i, p, edit);
+                    ModeSelect(id, p, edit);
+                    break;
+                case "at":
+                    var t = DateTime.Now;
+                    Console.Write("Please Write Interval Minit to Toot Todo:");
+                    int interval = int.Parse(Console.ReadLine());
+                    Console.WriteLine("Press to Quit a key");
+                    int boot_time = t.Minute;
+                    AutoToot(interval, p, boot_time);
+                    ModeSelect(id,p,edit);
+                    break;
+                case "al":
+                    t = DateTime.Now;
+                    Console.Write("Please Write Interval Minit to Toot Todo:");
+                    interval = int.Parse(Console.ReadLine());
+                    edit.View(p);
+                    Console.WriteLine("Please write ID to Toot Alerm");
+                    id = int.Parse(Console.ReadLine());
+                    Console.WriteLine("Press to Quit a key");
+                    boot_time = t.Minute;
+                    Alerm(interval, p, boot_time,id);
+                    ModeSelect(id, p, edit);
+                    break;
+
+            }
+        }
+    }
+}
+

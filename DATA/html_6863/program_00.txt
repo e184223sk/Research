@@ -1,0 +1,66 @@
+namespace IPCwithCSandCPPSample
+{
+    /// &lt;summary&gt;
+    /// テストクラス：ファイルマッピングへマッピングするためのクラス
+    /// C++側で閲覧するためデータ構造が同一になるように配慮すること
+    /// &lt;/summary&gt;
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 4)]
+    public class Test1
+    {
+        public int A;
+        public bool B;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string C;
+        public Test2 D = new Test2();
+    }
+
+    /// &lt;summary&gt;
+    /// テストクラス２
+    /// &lt;/summary&gt;
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 4)]
+    public class Test2
+    {
+        public int AA;
+    }
+
+    /// &lt;summary&gt;
+    /// MainWindow.xaml の相互作用ロジック
+    /// &lt;/summary&gt;
+    public partial class MainWindow : Window
+    {
+        private MemoryMappedFile mmf;
+        private MemoryMappedViewStream mmvs;
+        private Test1 testclass = new Test1();
+
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            // 頻繁に開け閉めしなくてもよいので起動時に作成
+            mmf = MemoryMappedFile.CreateOrOpen("TestMap", (uint)Marshal.SizeOf(typeof(Test1)));
+            mmvs = mmf.CreateViewStream();
+        }
+
+        private void Button_Click(object sender, RoutedEventArgs e)
+        {
+            // UIからデータを取り込む(右辺は全部WPFのテキストボックスです)
+            testclass.A = int.Parse(this.A.Text);
+            testclass.B = bool.Parse(this.B.Text);
+            testclass.C = this.C.Text;
+            testclass.D.AA = int.Parse(this.D.Text);
+
+            // 構造体の体裁を整えたデータクラスをファイルマッピングのストリームに流すためにバイト列に変換する
+            int size = Marshal.SizeOf(typeof(Test1));
+            byte[] bytes = new byte[size];
+            IntPtr ptr = Marshal.AllocCoTaskMem(size);
+            Marshal.StructureToPtr(testclass, ptr, false);
+            Marshal.Copy(ptr, bytes, 0, size);
+            Marshal.FreeCoTaskMem(ptr);
+
+            // ファイルマッピングに書く
+            mmvs.Write(bytes, 0, size);
+            mmvs.Seek(0, System.IO.SeekOrigin.Begin);
+        }
+    }
+}
+

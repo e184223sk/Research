@@ -1,0 +1,82 @@
+using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+namespace sample
+{
+    public class Sample : MonoBehaviour
+    {
+
+        // 描画モード.
+        public enum DrawMode
+        {
+            Solid,
+            Wire,
+        }
+
+
+        [SerializeField] Color gizmoColor;
+        [SerializeField] DrawMode gizmoDrawMode;
+        [SerializeField] PrimitiveType usePrimitiveType = PrimitiveType.Cube;
+        [SerializeField] Mesh mesh = null;
+
+
+        void OnDrawGizmos()
+        {
+            if (mesh == null) return;
+
+             Gizmos.color = gizmoColor;
+             switch (gizmoDrawMode)
+             {
+                 case DrawMode.Solid:
+                     Gizmos.DrawMesh(mesh, transform.position, transform.rotation, transform.localScale);
+                     break;
+
+                 case DrawMode.Wire:
+                     Gizmos.DrawWireMesh(mesh, transform.position, transform.rotation, transform.localScale);
+                     break;
+             }
+        }
+
+
+
+#if UNITY_EDITOR
+
+        // エディタ拡張部分.
+        [CustomEditor(typeof(Sample))]
+        public class SampleEditor : Editor
+        {
+
+            public override void OnInspectorGUI()
+            {
+                var component = target as Sample;
+
+                GUI.changed = false;
+                component.gizmoColor = EditorGUILayout.ColorField("Gizmo Color", component.gizmoColor);
+                component.gizmoDrawMode = (DrawMode)EditorGUILayout.EnumPopup("Draw Mode", component.gizmoDrawMode);
+                if (GUI.changed) EditorUtility.SetDirty(component);
+
+                // プリミティブタイプが変更された場合,メッシュを差し替える.
+                GUI.changed = false;
+                component.usePrimitiveType = (PrimitiveType)EditorGUILayout.EnumPopup(component.usePrimitiveType);
+                if (GUI.changed)
+                {
+                    EditorUtility.SetDirty(component);
+                    GameObject tempPrimitive = GameObject.CreatePrimitive(component.usePrimitiveType);
+                    component.mesh = tempPrimitive.GetComponent&lt;MeshFilter&gt;().sharedMesh;
+                    GameObject.DestroyImmediate(tempPrimitive);
+                }
+
+                // 取得したメッシュを確認できるようにしているだけ.
+                EditorGUILayout.ObjectField(component.mesh, typeof(Mesh));
+            }
+        }
+
+#endif
+
+    }
+}
+
+

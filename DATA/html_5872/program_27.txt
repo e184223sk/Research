@@ -1,0 +1,64 @@
+
+var ilGenerator = method.GetILGenerator();
+
+if (!pi.CanWrite)
+{
+    ilGenerator.Emit(OpCodes.Newobj, typeof(NotSupportedException).GetConstructor(Type.EmptyTypes));
+    ilGenerator.Emit(OpCodes.Throw);
+    return;
+}
+
+if (pi.PropertyType.IsValueType)
+{
+    var hasValue = ilGenerator.DefineLabel();
+
+    ilGenerator.Emit(OpCodes.Ldarg_2);
+    ilGenerator.Emit(OpCodes.Brtrue_S, hasValue);
+
+    // null
+    ilGenerator.Emit(OpCodes.Ldarg_1);
+    ilGenerator.Emit(OpCodes.Castclass, pi.DeclaringType);
+
+    var type = pi.PropertyType.IsEnum ? pi.PropertyType.GetEnumUnderlyingType() : pi.PropertyType;
+    if (LdcDictionary.TryGetValue(type, out var action))
+    {
+        action(ilGenerator);
+    }
+    else
+    {
+        var local = ilGenerator.DeclareLocal(pi.PropertyType);
+        ilGenerator.Emit(OpCodes.Ldloca_S, local);
+        ilGenerator.Emit(OpCodes.Initobj, pi.PropertyType);
+        ilGenerator.Emit(OpCodes.Ldloc_0);
+    }
+
+    ilGenerator.Emit(OpCodes.Callvirt, pi.GetSetMethod());
+
+    ilGenerator.Emit(OpCodes.Ret);
+
+    // not null
+    ilGenerator.MarkLabel(hasValue);
+
+    ilGenerator.Emit(OpCodes.Ldarg_1);
+    ilGenerator.Emit(OpCodes.Castclass, pi.DeclaringType);
+
+    ilGenerator.Emit(OpCodes.Ldarg_2);
+    ilGenerator.Emit(OpCodes.Unbox_Any, pi.PropertyType);
+
+    ilGenerator.Emit(OpCodes.Callvirt, pi.GetSetMethod());
+
+    ilGenerator.Emit(OpCodes.Ret);
+}
+else
+{
+    ilGenerator.Emit(OpCodes.Ldarg_1);
+    ilGenerator.Emit(OpCodes.Castclass, pi.DeclaringType);
+
+    ilGenerator.Emit(OpCodes.Ldarg_2);
+    ilGenerator.Emit(OpCodes.Castclass, pi.PropertyType);
+
+    ilGenerator.Emit(OpCodes.Callvirt, pi.GetSetMethod());
+
+    ilGenerator.Emit(OpCodes.Ret);
+}
+

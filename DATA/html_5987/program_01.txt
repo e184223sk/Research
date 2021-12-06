@@ -1,0 +1,33 @@
+
+public static ReadonlySyncedCollection&lt;T&gt; CreateReadonlySyncedCollection&lt;T, U&gt;(ObservableCollection&lt;U&gt; source, Func&lt;U, T&gt; converter)
+{
+    var target = new ObservableCollection&lt;T&gt;();
+
+    // Initialization
+    for (int i = 0; i &lt; source.Count; ++ i)
+        target.Add(converter(source[i]));
+
+    ReadonlySyncedCollection&lt;T&gt; collection = new ReadonlySyncedCollection&lt;T&gt;(target);
+    // e.Actionには, sourceの配列で発生した変更の種類が入る
+    source.CollectionChanged += (sender, e) =&gt; {
+            switch(e.Action)
+            {
+            case Add: // Sourceに要素が追加されたので, targetにも新たな要素を追加する
+                target.Insert(e.NewStartingIndex, converter((U)e.NewItems[0]));
+                break;
+            case Move: // Sourceの要素間で移動があったので, targetの配列でも要素を移動する
+                target.Move(e.OldStartingIndex, e.NewStartingIndex);
+                break;
+            case Remove: // Sourceのある要素が無くなったので, targetの配列の要素も削除する
+                target.RemoveAt(e.OldStartingIndex);
+                break;
+            case Replace: // Sourceのある要素に別のインスタンスが設定されたので, targetの要素も再作成する
+                target[e.NewStartingIndex] = converter((U)e.NewItems[0]);
+                break;
+            case Reset: // Sourceの配列がClearされたので, targetの配列もClearする
+                target.Clear();
+                break;
+        }
+    };
+    return collection;}
+

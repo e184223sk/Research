@@ -1,0 +1,30 @@
+
+    /// &lt;summary&gt;
+    /// Disposes the transaction, rolling it back if it is still pending.
+    /// &lt;/summary&gt;
+    protected override void Dispose(bool disposing)
+    {
+        if (IsDisposed)
+            return;
+
+        if (disposing)
+        {
+            if (!IsCompleted)
+            {
+                try
+                {
+                    _connector.CloseOngoingOperations(async: false).GetAwaiter().GetResult();
+                    Rollback();
+                }
+                catch (Exception ex)
+                {
+                    Debug.Assert(_connector.IsBroken);
+                    Log.Error("Exception while disposing a transaction", ex, _connector.Id);
+                }
+            }
+
+            IsDisposed = true;
+            _connector?.Connection?.EndBindingScope(ConnectorBindingScope.Transaction);
+        }
+    }
+

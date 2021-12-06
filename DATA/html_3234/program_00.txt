@@ -1,0 +1,51 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Wandbox
+{
+    class Program
+    {
+        static async Task throwError(string name, int millis)
+        {
+            await Task.Delay(millis);
+            throw new NotImplementedException(name);
+        }
+        static void Main(string[] args)
+        {
+            try
+            {
+                Task.WhenAll(
+                    throwError("1-1", 1000),
+                    Task.Run(() =&gt; Task.WhenAll( // NEST
+                        throwError("2-1", 1000),
+                        Task.Run(() =&gt; Task.WhenAll( // NEST
+                            throwError("3-1", 1000),
+                            throwError("3-2", 1000),
+                            throwError("3-3", 1000)
+                        ).Wait()),
+                        throwError("2-2", 1000)
+                    ).Wait()),
+                    throwError("1-2", 1000)
+                ).Wait();
+            }catch(AggregateException ex)
+            {
+                Func&lt;Exception, string&gt; ex2str = (x) =&gt; x.Message + ":" + x.GetType();
+                Console.WriteLine("--- InnerExceptions ---");
+                Console.WriteLine(string.Join("\n", ex.InnerExceptions.Select(ex2str)));
+                Console.WriteLine("--- Flatten.InnerExceptions ---");
+                Console.WriteLine(string.Join("\n", ex.Flatten().InnerExceptions.Select(ex2str)));
+
+                try{
+                    // 例外ハンドリングを行ったが、"1-1"しかハンドリングできなかったと仮定
+                    ex.Handle(ex2 =&gt; ex2.Message == "1-1");
+                }catch(AggregateException ex3){
+                    Console.WriteLine("--- Unhandle InnerExceptions ---");
+                    Console.WriteLine(string.Join("\n", ex3.InnerExceptions.Select(ex2str)));
+                }
+            }
+        }
+    }
+}
+

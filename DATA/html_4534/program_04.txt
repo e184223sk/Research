@@ -1,0 +1,85 @@
+
+
+    /// &lt;summary&gt;
+    /// メンテナンス中である場合にメソッド呼び出しをブロックします。
+    /// &lt;/summary&gt;
+    class MaintenanceBlocker : IRpcCallBlocker
+    {
+
+        /// &lt;summary&gt;
+        /// 有効かどうかを取得または設定します。
+        /// &lt;/summary&gt;
+        public bool Enabled { get; set; } = true;
+
+        /// &lt;summary&gt;
+        /// メンテナンス中かどうかを取得または設定します。
+        /// &lt;/summary&gt;
+        public bool InMaintenance { get; set; } = false;
+
+        /// &lt;summary&gt;
+        /// クライアント側でメソッド呼び出しを許可するかどうかを取得します。
+        /// &lt;/summary&gt;
+        public bool AllowInvocationOnClient&lt;TRequest, TResponse&gt;(
+            TRequest request
+            , ClientInterceptorContext&lt;TRequest, TResponse&gt; context
+            , out Status errorStatus, out Metadata errorData)
+            where TRequest : class
+            where TResponse : class
+        {
+            if (InMaintenance)
+            {
+                FillErrorStatus(out errorStatus, out errorData);
+                return false;
+            }
+            errorStatus = default(Status);
+            errorData = null;
+            return true;
+        }
+
+        /// &lt;summary&gt;
+        /// サーバー側でメソッド呼び出しを許可するかどうかを取得します。
+        /// &lt;/summary&gt;
+        public bool AllowInvocationOnServer&lt;TRequest&gt;(
+            TRequest request
+            , ServerCallContext context
+            , out Status errorStatus, out Metadata errorData) where TRequest : class
+        {
+            if (InMaintenance)
+            {
+                FillErrorStatus(out errorStatus, out errorData);
+                return false;
+            }
+            errorStatus = default(Status);
+            errorData = null;
+            return true;
+
+        }
+
+        /// &lt;summary&gt;
+        /// 指定されたステータスとメタデータから例外を生成します。
+        /// &lt;/summary&gt;
+        public Exception CreateRpcException(Status errorStatus, Metadata errorData)
+        {
+            if (errorData != null)
+            {
+                throw new RpcException(errorStatus, errorData);
+            }
+            else
+            {
+                throw new RpcException(errorStatus);
+            }
+        }
+
+        /// &lt;summary&gt;
+        /// エラーステータスとエラーデータを格納します。
+        /// &lt;/summary&gt;
+        private void FillErrorStatus(out Status errorStatus, out Metadata errorData)
+        {
+            errorStatus = new Status(StatusCode.Unavailable, "In Maintenance.");
+            errorData = new Metadata();
+            errorData.Add("errorcode", "InMaintenance");
+        }
+
+    }
+
+

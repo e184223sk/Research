@@ -1,0 +1,63 @@
+private async void InitI2CAccel()
+{
+    // すべてのI2Cデバイスを取得するためのセレクタ文字列を取得
+    string aqs = I2cDevice.GetDeviceSelector("I2C1");
+
+    // セレクタ文字列を使ってI2Cコントローラデバイスを取得
+    var dis = await DeviceInformation.FindAllAsync(aqs); 
+
+    if (dis.Count == 0)
+    {
+        Text_Status.Text = "I2Cコントローラデバイスが見つかりませんでした";
+        return;
+    }
+
+    // I2Cアドレスを指定して、デフォルトのI2C設定を作成する
+    // private const byte ACCEL_I2C_ADDR = 0x68;
+    var settings = new I2cConnectionSettings(ACCEL_I2C_ADDR);
+
+    // バス速度を設定(FastMode：400 kHz)(指定しないと、標準設定(StandardMode：100kHz)になる)
+    settings.BusSpeed = I2cBusSpeed.FastMode;
+
+    // 取得したI2Cデバイスと作成した設定で、I2cDeviceのインスタンスを作成
+    I2CAccel = await I2cDevice.FromIdAsync(dis[0].Id, settings);
+
+    if (I2CAccel == null)
+    {
+        Text_Status.Text = string.Format(
+            "スレーブアドレス {0} の I2C コントローラー {1} はほかのアプリで使用されています。他のアプリで使用されていないか、確認してください。",
+            settings.SlaveAddress, dis[0].Id);
+        return;
+    }
+
+    // ジャイロセンサ(MPU-9150)の設定を行うための通信
+    try
+    {
+        // 送信用バッファ
+        byte[] WriteBuf;
+        // 受信用バッファ
+        byte[] ReadBuf;
+
+        // アドレス取得(イニシャルに必須ではない。どこのサンプルにも書いてるので一応やっとく)
+        WriteBuf = new byte[] { 0x75 };
+        ReadBuf = new byte[1];
+        I2CAccel.WriteRead(WriteBuf, ReadBuf);
+
+        // センシング開始要求(レジスタ0x6Bに00を書き込み)
+        WriteBuf = new byte[] { 0x6B, 0x00 };
+        I2CAccel.Write(WriteBuf);
+
+        // センシング開始要求(レジスタ0x37に02を書き込み)
+        WriteBuf = new byte[] { 0x37, 0x02 };
+        I2CAccel.Write(WriteBuf);
+    }
+    catch (Exception ex)
+    {
+        Text_Status.Text = "デバイスとの通信に失敗しました。: " + ex.Message;
+        return;
+    }
+
+    // 初期化完了。100msごとにデータを採るためのコールバックを作成する
+    periodicTimer = new Timer(this.TimerCallback, null, 0, 100);
+}
+

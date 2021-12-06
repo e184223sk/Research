@@ -1,0 +1,66 @@
+using Microsoft.Azure.KeyVault;
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
+
+    class Encript
+    {
+        static async Task Main(string[] args)
+        {
+            try
+            {
+                CloudBlobClient blobClient = BlobHelper.GetBlobClient();
+                CloudBlobContainer container = blobClient.GetContainerReference("encript-test");
+                await container.CreateIfNotExistsAsync();
+                CloudBlockBlob blob = container.GetBlockBlobReference("encript.txt");
+
+                byte[] data = Encoding.UTF8.GetBytes("クライアント側暗号化です！");
+
+                RsaKey key = new RsaKey("SomthigKeyToEncript");
+                BlobEncryptionPolicy policy = new BlobEncryptionPolicy(key, null);
+
+                var accessCondition = new AccessCondition();
+                BlobRequestOptions uploadOption = new BlobRequestOptions() { EncryptionPolicy = policy };
+                var operationContext = new OperationContext();
+
+                // 暗号化してUpload
+                using (var stream = new MemoryStream(data))
+                {
+                    await blob.UploadFromStreamAsync(stream, accessCondition, uploadOption, operationContext);
+                }
+
+                // 複合化なしでDownload
+                using (MemoryStream outputStream = new MemoryStream())
+                {
+                    await blob.DownloadToStreamAsync(outputStream);
+                    Console.WriteLine(Encoding.UTF8.GetString(outputStream.ToArray()));
+                    // ???6??o??$?e?Yl8?q?3a??d?1~?qO?F?μzM???
+                }
+
+                // 複合化してDownload
+                KeyResolver resolver = new KeyResolver();
+                resolver.Add(key); // key="SomthigKeyToEncript"
+
+                BlobEncryptionPolicy downloadPolicy = new BlobEncryptionPolicy(null, resolver);
+                BlobRequestOptions downloadOptions = new BlobRequestOptions() { EncryptionPolicy = downloadPolicy };
+
+                using (MemoryStream outputStream = new MemoryStream())
+                {
+                    await blob.DownloadToStreamAsync(outputStream, accessCondition, downloadOptions, operationContext);
+
+                    Console.WriteLine(Encoding.UTF8.GetString(outputStream.ToArray()));
+                    // クライアント側暗号化です！
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("One or more exceptions occurred.");
+                Console.WriteLine(ex);
+            }
+            finally
+            {
+                Console.WriteLine("Press enter key to exit");
+                Console.ReadLine();
+            }
+        }
+    }
+

@@ -1,0 +1,20 @@
+More than 1 year has passed since last update.MsTest v2 でユニットテストを実装していた際に、テストクラスの終端処理 (ClassCleanup) の発生タイミングが気になりました。
+他のC#テストフレームワークも含めてどのような挙動となっているか、合わせて纏めます。使用したコードは、下記Githubを参照ください。
+https://github.com/tYoshiyuki/dotnet-unit-test-sampleまずは、NUnit から挙動を見ていきます。
+テストケースの実装は下記の通りです。OneTimeSetUp・OneTimeTearDownでクラス単位の初期化・終端処理、
+SetUp・TearDownでメソッド単位の初期化・終端処理を行います。実行結果は、下記の通りです。(※) 分かり易く改行を加えて加工しています。
+UnitTest1 -&gt; UnitTest2 -&gt; UnitTest3 と直列に実行されています。
+また、ClassInitialize と ClassCleanup はそれぞれのテストケースの開始・終了時に実行されています。次に xUnit になります。
+若干、NUnitと実装内容が変わっています。まず、クラス単位の初期化・終端処理のために SampleClassFixture というクラスを作成しています。
+テストケースに IClassFixture を実装することで、実現が可能です。
+更に、メソッド単位の初期化処理はコンストラクタ、終端処理はDisposeで実行します。[Collection("Test Collection #1")] のアノテーションは、テストケースを直列実行するために設定しています。
+xUnitでは、デフォルトで各テストケースが並列実行されるため、その対策として設定しています。実行結果は、下記の通りです。
+NUnitと同じような結果になりました。最後に、MsTest になります。
+まずは、実装内容を確認します。ClassInitialize・ClassCleanupでクラス単位の初期化・終端処理、
+TestInitialize・TestCleanupでメソッド単位の初期化・終端処理を行います。さて、実行結果を見てみます。ClassCleanupが最後に纏めて実行されています。
+MsTestの場合、ClassCleanupの実行タイミングは全テストの完了時になっているようです。従って、テストケース単位でClassCleanupを実行しようとしても、
+実際には、全てのテスト完了時に動作し、各テスト開始時には動作しないため注意が必要です。本件については、MsTestのissuesに挙がっていました。
+https://github.com/microsoft/testfx/issues/580個人的には、NUnit や xUnit の挙動が直感的な気がしますので、対応が進むと良いなぁと感じています。
+そもそも、相互で干渉するようなユニットテストを書かないのが吉・・・という説もあるかも知れませんね。
+
+

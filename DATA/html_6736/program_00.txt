@@ -1,0 +1,273 @@
+using System;
+using System.Runtime.InteropServices;   //Guid, InterfaceType, Marshal, DllImport
+using System.Runtime.Versioning;    //SupportedOSPlatform
+
+[assembly:SupportedOSPlatform("windows")]
+namespace XAudio2CS {
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct WAVEFORMATEX {
+        internal ushort wFormatTag;
+        internal ushort nChannels;
+        internal uint nSamplesPerSec;
+        internal uint nAvgBytesPerSec;
+        internal ushort nBlockAlign;
+        internal ushort wBitsPerSample;
+        internal ushort cbSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct XAUDIO2_BUFFER {
+        internal uint Flags;
+        internal uint AudioBytes;
+        internal IntPtr pAudioData;
+        internal uint PlayBegin;
+        internal uint PlayLength;
+        internal uint LoopBegin;
+        internal uint LoopLength;
+        internal uint LoopCount;
+        internal IntPtr pContext;
+    }
+
+    [Guid("2B02E3CF-2E0B-4ec3-BE45-1B2A3FE7210D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IXAudio2 {
+        int RegisterForCallbacks(); //dummy
+        void UnregisterForCallbacks();  //dummy
+        int CreateSourceVoice(out IntPtr ppSourceVoice, WAVEFORMATEX wfex, uint Flags, float MaxFrequencyRatio, IntPtr pCallback, IntPtr pSendList, IntPtr pEffectChain);
+        int CreateSubmixVoice();    //dummy
+        int CreateMasteringVoice(out IntPtr ppMasteringVoice, uint InputChannels, uint InputSampleRate, uint Flags, string szDeviceId, IntPtr pEffectChain, uint StreamCategory);
+        int StartEngine();  //dummy
+        void StopEngine();  //dummy
+        int CommitChanges();    //dummy
+        void GetPerformanceData();  //dummy
+        void SetDebugConfiguration();   //dummy
+    }
+/*
+    internal interface IXAudio2Voice {
+        void GetVoiceDetails(); //dummy0
+        int SetOutputVoices();  //dummy1
+        int SetEffectChain();   //dummy2
+        int EnableEffect(); //dummy3
+        int DisableEffect();    //dummy4
+        void GetEffectState();  //dummy5
+        int SetEffectParameters();  //dummy6
+        int GetEffectParameters();  //dummy7
+        int SetFilterParameters();  //dummy8
+        void GetFilterParameters(); //dummy9
+        int SetOutputFilterParameters();    //dummy10
+        void GetOutputFilterParameters();   //dummy11
+        int SetVolume();    //dummy12
+        void GetVolume();   //dummy13
+        int SetChannelVolumes();    //dummy14
+        void GetChannelVolumes();   //dummy15
+        int SetOutputMatrix();  //dummy16
+        void GetOutputMatrix(); //dummy17
+        void DestroyVoice();    //dummy18
+    }
+
+    internal interface IXAudio2SourceVoice : IXAudio2Voice {
+        int Start();    //dummy19
+        int Stop(); //dummy20
+        int SubmitSourceBuffer();   //dummy21
+        int FlushSourceBuffers();   //dummy22
+        int Discontinuity();    //dummy23
+        int ExitLoop(); //dummy24
+        void GetState();    //dummy25
+        int SetFrequencyRatio();    //dummy26
+        void GetFrequencyRatio();   //dummy27
+        int SetSourceSampleRate();  //dummy28
+    }
+
+    internal interface IXAudio2MasteringVoice : IXAudio2Voice {
+        int GetChannelMask();   //dummy19
+    }
+*/
+    internal class XAudio2 {
+        internal const uint XAUDIO2_DEFAULT_PROCESSOR = 0x1;
+        internal const ushort WAVE_FORMAT_PCM = 1;
+        private static IXAudio2 xaudio2 = null;
+
+        internal static int Create(uint Flags = 0, uint XAudio2Processor = XAUDIO2_DEFAULT_PROCESSOR) {
+            if (xaudio2 != null) return -1;
+            var hr = NativeMethods.XAudio2Create(out var pXAudio2, Flags, XAudio2Processor);
+            xaudio2 = (IXAudio2)Marshal.GetTypedObjectForIUnknown(pXAudio2, typeof(IXAudio2));
+            return hr;
+        }
+
+        internal static int Release() {
+            if (xaudio2 == null) return -1;
+            var pobj = Marshal.GetIUnknownForObject(xaudio2);
+            var ret = Marshal.Release(pobj);
+            xaudio2 = null;
+            return ret;
+        }
+
+        internal static int CreateMasteringVoice(out XAudio2MasteringVoice masteringvoice, uint InputChannels = 0, uint InputSampleRate = 0, uint Flags = 0, string szDeviceId = null, IntPtr pEffectChain = default(IntPtr), uint StreamCategory = 6) {
+            var hr = xaudio2.CreateMasteringVoice(out var pmasteringvoice, InputChannels, InputSampleRate, Flags, szDeviceId, pEffectChain, StreamCategory);
+            masteringvoice = new XAudio2MasteringVoice(pmasteringvoice);
+            return hr;
+        }
+
+        internal static int CreateSourceVoice(out XAudio2SourceVoice sourcevoice, WAVEFORMATEX wfex, uint Flags = 0, float MaxFrequencyRatio = 2.0f, IntPtr pCallback = default(IntPtr), IntPtr pSendList = default(IntPtr), IntPtr pEffectChain = default(IntPtr)) {
+            var hr = xaudio2.CreateSourceVoice(out var psourcevoice, wfex, Flags, MaxFrequencyRatio, pCallback, pSendList, pEffectChain);
+            sourcevoice = new XAudio2SourceVoice(psourcevoice);
+            return hr;
+        }
+    }
+
+    internal class XAudio2MasteringVoice {
+        private NativeMethods.DestroyVoice _DestroyVoice;
+        private IntPtr m_pmasteringvoice;
+        private IntPtr[] pfuncs = new IntPtr[20];
+
+        internal XAudio2MasteringVoice(IntPtr pmasteringvoice) {
+            m_pmasteringvoice = pmasteringvoice;
+            Marshal.Copy(Marshal.ReadIntPtr(pmasteringvoice, 0), pfuncs, 0, pfuncs.Length);
+            _DestroyVoice = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.DestroyVoice&gt;(pfuncs[18]);
+        }
+
+        internal void DestroyVoice() {
+            _DestroyVoice(m_pmasteringvoice);
+        }
+    }
+
+    internal class XAudio2SourceVoice {
+        private NativeMethods.SetVolume _SetVolume;
+        private NativeMethods.DestroyVoice _DestroyVoice;
+        private NativeMethods.Start _Start;
+        private NativeMethods.Stop _Stop;
+        private NativeMethods.SubmitSourceBuffer _SubmitSourceBuffer;
+        private NativeMethods.FlushSourceBuffers _FlushSourceBuffers;
+        private IntPtr m_psourcevoice;
+        private IntPtr[] pfuncs = new IntPtr[29];
+
+        internal XAudio2SourceVoice(IntPtr psourcevoice) {
+            m_psourcevoice = psourcevoice;
+            Marshal.Copy(Marshal.ReadIntPtr(psourcevoice, 0), pfuncs, 0, pfuncs.Length);
+
+            _SetVolume = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.SetVolume&gt;(pfuncs[12]);
+            _DestroyVoice = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.DestroyVoice&gt;(pfuncs[18]);
+            _Start = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.Start&gt;(pfuncs[19]);
+            _Stop = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.Stop&gt;(pfuncs[20]);
+            _SubmitSourceBuffer = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.SubmitSourceBuffer&gt;(pfuncs[21]);
+            _FlushSourceBuffers = Marshal.GetDelegateForFunctionPointer&lt;NativeMethods.FlushSourceBuffers&gt;(pfuncs[22]);
+        }
+
+        internal int SetVolume(float Volume, uint OperationSet = 0) {
+            return (_SetVolume(m_psourcevoice, Volume, OperationSet));
+        }
+
+        internal void DestroyVoice() {
+            _DestroyVoice(m_psourcevoice);
+        }
+
+        internal int Start(uint Flags = 0, uint OperationSet = 0) {
+            return (_Start(m_psourcevoice, Flags, OperationSet));
+        }
+
+        internal int Stop(uint Flags = 0, uint OperationSet = 0) {
+            return (_Stop(m_psourcevoice, Flags, OperationSet));
+        }
+
+        internal int SubmitSourceBuffer(IntPtr pBuffer, IntPtr pBufferWMA = default(IntPtr)) {
+            return (_SubmitSourceBuffer(m_psourcevoice, pBuffer, pBufferWMA));
+        }
+
+        internal int FlushSourceBuffers() {
+            return (_FlushSourceBuffers(m_psourcevoice));
+        }
+    }
+
+    internal abstract class XAudio2VoiceCallback {
+        internal IntPtr funcentry { get; }
+
+        private delegate void dlg_OnVoiceProcessingPassStart(IntPtr self, uint BytesRequired);
+        private delegate void dlg_OnVoiceProcessingPassEnd(IntPtr self);
+        private delegate void dlg_OnStreamEnd(IntPtr self);
+        private delegate void dlg_OnBufferStart(IntPtr self, IntPtr pBufferContext);
+        private delegate void dlg_OnBufferEnd(IntPtr self, IntPtr pBufferContext);
+        private delegate void dlg_OnLoopEnd(IntPtr self, IntPtr pBufferContext);
+        private delegate void dlg_OnVoiceError(IntPtr self, IntPtr pBufferContext, int Error);
+        private IntPtr[] callbackfuncs = new IntPtr[7];
+        private IntPtr functable;
+
+        internal XAudio2VoiceCallback() {
+            callbackfuncs[0] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnVoiceProcessingPassStart&gt;(_OnVoiceProcessingPassStart);
+            callbackfuncs[1] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnVoiceProcessingPassEnd&gt;(_OnVoiceProcessingPassEnd);
+            callbackfuncs[2] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnStreamEnd&gt;(_OnStreamEnd);
+            callbackfuncs[3] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnBufferStart&gt;(_OnBufferStart);
+            callbackfuncs[4] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnBufferEnd&gt;(_OnBufferEnd);
+            callbackfuncs[5] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnLoopEnd&gt;(_OnLoopEnd);
+            callbackfuncs[6] = Marshal.GetFunctionPointerForDelegate&lt;dlg_OnVoiceError&gt;(_OnVoiceError);
+            functable = Marshal.AllocCoTaskMem(Marshal.SizeOf&lt;IntPtr&gt;() * callbackfuncs.Length);
+            Marshal.Copy(callbackfuncs, 0, functable, callbackfuncs.Length);
+            funcentry = Marshal.AllocCoTaskMem(Marshal.SizeOf&lt;IntPtr&gt;());
+            Marshal.WriteIntPtr(funcentry, 0, functable);
+        }
+
+        internal void Release() {
+            Marshal.FreeCoTaskMem(funcentry);
+            Marshal.FreeCoTaskMem(functable);
+        }
+
+        private void _OnVoiceProcessingPassStart(IntPtr self, uint BytesRequired) {
+            OnVoiceProcessingPassStart(BytesRequired);
+        }
+
+        private void _OnVoiceProcessingPassEnd(IntPtr self) {
+            OnVoiceProcessingPassEnd();
+        }
+
+        private void _OnStreamEnd(IntPtr self) {
+            OnStreamEnd();
+        }
+
+        private void _OnBufferStart(IntPtr self, IntPtr pBufferContext) {
+            OnBufferStart(pBufferContext);
+        }
+
+        private void _OnBufferEnd(IntPtr self, IntPtr pBufferContext) {
+            OnBufferEnd(pBufferContext);
+        }
+
+        private void _OnLoopEnd(IntPtr self, IntPtr pBufferContext) {
+            OnLoopEnd(pBufferContext);
+        }
+
+        private void _OnVoiceError(IntPtr self, IntPtr pBufferContext, int Error) {
+            OnVoiceError(pBufferContext, Error);
+        }
+
+        internal abstract void OnVoiceProcessingPassStart(uint BytesRequired);
+        internal abstract void OnVoiceProcessingPassEnd();
+        internal abstract void OnStreamEnd();
+        internal abstract void OnBufferStart(IntPtr pBufferContext);
+        internal abstract void OnBufferEnd(IntPtr pBufferContext);
+        internal abstract void OnLoopEnd(IntPtr pBufferContext);
+        internal abstract void OnVoiceError(IntPtr pBufferContext, int Error);
+    }
+
+    internal static class NativeMethods {
+        [DllImport("xaudio2_9.dll")]
+        internal static extern int XAudio2Create(out IntPtr ppXAudio2, uint Flags, uint XAudio2Processor);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate int SetVolume(IntPtr self, float Volume, uint OperationSet);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate void DestroyVoice(IntPtr self);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate int Start(IntPtr self, uint Flags, uint OperationSet);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate int Stop(IntPtr self, uint Flags, uint OperationSet);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate int SubmitSourceBuffer(IntPtr self, IntPtr pBuffer, IntPtr pBufferWMA);
+
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        internal delegate int FlushSourceBuffers(IntPtr self);
+    }
+}
+
+

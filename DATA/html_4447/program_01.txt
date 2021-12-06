@@ -1,0 +1,49 @@
+
+public class ListTypeConverter : TypeConverter
+{
+  public override object ConvertTo(ITypeDescriptorContext context, CultureInfo culture, object value, Type destinationType)
+  {
+    if (destinationType != typeof(string))
+      return base.ConvertTo(context, culture, value, destinationType);
+    string type = value.GetType().GenericTypeArguments[0].Name;
+    IList members = value as IList;
+    if (members == null)
+      return "-";
+    return $"List&lt;{type}&gt;[{members.Count}]";//Listのルートのところをどう出すか
+  }
+
+  public override bool GetPropertiesSupported(ITypeDescriptorContext context) { return true; }
+
+  public override PropertyDescriptorCollection GetProperties(ITypeDescriptorContext context, object value, Attribute[] attributes)
+  {
+    List&lt;PropertyDescriptor&gt; list = new List&lt;PropertyDescriptor&gt;();
+    IEnumerable members = value as IEnumerable;
+    if (members != null)
+    {
+      foreach (var member in members)
+      {
+        list.Add(new MemberDescriptor(member, list.Count));
+      }
+    }
+    return new PropertyDescriptorCollection(list.ToArray());
+  }
+
+  private class MemberDescriptor : SimplePropertyDescriptor
+  {
+    public object Member { get; private set; }
+    public MemberDescriptor(object member, int index)
+        : base(member.GetType(), $"[{index}]", typeof(string))//展開時[0]の所をどう出すか
+    {
+      Member = member;
+    }
+    public override object GetValue(object component)
+    {
+      return Member;
+    }
+    public override void SetValue(object component, object value)
+    {
+      Member = value;
+    }
+  }
+}
+

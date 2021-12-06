@@ -1,0 +1,16 @@
+More than 1 year has passed since last update.　以前、同様の内容をASP.Net Core 2.2の環境で書いてみたのですが、最近3.1の環境に移行するにあたって、気づいた点を書いておきます。元ネタはASp.Net Core でPostgreSQLを利用してIdentityで認証を使えるようにする（１）にありますので、参照してください。　今回の環境は以下の通りです。
+- VisualStudio2019 Ver.16.6.4
+- ASP.NET Core 3.1
+- PostgreSQL 12 インストール済み、接続用のアカウント作成済み　ASP.NET Core 2.2の時と同じです。作成時にASP.NET Core 3.1を選んでください。　「appsettings.json」はASP.NET Core 2.2の時と同じように変更します。
+　「Startup.cs」のメソッド「ConfigureServices」は内容が変更されていますが、変更箇所は同じで、「options.UseSqlServer」の部分を「options.UseNpgsql」に変更します。「services.AddMvc()」が「services.AddRazorPages()」とレーザーページ専用のメソッドができているのが面白いです。　Postgresqlのバージョンには注意が必要です。以前の記事の時のバージョン9.6で「Update-Database」を実行すると、エラーになります（ SqlState: 42601、MessageText: "GENERATED"またはその近辺で構文エラー）。どうやらSQLコマンドに変更があり新しいバージョンでないと対応できない様です。ネットで調べると「SetCompatibilityVersion」メソッドで対応できそうな記事がありましたが、ダメでした。作成されているDB構築のSQLを修正すればいけるでしょうが、後々DBの変更で大変なのでしません。
+　また、試しに「Npgsql.EntityFrameworkCorePostgreSQL」を当時のバージョンに落としてみると、今度は「Add-Migration」で失敗しました。
+　結論としてはPostgreSQLは新しいもの（おそらく10以上と思うけど試してません。今回は12を使いました）を使ってください。　この状態で実行して画面右上の「Regist」で表示された画面でユーザーを登録し、「Login」でログインしようとすると失敗します。
+　基本的にこの認証をそのまま使う気はないので対応する必要もないのですが、気になるので調べてみました。「Startup.cs」の「ConfigureServices()」で「services.AddDefaultIdentity()」の処理にオプション「options =&gt; options.SignIn.RequireConfirmedAccount = true」が設定されていますが、これを消してしまえばいいです。
+　このオプションはメールによってIDの確認を行うようで、メール送信の設定をしていないと確認が失敗してログインできません。
+　マイクロソフトの「ASP.NET Core でのアカウントの確認とパスワードの回復」には「SendGrid」というメールサービスを利用する方法が書かれており、「SMTP」を利用する方法は推奨しない旨の記述があります。ASP.NET CoreにあったSMTPも使えなくなっているようです（確認してませんが）。
+　それでもSMTPを使いたい人向けに別途記事を「ASP.NET Core 3.1のIdentityで認証の確認メールをSMTPで行う」に書いておきます。　ロールの追加はASP.NET Core 2.2の時と同じように「services.AddDefaultIdentity()」に対して「AddRoles()」で行います。
+　承認が未指定のページを全てデフォルトで承認が必要にするためのオプションは、ASP.NET Core 2.2では「services.AddMvc()」の中にオプションとして組み込んでいたのですが、ASP.NET Core 3.1では追加された「services.AddAuthorization」メソッドとそのオプションで行うようです。　これを設定して実行すると、最初に「WELCOME」のページが表示されず、ログイン画面が表示されるようになります。ログインできると「Privacy」画面が表示され、「Home」をクリックすると「WELCOME」のページが表示されます。　システムの初期設定として、管理ユーザーと一般ユーザー、システム管理のロールを作成するクラスを以下のように作りました。（ASP.NET Core 2.2と少し変わってます。）　これを実行するために「Program.cs」の「Main()」を以下のように変更します。　ここで一度実行して、ユーザー「user@test.com」/パスワード「!User01」でログインして「Privacy」が表示されることを確認します。
+　次に、テンプレートで作成されている「Page/Privacy.cshtml.cs」ファイルを開き、以下のようにクラスにロールアトリビュートを設定します。　再度実行して「user@test.com」でログインし、「Privacy」を開いてみると、拒否されます。ユーザー「system@test.com」/パスワード「!initialPassword01」でログインすると「Privacy」が表示されます。　システムが変更されてDBが変更された場合に、常に手動で「Update-Database」を実行するのは、リリース時に作業忘れを発生しそうなので、自動マイグレーションを設定します。常に手動でしたい場合は、ここは無視してください。（自動マイグレーションでも「Add-Migration &lt;キー&gt;」はする必要がありますが、これは開発環境だけです。自動マイグレーションを設定しておくと、実環境にリリースした際にその環境で実施する「Update-Database」を省けます）　「Program.cs」を以下の様に変更します。　実施後、データベースをいったん削除して自動的にDBが作成されることを確認してください。　ASP.NET Core 2.2の時と同じように「AddDefaultIdentity」をやめるのですが、3.0からマイクロソフトのページに「完全な Identity UI ソースの作成」というタイトルで記述されていました（AddMVC()のパターンでしたが）。
+　それをもとにして変更したのが以下の部分です。ここで、ログインとログアウトとアクセス拒否のページは必要なので、スキャフォールディング（「ASp.Net Core でPostgreSQLを利用してIdentityで認証を使えるようにする（３）」の「Identityをスキャフォールディングしてみる」参照）で、そのページのみ（「Account￥AccessDenied」「Account￥Login」「Account￥Logout」）取り込む。　これで実行すると、同じようにログイン、ログアウト、アクセス拒否は表示されますが、それ以外の「Regist」は実行されなくなります。URLを直接入力しても、存在しない旨の表示がされます。　以上、3.1でのidentityのカスタマイズでした。
+
+

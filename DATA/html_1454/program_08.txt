@@ -1,0 +1,116 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace ClosureSample.Sample4_Task_2
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            foreach (var i in await Task.WhenAll(A.F()))
+            {
+                Console.WriteLine(i);
+            }
+        }
+    }
+
+    static class A
+    {
+        public static IEnumerable&lt;Task&lt;int&gt;&gt; F()
+        {
+            return new D(-2);
+        }
+
+        // クロージャ用の内部クラス
+        class C
+        {
+            public int i;
+
+            public int B()
+            {
+                return i;
+            }
+        }
+
+        // yield用の内部クラス
+        class D : IEnumerable&lt;Task&lt;int&gt;&gt;, IEnumerator&lt;Task&lt;int&gt;&gt;, IDisposable
+        {
+            private int state;
+            private Task&lt;int&gt; current;
+            private int initialThreadId;
+            private C c;
+
+            public D(int st)
+            {
+                state = st;
+                initialThreadId = Environment.CurrentManagedThreadId;
+            }
+
+            public void Dispose()
+            {
+            }
+
+            public Task&lt;int&gt; Current =&gt; current;
+
+            object IEnumerator.Current =&gt; current;
+
+            public bool MoveNext()
+            {
+                switch (state)
+                {
+                    case 0: // 1回目
+                        state = -1;
+                        c = new C(); // クロージャが最初にしか作られていない！
+                        c.i = 1;
+                        break;
+                    case 1: // 2回目以降
+                        state = -1;
+                        c.i++; // 単一のインスタンスのiを更新している！
+                        break;
+                    default:
+                        return false;
+                }
+
+                // for文の中身
+                if (c.i &lt;= 10)
+                {
+                    current = Task.Run(c.B); // 各タスクに同じインスタンスを渡している！
+                    state = 1;
+                    return true;
+                }
+                else
+                {
+                    c = null;
+                    return false;
+                }
+            }
+
+            public void Reset()
+            {
+                throw new NotSupportedException();
+            }
+
+            public IEnumerator&lt;Task&lt;int&gt;&gt; GetEnumerator()
+            {
+                if (state == -2 &amp;&amp; initialThreadId == Environment.CurrentManagedThreadId)
+                {
+                    state = 0;
+                    return this;
+                }
+                else
+                {
+                    return new D(0);
+                }
+            }
+
+            IEnumerator IEnumerable.GetEnumerator()
+            {
+                return GetEnumerator();
+            }
+        }
+    }
+}
+

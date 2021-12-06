@@ -1,0 +1,195 @@
+MVVM（Model-View-ViewModel）パターンに則ってアプリを作成していると、ダイアログの処理をどのように実装すればよいか困ることがあります。
+例えばWPFにおいてファイル保存ダイアログ(SaveFileDialog)を表示してからファイルを保存したい場合、などが考えられます。
+最も簡単なのは前者ですが、SaveFileDialogを呼び出したいためだけにViewにクリックイベントを実装するのは好ましくありません。
+だからといって後者のようにViewModelにダイアログの処理を持ってくるのはMVVMパターンに反してしまいます。Viewにダイアログの処理を記述し、ViewModelはその入出力だけを利用するような方法はないでしょうか？.NETのMVVMフレームワークライブラリであるReactiveUIにはInteractionという機能を使うことによって解決できることがわかりました。例題としてMVVMパターンに則ったWPFアプリでSaveFileDialogを使う場合を考えます。
+プログラムの詳細はこちらで公開しています。SaveFileDialogの例題なのでModelにはファイルを保存する機能を持たせます。全体のコード
+
+
+Model
+using System;
+using System.IO;
+
+namespace MvvmDialog.Models
+{
+    public class SaveText
+    {
+        public SaveTextResponse Save(SaveTextRequest request)
+        {
+            SaveTextResponse response = null;
+
+            try
+            {
+                using (StreamWriter sw = new StreamWriter(request.FilePath, false))
+                {
+                    sw.Write(request.InputText);
+                }
+
+                response = new SaveTextResponse()
+                {
+                    Succeed = true,
+                    Message = "File saved successfully."
+                };
+            }
+            catch (Exception ex)
+            {
+                response = new SaveTextResponse()
+                {
+                    Succeed = false,
+                    Message = ex.Message
+                };
+            }
+
+            return response;
+        }
+    }
+
+    public class SaveTextRequest
+    {
+        public string InputText { get; set; }
+
+        public string FilePath { get; set; }
+    }
+
+    public class SaveTextResponse
+    {
+        public bool Succeed { get; set; }
+
+        public string Message { get; set; }
+    }
+}
+
+
+
+本題のSaveFileDialogのプロパティとしてInteractionを定義します。Inputには起動時に表示されるファイル名が入力されるとし、またOutputとしてはファイルのフルパスを出力すると決めておきます。
+ViewModel内でInteractionSaveFileDialogは次のように呼び出すことができます。このInteractionを保存ボタン押下コマンド内に記述することで、ボタン押下→ダイアログ表示→保存処理を実現することができます。全体のコード
+
+
+ViewModel
+using MvvmDialog.Models;
+using ReactiveUI;
+using ReactiveUI.Fody.Helpers;
+using System;
+using System.Reactive;
+using System.Reactive.Disposables;
+using System.Reactive.Linq;
+
+namespace MvvmDialog.ViewModels
+{
+    public class MainViewModel : ReactiveObject, IActivatableViewModel
+    {
+        [Reactive]
+        public string InputText { get; set; }
+
+        [Reactive]
+        public string FileName { get; set; }
+
+        [Reactive]
+        public string ResultMessage { get; set; }
+
+        public ReactiveCommand&lt;Unit, SaveTextRequest&gt; SaveFileCommand { get; private set; }
+
+        public Interaction&lt;string, string&gt; SaveFileDialog { get; set; }
+
+        public ViewModelActivator Activator { get; }
+
+
+        public MainViewModel()
+        {
+            Activator = new ViewModelActivator();
+
+            this.WhenActivated(d =&gt;
+            {
+                HandleViewModelBound(d);
+            });
+        }
+
+
+        void HandleViewModelBound(CompositeDisposable d)
+        {
+            SaveFileDialog = new Interaction&lt;string, string&gt;();
+
+            SaveFileCommand = ReactiveCommand.CreateFromObservable(() =&gt; SaveFileDialog.Handle(FileName).Select(x =&gt; new SaveTextRequest() { FilePath = x, InputText = this.InputText }));
+
+            SaveFileCommand.Select(x =&gt; new SaveText().Save(x)).Subscribe(x =&gt; ResultMessage = x.Message).DisposeWith(d);
+        }
+    }
+}
+
+
+
+ViewではViewModelで定義したSaveFileDialogプロパティに具体的なInteractionの処理をバインドしていきます。全体のコード
+
+
+View
+using Microsoft.Win32;
+using MvvmDialog.ViewModels;
+using ReactiveUI;
+using System.Reactive.Disposables;
+using System.Threading.Tasks;
+
+namespace MvvmDialog.Views
+{
+    /// &lt;summary&gt;
+    /// Interaction logic for MainWindow.xaml
+    /// &lt;/summary&gt;
+    public partial class MainWindow : ReactiveWindow&lt;MainViewModel&gt;
+    {
+
+        public MainWindow()
+        {
+            InitializeComponent();
+
+            ViewModel = new MainViewModel();
+
+            this.WhenActivated(d =&gt;
+            {
+                HandleViewModelBound(d);
+            });
+        }
+
+        protected void HandleViewModelBound(CompositeDisposable d)
+        {
+            this.BindInteraction(
+                ViewModel,
+                vm =&gt; vm.SaveFileDialog,
+                async interaction =&gt;
+                {
+                    var result = await Task.Run(() =&gt;
+                    {
+                        var dialog = new SaveFileDialog()
+                        {
+                            FileName = interaction.Input,
+                            AddExtension = true,
+                            DefaultExt = "txt"
+                        };
+
+                        if(dialog.ShowDialog()?? false)
+                        {
+                            return dialog.FileName;
+                        }
+                        else
+                        {
+                            return null;
+                        }
+                    });
+
+                    interaction.SetOutput(result);
+                })
+                .DisposeWith(d);
+
+            this.OneWayBind(ViewModel, vm =&gt; vm.ResultMessage, v =&gt; v.ResultTextBlock.Text).DisposeWith(d);
+
+            this.Bind(ViewModel, vm =&gt; vm.FileName, v =&gt; v.FileNameTextBox.Text).DisposeWith(d);
+
+            this.Bind(ViewModel, vm =&gt; vm.InputText, v =&gt; v.InputTextBox.Text).DisposeWith(d);
+
+            this.BindCommand(ViewModel, vm =&gt; vm.SaveFileCommand, v =&gt; v.SaveFileButton).DisposeWith(d);
+        }
+    }
+}
+
+
+
+
+
+

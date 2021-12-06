@@ -1,0 +1,48 @@
+
+internal struct NativeHeadRemovableList&lt;T&gt; : IDisposable where T : unmanaged
+{
+    private NativeList&lt;T&gt; _list;
+    private PtrHandle&lt;int&gt; _start;
+
+    public unsafe NativeHeadRemovableList(Allocator alloc) {}
+    public unsafe T this[int index]
+    {
+        get { return _list[_start + index]; }
+        set { _list[_start + index] = value; }
+    }
+    public unsafe int Length { get { return _list.Length - _start; } }
+
+    /* 中略 */
+
+    public unsafe void RemoveHead(int count = 1)
+    {
+        if (count &lt; 1 || Length &lt; count) throw new ArgumentOutOfRangeException("invalid length of remove target.");
+
+        _start.Value = _start + count;
+    }
+    public unsafe void InsertHead(T* ptr, int length)
+    {
+        if (length &lt;= 0) throw new ArgumentOutOfRangeException("invalid size");
+
+        // when enough space exists in head
+        if (length &lt;= _start)
+        {
+            _start.Value = _start - length;
+            UnsafeUtility.MemCpy(this.GetUnsafePtr(), ptr, UnsafeUtility.SizeOf&lt;T&gt;() * length);
+            return;
+        }
+
+        // slide internal data
+        int new_length = length + this.Length;
+        int len_move = this.Length;
+        _list.ResizeUninitialized(new_length);
+        T* dest = (T*)_list.GetUnsafePtr() + length;
+        T* source = (T*)_list.GetUnsafePtr() + _start;
+        UnsafeUtility.MemMove(dest, source, UnsafeUtility.SizeOf&lt;T&gt;() * len_move);
+
+        // insert data
+        _start.Value = 0;
+        UnsafeUtility.MemCpy((void*)_list.GetUnsafePtr(), (void*)ptr, UnsafeUtility.SizeOf&lt;T&gt;() * length);
+    }
+}
+

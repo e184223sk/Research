@@ -1,0 +1,50 @@
+
+public static Func&lt;TArg1, TArg2, TResult&gt; CreateExpression&lt;TArg1, TArg2, TResult&gt;(Func&lt;Expression, Expression, BinaryExpression&gt; body, Boolean canCast)
+{
+    ParameterExpression leftParameter = Expression.Parameter(typeof(TArg1), "leftParameter");
+    ParameterExpression rightParameter = Expression.Parameter(typeof(TArg2), "rightParameter");
+    try
+    {
+        return Expression.Lambda&lt;Func&lt;TArg1, TArg2, TResult&gt;&gt;(body(leftParameter, rightParameter), leftParameter, rightParameter).Compile();
+    }
+    catch (InvalidOperationException ex)
+    {
+        if (canCast == false)
+        {
+            return delegate { throw new InvalidOperationException(ex.Message); };
+        }
+    }
+    try
+    {
+        if (typeof(TArg1) != typeof(TResult) || typeof(TArg2) != typeof(TResult))
+        {
+            Expression castLeftParameter = null;
+            Expression castRightParameter = null;
+
+            if (typeof(TArg1) == typeof(TResult))
+            {
+                castLeftParameter = (Expression)leftParameter;
+            }
+            else
+            {
+                castLeftParameter = (Expression)Expression.Convert(leftParameter, typeof(TResult));
+            }
+            if (typeof(TArg2) == typeof(TResult))
+            {
+                castRightParameter = (Expression)rightParameter;
+            }
+            else
+            {
+                castRightParameter = (Expression)Expression.Convert(rightParameter, typeof(TResult));
+            }
+            return Expression.Lambda&lt;Func&lt;TArg1, TArg2, TResult&gt;&gt;(body(castLeftParameter, castRightParameter)
+                , leftParameter, rightParameter).Compile();
+        }
+    }
+    catch (Exception ex)
+    {
+        return delegate { throw new InvalidOperationException(ex.Message); };
+    }
+    return delegate { throw new InvalidOperationException(); };
+}
+

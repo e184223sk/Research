@@ -1,0 +1,53 @@
+    public class SQLiteIF
+    {
+        /// &lt;summary&gt;
+        /// 駅情報一覧をXML形式で取得
+        /// &lt;/summary&gt;
+        /// &lt;param name="dbFilePath"&gt;.dbファイルのフルパス&lt;/param&gt;
+        static public string GetStations( string dbFilePath )
+        {
+            // 取得したレコードをListで保持します。
+            // 取得したデータはすべてstring型とする。
+            List&lt;Dictionary&lt;string, string&gt;&gt; stationRecords = new List&lt;Dictionary&lt;string, string&gt;&gt;();
+
+            // DBに接続して、クエリを実行する。
+            using ( var sqliteConn = new SQLiteConnection( "Data Source=" + dbFilePath ) )
+            {
+                sqliteConn.Open();
+                using ( SQLiteCommand command = sqliteConn.CreateCommand() )
+                {
+                    // クエリ実行
+                    command.CommandText = "SELECT * from station";
+                    using ( SQLiteDataReader reader = command.ExecuteReader() )
+                    {
+                        // 一行一行読み込んでいく
+                        while ( reader.Read() )
+                        {
+                            // Listに追加
+                            Dictionary&lt;string, string&gt; record = new Dictionary&lt;string, string&gt;() {
+                                { "stationName", reader["station_name"].ToString() },
+                                { "longitude", reader["lon"].ToString() },
+                                { "latitude",  reader["lat"].ToString()}
+                            };
+                            stationRecords.Add( record );
+                        }
+                    }
+                }
+                sqliteConn.Close();
+            }
+
+            // ルート部分のエレメントオブジェクト作成
+            XElement rootElement = new XElement( "records" );
+            // ルートに対して子のエレメントを追加していく
+            foreach ( var record in stationRecords )
+            {
+                XElement el = new XElement( "record",
+                    from keyValue in record
+                    select new XElement( keyValue.Key, keyValue.Value )
+                    );
+                rootElement.Add( el );
+            }
+            return rootElement.ToString();
+        }
+    }
+

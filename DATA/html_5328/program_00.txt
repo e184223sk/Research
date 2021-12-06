@@ -1,0 +1,45 @@
+public partial class MainWindow : Window
+{
+    static string[] pops = new[] { "ポ", "プ", "テ", "ピピック" };
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        CreateRandomPops()
+            //Textboxにアクセスするので、UIスレッド上で購読
+            .ObserveOn(this.Dispatcher)
+            .Subscribe(
+                //OnNextは流れてきた文字をそのままTextboxに書き足す
+                x =&gt; this.textBox.Text += x,
+                //CompleteしたらリソースからAAを取得してTextboxに書き足す
+                () =&gt; textBox.Text += Properties.Resources.Take);
+    }
+
+    /// &lt;summary&gt;
+    /// ランダムに「ポ」「プ」「テ」「ピピック」がOnNextに流れてきて、「ポプテピピック」に一致したらCompleteするIObservable
+    /// &lt;/summary&gt;
+    private static IObservable&lt;string&gt; CreateRandomPops()
+    {
+        int maxCount = pops.Count();
+        var random = new Random();
+        IObservable&lt;string&gt; randomPop = Observable
+            //10msecごとに
+            .Interval(TimeSpan.FromMilliseconds(10))
+            //ランダムに「ポ」「プ」「テ」「ピピック」のどれか
+            .Select(_ =&gt; pops[random.Next(maxCount)]);
+        //※テスト用　最初がいきなり「ポプテピピック」になる
+        //.Select(i =&gt; pops[i % maxCount]);
+
+        //バッファを空白で埋めておく (["","","","",""])
+        return Observable.Repeat("", maxCount)
+            .Concat(randomPop)
+            //最後の「ピピック」をOnNextに流すために1つ余分にBufferをもつ
+            .Buffer(maxCount + 1, 1)
+            //Bufferの前が「ポプテピピック」に一致する状態(["ポ","プ","テ","ピピック",*])になるまで続行 
+            .TakeWhile(x =&gt; !x.Take(maxCount).SequenceEqual(pops))
+            //Bufferの最後をOnNextに流す  ([*,*,*,*,○]　の　○)
+            .Select(x =&gt; x.Last());
+    }
+}
+

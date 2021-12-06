@@ -1,0 +1,54 @@
+
+/// &lt;summary&gt;
+/// SHA256ハッシュを生成します。
+/// &lt;/summary&gt;
+/// &lt;param name="plainText"&gt;暗号化したい文字列&lt;/param&gt;
+/// &lt;returns&gt;暗号化された文字列&lt;/returns&gt;
+public string ComputeHash(string plainText)
+{
+    var p = Padding(plainText);
+
+    var block_list = Parse(p);
+    var s = new uint[8];
+    Array.Copy(initial_hash, s, initial_hash.Length);
+
+    //ブロックリストの中のブロックにスコープを当てる
+    foreach (var block in block_list)
+    {
+        var pair = MakePair(s);
+        var expanded_block = ExpandBlock(block);
+
+        for (int n = 0; n &lt; 64; ++n)
+        {
+            var CH = Ch(pair["e"], pair["f"], pair["g"]);
+            var MAJ = Maj(pair["a"], pair["b"], pair["c"]);
+            var SIG0 = Sigma0(pair["a"]);
+            var SIG1 = Sigma1(pair["e"]);
+
+            var WJ_KJ = (const_k[n] + expanded_block[n]);
+            var T1_TEMP = (pair["h"] + WJ_KJ + CH);
+            var T1 = (T1_TEMP + SIG1);
+            var T2 = (SIG0 + MAJ);
+
+            pair["h"] = pair["g"];
+            pair["g"] = pair["f"];
+            pair["f"] = pair["e"];
+            pair["e"] = (pair["d"] + T1);
+            pair["d"] = pair["c"];
+            pair["c"] = pair["b"];
+            pair["b"] = pair["a"];
+            pair["a"] = (T1 + T2);
+        }
+
+        s[0] = (pair["a"] + s[0]);
+        s[1] = (pair["b"] + s[1]);
+        s[2] = (pair["c"] + s[2]);
+        s[3] = (pair["d"] + s[3]);
+        s[4] = (pair["e"] + s[4]);
+        s[5] = (pair["f"] + s[5]);
+        s[6] = (pair["g"] + s[6]);
+        s[7] = (pair["h"] + s[7]);
+    }
+    return MakeHash(s);
+}
+

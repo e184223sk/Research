@@ -1,0 +1,169 @@
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+
+class MyPdfGenerator
+{
+    class IndirectObjInfo
+    {
+        public int objId;
+        public int genId;
+        public int pos;
+
+        public IndirectObjInfo(int oId, int gId, int p)
+        {
+            objId = oId;
+            genId = gId;
+            pos = p;
+        }
+    }
+
+    Stream _st;
+    Dictionary&lt;int,IndirectObjInfo&gt; _indirectObjs;
+    int _largestObjId;
+    int _numberOfObjId; // objId = 0 を除いた個数
+    int _xrefPos;
+
+    public MyPdfGenerator(Stream st)
+    {
+        _st = st;
+        _indirectObjs = new Dictionary&lt;int,IndirectObjInfo&gt;();
+        _largestObjId = -1;
+        _numberOfObjId = 0;
+        _xrefPos = -1;
+    }
+
+    void WriteStringToStream(string s)
+    {
+        byte[] buf = Encoding.ASCII.GetBytes(s);
+        _st.Write(buf, 0, buf.Length);
+    }
+
+    public void WriteHeader()
+    {
+        if (_st.Position!=0){throw new Exception("Position error.");}
+        WriteStringToStream("%PDF-1.4\n");
+        /*
+        WriteStringToStream("%");
+        byte[] tmp = new byte[]{0xe2,0xe3,0xcf,0xd3};
+        _st.Write(tmp,0,tmp.Length);
+        WriteStringToStream("\n");
+        */
+    }
+
+
+    public void WriteIndirectObj(int objId, string dictPart)
+    {
+        WriteIndirectObj(objId, dictPart, null);
+    }
+
+    public void WriteIndirectStreamObj(int objId, string streamData)
+    {
+        WriteIndirectStreamObj(objId, Encoding.ASCII.GetBytes(streamData));
+    }
+
+    public void WriteIndirectStreamObj(int objId, byte[] streamData)
+    {
+        string dictPart = "&lt;&lt;/Length "+ streamData.Length.ToString() +"&gt;&gt;";
+        WriteIndirectObj(objId, dictPart, streamData);
+    }
+
+    void WriteIndirectObj(int objId, string dictPart, byte[] streamData)
+    {
+        if (objId&lt;=0) {throw new Exception("ObjId must be non-zero positive number");}
+
+        int pos = (int)_st.Position;
+        StringBuilder sb = new StringBuilder(20+dictPart.Length);
+        sb.Append(objId.ToString());
+        sb.Append(" 0 obj");
+        sb.Append(dictPart);
+        WriteStringToStream(sb.ToString());
+        sb.Clear();
+        if (streamData != null) {
+            WriteStringToStream("stream\n");
+            _st.Write(streamData, 0, streamData.Length);
+            WriteStringToStream("\nendstream");
+        }
+        sb.Append("\n");
+        sb.Append("endobj\n");
+        WriteStringToStream(sb.ToString());
+
+        if (_largestObjId &lt; objId) {
+            _largestObjId = objId;
+        }
+        _indirectObjs.Add(objId, new IndirectObjInfo(objId,0,pos)); // Addメソッドを使用することで、キーが重複すると例外を投げてくれる
+        _numberOfObjId++;
+    }
+
+
+
+    public void WriteXref()
+    {
+        if ( _numberOfObjId != _largestObjId ) {
+            throw new Exception("Failed.");
+        }
+        _xrefPos = (int)_st.Position;
+
+        StringBuilder sb = new StringBuilder(20+(_numberOfObjId+1)*20);
+        sb.Append("xref\n");
+        sb.Append("0 "); sb.Append((_numberOfObjId+1).ToString()); sb.Append("\n");
+        sb.Append("0000000000 65535 f \n");
+        for ( int i=1 ; i &lt;= _largestObjId ; i++) {
+            sb.Append(_indirectObjs[i].pos.ToString("D10"));
+            sb.Append(" 00000 n \n");
+        }
+
+        WriteStringToStream(sb.ToString());
+    }
+
+    public void WriteTrailer(int rootObjId)
+    {
+        StringBuilder sb = new StringBuilder(50);
+        sb.Append("trailer\n&lt;&lt;");
+        sb.Append("/Size " + (_numberOfObjId+1).ToString() + " ");
+        sb.Append("/Root " + rootObjId.ToString()+" 0 R");
+        sb.Append("&gt;&gt;\n");
+        WriteStringToStream(sb.ToString());
+    }
+
+    public void WriteStartXref()
+    {
+        StringBuilder sb = new StringBuilder(20);
+        sb.Append("startxref\n");
+        sb.Append(_xrefPos.ToString());
+        sb.Append("\n");
+        WriteStringToStream(sb.ToString());
+    }
+
+    public void WriteEof()
+    {
+        WriteStringToStream("%%EOF\n");
+    }
+}
+
+class PdfGenTest
+{
+    [STAThread]
+    static void Main(string[] args)
+    {
+        var st = new FileStream("testout.pdf", FileMode.Create); // over write
+        var pg = new MyPdfGenerator(st);
+
+        pg.WriteHeader();
+        pg.WriteIndirectObj(1,"&lt;&lt;/Type/Catalog /Pages 2 0 R&gt;&gt;"); // [1] Root Object
+        pg.WriteIndirectObj(2,"&lt;&lt;/Type/Pages /Kids [4 0 R] /Count 1&gt;&gt;"); // [2] Pages Object
+        pg.WriteIndirectStreamObj(3, @"1. 0. 0. 1. 50. 720. cm BT /F0 36 Tf (Hello, world!) Tj ET"); // [3] Contents
+        pg.WriteIndirectObj(4,"&lt;&lt;/Type/Page /Parent 2 0 R /Resources 5 0 R /MediaBox [0 0 595 842] /Contents 3 0 R&gt;&gt;"); // [4] Page Object
+        pg.WriteIndirectObj(5,"&lt;&lt;/Font &lt;&lt;/F0 &lt;&lt;/Type /Font /BaseFont /Times-Roman /Subtype /Type1 &gt;&gt; &gt;&gt; &gt;&gt;"); // [5] Resources
+
+        pg.WriteXref();
+        pg.WriteTrailer(1);
+        pg.WriteStartXref();
+        pg.WriteEof();
+    }
+}
+

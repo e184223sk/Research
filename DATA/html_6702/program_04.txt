@@ -1,0 +1,34 @@
+
+public static IObservable&lt;double&gt; ResumableProgressAsObservable(this ButtonBase button, TimeSpan time)
+{
+    double value = 0;
+    double limit = 100d;
+    var down = button.PreviewMouseDownAsObservable();
+    var up = button.PreviewMouseUpAsObservable();
+
+    var increment = down
+        .Do(_ =&gt; 
+        {
+            if (value.Equals(limit))
+                value = 0;
+        })
+        .Select(_ =&gt; Observable.Generate(value, i =&gt; i &lt;= 100, i =&gt; ++i, i =&gt; i, i =&gt; time).TakeUntil(up));
+
+    var decrement = up
+        .Where(_ =&gt; !value.Equals(limit))
+        .Select(_ =&gt; Observable.Generate(value, i =&gt; i &gt;= 0d, i =&gt; --i, i =&gt; i, i =&gt; time).TakeUntil(down));
+
+    return Observable.Merge(increment, decrement).Switch().Do(x =&gt; value = x);
+}
+
+// Resumableという名前のボタンがあるとします。
+this.Resumable
+    .ResumableProgressAsObservable(TimeSpan.FromMilliseconds(1))
+    .ObserveOn(SynchronizationContext.Current)
+    .Subscribe(x =&gt;
+    {
+        this.ProgressBar.Value = x;
+        if (x.Equals(100d))
+            this.TestMessage.Text += $"ResumableProgressCompleted!:{DateTime.Now}\n";
+    });
+

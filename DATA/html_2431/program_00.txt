@@ -1,0 +1,96 @@
+
+public static byte[] ReadString(Stream st)
+{
+    byte[] ret = new byte[0];
+
+    int nCount = 0;// Count of open '('
+    bool escape = false;
+
+    int b = st.ReadByte();
+    if ( b != '(' ) {
+        if ( b &gt;= 0 ) { // EOFでなければ1文字戻す
+            st.Position--;
+        }
+        return null;
+    }
+
+    nCount++;
+    while ( nCount &gt; 0 ) {
+        b = st.ReadByte();
+        if ( b &lt; 0 ) { // EOF
+            return null;
+        }
+        if (!escape) {
+            switch(b) {
+                case '(':
+                    nCount++;
+                    ArrayAppend(ref ret, (byte)b);
+                    break;
+                case ')':
+                    nCount--;
+                    if ( nCount &gt; 0 ) { ArrayAppend(ref ret, (byte)b); }
+                    break;
+                case '\\':
+                    escape = true;
+                    break;
+                default:
+                    ArrayAppend(ref ret,(byte)b);
+                    break;
+            }
+        }
+        else {
+            escape = false;
+
+            if ('0'&lt;=b &amp;&amp; b&lt;='7') {
+                // \000 - \777 (8bitの最大値は\377だが、overflowを無視することとあるので\777を受け取ることとする)
+                // (\53a) の扱いが明確には定義されていないが、(\53)を\053と扱えとあるので、(\53a)は"+a"とみなすこととする
+                int b2 = st.ReadByte();
+                if ( b2 &lt; '0' || '7' &lt; b2 ) { // out of range
+                    // 1byte戻して、とれたとこまでを解釈して次の文字に移る
+                    st.Position--;
+                    ArrayAppend(ref ret, OctNum(0,0,b));
+                    continue;
+                }
+                int b3 = st.ReadByte();
+                if ( b3 &lt; '0' || '7' &lt; b3) {
+                    // 1byte戻して、とれたとこまでを解釈して次の文字に移る
+                    st.Position--;
+                    ArrayAppend(ref ret, OctNum(0,b,b2));
+                    continue;
+                }
+                ArrayAppend(ref ret, OctNum(b,b2,b3));
+            }
+            else {
+                switch(b) {
+                    case 't': ArrayAppend(ref ret, (byte)'\t'); break;
+                    case 'r': ArrayAppend(ref ret, (byte)'\r'); break;
+                    case 'n': ArrayAppend(ref ret, (byte)'\n'); break;
+                    case 'b': ArrayAppend(ref ret, (byte)'\b'); break;
+                    case 'f': ArrayAppend(ref ret, (byte)'\f'); break;
+                    case '\r': // '\r'を読み捨てる
+                        {
+                            int b2 = st.ReadByte(); // "\r\n"を読み捨てる
+                            if(b2 != '\n'){ st.Position--; } // '\r'だけだったら1byte戻す
+                        }
+                        break;
+                    case '\n': break; // '\n'を読み捨てる
+                    default:  ArrayAppend(ref ret, (byte)b);    break;
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+static byte OctNum(int b, int b2, int b3)
+{
+    return (byte)(((b-'0')&lt;&lt;6) | ((b2-'0')&lt;&lt;3) | (b3-'0') );
+}
+
+static void ArrayAppend&lt;T&gt;(ref T[] a, T newItem)
+{
+    int n = a.Length;
+    Array.Resize(ref a, n+1);
+    a[n] = newItem;
+} 
+

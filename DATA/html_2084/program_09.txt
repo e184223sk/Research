@@ -1,0 +1,118 @@
+
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MutexTest
+{
+    public class MutexWrapper : IDisposable
+    {
+
+        /// &lt;summary&gt;
+        /// 実インスタンス
+        /// &lt;/summary&gt;
+        private Mutex instance;
+
+        /// &lt;summary&gt;
+        /// 取得完了イベント
+        /// &lt;/summary&gt;
+        private CountdownEvent waitEndEvent = new CountdownEvent(1);
+
+        /// &lt;summary&gt;
+        /// 開放イベント
+        /// &lt;/summary&gt;
+        private CountdownEvent releaseEvent = new CountdownEvent(1);
+
+        /// &lt;summary&gt;
+        /// 取得結果
+        /// &lt;/summary&gt;
+        private bool waitResult;
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="initiallyOwned"&gt;&lt;/param&gt;
+        /// &lt;param name="name"&gt;&lt;/param&gt;
+        public MutexWrapper(bool initiallyOwned, string name)
+        {
+            instance = new Mutex(initiallyOwned, name);
+        }
+
+        /// &lt;summary&gt;
+        /// 取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public virtual bool WaitOne()
+        {
+            return instance.WaitOne();
+        }
+
+        /// &lt;summary&gt;
+        /// 非同期取得
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;&lt;/returns&gt;
+        public virtual Task&lt;bool&gt; WaitOneAsync()
+        {
+            Task.Factory.StartNew(() =&gt;
+            {
+                MutexControlTask();
+            }, TaskCreationOptions.LongRunning);
+
+            return Task.Factory.StartNew(() =&gt;
+            {
+                // 取得完了まで待受
+                waitEndEvent.Wait();
+                waitEndEvent.Reset();
+                return waitResult;
+            },TaskCreationOptions.LongRunning);
+        }
+
+        /// &lt;summary&gt;
+        /// Mutexの取得、開放タスク
+        /// &lt;/summary&gt;
+        private void MutexControlTask()
+        {
+            // Mutex取得開始
+            waitResult = instance.WaitOne();
+            waitEndEvent.Signal();
+
+            // Mutexの開放まで待機
+            releaseEvent.Wait();
+            releaseEvent.Dispose();
+
+            // Mutex開放
+            instance.ReleaseMutex();
+            instance.Dispose();
+            instance = null;
+        }
+
+        #region "Disposeサポート"
+
+        private bool disposedValue = false;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                releaseEvent.Signal();
+                waitEndEvent.Dispose();
+                disposedValue = true;
+            }
+        }
+
+        ~MutexWrapper()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        #endregion
+    }
+}
+
+

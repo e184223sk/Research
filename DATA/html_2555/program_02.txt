@@ -1,0 +1,208 @@
+
+using UnityEngine;
+
+public class Build : MonoBehaviour {
+    public GameObject floor, wall, stair, player;
+    private float xLength, yLength, zLength; //1つの直方体の各辺の長さ
+    private float bigger_x, smaller_x, bigger_y, smaller_y, bigger_z, smaller_z;
+    private Vector3[] points = new Vector3[24];
+
+    private void Start() {
+        xLength = 6f; yLength = 4f; zLength = 6f;
+    }
+
+    private void Update() {
+        Craft();
+    }
+
+    //24個の頂点の座標を求める
+    private void Calculate24Coordinates() {
+        Vector3 playerPos = player.transform.position;
+        float x_rest = playerPos.x % xLength;
+        if (playerPos.x &lt; 0) {
+            bigger_x = playerPos.x - x_rest;
+            smaller_x = bigger_x - xLength;
+        }
+        else smaller_x = playerPos.x - x_rest;
+
+        float y_rest = playerPos.y % yLength;
+        if (playerPos.y &lt; 0) {
+            bigger_y = playerPos.y - y_rest;
+            smaller_y = bigger_y - yLength;
+        }
+        else smaller_y = playerPos.y - y_rest;
+
+        float z_rest = playerPos.z % zLength;
+        if (playerPos.z &lt; 0) {
+            bigger_z = playerPos.z - z_rest;
+            smaller_z = bigger_z - zLength;
+        }
+        else smaller_z = playerPos.z - z_rest;
+
+        points[0] = new Vector3(smaller_x, smaller_y, smaller_z);
+        points[1] = points[0] + new Vector3(xLength, 0f, 0f);
+        points[2] = points[1] + new Vector3(0f, 0f, zLength);
+        points[3] = points[0] + new Vector3(0f, 0f, zLength);
+        points[4] = points[0] - new Vector3(0f, 0f, zLength);
+        points[5] = points[4] + new Vector3(xLength, 0f, 0f);
+        points[6] = points[1] + new Vector3(xLength, 0f, 0f);
+        points[7] = points[2] + new Vector3(xLength, 0f, 0f);
+        points[8] = points[2] + new Vector3(0f, 0f, zLength);
+        points[9] = points[3] + new Vector3(0f, 0f, zLength);
+        points[10] = points[3] - new Vector3(xLength, 0f, 0f);
+        points[11] = points[0] - new Vector3(xLength, 0f, 0f);
+        for (int i = 12; i &lt; 24; i++) points[i] = points[i - 12] + new Vector3(0f, yLength, 0f);
+    }
+
+    //このメソッドでは、vec1,vec2,vec3の3点を通る平面の法線ベクトルが求められる
+    private Vector3 CalculateOuterProduct(Vector3 vec1, Vector3 vec2, Vector3 vec3) {
+        Vector3 tmp1 = vec1 - vec2;
+        Vector3 tmp2 = vec1 - vec3;
+        return Vector3.Cross(tmp1, tmp2); //Vector3.Crossは外積を求めるメソッド
+    }
+
+    //このメソッドは、vec1,vec2,vec3の3点を通る平面の方程式ax+by+cz+d=0のa,b,c,dを配列で返す
+    private float[] CalculateEquationOfPlane(Vector3 vec1, Vector3 vec2, Vector3 vec3, Vector3 normal) {
+        float[] ans = new float[]{
+            normal.x,
+            normal.y,
+            normal.z,
+            -normal.x * vec1.x - normal.y * vec1.y - normal.z * vec1.z
+        };
+        return ans;
+    }
+
+    //このメソッドでは、カメラの視線とメッシュとの交点の座標が求められる
+    private Vector3 CalculateCoordinateOfIntersection(float[] plane, Vector3 angle, Vector3 position) {
+        float parameter = -(plane[0] * position.x + plane[1] * position.y + plane[2] * position.z + plane[3]) / (plane[0] * angle.x + plane[1] * angle.y + plane[2] * angle.z);
+        float x = angle.x * parameter + position.x;
+        float y = angle.y * parameter + position.y;
+        float z = angle.z * parameter + position.z;
+        return new Vector3(x, y, z);
+    }
+
+    //建てたい建築がカメラの正面にあるときにだけ建築できるようにする
+    private bool WhetherParameterIsPositive(float[] plane, Vector3 angle, Vector3 position) {
+        float parameter = -(plane[0] * position.x + plane[1] * position.y + plane[2] * position.z + plane[3]) / (plane[0] * angle.x + plane[1] * angle.y + plane[2] * angle.z);
+        return parameter &gt; 0;
+    }
+
+    //カメラとプレイヤーとの間に建築されないようにする
+    private bool WhetherDistanceIsProper(Vector3 vec0, Vector3 vec1, Vector3 vec2, Vector3 vec3) {
+        Vector3 fromCameraToPlayer = player.transform.position - gameObject.transform.position;
+        Vector3 fromCameraToBuilding = (vec0 + vec1 + vec2 + vec3) / 4 - gameObject.transform.position;
+        return fromCameraToBuilding.magnitude &gt; fromCameraToPlayer.magnitude;
+    }
+
+    //このメソッドは引用させていただきました
+    private bool WhetherIntersectionIsInsidePolygon(Vector3[] vertices, Vector3 intersection, Vector3 normal) {
+        float angle_sum = 0f;
+        for (int i = 0; i &lt; vertices.Length; i++) {
+            Vector3 tmp1 = vertices[i] - intersection;
+            Vector3 tmp2 = vertices[(i + 1) % vertices.Length] - intersection;
+            float angle = Vector3.Angle(tmp1, tmp2);
+            Vector3 cross = Vector3.Cross(tmp1, tmp2);
+            if (Vector3.Dot(cross, normal) &lt; 0) angle *= -1;
+            angle_sum += angle;
+        }
+        angle_sum /= 360f;
+        return Mathf.Abs(angle_sum) &gt;= 0.1f;
+    }
+
+    //壁と階段が建築できる条件
+    private bool CanBuildWallAndStair(Vector3 vertex0, Vector3 vertex1, Vector3 vertex2, Vector3 vertex3) {
+        Vector3[] vertices = new Vector3[] { vertex0, vertex1, vertex2, vertex3 };
+        Vector3 normal = CalculateOuterProduct(vertices[0], vertices[1], vertices[2]);
+        float[] abcd = CalculateEquationOfPlane(vertices[0], vertices[1], vertices[2], normal);
+        Vector3 intersection = CalculateCoordinateOfIntersection(abcd, gameObject.transform.rotation * Vector3.forward, gameObject.transform.position);
+        return WhetherIntersectionIsInsidePolygon(vertices, intersection, normal) &amp;&amp;
+            WhetherDistanceIsProper(vertex0, vertex1, vertex2, vertex3) &amp;&amp;
+            WhetherParameterIsPositive(abcd, gameObject.transform.rotation * Vector3.forward, gameObject.transform.position);
+    }
+
+    //床が建築できる条件
+    private bool CanBuildFloor(Vector3 vec0, Vector3 vec1, Vector3 vec2, Vector3 vec3) {
+        Vector3 target = (vec0 + vec1 + vec2 + vec3) / 4;
+        Vector3 targetToCameraDirection = (target - gameObject.transform.position).normalized;
+        if (Vector3.Dot(targetToCameraDirection, gameObject.transform.forward.normalized) &gt; 0.97) return true;
+        else return false;
+    }
+
+    private void Craft() {
+        //床の建築(RB)
+        if (Input.GetKeyDown("joystick button 5")) {
+            Calculate24Coordinates();
+
+            //カメラが上の方を向いているか、下の方を向いているかを取得する
+            float x = gameObject.transform.localEulerAngles.x;
+
+            /*下の床*/
+            if (Mathf.Abs(x - 90) &lt; 90f) {
+                Instantiate(floor, (points[0] + points[1] + points[2] + points[3]) / 4, Quaternion.identity);
+
+                if (CanBuildFloor(points[0], points[1], points[2], points[3])) Instantiate(floor, (points[0] + points[1] + points[2] + points[3]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[0], points[1], points[5], points[4])) Instantiate(floor, (points[0] + points[1] + points[5] + points[4]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[1], points[2], points[7], points[6])) Instantiate(floor, (points[1] + points[2] + points[7] + points[6]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[2], points[3], points[9], points[8])) Instantiate(floor, (points[2] + points[3] + points[9] + points[8]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[0], points[3], points[10], points[11])) Instantiate(floor, (points[0] + points[3] + points[10] + points[11]) / 4, Quaternion.identity);
+            }
+
+            /*上の床*/
+            else if (Mathf.Abs(x - 270) &lt; 90f) {
+                Instantiate(floor, (points[12] + points[13] + points[14] + points[15]) / 4, Quaternion.identity);
+
+                if (CanBuildFloor(points[12], points[13], points[14], points[15])) Instantiate(floor, (points[12] + points[13] + points[14] + points[15]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[12], points[13], points[17], points[16])) Instantiate(floor, (points[12] + points[13] + points[17] + points[16]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[13], points[14], points[19], points[18])) Instantiate(floor, (points[13] + points[14] + points[19] + points[18]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[14], points[15], points[21], points[20])) Instantiate(floor, (points[14] + points[15] + points[21] + points[20]) / 4, Quaternion.identity);
+                else if (CanBuildFloor(points[12], points[15], points[22], points[23])) Instantiate(floor, (points[12] + points[15] + points[22] + points[23]) / 4, Quaternion.identity);
+            }
+        }
+
+        //壁の建築(LB)
+        else if (Input.GetKeyDown("joystick button 4")) {
+            Calculate24Coordinates();
+
+            //pointsの数字によって壁を回転させなければならない
+            if (CanBuildWallAndStair(points[0], points[3], points[15], points[12])) Instantiate(wall, (points[0] + points[3] + points[15] + points[12]) / 4, Quaternion.Euler(0f, 0f, 90f));
+            else if (CanBuildWallAndStair(points[1], points[2], points[14], points[13])) Instantiate(wall, (points[1] + points[2] + points[14] + points[13]) / 4, Quaternion.Euler(0f, 0f, 90f));
+            else if (CanBuildWallAndStair(points[0], points[1], points[13], points[12])) Instantiate(wall, (points[0] + points[1] + points[13] + points[12]) / 4, Quaternion.Euler(0f, 90f, 90f));
+            else if (CanBuildWallAndStair(points[2], points[3], points[15], points[14])) Instantiate(wall, (points[2] + points[3] + points[15] + points[14]) / 4, Quaternion.Euler(0f, 90f, 90f));
+        }
+
+        //階段の建築(Y)
+        else if (Input.GetKeyDown("joystick button 3")) {
+            Calculate24Coordinates();
+
+            //カメラが前後左右のどこを向いているか取得
+            float cameraRotationY = gameObject.transform.localEulerAngles.y;
+
+            Vector3 pos = (points[0] + points[1] + points[2] + points[3] + points[12] + points[13] + points[14] + points[15]) / 8;
+            if (Mathf.Abs(cameraRotationY - 90f) &lt; 40f) {
+                if (CanBuildWallAndStair(points[1], points[2], points[19], points[18])) {
+                    Instantiate(stair, (points[1] + points[2] + points[19] + points[18]) / 4, Quaternion.Euler(0f, 0f, 33.69f));
+                }
+                else Instantiate(stair, pos, Quaternion.Euler(0f, 0f, 33.69f));
+            }
+            else if (Mathf.Abs(cameraRotationY - 180f) &lt; 40f) {
+                if (CanBuildWallAndStair(points[0], points[1], points[17], points[16])) {
+                    Instantiate(stair, (points[0] + points[1] + points[17] + points[16]) / 4, Quaternion.Euler(0f, 90f, 33.69f));
+                }
+                else Instantiate(stair, pos, Quaternion.Euler(0f, 90f, 33.69f));
+            }
+            else if (Mathf.Abs(cameraRotationY - 270f) &lt; 40f) {
+                if (CanBuildWallAndStair(points[0], points[3], points[22], points[23])) {
+                    Instantiate(stair, (points[0] + points[3] + points[22] + points[23]) / 4, Quaternion.Euler(0f, 180f, 33.69f));
+                }
+                else Instantiate(stair, pos, Quaternion.Euler(0f, 180f, 33.69f));
+            }
+            else if (Mathf.Abs(cameraRotationY - 360f) &lt; 40f || Mathf.Abs(cameraRotationY) &lt; 40f) {
+                if (CanBuildWallAndStair(points[1], points[2], points[19], points[18])) {
+                    Instantiate(stair, (points[1] + points[2] + points[19] + points[18]) / 4, Quaternion.Euler(0f, 270f, 33.69f));
+                }
+                else Instantiate(stair, pos, Quaternion.Euler(0f, 270f, 33.69f));
+            }
+        }
+    }
+}
+

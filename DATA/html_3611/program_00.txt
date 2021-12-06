@@ -1,0 +1,78 @@
+using System;
+using System.Threading.Tasks;
+using System.Reflection;
+using Discord;
+using Discord.Commands;
+using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DiscordBot
+{
+    class Program
+    {
+        public static DiscordSocketClient client;
+        public static CommandService commands;
+        public static IServiceProvider services;
+
+        static void Main(string[] args) =&gt; new Program().Setup().GetAwaiter().GetResult();
+
+        private async Task Setup()
+        {
+            client = new DiscordSocketClient();
+            commands = new CommandService();
+            services = new ServiceCollection().BuildServiceProvider();
+            client.MessageReceived += Command;
+            client.UserJoined += join;
+            client.UserLeft += left;
+            client.Log += Log;
+
+            await commands.AddModulesAsync(Assembly.GetEntryAssembly(), services);
+            await client.LoginAsync(TokenType.Bot, "トークンは登録したページのBotページでコピー");
+            await client.StartAsync();
+
+            await Task.Delay(-1);
+        }
+
+        private async Task Command(SocketMessage messageP)
+        {
+            //pass by reference value
+            var argPos = 0;
+            var message = messageP as SocketUserMessage;
+            Console.WriteLine("{0} {1}:{2}", message.Channel.Name, message.Author.Username, message);
+
+            //メッセージが空白の場合
+            if (message == null)
+                return;
+
+            //コマンドの先頭文字を指定
+            if (!(message.HasCharPrefix('-', ref argPos) || message.HasMentionPrefix(client.CurrentUser, ref argPos))) 
+                return;
+
+            var context = new CommandContext(client, message);
+            var result = await commands.ExecuteAsync(context, argPos, services);
+
+            if (!result.IsSuccess) { await context.Channel.SendMessageAsync(result.ErrorReason); }
+            GC.Collect();//必要なさそうだけど一応GC(ほんとに要らないかも)
+        }
+
+        public async Task join(SocketGuildUser user)
+        {
+            var channel = client.GetChannel(/*/チャンネルID/*/) as SocketTextChannel;
+            await channel.SendMessageAsync($"Welcome {user.Mention}!!!");
+        }
+
+        public async Task left(SocketGuildUser user)
+        {
+            var channel = client.GetChannel(/*/チャンネルID/*/) as SocketTextChannel;
+            await channel.SendMessageAsync($"{user} Bye...");
+        }
+
+        private Task Log(LogMessage log)
+        {
+            Console.WriteLine(log.ToString());
+            return Task.CompletedTask;
+        }
+
+    }
+}
+

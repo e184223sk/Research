@@ -1,0 +1,114 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class SwipeManager : MonoBehaviour {
+    //フリック時のスピード
+    private float x_speed = 0;
+    private float y_speed = 0;
+
+    //カメラ拡大縮小時のスピード（実装環境によって要調整）
+    private float cameraSpeed = 0.4f;
+
+    //初期位置
+    private Vector2 startPos;
+
+    //最初のタップからの経過時間
+    private float duration = 0;
+
+    //オブジェクトの移動比率を操作する変数（実装環境によって要調整）
+    private float moveRatio = 0.5f;
+
+    //スワイプするオブジェクト（この場合スクロールビューのコンテンツ）の外部参照
+    public GameObject obj;
+    //拡大縮小用カメラの外部参照
+    public Camera cam;
+
+    void Update()
+    {
+        //経過時間の計算
+        duration += Time.deltaTime; 
+
+        //一本指での操作（スワイプ、フリック）
+        if(Input.touchCount == 1){
+            //タップ情報の取得
+            Touch touch = Input.GetTouch(0);
+
+            //タップ状態の分岐
+            switch(touch.phase){
+                //タップ開始
+                case TouchPhase.Began:
+                    //タッチ開始座標、時間取得
+                    this.startPos = Input.mousePosition;
+                    duration = 0;
+                    break;
+
+                //タップ中、指が動いている
+                case TouchPhase.Moved:
+
+                    //オブジェクト移動(スワイプ)
+                    Vector3 nowPosi = obj.transform.localPosition;
+                    nowPosi.x = nowPosi.x - touch.deltaPosition.x*moveRatio;
+                    nowPosi.y = nowPosi.y - touch.deltaPosition.y*moveRatio;
+                    obj.transform.localPosition = nowPosi;
+
+                    break;
+
+                //タップ終了
+                case TouchPhase.Ended:
+
+                    //タップ終了位置取得
+                    Vector2 endPos = Input.mousePosition;
+
+                    //触れていた秒数でフリックとスワイプ分岐
+                    if(duration &lt;= 0.5){
+                        float x_flickLength = endPos.x - this.startPos.x;
+                        float y_flickLength = endPos.y - this.startPos.y;
+
+                        // フリックの長さを速度に変換する
+                        this.x_speed = x_flickLength / 500.0f;
+                        this.y_speed = y_flickLength / 500.0f;
+                    }else{
+
+                        //フリック判定じゃない場合はcameraのTranslate速度を0にする
+                        this.x_speed = 0;
+                        this.y_speed = 0;
+                    }
+                    break;
+            }
+        }
+
+        //オブジェクト移動(フリック)
+        obj.transform.Translate(this.x_speed, this.y_speed, 0);
+
+        //毎フレーム減速させる
+        this.x_speed *= 0.8f;
+        this.y_speed *= 0.8f;
+
+        //２本指での操作（ピンチイン、アウト）
+        if (Input.touchCount == 2){
+
+            // 両方のタップ情報を取得
+            Touch touchZero = Input.GetTouch(0);
+            Touch touchOne = Input.GetTouch(1);
+
+            // 前フレームでのタップ位置
+            Vector2 touchZeroPrePos = touchZero.position - touchZero.deltaPosition;
+            Vector2 touchOnePrePos = touchOne.position - touchOne.deltaPosition;
+
+            // 各フレームのタッチ間の距離
+            float preTouchDeltaMag = (touchZeroPrePos - touchOnePrePos).magnitude;
+            float touchDeltaMag = (touchZero.position - touchOne.position).magnitude;
+
+            //各フレーム間の距離の差
+            float deltaMagnitudeDif = preTouchDeltaMag - touchDeltaMag;
+            //タッチ間の距離の変化からカメラの平行投影サイズを変更
+            cam.orthographicSize += deltaMagnitudeDif * cameraSpeed;
+
+            // 平行投影サイズは0以上になるようにする(クランプの範囲は要調整)
+            cam.orthographicSize = Mathf.Clamp(cam.orthographicSize, 0f , 2.0f);
+        }        
+    }
+}
+
+

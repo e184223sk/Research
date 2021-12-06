@@ -1,0 +1,37 @@
+
+            try
+            {
+                // Key:プロパティ名、Value:読み込んだファイルの該当プロパティのSettingElement、のDictionaryを作成する
+                var dict = new Dictionary&lt;string, SettingElement&gt;();
+                foreach (SettingElement v in section.Settings)
+                {
+                    dict.Add(v.Name, v);
+                }
+
+                // 現在の設定を更新する
+                foreach (SettingsPropertyValue value in copiedSettings.PropertyValues)
+                {
+                    SettingElement element;
+                    if (dict.TryGetValue(value.Name, out element))
+                    {
+                        // SerializedValueを1度も参照していないと、参照したときの元の値に戻ってしまうという仕様になっている。
+                        // https://referencesource.microsoft.com/#System/sys/system/configuration/SettingsPropertyValue.cs,69
+                        // その対策として、リフレクションで無理やり内部のメンバをfalseに変更する。
+                        // リフレクションを使わなくても、var dummy = value.SerializedValueを実行して1度参照する方法でもよい。
+                        var _ChangedSinceLastSerialized = typeof(SettingsPropertyValue).GetField("_ChangedSinceLastSerialized", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Instance);
+                        _ChangedSinceLastSerialized.SetValue(value, false);
+
+                        // 値の設定
+                        value.SerializedValue = element.Value.ValueXml.InnerXml;
+
+                        // value.Deserializedをfalseにすると、value.PropertyValueにアクセスしたときにDeserializeされる
+                        value.Deserialized = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "インポート失敗", MessageBoxButtons.OK);
+                return;
+            }
+

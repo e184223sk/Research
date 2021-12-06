@@ -1,0 +1,1298 @@
+一定時間ごとにある程度の大きさのテキストファイルを読み込んで、その内容を反映させるプロジェクトのため、Unity(C#)で使える高速なファイルアクセスAPIを調べて AsyncReadManager に行きつきました。偉大なる先駆者様 :
+【Unity】ファイルを非同期で読み込んでアンマネージドメモリに展開できるAsyncReadManagerを試してみたこの先行研究ではメインスレッド上での動作確認とメモリ負荷の検証が主で、本文でさらっとアンマネージドメモリにデータをキャッシュすると言いつつも、実装としてはJob等で並列化せずに愚直にメインスレッド上でパースを行っております。。(もう少し工夫すればJob化出来そうな気がしなくもなく。。要検証)との表記に誘われて四苦八苦した結果、どうにか動くようになりましたので紹介させていただきます。
+Unityプロジェクトなのに外部ファイル(しかもテキスト)をたくさん使うとか、非常にニッチな需要だとは思いますがそんな誰かの役にも立てばいいな……Unityアドカレに1個未投稿の枠があったので、今更ながら滑り込ませていただきました。C# JobSystem で文字列の類をいい感じに扱うツールセットは最終的に以下のようになりました。
+最新版は Burst による最適化に対応しました。Burstの利用方法と性能評価についてはBurst編を参照してください。GitHub
+NativeStringCollections雰囲気はこんな感じ。文字列の具体的な変換はこんな感じこのような具合に。
+実際には JobSystem の中で処理されますが、ユーザーが書く部分は通常のC#にだいぶ近い感じに設計できたと思います。また、上記 class TextData は各プロジェクトにおいて適宜差し替えて使用することが前提ですが、常に JobSystem で実行されるとデバッグが面倒です。なのでメインスレッドでの実行を強制する下記のAPIもあります。ちなみに、先駆者様の例と同等のサイズの 50万キャラクターのファイルについて、当方の環境ではとなっており、 C# string と高速化の相性の悪さが如実に表れています。
+これで File.ReadAllLines() を使わずに済むようになるでしょう。AsyncReadManager.Read() はファイルデータのバッファ先や読み込みに関する制御情報(ReadCommandやReadHandle)の管理が必要で、APIをそのまま使うのは面倒なのでこれらをまとめて管理するAsyncByteReaderとしてラップします。 AsyncByteReader の実装(抜粋) 
+
+
+AsyncByteReader.cs
+internal struct AsyncByteReaderInfo
+{
+    public int bufferSize;
+    public int dataSize;
+
+    public Boolean allocated;
+
+    private Boolean _haveReadHandle;
+    private ReadHandle _readHandle;
+
+    public ReadHandle ReadHandle
+    {
+        get { return _readHandle; }
+        set
+        {
+            this.DisposeReadHandle();
+            _readHandle = value;
+            _haveReadHandle = true;
+        }
+    }
+    public void DisposeReadHandle()
+    {
+        if (_haveReadHandle)
+        {
+            _readHandle.Dispose();
+            _haveReadHandle = false;
+        }
+    }
+    public bool HaveReadHandle { get { return _haveReadHandle; } }
+}
+
+// ここで使用している PtrHandle&lt;T&gt; については後述
+public unsafe struct AsyncByteReader : IDisposable
+{
+    private NativeList&lt;byte&gt; _byteBuffer;
+    private PtrHandle&lt;AsyncByteReaderInfo&gt; _info;
+
+    private PtrHandle&lt;ReadCommand&gt; _readCmd;
+
+
+    public int BufferSize { get { return _info.Target-&gt;bufferSize; } }
+    public int Length { get { return _info.Target-&gt;dataSize; } }
+
+    /// &lt;summary&gt;
+    /// the constructor must be called by main thread only.
+    /// &lt;/summary&gt;
+    public AsyncByteReader(Allocator alloc)
+    {
+        _byteBuffer = new NativeList&lt;byte&gt;(Define.MinByteBufferSize, alloc);
+        _info = new PtrHandle&lt;AsyncByteReaderInfo&gt;(alloc);
+
+        _readCmd = new PtrHandle&lt;ReadCommand&gt;(alloc);
+
+        _info.Target-&gt;bufferSize = Define.MinByteBufferSize;
+        _info.Target-&gt;dataSize = 0;
+
+        _info.Target-&gt;allocated = true;
+    }
+
+    public void Dispose()
+    {
+        _byteBuffer.Dispose();
+
+        _info.Target-&gt;DisposeReadHandle();
+        _info.Dispose();
+
+        _readCmd.Dispose();
+    }
+
+    public JobHandle ReadFileAsync(string path)
+    {
+        this.CheckPreviousJob();
+
+        var fileInfo = new System.IO.FileInfo(path);
+        if (!fileInfo.Exists) throw new ArgumentException("the file '" + path + "'is not found.");
+
+        this.Reallocate(fileInfo.Length);
+
+        *_readCmd.Target = new ReadCommand
+        {
+            Offset = 0,
+            Size = fileInfo.Length,
+            Buffer = _byteBuffer.GetUnsafePtr(),
+        };
+
+        _info.Target-&gt;dataSize = (int)fileInfo.Length;
+        _info.Target-&gt;ReadHandle = AsyncReadManager.Read(path, _readCmd.Target, 1);
+        return _info.Target-&gt;ReadHandle.JobHandle;
+    }
+    private void CheckPreviousJob()
+    {
+        if (_info.Target-&gt;HaveReadHandle)
+        {
+            if (!_info.Target-&gt;ReadHandle.JobHandle.IsCompleted)
+            {
+                throw new InvalidOperationException("previous read job is still running. call Complete().");
+            }
+            else
+            {
+                _info.Target-&gt;DisposeReadHandle();
+            }
+        }
+    }
+
+    public void Complete()
+    {
+        _info.Target-&gt;ReadHandle.JobHandle.Complete();
+    }
+
+    public void* GetUnsafePtr() { return _byteBuffer.GetUnsafePtr(); }
+    public byte this[int index]
+    {
+        get { return _byteBuffer[index]; }
+    }
+}
+
+
+
+
+これを用いることで、以下のようにNativeContainerに近い感覚でAsyncReadManager.Read()を使えるようになります。C# における文字列解析、というと、よくある例としては Files.ReadAllLines() で string[] を受け取り、イテレータで行ごとに回してそこから望みのフォーマットに split() で切り出した後、数値に変換するなら Parse() メソッドを使用する、というパターンかと思います。
+しかしこのデザインの根幹である string は参照型で、たとえ GCHandle などを使用し JobSystem に持ち込んでも string インスタンスの生成は当然できないので String.Split() が使えません。
+そこで本実装では Unity 2019.1 より char 型の NativeContainer を作成できるようになった ことを利用して、文字列はまるっと NativeList&lt;char&gt; に保持して、これに string のように扱えるインターフェイスを被せることにしました。
+まず文字列全体の管理として、 string (のようなもの)が集合した char についてのジャグ配列 に相当するコンテナにデータ本体を保持し、外側配列のインデックスアクセスで当該部分のスライスを取り出す、という形にします。 List&lt;string&gt; のように使えることを目標とします。
+大本の管理 struct は何となくジェネリックにします。 ジェネリックなデータ本体部 NativeJaggedArray&lt;T&gt; の実装(抜粋) 
+
+
+NativeJaggedArray.cs
+public struct NativeJaggedArray&lt;T&gt; : IDisposable, IEnumerable&lt;NativeJaggedArraySlice&lt;T&gt;&gt;
+    where T : unmanaged, IEquatable&lt;T&gt;
+{
+    internal struct ElemIndex
+    {
+        public int Start { get; private set; }
+        public int Length { get; private set; }
+        public int End { get { return this.Start + this.Length; } }
+
+        public ElemIndex(int st, int len)
+        {
+            this.Start = st;
+            this.Length = len;
+        }
+    }
+
+    private NativeList&lt;T&gt; _buff;
+    private NativeList&lt;ElemIndex&gt; _elemIndexList;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    private NativeArray&lt;long&gt; genTrace;
+    private PtrHandle&lt;long&gt; genSignature;
+#endif
+
+    public unsafe NativeJaggedArray(Allocator alloc)
+    {
+        _buff = new NativeList&lt;T&gt;(alloc);
+        _elemIndexList = new NativeList&lt;ElemIndex&gt;(alloc);
+        _alloc = alloc;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        genTrace = new NativeArray&lt;long&gt;(1, alloc);
+        genSignature = new PtrHandle&lt;long&gt;((long)_buff.GetUnsafePtr(), alloc);  // sigunature = address value of ptr for char_arr.
+#endif
+    }
+
+    public void Clear()
+    {
+        this._buff.Clear();
+        this._elemIndexList.Clear();
+    }
+
+    public int Length { get { return this._elemIndexList.Length; } }
+    public int Size { get { return this._buff.Length; } }
+
+    public unsafe NativeJaggedArraySlice&lt;T&gt; this[int index]
+    {
+        get
+        {
+            var elem_index = this._elemIndexList[index];
+            T* elem_ptr = (T*)this._buff.GetUnsafePtr() + elem_index.Start;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            return new NativeJaggedArraySlice&lt;T&gt;(elem_ptr, elem_index.Length, this.GetGenPtr(), this.GetGen());
+#else
+            return new NativeJaggedArraySlice&lt;T&gt;(elem_ptr, elem_index.Length);
+#endif
+        }
+    }
+
+    public unsafe void Add(T* ptr, int Length)
+    {
+        int Start = this._buff.Length;
+        this._buff.AddRange((void*)ptr, Length);
+        this._elemIndexList.Add(new ElemIndex(Start, Length));
+
+        this.UpdateSignature();
+    }
+    /// &lt;summary&gt;
+    /// specialize for NativeJaggedArraySlice&lt;T&gt;
+    /// &lt;/summary&gt;
+    /// &lt;param name="slice"&gt;&lt;/param&gt;
+    public unsafe void Add(NativeJaggedArraySlice&lt;T&gt; slice)
+    {
+        this.Add((T*)slice.GetUnsafePtr(), slice.Length);
+    }
+
+    public void RemoveAt(int index)
+    {
+        this.CheckElemIndex(index);
+        for (int i = index; i &lt; this.Length - 1; i++)
+        {
+            this._elemIndexList[i] = this._elemIndexList[i + 1];
+        }
+        this._elemIndexList.RemoveAtSwapBack(this.Length - 1);
+    }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        if (gap &gt; 0) this.NextGen();
+#endif
+    }
+
+    [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+    unsafe private void UpdateSignature()
+    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        long now_sig = GetGenSigneture();
+        if (now_sig != this.genSignature)
+        {
+            this.NextGen();
+            this.genSignature.Value = now_sig;
+        }
+#endif
+    }
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    private void NextGen()
+    {
+        long now_gen = this.genTrace[0];
+        this.genTrace[0] = now_gen + 1;
+    }
+    private unsafe long GetGenSigneture() { return (long)this._buff.GetUnsafePtr(); }
+    private long GetGen() { return this.genTrace[0]; }
+    unsafe private long* GetGenPtr() { return (long*)this.genTrace.GetUnsafePtr(); }
+#endif
+} 
+
+
+
+ ジェネリックなスライス部分 NativeJaggedArraySlice&lt;T&gt; の実装(抜粋) 
+
+
+NativeJaggedArraySlice.cs
+unsafe public interface IJaggedArraySliceBase&lt;T&gt; where T: unmanaged, IEquatable&lt;T&gt;
+{
+    int Length { get; }
+    T this[int index] { get; }
+    bool Equals(NativeJaggedArraySlice&lt;T&gt; slice);
+    bool Equals(ReadOnlyNativeJaggedArraySlice&lt;T&gt; slice);
+    bool Equals(T* ptr, int Length);
+    void* GetUnsafePtr();
+}
+public interface ISlice&lt;T&gt;
+{
+    T Slice(int begin = -1, int end = -1);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly unsafe struct NativeJaggedArraySlice&lt;T&gt; :
+    IJaggedArraySliceBase&lt;T&gt;,
+    IEnumerable&lt;T&gt;,
+    IEquatable&lt;IEnumerable&lt;T&gt;&gt;, IEquatable&lt;T&gt;,
+    ISlice&lt;NativeJaggedArraySlice&lt;T&gt;&gt;
+    where T: unmanaged, IEquatable&lt;T&gt;
+{
+    [NativeDisableUnsafePtrRestriction]
+    internal readonly T* _ptr;
+    internal readonly int _len;
+
+    public int Length { get { return _len; } }
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    [NativeDisableUnsafePtrRestriction]
+    internal readonly long* _gen_ptr;
+    internal readonly long _gen_entity;
+#endif
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    public NativeJaggedArraySlice(T* ptr, int Length, long* gen_ptr, long gen_entity)
+    {
+        _ptr = ptr;
+        _len = Length;
+        _gen_ptr = gen_ptr;
+        _gen_entity = gen_entity;
+    }
+#else
+    public NativeJaggedArraySlice(T* ptr, int Length)
+    {
+        _ptr = ptr;
+        _len = Length;
+    }
+#endif
+
+    public T this[int index]
+    {
+        get
+        {
+            this.CheckReallocate();
+            return *(_ptr + index);
+        }
+        set
+        {
+            this.CheckReallocate();
+            this.CheckElemIndex(index);
+            *(_ptr + index) = value;
+        }
+    }
+    public NativeJaggedArraySlice&lt;T&gt; Slice(int begin = -1, int end = -1)
+    {
+        if (begin &lt; 0) begin = 0;
+        if (end &lt; 0) end = _len;
+        this.CheckSliceRange(begin, end);
+        int new_len = end - begin;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        this.CheckReallocate();
+        return new NativeJaggedArraySlice&lt;T&gt;(_ptr + begin, new_len, _gen_ptr, _gen_entity);
+#else
+        return new NativeJaggedArraySlice&lt;T&gt;(_ptr + begin, new_len);
+#endif
+    }
+    [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+    private void CheckReallocate()
+    {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        if(_gen_ptr == null &amp;&amp; _gen_entity == -1) return;  // ignore case for NativeJaggedArraySliceGeneratorExt
+        if( *(_gen_ptr) != _gen_entity)
+        {
+            throw new InvalidOperationException("this slice is invalid reference.");
+        }
+#endif
+    }
+
+    public void* GetUnsafePtr() { return _ptr; }
+}
+
+
+
+スライスは本当にポインタと長さしか持ちません (release build 時)。
+Unity.Collections で NativeArray&lt;T&gt; から NativeSlice&lt;T&gt; は作れるのに対して NativeList&lt;T&gt; からは作れないのは、 List の伸縮に伴い内部バッファの再確保が行われた場合、メモリ上の位置が変わってそれまでに作ったポインタによる参照が無効になってしまうため、安全なスライスを作れないことが理由の一つとして考えられます。
+今回の実装では、文字列の取り扱いとして最初にデータ全体の構築を行い、その後は要素の追加をせずにスライスの切り出しのみを行うことを基本方針としてちょっと危なめな設計にしました。
+そうはいってもついやっちゃうこともあり得るので、要素の追加時に内部バッファの _buff.GetUnsafePtr() の値が変化したかどうかを確認し、それにより世代確認を行う関数 CheckReallocate() を実装してあります。
+UnityEditor 上であればやらかしを検知できます。これに文字列に特化したインターフェイスを被せてジャグ配列の NativeStringList とスライスの StringEntity とします。(今更だけど怒られそうな名前を付けてしまった……) NativeStringList の実装(抜粋) 
+
+
+NativeStringList.cs
+public struct NativeStringList : IDisposable, IEnumerable&lt;StringEntity&gt;
+{
+    private NativeJaggedArray&lt;char&gt; _jarr;
+
+    public unsafe NativeStringList(Allocator alloc) { _jarr = new NativeJaggedArray&lt;char&gt;(alloc); }
+    public void Dispose() { _jarr.Dispose(); }
+    public unsafe StringEntity this[int index] { get; }
+    public StringEntity Last { get; }
+
+    // string のようなものへの特殊化
+    public void Add(IEnumerable&lt;char&gt; str)
+    {
+        _jarr.Add(str);
+    }
+    public unsafe void Add(char* ptr, int Length)
+    {
+        _jarr.Add(ptr, Length);
+    }
+    public unsafe void Add(StringEntity entity)
+    {
+        this.Add((char*)entity.GetUnsafePtr(), entity.Length);
+    }
+    public unsafe void Add(ReadOnlyStringEntity entity)
+    {
+        this.Add((char*)entity.GetUnsafePtr(), entity.Length);
+    }
+    public unsafe void Add(NativeList&lt;char&gt; str)
+    {
+        this.Add((char*)str.GetUnsafePtr(), str.Length);
+    }
+    public unsafe void Add(NativeArray&lt;char&gt; str)
+    {
+        this.Add((char*)str.GetUnsafePtr(), str.Length);
+    }
+}
+
+
+
+ StringEntity の実装(抜粋) 
+
+
+StringEntity.cs
+public unsafe readonly struct StringEntity :
+    IParseExt,
+    IJaggedArraySliceBase&lt;char&gt;,
+    ISlice&lt;StringEntity&gt;,
+    IEquatable&lt;string&gt;, IEquatable&lt;char[]&gt;, IEquatable&lt;IEnumerable&lt;char&gt;&gt;, IEquatable&lt;char&gt;,
+    IEnumerable&lt;char&gt;
+{
+    /* 中略 */
+
+    /* string のようなものへの特殊化 */
+    public bool Equals(char* ptr, int Length)
+    {
+        this.CheckReallocate();
+        if (_len != Length) return false;
+
+        // pointing same target
+        if (_ptr == ptr) return true;
+
+        for (int i = 0; i &lt; _len; i++)
+        {
+            if (_ptr[i] != ptr[i]) return false;
+        }
+
+        return true;
+    }
+    public bool Equals(StringEntity entity)
+    {
+        this.CheckReallocate();
+        return entity.Equals(_ptr, _len);
+    }
+    public bool Equals(ReadOnlyStringEntity entity)
+    {
+        this.CheckReallocate();
+        return entity.Equals(_ptr, _len);
+    }
+    public bool Equals(NativeJaggedArraySlice&lt;char&gt; slice)
+    {
+        this.CheckReallocate();
+        return slice.Equals(_ptr, _len);
+    }
+    public bool Equals(ReadOnlyNativeJaggedArraySlice&lt;char&gt; slice)
+    {
+        this.CheckReallocate();
+        return slice.Equals(_ptr, _len);
+    }
+    public bool Equals(string str)
+    {
+        if (this.Length != str.Length) return false;
+        return this.SequenceEqual&lt;char&gt;(str);
+    }
+    public bool Equals(char[] c_arr)
+    {
+        if (this.Length != c_arr.Length) return false;
+        return this.SequenceEqual&lt;char&gt;(c_arr);
+    }
+    public bool Equals(char c)
+    {
+        return (this.Length == 1 &amp;&amp; this[0] == c);
+    }
+    public bool Equals(IEnumerable&lt;char&gt; in_itr)
+    {
+        this.CheckReallocate();
+        return this.SequenceEqual&lt;char&gt;(in_itr);
+    }
+    public static bool operator ==(StringEntity lhs, StringEntity rhs) { return lhs.Equals(rhs); }
+    public static bool operator !=(StringEntity lhs, StringEntity rhs) { return !lhs.Equals(rhs); }
+    public static bool operator ==(StringEntity lhs, ReadOnlyStringEntity rhs) { return lhs.Equals(rhs); }
+    public static bool operator !=(StringEntity lhs, ReadOnlyStringEntity rhs) { return !lhs.Equals(rhs); }
+    public static bool operator ==(StringEntity lhs, IEnumerable&lt;char&gt; rhs) { return lhs.Equals(rhs); }
+    public static bool operator !=(StringEntity lhs, IEnumerable&lt;char&gt; rhs) { return !lhs.Equals(rhs); }
+    public override bool Equals(object obj)
+    {
+        return obj is StringEntity &amp;&amp; ((IJaggedArraySliceBase&lt;char&gt;)obj).Equals(_ptr, _len);
+    }
+
+    public ReadOnlyStringEntity GetReadOnly()
+    {
+        return new ReadOnlyStringEntity(this);
+    }
+    public void* GetUnsafePtr() { return _ptr; }
+}
+
+
+
+これで string のようなもの同士で比較したり、スライスを切り出したりやりたい放題できるようになりました。
+なお、 NativeJaggedArray&lt;T&gt; のほうを使えば任意の struct についてユーザー管理の共通バッファへの参照を JobSystem と GameObject の両方にばらまくことができてしまいます。ポインタ無法地帯へはあと一歩のぎりぎりのラインにいるので、ご利用は計画的に。文字列解析用データ構造として StringEntity を自作してしまったので、これらのユーティリティも当然自作します。
+実装の単純化のため、C#ではParse() メソッドで一緒くたになっていた十進表記と１６進数表記の解析を TryParse() と TryParseHex() に分離します。パーサーを作るにあたって、どちらの表記かわからない、なんてことはないでしょうし、そもそもHexフォーマットを使う状況というのは float や double の値を確実に読み書きしたい状況ぐらいでしょう。
+Split() , Strip() については、さっそく StringEntity.Slice() の出番です。普通に線形探索して結果を切り出します。前節で TryParseHex() を用意したものの、データの利用効率が劣悪(4bit -&gt; 8bit と必要分で単純に倍、プリフィックスに 0x をつければ 2B 追加。ASCIIコード換算で float が 4B -&gt; 10B = 250% になる)なので配列や構造体の生バイト列などの大きなものには正直向いていません。
+というわけで由緒正しき Base64 のコンバータを用意しましょう。
+C# Reference Source の実装を参考に、テーブル変換なので中身は単純です。 Base64コンバータの実装(抜粋) 
+
+
+StringParser.cs
+/// &lt;summary&gt;
+/// The Encoder for MIME Base64 (RFC 2045).
+/// &lt;/summary&gt;
+public struct NativeBase64Encoder : IDisposable
+{
+    private Base64EncodeMap _map;
+    private PtrHandle&lt;Base64Info&gt; _info;
+
+    /// &lt;summary&gt;
+    /// convert bytes into chars in Base64 format.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    /// &lt;param name="byte_ptr"&gt;source ptr&lt;/param&gt;
+    /// &lt;param name="byte_len"&gt;source length&lt;/param&gt;
+    /// &lt;param name="splitData"&gt;additional bytes will be input or not. (false: call Terminate() internally.&lt;/param&gt;
+    public unsafe void GetChars(NativeList&lt;char&gt; buff, byte* byte_ptr, int byte_len, bool splitData = false)
+    {
+        if (byte_len &lt; 0) throw new ArgumentOutOfRangeException("invalid bytes length.");
+
+        uint store = _info.Target-&gt;store;
+        int bytePos = _info.Target-&gt;bytePos;
+
+        int charcount = 0;
+        for(uint i=0; i&lt;byte_len; i++)
+        {
+            if (_info.Target-&gt;insertLF)
+            {
+                if (charcount == Base64Const.LineBreakPos)
+                {
+                    buff.Add('\r');
+                    buff.Add('\n');
+                    charcount = 0;
+                }
+            }
+
+            store = (store &lt;&lt; 8) | byte_ptr[i];
+            bytePos++;
+
+            // encoding 3 bytes -&gt; 4 chars
+            if(bytePos == 3)
+            {
+                buff.Add(_map[(store &amp; 0xfc0000) &gt;&gt; 18]);
+                buff.Add(_map[(store &amp; 0x03f000) &gt;&gt; 12]);
+                buff.Add(_map[(store &amp; 0x000fc0) &gt;&gt;  6]);
+                buff.Add(_map[(store &amp; 0x00003f)]);
+                charcount += 4;
+
+                store = 0;
+                bytePos = 0;
+            }
+        }
+
+        _info.Target-&gt;store = store;
+        _info.Target-&gt;bytePos = bytePos;
+
+        if (!splitData) this.Terminate(buff);
+    }
+    /// &lt;summary&gt;
+    /// apply termination treatment.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    public unsafe void Terminate(NativeList&lt;char&gt; buff)
+    {
+        uint tmp = _info.Target-&gt;store;
+        switch (_info.Target-&gt;bytePos)
+        {
+            case 0:
+            // do nothing
+            break;
+            case 1:
+            // two character padding needed
+            buff.Add(_map[(tmp &amp; 0xfc) &gt;&gt; 2]);
+            buff.Add(_map[(tmp &amp; 0x03) &lt;&lt; 4]);
+            buff.Add(_map[64]);  // pad
+            buff.Add(_map[64]);  // pad
+            break;
+            case 2:
+            // one character padding needed
+            buff.Add(_map[(tmp &amp; 0xfc00) &gt;&gt; 10]);
+            buff.Add(_map[(tmp &amp; 0x03f0) &gt;&gt;  4]);
+            buff.Add(_map[(tmp &amp; 0x000f) &lt;&lt;  2]);
+            buff.Add(_map[64]);  // pad
+            break;
+        }
+        _info.Target-&gt;store = 0;
+        _info.Target-&gt;bytePos = 0;
+    }
+    public void Dispose()
+    {
+        _map.Dispose();
+        _info.Dispose();
+    }
+}
+/// &lt;summary&gt;
+/// The Decoder for MIME Base64 (RFC 2045).
+/// &lt;/summary&gt;
+public struct NativeBase64Decoder : IDisposable
+{
+    private Base64DecodeMap _map;
+    private PtrHandle&lt;Base64Info&gt; _info;
+
+    /// &lt;summary&gt;
+    /// convert Base64 format chars into bytes.
+    /// &lt;/summary&gt;
+    /// &lt;param name="buff"&gt;output&lt;/param&gt;
+    /// &lt;param name="char_ptr"&gt;source ptr&lt;/param&gt;
+    /// &lt;param name="char_len"&gt;source length&lt;/param&gt;
+    /// &lt;returns&gt;convert successfull or not&lt;/returns&gt;
+    public unsafe bool GetBytes(NativeList&lt;byte&gt; buff, char* char_ptr, int char_len)
+    {
+        if (char_len &lt; 0)
+        {
+#if UNITY_EDITOR
+            throw new ArgumentOutOfRangeException("invalid chars length.");
+#else
+            return false;
+#endif
+        }
+
+        uint store = _info.Target-&gt;store;
+        int bytePos = _info.Target-&gt;bytePos;
+
+        for(int i=0; i&lt;char_len; i++)
+        {
+            char c = char_ptr[i];
+            if (this.IsWhiteSpace(c)) continue;
+
+            if(c == '=')
+            {
+                switch (bytePos)
+                {
+                    case 0:
+                    case 1:
+#if UNITY_EDITOR
+                    throw new ArgumentException("invalid padding detected.");
+#else
+                    return false;
+#endif
+                    case 2:
+                    // pick 1 byte from "**==" code
+                    buff.Add((byte)((store &amp; 0x0ff0) &gt;&gt; 4));
+                    bytePos = 0;
+                    break;
+                    case 3:
+                    // pick 2 byte from "***=" code
+                    buff.Add((byte)((store &amp; 0x03fc00) &gt;&gt; 10));
+                    buff.Add((byte)((store &amp; 0x0003fc) &gt;&gt;  2));
+                    bytePos = 0;
+                    break;
+                }
+                return true;
+            }
+            else
+            {
+                uint b = _map[c];
+                if (b != 255)
+                {
+                    store = (store &lt;&lt; 6) | (b &amp; 0x3f);
+                    bytePos++;
+                }
+            }
+
+            if(bytePos == 4)
+            {
+                buff.Add((byte)((store &amp; 0xff0000) &gt;&gt; 16));
+                buff.Add((byte)((store &amp; 0x00ff00) &gt;&gt;  8));
+                buff.Add((byte)((store &amp; 0x0000ff)));
+                store = 0;
+                bytePos = 0;
+            }
+        }
+        _info.Target-&gt;store = store;
+        _info.Target-&gt;bytePos = bytePos;
+
+        return true;
+    }
+    private bool IsWhiteSpace(char c)
+    {
+        return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+    }
+}
+
+internal struct Base64EncodeMap : IDisposable
+{
+    private NativeArray&lt;byte&gt; _map;
+
+    public Base64EncodeMap(Allocator alloc)
+    {
+        _map = new NativeArray&lt;byte&gt;(65, alloc);
+
+        int i = 0;
+        for(byte j=65; j&lt;=90; j++)  // 'A' ~ 'Z'
+        {
+            _map[i] = j;
+            i++;
+        }
+        for(byte j=97; j&lt;=122; j++) // 'a' ~ 'z'
+        {
+            _map[i] = j;
+            i++;
+        }
+        for(byte j=48; j&lt;=57; j++)  // '0' ~ '9'
+        {
+            _map[i] = j;
+            i++;
+        }
+        _map[i] = 43; i++; // '+'
+        _map[i] = 47; i++; // '/'
+        _map[i] = 61;      // '='
+    }
+
+    public char this[uint index]
+    {
+        get
+        {
+            if (index &gt; 65) throw new ArgumentOutOfRangeException("input byte must be in range [0x00, 0x40].");
+            return (char)_map[(int)index];
+        }
+    }
+}
+internal struct Base64DecodeMap : IDisposable
+{
+    private NativeArray&lt;byte&gt; _map;
+    public Base64DecodeMap(Allocator alloc)
+    {
+        _map = new NativeArray&lt;byte&gt;(80, alloc);
+
+        int i = 0;
+        _map[i] = 62; i++;       // 0x2b, '+'
+        for(int j=0; j&lt;3; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        _map[i] = 63; i++;       // 0x2f, '/'
+        for(byte j=52; j&lt;=61; j++)
+        {
+            _map[i] = j; i++;    // '0' ~ '9'
+        }
+        for(byte j=0; j&lt;7; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        for(byte j=0; j&lt;=25; j++)
+        {
+            _map[i] = j; i++;    // 'A' ~ 'Z'
+        }
+        for(byte j=0; j&lt;6; j++)
+        {
+            _map[i] = 255; i++;  // invalid code
+        }
+        for (byte j = 26; j &lt;= 51; j++)
+        {
+            _map[i] = j; i++;    // 'a' ~ 'z'
+        }
+    }
+
+    public byte this[uint index]
+    {
+        get
+        {
+            if (index &lt; 0x2b) return 255;
+            if (index &gt; 0x7a) return 255;
+
+            return _map[(int)(index - 0x2b)];
+        }
+    }
+}
+
+
+
+
+元のリファレンスでは全ビットパターン分(16*16=256)テーブルが作ってありましたが、有効な値は64種類、いくつか途中にある無効な値を考慮しても端から端まで長さ80あれば足りるので、今回の実装ではせっかくなので小さくしてみました。Encoding を持ち込むと決めた段階で、byte列 -&gt; char列の変換処理に Burst を使えないことが確定しました。
+ジョブ丸ごとの struct 化とかもう気にしなくていいので、ユーザー定義のデータコンテナも class ということにして、これも GCHandle でJobSystemへ持って行きます。
+ただしこの設計により、誤って struct のデータコンテナを渡したところ当然ながら GCHandle の取得でコケたので、最終的に class のみを受け取る形にしました。実は実装初期のパース速度は Chara 50万体のデータに ~ 1300 ms 程度とだいぶ遅かったのですが、プロファイラを確認したところ主要な処理負荷がインデクサ this[index] や Length フィールドから値を取り出すところだったので、ライブラリ内の処理実装部分では最初に void* と Length を取り出してポインタで直接処理するようにしました。その高速化の経過は下記の通り。見やすいプロファイラは素晴らしい。また、欲しい関数の追加や処理のバッファとして内部的に使う、などにより NativeContiner に似たものを多数作成しましたが、状態管理用の変数ごとにポインタを作るのは手間がかかる上に事故の危険もコピーコストも増大する挙句、データがメモリ上に分散して性能に悪影響を及ぼします。
+よって、ジェネリックなポインタ管理ヘルパー PtrHandle&lt;T&gt; を作りましょう。 ポインタ管理ヘルパー PtrHandle&lt;T&gt; の実装 
+
+
+PtrHandle.cs
+public unsafe struct PtrHandle&lt;T&gt; : IDisposable where T : unmanaged
+{
+    [NativeDisableUnsafePtrRestriction]
+    private T* _ptr;
+
+    private readonly Allocator _alloc;
+    private Boolean _isCreated;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+    [NativeSetClassTypeToNullOnSchedule]
+    private DisposeSentinel _disposeSentinel;
+    private AtomicSafetyHandle _safety;
+#endif
+
+    public PtrHandle(Allocator alloc)
+    {
+        if (alloc &lt;= Allocator.None)
+            throw new ArgumentException("Allocator must be Temp, TempJob or Persistent", nameof(alloc));
+
+        _alloc = alloc;
+        _ptr = (T*)UnsafeUtility.Malloc(UnsafeUtility.SizeOf&lt;T&gt;(), UnsafeUtility.AlignOf&lt;T&gt;(), _alloc);
+        _isCreated = true;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        DisposeSentinel.Create(out _safety, out _disposeSentinel, 0, _alloc);
+#endif
+    }
+    public PtrHandle(T value, Allocator alloc)
+    {
+        if (alloc &lt;= Allocator.None)
+            throw new ArgumentException("Allocator must be Temp, TempJob or Persistent", nameof(alloc));
+
+        _alloc = alloc;
+        _ptr = (T*)UnsafeUtility.Malloc(UnsafeUtility.SizeOf&lt;T&gt;(), UnsafeUtility.AlignOf&lt;T&gt;(), _alloc);
+        _isCreated = true;
+
+        *_ptr = value;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        DisposeSentinel.Create(out _safety, out _disposeSentinel, 0, _alloc);
+#endif
+    }
+
+    public Boolean IsCreated { get { return (_isCreated); } }
+
+    public void Dispose()
+    {
+        if (IsCreated)
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            DisposeSentinel.Dispose(ref _safety, ref _disposeSentinel);
+#endif
+
+            this.CheckAllocator();
+            UnsafeUtility.Free((void*)_ptr, _alloc);
+            _ptr = null;
+            _isCreated = false;
+        }
+        else
+        {
+            throw new InvalidOperationException("Dispose() was called twise, or not initialized target.");
+        }
+    }
+
+    public T* Target
+    {
+        get
+        {
+            if (!_isCreated) throw new InvalidOperationException("target is not allocated.");
+            return _ptr;
+        }
+    }
+    public T Value
+    {
+        set { *_ptr = value; }
+        get { return *_ptr; }
+    }
+
+    public static implicit operator T(PtrHandle&lt;T&gt; value) { return *value._ptr; }
+
+    private void CheckAllocator()
+    {
+        if (!UnsafeUtility.IsValidAllocator(_alloc))
+            throw new InvalidOperationException("The buffer can not be Disposed because it was not allocated with a valid allocator.");
+    }
+}
+
+
+
+この PtrHandle&lt;T&gt; を使用して、NativeContiner に似た struct の状態変数は以下のように一括管理ができるようになります。PtrHandle&lt;T&gt; は GameObject 側と JobSystem 側での変数の共有を想定しており、(ライブラリの外部に渡す場合には内容を別の出力専用 readonly struct に値をコピーしてから返すなどの安全対策をしておけば) Job の管理にも有用です。
+デモでファイル読み込みの進捗状況を取得して表示させていますが、内部的には PtrHandle&lt;T&gt; を利用しています。struct へのポインタを安全に保持したいだけなら大きさ1のNativeArrayを作ることも考えられますが、Unity標準のNativeContainerはJobSystemの安全装置によってJobSystemで使用中はメインスレッドからのアクセスが禁止されてしまうため、Job実行中の共有情報の参照には使えません。よって、NativeContainerの安全装置のうち意図的にアクセッサの安全装置だけを殺したものとして PtrHandle&lt;T&gt; をつくり、これを各種管理情報の保持、参照に使います。ライブラリに閉じ込めるなどしてポインタが暴れださないようにできれば、ポインタはすべてを解決する。実はしれっとスライスの実装を readonly struct で定義していたので、さらなるコピー削減のため StringEntity を引数に渡している部分に in をつけてみます。その結果……100 ms 程遅くなりました。
+そもそも最初に頑張ってスライスを軽量化した結果、パディングの具合にもよりますがリリースビルドでは 8 byte ~ 16 byte のフットプリントしかありません。小さい struct では in readonly struct を渡して低速化する報告もあり、常々言われることではありますがやはり最適化に計測と確認は必須です。C# における char は最小データサイズが 2 byte になる UTF-16 が採用されています。ここで、例えば UTF-8 でエンコードされた、ほぼASCIIコードのテキストファイル(=ファイル上ではほぼ全て 1 byte)を一気にデコードすると、メモリ上にファイルサイズの倍の大きさの char配列が出現します。元のファイルサイズがMBクラスの大きさならあっという間にCPUのキャッシュからはみ出して処理速度が悲しいことになります。
+というわけで、キャッシュ内でパース処理をするためにブロック単位で char に変換し、改行コードを解析して line を示すスライスに切り出し、ブロック内の切り出しが終わったら出来上がった line を ITextFilePaser.ParseLine(line) に流し込みます。
+この line の切り出しの表現に、先頭部分のカタマリの挿入、削除に対応するラッパーを被せた NativeHeadRemovableList&lt;T&gt; を使用します。 NativeHeadRemovableList&lt;T&gt; の実装(抜粋) 
+
+
+NativeHeadRemovableList.cs
+internal struct NativeHeadRemovableList&lt;T&gt; : IDisposable where T : unmanaged
+{
+    private NativeList&lt;T&gt; _list;
+    private PtrHandle&lt;int&gt; _start;
+
+    public unsafe NativeHeadRemovableList(Allocator alloc) {}
+    public unsafe T this[int index]
+    {
+        get { return _list[_start + index]; }
+        set { _list[_start + index] = value; }
+    }
+    public unsafe int Length { get { return _list.Length - _start; } }
+
+    /* 中略 */
+
+    public unsafe void RemoveHead(int count = 1)
+    {
+        if (count &lt; 1 || Length &lt; count) throw new ArgumentOutOfRangeException("invalid length of remove target.");
+
+        _start.Value = _start + count;
+    }
+    public unsafe void InsertHead(T* ptr, int length)
+    {
+        if (length &lt;= 0) throw new ArgumentOutOfRangeException("invalid size");
+
+        // when enough space exists in head
+        if (length &lt;= _start)
+        {
+            _start.Value = _start - length;
+            UnsafeUtility.MemCpy(this.GetUnsafePtr(), ptr, UnsafeUtility.SizeOf&lt;T&gt;() * length);
+            return;
+        }
+
+        // slide internal data
+        int new_length = length + this.Length;
+        int len_move = this.Length;
+        _list.ResizeUninitialized(new_length);
+        T* dest = (T*)_list.GetUnsafePtr() + length;
+        T* source = (T*)_list.GetUnsafePtr() + _start;
+        UnsafeUtility.MemMove(dest, source, UnsafeUtility.SizeOf&lt;T&gt;() * len_move);
+
+        // insert data
+        _start.Value = 0;
+        UnsafeUtility.MemCpy((void*)_list.GetUnsafePtr(), (void*)ptr, UnsafeUtility.SizeOf&lt;T&gt;() * length);
+    }
+}
+
+
+
+改行を見つけたら当該部分のコピー後に NativeHeadRemovableList&lt;T&gt;.RemoveHead(int) で１行分ごそっと消しますが、内部的には _start に長さ分足しているだけです。また、ブロック処理の都合上末尾に未処理のデータ片が残り、これを次回の処理開始時に配列の先頭に移動させねばなりません。そのために NativeHeadRemovableList&lt;T&gt;.InsertHead(T*, int) を実装した……のですが、処理手順を考えると char配列の受け取り前に残ったデータを UnsafeUtility.MemMove() で先頭に移動して、 Decoder.GetChars(byte*, int, char* ,int) に渡すポインタをその続きにすれば一番効率的だったことにこれを書いてる今気づきました。
+現状で性能にほぼ影響がないので放置していますが、これから似たようなことをやる人はご注意ください。
+いまどきこんな低レベルなところを弄る人がどのくらいいるかわかりませんが……具体的なブロックサイズについては、当方の検証では 2kB ~ 4kB 程度が一番よさげでしたので、2kB を規定値として採用しました。さて、これでそこそこの速度でテキストファイルをパースできるようになったわけですが、せっかく非同期なので追加の要求です。複数の GameObject から好き勝手に Load, UnLoad の要求が出される状況に対応しましょう。
+複数ファイルへの複数のユーザーからの問い合わせに対応するバージョンとして
+AsyncTextFileLoader&lt;T&gt; を作ります。 AsyncTextFileLoader&lt;T&gt; の実装(抜粋) 
+
+
+AsyncTextFileLoader.cs
+public class AsyncTextFileLoader&lt;T&gt; : IDisposable
+where T : class, ITextFileParser, new()
+{
+    private List&lt;string&gt; _pathList;
+    private Encoding _encoding;
+
+    private Allocator _alloc;
+    private Dictionary&lt;int, ParseJob&lt;T&gt;&gt; _parserPool;
+    private int _gen;
+
+    private int _blockSize;
+    private int _maxJobCount;
+    private NativeList&lt;RunningJobInfo&gt; _runningJob;
+
+    private List&lt;PtrHandle&lt;ReadStateImpl&gt;&gt; _state;
+    private List&lt;T&gt; _data;
+
+    private struct RunningJobInfo
+    {
+        public int FileIndex { get; }
+        public int ParserID { get; }
+        public RunningJobInfo(int file_index, int parser_index)
+        {
+            FileIndex = file_index;
+            ParserID = parser_index;
+        }
+    }
+    private enum FileAction
+    {
+        Store = 1,
+        UnLoad = -1,
+    }
+    private struct Request
+    {
+        public int fileIndex { get; }
+        public FileAction action { get; }
+
+        public Request(int index, FileAction action)
+        {
+            fileIndex = index;
+            this.action = action;
+        }
+    }
+
+    private NativeQueue&lt;int&gt; _parserAvail;
+    private NativeList&lt;Request&gt; _requestList;
+    private NativeList&lt;int&gt; _updateLoadTgtTmp;
+    private NativeList&lt;int&gt; _updateUnLoadTgtTmp;
+
+    private UnLoadJob&lt;T&gt; _unLoadJob;
+
+    /* 中略 */
+
+    public int MaxJobCount
+    {
+        get { return _maxJobCount; }
+        set { if(value &gt; 0) _maxJobCount = value; }
+    }
+    public int LoadWaitingQueue { get { return _loadWaitingQueueNum; } }
+    public bool FlushLoadJobs { get; set; }
+
+    // 管理対象のファイルが追加されたら担当のデータクラス T を生成
+    public unsafe void AddFile(string str)
+    {
+        _pathList.Add(str);
+
+        _data.Add(new T());
+        _data[_data.Count - 1].Init();
+
+        var s_tmp = new PtrHandle&lt;ReadStateImpl&gt;(_alloc);
+        s_tmp.Target-&gt;Clear();
+        _state.Add(s_tmp);
+    }
+
+    // データとJobの状態について index でアクセス
+    public unsafe T this[int fileIndex]
+    {
+        get
+        {
+            if (!_state[fileIndex].Target-&gt;IsStandby)
+                throw new InvalidOperationException($"the job running now for fileIndex = {fileIndex}.");
+            return _data[fileIndex];
+        }
+    }
+    public unsafe ReadState GetState(int index)
+    {
+        return _state[index].Target-&gt;GetState();
+    }
+
+    // Load, UnLoad ともに外部からの注文はいったんリストにためて Update() で処理
+    public void LoadFile(int index)
+    {
+        _loadWaitingQueueNum++;
+        _requestList.Add(new Request(index, FileAction.Store));
+    }
+    public void UnLoadFile(int index)
+    {
+        _requestList.Add(new Request(index, FileAction.UnLoad));
+    }
+
+    public void Update()
+    {
+        this.UpdateImpl(this.FlushLoadJobs);
+        this.FlushLoadJobs = false;
+    }
+
+    // リストにためた注文を一気に処理する
+    private unsafe void UpdateImpl(bool flush_all_jobs = false)
+    {
+        // check job completed or not
+        for (int i= _runningJob.Length-1; i&gt;=0; i--)
+        {
+            var job_info = _runningJob[i];
+            var read_state = _state[job_info.FileIndex];
+            if (read_state.Target-&gt;JobState == ReadJobState.WaitForCallingComplete)
+            {
+                _parserPool[job_info.ParserID].Complete();
+                read_state.Target-&gt;JobState = ReadJobState.Completed;
+
+                this.ReleaseParser(job_info.ParserID);
+                _runningJob.RemoveAt(i);
+            }
+        }
+        if(_unLoadJob.JobState == ReadJobState.WaitForCallingComplete)
+        {
+            _unLoadJob.Complete();
+            _unLoadJob.Clear();
+        }
+
+        // no requests. or all available parser were running. retry in next Update().
+        if (_requestList.Length == 0 || (_maxJobCount - _runningJob.Length &lt;= 0 &amp;&amp; !flush_all_jobs))
+        {
+            return;
+        }
+
+        //--- extract action
+        _updateLoadTgtTmp.Clear();
+        _updateUnLoadTgtTmp.Clear();
+        for (int i=0; i&lt;_requestList.Length; i++)
+        {
+            var act = _requestList[i];
+            if (act.action == FileAction.Store)
+            {
+                var tgt_state = _state[act.fileIndex];
+                if (tgt_state.Target-&gt;RefCount == 0)
+                {
+                    _updateLoadTgtTmp.Add(act.fileIndex);
+                }
+                tgt_state.Target-&gt;RefCount++;
+            }
+            else
+            {
+                _updateUnLoadTgtTmp.Add(act.fileIndex);
+            }
+        }
+        _requestList.Clear();
+
+        //--- preprocess unload action
+        for (int i=0; i&lt; _updateUnLoadTgtTmp.Length; i++)
+        {
+            int id = _updateUnLoadTgtTmp[i];
+            var tgt_state = _state[id];
+            tgt_state.Target-&gt;RefCount--;
+
+            if (tgt_state.Target-&gt;RefCount == 0)
+            {
+                int found_index = _updateLoadTgtTmp.IndexOf(id);
+                if (found_index &gt;= 0)
+                {
+                    // remove from loading order (file loading is not performed)
+                    _updateLoadTgtTmp.RemoveAtSwapBack(found_index);
+                }
+                else
+                {
+                    // remove from loaded data
+                    if (_unLoadJob.JobState == ReadJobState.Completed &amp;&amp; tgt_state.Target-&gt;IsStandby)
+                    {
+                        //--- unload in job (workaround for LargeAllocation.Free() cost in T.UnLoad().)
+                        _unLoadJob.AddUnLoadTarget(id, _data[id], _state[id].Target);
+                    }
+                    else
+                    {
+                        // now loading. unload request will try in next update.
+                        tgt_state.Target-&gt;RefCount++;  // reset ref count
+                        this.UnLoadFile(id);
+                    }
+                }
+            }
+            if (tgt_state.Target-&gt;RefCount &lt; 0)
+            {
+                throw new InvalidOperationException($"invalid UnLoading for index = {id}.");
+            }
+        }
+        _updateUnLoadTgtTmp.Clear();
+
+        // schedule jobs
+        //--- unload job
+        _unLoadJob.UnLoadAsync();
+
+        //--- supply parsers for load job
+        int n_add_parser = Math.Max(_updateLoadTgtTmp.Length - _parserAvail.Count, 0);
+        if (!flush_all_jobs)
+        {
+            n_add_parser = Math.Min(this.MaxJobCount - _parserPool.Count, n_add_parser);
+        }
+        for (int i = 0; i &lt; n_add_parser; i++) this.GenerateParser();
+
+        //--- run jobs
+        int n_job = Math.Min(_parserAvail.Count, _updateLoadTgtTmp.Length);
+        for(int i=0; i&lt;n_job; i++)
+        {
+            int file_index = _updateLoadTgtTmp[i];
+            int p_id = _parserAvail.Dequeue();
+            var p_tmp = _parserPool[p_id];
+            var p_state = _state[file_index];
+            p_tmp.BlockSize = _blockSize;
+            p_tmp.ReadFileAsync(_pathList[file_index], _encoding, _data[file_index], p_state);
+            _runningJob.Add(new RunningJobInfo(file_index, p_id));
+        }
+
+        //--- write back excessive queue
+        _loadWaitingQueueNum = 0;
+        for (int i=n_job; i&lt;_updateLoadTgtTmp.Length; i++)
+        {
+            int id = _updateLoadTgtTmp[i];
+            _state[id].Target-&gt;RefCount--; // reset ref count
+            this.LoadFile(id);
+            _loadWaitingQueueNum++;
+        }
+        _updateLoadTgtTmp.Clear();
+    }
+}
+
+
+
+大まかな流れとしては、Load だけでなく UnLoad も Job にしてしまっていますが、これについては次節で説明します。ここにさらに同時に動作する LoadJob の最大数 MaxJobCount に合わせて、同時に保持するパーサーの数とジョブの割り当てを管理しています。
+パーサーは一度動かすとファイル丸ごとをバッファすること、またそもそもファイルのロードは多数を同時に走らせることは稀という前提で、メモリ消費の削減の観点からこのような設計にしました。しかし、後述の課題により MaxJobCount はせいぜい 1 ~ 2 ぐらいまでしかまともに動かないことが判明しました。実際の運用では、 LoadJob 待機中の注文数を取得するプロパティ AsyncTextFileLoader&lt;T&gt;.LoadWaitingQueue を参照して注文する GameObject 側がタイミングを調節する形になるでしょう。大きなファイルの読み込みもそうですが、メモリ領域の破棄にもそれなりにコストがかかります。
+大容量のデータをいくつも一気に UnLoad したりすると LargeAllocation.Free() に ms 単位で持っていかれかねません。せっかくパース処理そのものはワーカースレッドに追い出したのに、これでメインスレッドが遅くなったら片手落ちです。
+幸い NativeContainer のアロケータはワーカースレッドでも動くので、多数のファイルを管理する AsyncTextFileLoader&lt;T&gt; では UnLoad() もワーカースレッドにやらせてメインスレッドを身軽にします。
+ここで、 JobHandle.Schedule() の呼び出しコストを削減するため、 UnLoad() 対象のデータ (の GCHandle )のリストを1つの Job に渡して一気に UnLoad させます。
+UnLoad 用の Job は以下のようになります。 UnLoadJob&lt;T&gt; の実装(抜粋) 
+
+
+ParseJob.cs
+internal unsafe struct UnLoadJobTarget&lt;Tdata&gt;
+    where Tdata : class, ITextFileParser
+{
+    internal GCHandle&lt;Tdata&gt; data;
+    internal ReadStateImpl* state_ptr;  // UnLoad 対象の State. 書き換えだけ行うので生ポインタを渡す
+    internal int file_index;
+
+    public UnLoadJobTarget(int file_index, Tdata data, ReadStateImpl* state_ptr)
+    {
+        this.data = new GCHandle&lt;Tdata&gt;();
+
+        this.data.Create(data);
+        this.state_ptr = state_ptr;
+        this.file_index = file_index;
+    }
+    public unsafe void UnLoad()
+    {
+        this.state_ptr-&gt;JobState = ReadJobState.UnLoaded;
+        this.data.Target.UnLoad();
+    }
+}
+internal struct UnLoadJobInfo
+{
+    internal ReadJobState job_state;
+    internal JobHandle job_handle;
+    internal Boolean alloc_handle;
+}
+internal struct UnLoadJob&lt;Tdata&gt; : IJob, IDisposable
+    where Tdata : class, ITextFileParser
+{
+    internal NativeList&lt;UnLoadJobTarget&lt;Tdata&gt;&gt; _target;
+    internal PtrHandle&lt;UnLoadJobInfo&gt; _info;               // UnLoadJob の管理情報
+
+    public unsafe UnLoadJob(Allocator alloc)
+    {
+        _target = new NativeList&lt;UnLoadJobTarget&lt;Tdata&gt;&gt;(alloc);
+        _info = new PtrHandle&lt;UnLoadJobInfo&gt;(alloc);
+
+        _info.Target-&gt;job_state = ReadJobState.Completed;
+    }
+    public unsafe void Dispose()
+    {
+        this.DisposeHandle();
+        _target.Dispose();
+        _info.Dispose();
+    }
+    private unsafe void DisposeHandle()
+    {
+        if (_info.Target-&gt;alloc_handle)
+        {
+            for (int i = 0; i &lt; _target.Length; i++) _target[i].data.Dispose();
+            _info.Target-&gt;alloc_handle = false;
+        }
+    }
+
+    public void Clear()
+    {
+        this.DisposeHandle();
+        _target.Clear();
+    }
+
+    public unsafe void AddUnLoadTarget(int file_index, Tdata data, ReadStateImpl* state_ptr)
+    {
+        _target.Add( new UnLoadJobTarget&lt;Tdata&gt;(file_index, data, state_ptr) );
+        _info.Target-&gt;alloc_handle = true;
+    }
+    public unsafe JobHandle UnLoadAsync()
+    {
+        if(_target.Length &gt; 0)
+        {
+            _info.Target-&gt;job_state = ReadJobState.UnLoadJob;
+            _info.Target-&gt;job_handle = this.Schedule();
+            return _info.Target-&gt;job_handle;
+        }
+        else
+        {
+            // no action
+            return new JobHandle();
+        }
+    }
+
+    public unsafe ReadJobState JobState { get { return _info.Target-&gt;job_state; } }
+
+    public unsafe void Execute()
+    {
+        for (int i = 0; i &lt; _target.Length; i++) _target[i].UnLoad();
+
+        _info.Target-&gt;job_state = ReadJobState.WaitForCallingComplete;
+    }
+
+    public unsafe void Complete()
+    {
+        _info.Target-&gt;job_handle.Complete();
+        _info.Target-&gt;job_state = ReadJobState.Completed;
+    }
+}
+
+
+
+このジョブを1つインスタンス化しておいて、 UnLoad の注文が来たら UnLoadJob&lt;T&gt;.AddUnLoadTarget(int, T, PtrHandle&lt;ReadStateImpl&gt;) で対象の data を渡し、 UnLoadJob&lt;T&gt;.UnLoadAsync() で後始末させます。いつになるかは不明ですが、公式の案内では char には対応する予定らしいので、その暁にはもっと早くなるはず。  Burst does not support the following types:
+  - char (this will be supported in a future release)
+  - string as this is a managed typeライブラリ内部ではASCII範囲の値しか検索、比較していないので、 char をすべて unit16 あたりにキャストして、関数ポインタ経由でBurstさせればもっと早くなる可能性は大いにあります。
+しかし、公式が対応すると明言していますし、上記の手法で Burst による高速化が特に期待されるホットスポットは TryParse() や Split() 関数なので、Burst が char に対応したならユーザーデータクラスの ParseLine(line) をまるごと適用したほうがはるかに効果的でしょう。デモシーン
+/Assets/NativeStringCollections/Demo/Scenes/Demo_AsyncMultiFileManagement.unity で、
+AsyncTextFileLoader&lt;T&gt; を使用して n個 のファイルを同時に読み込む指示を出すと、同時に始まった個々のジョブの処理時間が n倍 になり、結局速くなくなるどころか遅延時間の分だけ1個ずつ読ませていたほうがまし、という症状が出ています。
+ストレージ &lt;-&gt; メモリ間、あるいは CPU &lt;-&gt; メモリ間の転送速度に引っかかったかとも思いましたが、プロファイラで確認したところメモリ転送負荷になりそうな AsyncReadManager.Read() や NativeList&lt;T&gt;.Add() の処理時間をはじめ、 ジョブの処理時間全体がプロファイラ上では 1ジョブの状態とほぼ同じ時間でした。しかしAsyncTextFileReader&lt;T&gt; 内部の System.Diagnotics.Stopwatch による処理時間の計測結果、および実時間では一気に動作が遅くなります。
+小さなファイルで試すとプロファイラの経過時間と実時間が一致しました。1秒を超えるような長時間のジョブはプロファイラ内の経過時間がバグります。flushingの有無による変化を下記に示します。(Deep Profile)flushing なし (MaxJobCount = 1)
+flushing
+LoadJob を flush している場合の、ParseJob 内の各関数の経過時間は下記の通りです。
+(数値は 6 Job の総和)一方で  job を1つずつ実行した場合の経過時間の一例は下記のとおりです。そして各関数の ParseText() 内の相対実行時間を比較すると下表のようになります。表右端の slower/Job は6Jobの実行時間を1Jobの実行時間で割った後、さらに6で除して Job 1つあたり何倍遅くなったかの比です。
+不思議なことに関数全体にわたって均等に遅くなっています。プロファイラによる観測データの転送でメモリ帯域を食われた可能性も考えましたが、
+リリースビルドで同じ 4096 サイズに対し、LoadJob 1つの処理時間は約 6.5 ms (@ 1 Job)-&gt; 約 80 ms (@ 6 Job)とむしろ比率的にはよりひどい状態で同様の現象が見られます。また、 PostReadProc() はファイル先頭部分に Base64 で埋め込んだ全データのIDのリストを ParseLine() で実際に解析した CharaData のIDと照合して読み込みエラーがないか確認をするのと、 NativeStringList.Add() の繰り返しでバッファが伸長し、各 CharaData の name の参照先が無効になっているはずなのでその再構築をしています。
+つまりほぼ計算なしに全データを走査して long の比較とchar配列のコピーをしているだけなので、真にメモリバウンドな処理をするとここまで遅くなるということを示していると考えられます。以上から、やはりキャッシュミスとは異なる現象が起きているように思われ、
+自明並列の部分が並列化でなぜ遅くなるのか私の頭では原因がつかめません……AsyncReadManager 自体あまり公式 script reference 以外の情報がなく、そもそもアセットバンドル等のひとまとめにしたバイナリデータをロードするのに用意されたAPIで、完全に用途が違うものを変な使い方している、と言われればそれまでですが……
+Unityの中の人に聞ければ解決するかもしれませんが、ちょっとそこまでのお金はないのでだれか解決してくれるとすごくたすかります(他力本願)Qiita:
+【Unity】ファイルを非同期で読み込んでアンマネージドメモリに展開できるAsyncReadManagerを試してみた
+【Unity】NativeArrayについての解説及び実装コードを読んでみる
+【Unity】UnsafeUtilityについて纏めてみる
+【Unity】BurstCompilerをJobSystem以外でも使いたい
+Unity C# Job Systemに参照型を持ち込む
+【Unity】スタックトレースを有効にしてNativeArrayのメモリリークを探す
+【Unity】UnsafeUtility基礎論【入門者向け】Blog:
+System.Text.Encoding で Shift JIS を使いたい
+【C#】Big Size Structが値コピーでつらいならin引数で値コピーしなければいいじゃない！！ ＜ それ本当？Official:
+C# Reference Source
+
+

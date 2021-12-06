@@ -1,0 +1,49 @@
+
+// 拡張機能インストール用に使うサービス証明書をクラウドサービスに設定する
+var certificateByteArray = Convert.FromBase64String(deployParameters.DiagnosticsExtensionBase64Certificate); // オレオレでもいいので証明書が必要、あらかじめ用意しておく
+var thumbprint = new X509Certificate2(certificateByteArray, deployParameters.DiagnosticsExtensionCertificatePassword).Thumbprint; // 証明書がすでにあるかどうかを確認するにはThumbprintが必要なのでここで取得
+try
+{
+    // サービス証明書がすでにあるかどうかを確認する
+    var getCertificateResponse = managementClient.ServiceCertificates.Get(
+        new ServiceCertificateGetParameters(
+            CloudServiceName, 
+            deployParameters.DiagnosticsAddExtensionParameter.ThumbprintAlgorithm, 
+            thumbprint));
+}
+catch (Hyak.Common.CloudException ex)
+{
+    // サービス証明書がない場合、証明書を登録する
+    var addCertificateResponse = managementClient.ServiceCertificates.Create(
+        CloudServiceName, 
+        new ServiceCertificateCreateParameters()
+        {
+            CertificateFormat = CertificateFormat.Pfx,
+            Data = certificateByteArray,
+            Password = deployParameters.DiagnosticsExtensionCertificatePassword
+        }
+    );
+    if (addCertificateResponse == null || addCertificateResponse.Status != OperationStatus.Succeeded)
+    {
+        throw new DeploymentException("Create", CloudServiceName, ServiceDeploymentSlot, addCertificateResponse);
+    }
+}
+deployParameters.DiagnosticsAddExtensionParameter.Thumbprint = thumbprint;
+
+// PaaSDiagnostics.*.PubConfig.xmlのテキストを取得 要するにWadConfigのこと
+var diagnosticsPublicConfigBlob = blobContainer.GetBlockBlobReference(deployParameters.DiagnosticsExtensionPublicConfigurationPath);
+var diagnosticsPublicConfigContent = diagnosticsPublicConfigBlob.DownloadText(Encoding.UTF8, null, blobRequestOptions, null);
+deployParameters.DiagnosticsAddExtensionParameter.PublicConfiguration = diagnosticsPublicConfigContent.TrimStart('\uFEFF');
+
+// Private Config を生成 ストレージ接続文字列しかない設定ファイル 大した設定値はないのでプログラムで作ってしまう
+var xmlns = XNamespace.Get("http://schemas.microsoft.com/ServiceHosting/2010/10/DiagnosticsConfiguration");
+var storageAccountElement = new XElement(xmlns + "StorageAccount");
+storageAccountElement.SetAttributeValue("name", deployParameters.StorageConnectionString.Split(';')[1].Split('=')[1]);
+storageAccountElement.SetAttributeValue("key", deployParameters.StorageConnectionString.Split(';')[2].Split('=')[1]);
+var privateConfigElement = new XElement(xmlns + "PrivateConfig", storageAccountElement);
+var privateConfig = new XDocument(privateConfigElement);
+deployParameters.DiagnosticsAddExtensionParameter.PrivateConfiguration = privateConfig.ToString();
+
+// Diagnostics Extension の設定 ここでインストール
+managementClient.HostedServices.AddExtension(CloudServiceName, deployParameters.DiagnosticsAddExtensionParameter);
+

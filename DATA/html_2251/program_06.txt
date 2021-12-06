@@ -1,0 +1,62 @@
+
+// あらかじめMicrosoft.CodeAnalysis.CSharpをnugetでインストールしておく
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text.RegularExpressions;
+
+public class InternalAccessibleCompiler
+{
+    public static void Main (string [] args)
+    {
+        string inputCsProjPath = args [0];
+        string outputAsemblyPath = args [1];
+        string outputAsemblyName = Path.GetFileNameWithoutExtension (outputAsemblyPath);
+
+        // C#プロジェクトを読み込みます.
+        string[] csproj = File.ReadAllLines(inputCsProjPath);
+
+        // dllとしてコンパイルさせるオプションを生成します.
+        CSharpCompilationOptions compilationOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+            .WithMetadataImportOptions(MetadataImportOptions.All);
+
+        // BindingFlags.IgnoreAccessibility(1 &lt;&lt; 22)を有効化します.
+        typeof(CSharpCompilationOptions)
+            .GetProperty("TopLevelBinderFlags", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(compilationOptions, (uint)1 &lt;&lt; 22);
+
+        // プロジェクトからアセンブリ参照一覧を取得→IEnumerable&lt;PortableExecutableReference&gt;に変換します.
+        Regex reg_dll = new Regex("&lt;HintPath&gt;(.*)&lt;/HintPath&gt;", RegexOptions.Compiled);
+        IEnumerable&lt;PortableExecutableReference&gt; metadataReferences = csproj
+            .Select(line =&gt; reg_dll.Match(line))
+            .Where(match =&gt; match.Success)
+            .Select(match =&gt; match.Groups[1].Value)
+            .Select(path =&gt; MetadataReference.CreateFromFile(path));
+
+        // プロジェクトからシンボル一覧を取得→IEnumerable&lt;string&gt;に変換します.
+        Regex reg_preprocessorSymbols = new Regex("&lt;DefineConstants&gt;(.*)&lt;/DefineConstants&gt;", RegexOptions.Compiled);
+        IEnumerable&lt;string&gt; preprocessorSymbols = csproj
+            .Select(line =&gt; reg_preprocessorSymbols.Match(line))
+            .Where(match =&gt; match.Success)
+            .SelectMany(match =&gt; match.Groups[1].Value.Split(';'));
+
+        // プロジェクトからソースコード一覧を取得→テキストとして読み込み→IEnumerable&lt;SyntaxTree&gt;に変換します.
+        CSharpParseOptions parserOption = new CSharpParseOptions(LanguageVersion.Latest,
+                preprocessorSymbols: preprocessorSymbols);
+        Regex reg_cs = new Regex("&lt;Compile Include=\"(.*\\.cs)\"", RegexOptions.Compiled);
+        IEnumerable&lt;SyntaxTree&gt; syntaxTrees = csproj
+            .Select(line =&gt; reg_cs.Match(line))
+            .Where(match =&gt; match.Success)
+            .Select(match =&gt; match.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar))
+            .Select(path =&gt; Path.Combine(inputCsProjDir, path))
+            .Select(path =&gt; CSharpSyntaxTree.ParseText(File.ReadAllText(path), parserOption, path));
+
+        // コンパイルを実行し、dllを生成します.
+        CSharpCompilation.Create(outputAsemblyName, syntaxTrees, metadataReferences, compilationOptions)
+            .Emit(outputAsemblyPath);
+    }
+}
+

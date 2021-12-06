@@ -1,0 +1,53 @@
+
+private async void Button_Click(object sender, RoutedEventArgs e)
+{
+    ThreadPool.SetMinThreads(200, 200);
+
+    //実行中にもう一度押されたらタスクをキャンセル
+    if (_isExecute)
+    {
+        _isExecute = false;
+        _cancellationTokenSource.Cancel();
+        return;
+    }
+
+    btnGetFile.Content = "実行中";
+    _isExecute = true;
+    _cancellationTokenSource = new CancellationTokenSource();
+    _cancellationToken = _cancellationTokenSource.Token;
+
+    var count = 0;
+    try
+    {
+        //スレッドプールさん、処理をお願いします何でもしますから
+        await Task.Run(async () =&gt;
+        {
+            var enumerateFilesCollection = GetAllFilesAsync(@"C:\");
+            await enumerateFilesCollection.ForEachAsync(async enumerateFiles =&gt;
+            {
+                foreach (var file in await enumerateFiles)
+                {
+                    //キャンセルされれば例外で止める
+                    _cancellationToken.ThrowIfCancellationRequested();
+
+                    this.Dispatcher.Invoke(() =&gt;
+                    {
+                        ++count;
+                        this.txtFileCount.Text = count + Environment.NewLine + file;
+                    });
+                }
+            }, 200, _cancellationToken);
+        }, _cancellationToken);
+    }
+    catch
+    {
+        //ignore
+    }
+    finally
+    {
+        _cancellationTokenSource.Dispose();
+        _isExecute = false;
+        btnGetFile.Content = "ファイル取得";
+    }
+}
+

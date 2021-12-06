@@ -1,0 +1,93 @@
+
+using System;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using CsvHelper;
+
+namespace ML
+{
+    class MainClass
+    {
+        public static void Main(string[] args)
+        {
+            var data = LoadData.LoadCsv&lt;Iris, IrisMap&gt;("iris.csv");
+            var labelname = data.Select(x =&gt; x.Species).Distinct().ToArray();
+
+            var feature = (from n in data select new double[] { n.PetalLength, n.PetalWidth, n.SepalLength, n.SepalWidth }).ToArray();
+            var label = data.Select(x =&gt; Array.IndexOf(labelname, x.Species)).ToArray();
+
+            var train = feature.Select((x, i) =&gt; new { Content = x, Index = i })
+                               .Where(x =&gt; x.Index &lt; 40 ||
+                                      (x.Index &gt;= 50 &amp;&amp; x.Index &lt; 90) ||
+                                      (x.Index &gt;= 100 &amp;&amp; x.Index &lt; 140))
+                               .Select(x =&gt; x.Content)
+                               .ToArray();
+            var trainl = label.Select((x, i) =&gt; new { Content = x, Index = i })
+                              .Where(x =&gt; x.Index &lt; 40 ||
+                                     (x.Index &gt;= 50 &amp;&amp; x.Index &lt; 90) ||
+                                     (x.Index &gt;= 100 &amp;&amp; x.Index &lt; 140))
+                              .Select(x =&gt; x.Content)
+                              .ToArray(); ;
+            var test = feature.Select((x, i) =&gt; new { Content = x, Index = i })
+                              .Where(x =&gt; (x.Index &gt;= 40 &amp;&amp; x.Index &lt;50) || 
+                                     (x.Index &gt;= 90 &amp;&amp; x.Index &lt; 100) ||
+                                      x.Index &gt;= 140)
+                              .Select(x =&gt; x.Content)
+                              .ToArray();
+            var testl = label.Select((x, i) =&gt; new { Content = x, Index = i })
+                             .Where(x =&gt; (x.Index &gt;= 40 &amp;&amp; x.Index &lt; 50) ||
+                                    (x.Index &gt;= 90 &amp;&amp; x.Index &lt; 100) ||
+                                    x.Index &gt;= 140)
+                             .Select(x =&gt; x.Content)
+                             .ToArray();
+
+            var svm = new SVM(train, trainl);
+            svm.learn();
+            var result = test.Select(x =&gt; svm.predict(x)).ToArray();
+            ClassificationReport(testl, result);
+        }
+        /// &lt;summary&gt;
+        /// Classifications the report.
+        /// &lt;/summary&gt;
+        /// &lt;param name="truelabel"&gt;正解ラベル&lt;/param&gt;
+        /// &lt;param name="predict"&gt;予測結果&lt;/param&gt;
+        public static void ClassificationReport(int[] truelabel, int[] predict)
+        {
+            Debug.Assert(truelabel.Length != predict.Length);
+            var labelset = truelabel.Distinct().ToArray();
+            var tfarray = new bool[truelabel.Length];
+            double precision;
+            double recall;
+            for (int i = 0; i &lt; truelabel.Length; i++)
+            {
+                tfarray[i] = truelabel[i] == predict[i];
+            }
+            Console.WriteLine("label\tPre\tRec\tF-score");
+            foreach (var item in labelset)
+            {
+                // ラベルがitemのもののindexを正解ラベルからとってくる
+                var preIndex = truelabel.Select((x, i) =&gt; new { Content = x, Index = i })
+                                        .Where(x =&gt; x.Content == item)
+                                        .Select(x =&gt; x.Index).ToArray();
+                var recIndex = predict.Select((x, i) =&gt; new { Content = x, Index = i })
+                                      .Where(x =&gt; x.Content == item)
+                                      .Select(x =&gt; x.Index).ToArray();
+                precision = tfarray.Select((x, i) =&gt; new { Content = x, Index = i })
+                                   .Count(x =&gt; 0 &lt;= Array.IndexOf(preIndex, x.Index) &amp;&amp; x.Content == true)
+                                   / (double)preIndex.Length;
+                recall = tfarray.Select((x, i) =&gt; new { Content = x, Index = i })
+                                .Count(x =&gt; 0 &lt;= Array.IndexOf(recIndex, x.Index) &amp;&amp; x.Content == true)
+                                / (double)recIndex.Length;
+                Console.WriteLine("{0}\t{1:f2}\t{2:f2}\t{3:f2}", item, precision, recall,
+                                  (2 * precision * recall) / (precision + recall));
+
+            }
+        }
+    }
+}
+

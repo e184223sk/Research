@@ -1,0 +1,65 @@
+
+private async Task&lt;IEnumerable&lt;string&gt;&gt; GetAllFilesAsync(string folderPath)
+{
+    var directories = Enumerable.Empty&lt;string&gt;();
+
+    try
+    {
+        directories = Directory.EnumerateDirectories(folderPath)
+            //.AsParallel() 悪夢の元凶
+            .Where(x =&gt; _exceptFolder.All(y =&gt; !x.StartsWith(y, StringComparison.CurrentCultureIgnoreCase)));
+
+        //同階層にフォルダが存在しなければ同階層のファイルを取得するタスクを返す
+        if (!directories.Any())
+        {
+            return await Task.FromResult(Directory.EnumerateFiles(folderPath)).ConfigureAwait(false);
+        }
+
+        //再帰的にフォルダを探し続ける
+        var filePaths = await Task.WhenAll(directories.Select(async x =&gt; await GetAllFilesAsync(x)))
+                                  .ConfigureAwait(false);
+        directories = filePaths.SelectMany(x =&gt; x);
+    }
+    catch
+    {
+        return directories;
+    }
+
+    //タスクを作成する
+    var tcs = new TaskCompletionSource&lt;IEnumerable&lt;string&gt;&gt;();
+    tcs.SetResult(Directory.EnumerateFiles(folderPath).Concat(directories));
+    return await tcs.Task.ConfigureAwait(false);
+}
+
+private async void BtnGetFile_Click(object sender, RoutedEventArgs e)
+{
+    //省略
+
+    try
+    {
+        await Task.Run(async () =&gt;
+        {
+            var enumerateFilesCollection = GetAllFilesAsync(@"C:\");
+            await enumerateFilesCollection.ForEachAsyncNoLock(async enumerateFiles =&gt;
+            {
+                foreach (var file in await enumerateFiles)
+                {
+                    //キャンセルされれば例外で止める
+                    _cancellationToken.ThrowIfCancellationRequested();
+
+                    //念の為スレッドセーフにインクリメントを行う
+                    Interlocked.Increment(ref count);
+
+                    //意図的にawaitを付けない
+                    this.Dispatcher.InvokeAsync(() =&gt;
+                    {
+                        this.txtFileCount.Text = count + Environment.NewLine + file;
+                    }, DispatcherPriority.Background, _cancellationToken);
+                }
+            }, _cancellationToken);
+        }, _cancellationToken);
+    }
+
+    //省略
+}
+

@@ -1,0 +1,80 @@
+
+    public class HomeControlerService : IDisposable
+    {
+        private bool disposed = false;
+        private readonly AppDbContext AppDb = new AppDbContext();
+
+        public HomeControlerService()
+        {
+        }
+
+        public void Dispose()
+        {
+            this.Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposed) return;
+
+            if (disposing)
+            {
+                if (this.AppDb != null)
+                {
+                    this.AppDb.Dispose();
+                }
+            }
+
+            disposed = true;
+        }
+
+        // カード決裁処理
+        public void Charge(string stripeEmail, string stripeToken)
+        {
+            var customersService = new StripeCustomerService();
+            var chargesService = new StripeChargeService();
+            StripeCustomer customer;
+            Customer dbCustomer;
+
+            // DBにメアドが存在しなければ、顧客登録を行う
+            var dbCustomers = AppDb.Customers.Where(c =&gt; c.Email == stripeEmail);
+            if (dbCustomers.Count() == 0)
+            {
+                // Stripe に顧客を追加
+                customer = customersService.Create(new StripeCustomerCreateOptions
+                {
+                    Email = stripeEmail,
+                    SourceToken = stripeToken
+                });
+
+                // DB に顧客を追加
+                dbCustomer = new Customer()
+                {
+                    Email = stripeEmail,
+                    StripeId = customer.Id
+                };
+                AppDb.Customers.Add(dbCustomer);
+                AppDb.SaveChanges();
+            }
+            else
+            {
+                // Stripe の顧客を取得
+                dbCustomer = dbCustomers.First();
+                customer = customersService.Get(dbCustomer.StripeId);
+            }
+
+            // 課金を追加
+            var charge = chargesService.Create(new StripeChargeCreateOptions
+            {
+                Amount = 1000,
+                Currency = "jpy",
+                Description = "Example charge",
+                CustomerId = customer.Id
+            });
+
+            // ここで課金結果をDBに登録（今回は実装しない）
+            // DBに charge.id を保管すれば、Stripe 側の課金情報と紐づけできる
+        }
+    }
+

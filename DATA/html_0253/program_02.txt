@@ -1,0 +1,77 @@
+
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using Newtonsoft.Json;
+
+namespace QiitaAdventCalendar2020
+{
+    public class LabelPrinter
+    {
+        private static readonly HttpClient __client = new HttpClient();
+        private readonly Uri _uri;
+
+        /// &lt;summary&gt;
+        /// コンストラクタ
+        /// &lt;/summary&gt;
+        /// &lt;param name="uri"&gt;ラベルプリンタのURI&lt;/param&gt;
+        public LabelPrinter(Uri uri)
+        {
+            _uri = uri;
+        }
+
+        /// &lt;summary&gt;
+        /// プリンタが起動しているかどうかを確認する
+        /// &lt;/summary&gt;
+        /// &lt;returns&gt;true: 起動している、false: 起動していない&lt;/returns&gt;
+        public bool IsRunning()
+        {
+            var uri = new Uri(_uri, "status");
+            var contents = __client.GetStringAsync(uri).Result;
+            var status = JsonConvert.DeserializeObject&lt;GetResultForStatus&gt;(contents);
+            return status.Running;
+        }
+
+        /// &lt;summary&gt;
+        /// 印刷する
+        /// &lt;/summary&gt;
+        /// &lt;param name="contents"&gt;印刷する内容&lt;/param&gt;
+        /// &lt;returns&gt;true: 印刷成功、false: 印刷失敗&lt;/returns&gt;
+        public bool Print(string contents)
+        {
+            // 印刷用のパラメータを作成する
+            var postData = new PostDataForPrint()
+            {
+                Text = contents
+            };
+            var json = JsonConvert.SerializeObject(postData);
+
+            // 印刷する
+            var uri = new Uri(_uri, "print");
+            var httpContent = new StringContent(json, Encoding.UTF8, @"application/json");
+            var response = __client.PostAsync(uri, httpContent).Result;
+
+            return response.StatusCode == HttpStatusCode.OK;
+        }
+
+        /// &lt;summary&gt;
+        /// GET /status の結果
+        /// &lt;/summary&gt;
+        private class GetResultForStatus
+        {
+            [JsonProperty("running")]
+            public bool Running { get; set; }
+        }
+
+        /// &lt;summary&gt;
+        /// POST /print のデータ
+        /// &lt;/summary&gt;
+        private class PostDataForPrint
+        {
+            [JsonProperty("text")]
+            public string Text { get; set; }
+        }
+    }
+}
+

@@ -1,0 +1,87 @@
+using UnityEngine;
+/// &lt;summary&gt;
+/// 階層構造
+/// Camera
+///     ┗ Waist  -----ここにアタッチ
+///     　　┗ WaistObj
+/// &lt;/summary&gt;
+public class WaistObjAdjuster: MonoBehaviour
+{
+    [SerializeField, Header("下を見ると腰のオブジェクトが前に飛び出る")]
+    GameObject m_waistObj;
+
+    [SerializeField, Header("どれくらい前に出てくるのか")]
+    float m_maxComeOutValue = 0.5f;
+
+    [SerializeField]
+    public enum WAISTSIDE
+    {
+        LEFT,
+        RIGHT
+    }
+
+    [SerializeField, Header("左腰or右腰")]
+    WAISTSIDE m_waistSide = WAISTSIDE.LEFT;
+
+    Vector3 waistObjLocalPos;
+
+    //定位置に戻る速度
+    float m_moveSpeedAdjust = 10f;
+    //腰との間隔
+    float m_waistObjSpace = 0.2f;
+    //視線判定の閾値
+    float m_thresholdDot = -0.1f;
+
+    void Start()
+    {
+        SetWaistObjSide(m_waistSide);
+    }
+
+    //腰のオブジェクトをどちら側で固定するか
+    public void SetWaistObjSide(WAISTSIDE waistSide)
+    {
+        waistObjLocalPos = m_waistObj.transform.localPosition;
+
+        m_waistSide = waistSide;
+
+        if (m_waistSide == WAISTSIDE.LEFT)  
+        {
+            m_waistObj.transform.localPosition = new Vector3(-m_waistObjSpace, waistObjLocalPos.y, waistObjLocalPos.z);
+        }
+        else  
+        {
+            m_waistObj.transform.localPosition = new Vector3(m_waistObjSpace, waistObjLocalPos.y, waistObjLocalPos.z);
+        }
+    }
+
+    void Update()
+    {
+        //角度の制限
+        Quaternion waistRotation = this.gameObject.transform.parent.transform.rotation;
+        waistRotation.z = 0;
+        waistRotation.x = 0;
+        this.gameObject.transform.rotation = waistRotation;
+
+        //腰の位置の固定  0.5fは個人的にベストと感じた腰の位置
+        Vector3 cameraPos = this.gameObject.transform.parent.position;
+        this.gameObject.transform.position = new Vector3(cameraPos.x, cameraPos.y-0.5f, cameraPos.z);
+
+        //顔面→腰のオブジェクト 、 顔面→顔面の正面  の内積　&gt; 閾値 ) ---＞ 前へ出てくる
+        float dot = Vector3.Dot(Vector3.down, this.gameObject.transform.parent.transform.forward);
+        waistObjLocalPos = m_waistObj.transform.localPosition;
+
+        if (dot &gt; m_thresholdDot)
+        {
+            float bendedValue = Mathf.Lerp(waistObjLocalPos.z, m_maxComeOutValue, Mathf.Clamp01(dot)/ m_moveSpeedAdjust);
+            waistObjLocalPos.z = bendedValue;
+            m_waistObj.transform.localPosition = waistObjLocalPos;
+        }
+        else
+        {
+            float bendedValue = Mathf.Lerp(waistObjLocalPos.z, 0, Mathf.Clamp01(Mathf.Abs(dot))/ m_moveSpeedAdjust);
+            waistObjLocalPos.z = bendedValue;
+            m_waistObj.transform.localPosition = waistObjLocalPos;
+        }
+    }
+}
+

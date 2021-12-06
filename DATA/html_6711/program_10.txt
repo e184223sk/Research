@@ -1,0 +1,73 @@
+
+        /// &lt;summary&gt;
+        /// 年齢をスピンボタンから編集できるかテスト
+        /// &lt;/summary&gt;
+        [TestMethod]
+        public void TestEditAgeBySpinButton()
+        {
+            AppVar mainVar = _app.Type&lt;Application&gt;().Current.MainWindow;
+            var logicalTree = mainVar.LogicalTree();
+            var editButton = new WPFButtonBase(logicalTree.ByBinding("EditCommand").Single());
+
+            var dataGrid = new WPFDataGrid(logicalTree.ByBinding("PeopleModel.People").Single());
+            var row = dataGrid.GetRow(0);
+            row.EmulateChangeSelected(true);
+            string name = dataGrid.GetCellText(0, 0);
+
+            // 元の年齢を取得
+            string age = dataGrid.GetCellText(0, 1);
+
+            editButton.EmulateClick(new Async());
+
+            AppVar subWindow = WindowControl.IdentifyFromWindowText(this._app, name + " - 編集").AppVar;
+            Assert.IsNotNull(subWindow);
+            var subLogicalTree = subWindow.LogicalTree();
+
+            // インジェクション
+            // WPFToolKitのIntegerUpDownのように複数の標準コントロールを組み合わせたコントロールは
+            // 取得できないため、VisualTreeからTextBox部分のみを取り出す
+            WindowsAppExpander.LoadAssembly(this._app, GetType().Assembly);
+
+            { // スピンボタンから編集
+                var targetButtons = this._app.Type(this.GetType())
+                                        .GetAgeSpinButton(subWindow);
+                var up = new WPFButtonBase(targetButtons.Item1);
+                var dw = new WPFButtonBase(targetButtons.Item2);
+
+                // ５回Upする
+                up.EmulateClick();
+                up.EmulateClick();
+                up.EmulateClick();
+                up.EmulateClick();
+                up.EmulateClick();
+                // ２回Downする
+                dw.EmulateClick();
+                dw.EmulateClick();
+            }
+
+            // 確定
+            var commitButton = new WPFButtonBase(subLogicalTree.ByBinding("CommitCommand").Single());
+            commitButton.EmulateClick(new Async());
+
+            // ちゃんと年齢が書き換わっている（元の値から+5、-2されている）ことを確認
+            Assert.AreEqual((int.Parse(age) + 5 - 2).ToString() , dataGrid.GetCellText(0, 1));
+        }
+
+        /// &lt;summary&gt;
+        /// 「年齢」のスピンボタン部分のみを取得します
+        /// &lt;/summary&gt;
+        /// &lt;param name="window"&gt;詳細ウィンドウ&lt;/param&gt;
+        /// &lt;returns&gt;
+        /// item1：増やす方
+        /// item2：減らす方
+        /// &lt;/returns&gt;
+        static Tuple&lt;ButtonBase, ButtonBase&gt; GetAgeSpinButton(Window window)
+        {
+            var logicalTree = window.LogicalTree();
+            DependencyObject IntegerUpDown = logicalTree.ByBinding("Age.Value").Single();
+
+            // IntegerUpDownのVisualTreeから検索
+            return new Tuple&lt;ButtonBase, ButtonBase&gt;(IntegerUpDown.Descendants&lt;ButtonBase&gt;().First(c =&gt; c.Name == "PART_IncreaseButton"),
+                                                     IntegerUpDown.Descendants&lt;ButtonBase&gt;().First(c =&gt; c.Name == "PART_DecreaseButton"));
+        }
+
