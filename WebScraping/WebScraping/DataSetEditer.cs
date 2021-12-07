@@ -14,10 +14,11 @@ namespace WebScraping
     public partial class DataSetEditor : Form
     {
         public int _MaxCount;
-        public const string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
+        //public const string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
+        public const string _basePath = @"D:\Research\DATA";
         public const string _sentencePath = "\\sentence.txt";
         public const string _htmlPath = "\\HTML.html";
-        public const string _DataSetPath = @"C:\Users\konolab\Desktop\Research\pro-jpn.txt";
+        public const string _DataSetPath = @"D:\Research\pro-jpn.txt";
 
 
         public int _nowProgramIndex = 0;
@@ -168,7 +169,8 @@ namespace WebScraping
         {
             string nowPath = _basePath + String.Format("\\html_{0:0000}", Properties.Settings.Default._ReferenceCount);
             _programs = GetPrograms(nowPath);
-            System.Diagnostics.Process.Start(@"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", nowPath + _htmlPath);
+            System.Diagnostics.Process.Start(@"C:\Program Files\Google\Chrome\Application\chrome.exe", nowPath + _htmlPath);
+            //System.Diagnostics.Process.Start(@"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", nowPath + _htmlPath);
             _nowProgramIndex = 0;
             _maxProgramCount = _programs.Length - 1;
             programText.Text = _programs[_nowProgramIndex];
