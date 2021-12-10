@@ -14,12 +14,12 @@ namespace WebScraping
     public partial class DataSetEditor : Form
     {
         public int _MaxCount;
-        //public const string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
-        public const string _basePath = @"D:\Research\DATA";
+        public const string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
+        //public const string _basePath = @"D:\Research\DATA";
         public const string _sentencePath = "\\sentence.txt";
         public const string _htmlPath = "\\HTML.html";
         public const string _DataSetPath = @"D:\Research\pro-jpn.txt";
-
+        //public const string _DataSetPath = @"C:\Users\konolab\Desktop\pro-jpn.txt";
 
         public int _nowProgramIndex = 0;
         public int _maxProgramCount = 0;
@@ -212,12 +212,14 @@ namespace WebScraping
 
             using (StreamWriter sw = new StreamWriter(_DataSetPath, true,Encoding.UTF8))
             {
-                string tmp_pro = programText.Text.Replace("\r", "").Replace("\n", "");
+                //string tmp_pro = programText.Text.Replace("\r", "").Replace("\n", "");
                 string tmp_tra = translateText.Text.Replace("\r", "").Replace("\n", "");
-                sw.WriteLine(tmp_pro);
+                //sw.WriteLine(tmp_pro);
                 sw.WriteLine(tmp_tra);
 
             }
         }　
+
+        
     }
 }

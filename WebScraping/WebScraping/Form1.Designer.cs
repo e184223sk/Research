@@ -58,6 +58,7 @@
             this.reference = new System.Windows.Forms.Button();
             this.openFile = new System.Windows.Forms.OpenFileDialog();
             this.saveFileDialog1 = new System.Windows.Forms.SaveFileDialog();
+            this.commentOutputToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuStrip1.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -242,7 +243,8 @@
             this.preprocessingToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.exclusionToolStripMenuItem,
             this.downloadHTMLSToolStripMenuItem,
-            this.dataSetEditorToolStripMenuItem});
+            this.dataSetEditorToolStripMenuItem,
+            this.commentOutputToolStripMenuItem});
             this.preprocessingToolStripMenuItem.Name = "preprocessingToolStripMenuItem";
             this.preprocessingToolStripMenuItem.Size = new System.Drawing.Size(93, 20);
             this.preprocessingToolStripMenuItem.Text = "Preprocessing";
@@ -309,6 +311,13 @@
             // 
             this.openFile.FileName = "openFile";
             // 
+            // commentOutputToolStripMenuItem
+            // 
+            this.commentOutputToolStripMenuItem.Name = "commentOutputToolStripMenuItem";
+            this.commentOutputToolStripMenuItem.Size = new System.Drawing.Size(218, 22);
+            this.commentOutputToolStripMenuItem.Text = "CommentOutput";
+            this.commentOutputToolStripMenuItem.Click += new System.EventHandler(this.commentOutputToolStripMenuItem_Click);
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
@@ -371,6 +380,7 @@
         private System.Windows.Forms.ToolStripMenuItem getSourceTargetToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem seperateProgramsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem dataSetEditorToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem commentOutputToolStripMenuItem;
     }
 }
 

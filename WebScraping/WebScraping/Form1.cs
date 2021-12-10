@@ -34,14 +34,14 @@ namespace WebScraping
             this.Text = "Pagescraper  < TestMode >";
 
             form2 = new ExclusionProgress();
-           // _datasetEditor = new DataSetEditor();
+            // _datasetEditor = new DataSetEditor();
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
 
             form2.Dispose();
-            
+
         }
 
 
@@ -420,10 +420,10 @@ namespace WebScraping
 
                 if (programs == "") continue;
                 var code = programs.Split(new string[] { ",,," }, StringSplitOptions.RemoveEmptyEntries);
-                 
+
                 //title = title.Replace("\\", "").Replace("/", "").Replace(":", "").Replace("*", "").Replace("?", "").Replace("\"", "").Replace("<", "").Replace(">", "").Replace("|", "").Replace(".","").Trim();
                 string tmp_path = @"C:\Users\konolab\Desktop\Research\DATA\" + String.Format("html_{0:0000}", count++);
-                 
+
                 Directory.CreateDirectory(tmp_path);
                 using (StreamWriter sw = new StreamWriter(tmp_path + "\\HTML.html"))
                 {
@@ -464,6 +464,62 @@ namespace WebScraping
             _datasetEditor = new DataSetEditor();
             _datasetEditor.Show();
         }
+
+        private void commentOutputToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
+            string _DataSetPath = @"C:\Users\konolab\Desktop\Research\pro-jpn1.txt";
+            var dirs = System.IO.Directory.GetDirectories(_basePath, "*", SearchOption.TopDirectoryOnly);
+            PageScraper scraper = new PageScraper(); 
+
+            form2.progressBar1.Minimum = 0;
+            form2.progressBar1.Maximum = dirs.Length;
+            form2.Text = "Creating...";
+            form2.Show();
+
+            using (StreamWriter sw = new StreamWriter(_DataSetPath))
+            {
+                for (int i = 0; i < dirs.Length; i++)
+                {
+                    var files = System.IO.Directory.GetFiles( dirs[i]);
+
+                    string program = scraper.GetCode(scraper.GetHTML(files[0]));
+                    string com_pro = GetCommentProgram( program);
+
+                    if (com_pro != "")
+                        sw.WriteLine(com_pro);
+                    
+                    form2.label1.Text = form2.progressBar1.Value++.ToString() + " / " + dirs.Length.ToString();
+                    form2.label1.Update();
+                }
+            }
+
+            form2.progressBar1.Value = 0;
+            MessageBox.Show("完了しました");
+            form2.Close();
+        }
+        //コメントとその次の行のプログラムを抜き出す
+        private string GetCommentProgram(string program)
+        { 
+            string result = "";
+            bool outflag = false;
+            if (program.Contains("//"))
+            {
+                string[] tmp_split = program.Split(new string[] { "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                foreach(var s  in tmp_split)
+                {
+                    if (s.Contains("///")) continue;
+                    if (outflag) { result += s.Trim() + Environment.NewLine; outflag = false; }
+                    if (s.Contains("//") && IsJapanese(s)) { result += s.Trim() + Environment.NewLine ;  outflag = true; }
+                } 
+            }
+            return result;
+        }
+        private bool IsJapanese(string text)
+        {
+            var isJapanese = System.Text.RegularExpressions.Regex.IsMatch(text, @"[\p{IsHiragana}\p{IsKatakana}\p{IsCJKUnifiedIdeographs}]+");
+            return isJapanese;
+        }
     }
 
     public enum PerfomanceMode
@@ -472,5 +528,6 @@ namespace WebScraping
         Seperate,
         Dataset,
     }
+
 
 }
