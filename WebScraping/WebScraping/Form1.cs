@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
 using System.Net;
+using System.Web;
 
 namespace WebScraping
 {
@@ -467,10 +468,10 @@ namespace WebScraping
 
         private void commentOutputToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            string _basePath = @"D:\Research\DATA";
-            //string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
-            //string _DataSetPath = @"C:\Users\konolab\Desktop\Research\pro-jpn2.txt";
-            string _DataSetPath = @"D:\Research\pro -jpn2.txt";
+            //string _basePath = @"D:\Research\DATA";
+            string _basePath = @"C:\Users\konolab\Desktop\Research\DATA";
+            string _DataSetPath = @"C:\Users\konolab\Desktop\Research\pro-jpn2.txt";
+            //string _DataSetPath = @"D:\Research\pro -jpn2.txt";
             var dirs = System.IO.Directory.GetDirectories(_basePath, "*", SearchOption.TopDirectoryOnly);
             PageScraper scraper = new PageScraper();
 
@@ -479,7 +480,7 @@ namespace WebScraping
             form2.Text = "Creating...";
             form2.Show();
 
-            using (StreamWriter sw = new StreamWriter(_DataSetPath))
+            using (StreamWriter sw = new StreamWriter(_DataSetPath  ))
             {
                 for (int i = 0; i < dirs.Length; i++)
                 {
@@ -514,52 +515,65 @@ namespace WebScraping
                 {
                     //サマリーは無視
                     if (tmp_split[i].Contains("///")) continue;
-                    if (outflag) { result += tmp_split[i].Trim().Replace("//", "") + Environment.NewLine; outflag = false; continue; }
+                    if (outflag)
+                    {
+                        outflag = tmp_split[i].Contains("//");
+                        result += !outflag ? "*" +  tmp_split[i].Replace("//", "").Replace("&lt","<").Replace("&gt", ">").Trim() + Environment.NewLine :
+                                                    tmp_split[i].Replace("//", "").Trim() + Environment.NewLine;
+                        continue;       
+                    }
                     if (tmp_split[i].Contains("//"))
                     {
 
                         //一文字目がスラッシュだったら
-                        if (tmp_split[i][0] == '/')
+                        if (tmp_split[i].TrimStart().Substring(0, 1) == "/")
                         {
 
-                            if (i + 1 < tmp_split.Length && i + 2 < tmp_split.Length)
+                            if (i + 1 < tmp_split.Length && i + 2 < tmp_split.Length)//配列の範囲内
                             {
-                                if (tmp_split[i + 1].Contains("if") || tmp_split[i + 1].Contains("for") || tmp_split[i + 1].Contains("while") || tmp_split[i + 1].Contains("switch"))
+                                //1行だけのfor if等がないか確認
+                                if (tmp_split[i + 1].Contains("if") || tmp_split[i + 1].Contains("for") || tmp_split[i + 1].Contains("while") || tmp_split[i + 1].Contains("switch") &&
+                                    !tmp_split[i + 1].Contains("{") && !tmp_split[i + 2].Contains("{"))
                                 {
-                                    result += tmp_split[i + 1].Trim() + tmp_split[i + 2].Trim() + tmp_split[i].Trim().Replace("//", "");
+                                    result += "*" + tmp_split[i + 1].Replace("&lt", "<").Replace("&gt", ">").Trim() + "*" + tmp_split[i + 2].Replace("&lt", "").Replace("&gt", ">").Trim() + Environment.NewLine + tmp_split[i].Replace("//", "").Trim() + Environment.NewLine;
                                     continue;
                                 }
-                                else if (tmp_split[i + 1].Contains("{") || tmp_split[i + 2].Contains("{"))
+                                else if (tmp_split[i + 1].Contains("{") || tmp_split[i + 2].Contains("{")) // ブロックの中を取得
                                 {
-                                    startCount++;
-                                    result += tmp_split[i].Replace("//", "").Trim();
-
-                                    for (int j = i + 1; j < tmp_split.Length; j++)
+                                    int start = 0;
+                                    if (tmp_split[i + 1].Contains("{")) start = i + 1;
+                                    else if (tmp_split[i + 2].Contains("{")) start = i + 2;
+                                    //startCount++;
+                                    //endCount = tmp_split[i].Contains("}") ? endCount + 1 : 0;
+                                    result += "*";
+                                    for (int j = start; j < tmp_split.Length; j++)
                                     {
                                         if (tmp_split[j].Contains("{")) startCount++;
                                         if (tmp_split[j].Contains("}")) endCount++;
-                                        result += tmp_split[j].Trim();
+                                        result +=  tmp_split[j].Replace("&lt", "<").Replace("&gt", ">").Trim();
                                         if (startCount == endCount)
                                         {
+                                            result += Environment.NewLine + tmp_split[i].Replace("//", "").Trim() + Environment.NewLine;
                                             startCount = 0;
                                             endCount = 0;
                                             break;
                                         }
                                     }
                                 }
-                            }
-                            if (IsJapanese(tmp_split[i]))
-                            {
-                                result += tmp_split[i].Trim() + Environment.NewLine;
-                                outflag = true;
-                                continue;
+                                else if (IsJapanese(tmp_split[i]))
+                                {
+                                    //result += tmp_split[i + 1].Trim() + Environment.NewLine;
+                                    result += tmp_split[i].Replace("//", "").Trim() + Environment.NewLine;
+                                    outflag = true;
+                                    continue;
+                                }
                             }
                         }
-                        else
+                        else if(tmp_split[i].Substring(2 , tmp_split[i].Length-3).Contains("//"))//途中にコメントがあるとき
                         {
-                            string tmp_pro = tmp_split[i].Substring(0, tmp_split[i].IndexOf("/"));
-                            string tmp_com = tmp_split[i].Replace(tmp_pro, "").Replace("/", "");
-                            result = tmp_pro + Environment.NewLine + tmp_com;
+                            string tmp_pro = "*"+ tmp_split[i].Substring(0, tmp_split[i].IndexOf("/")).Replace("&lt", "<").Replace("&gt", "<").Trim();
+                            string tmp_com = tmp_split[i].Remove(0, tmp_split[i].IndexOf("/")).Replace("/", "").Trim();
+                            result = tmp_pro + Environment.NewLine + tmp_com + Environment.NewLine;
                         }
                     }
 
