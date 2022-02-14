@@ -29,7 +29,7 @@ class BatchGenerator:
         with open(file_path, encoding="utf-8") as f:
             lines = [line.strip() for line in f.readlines()]
         self.data = self._create_data(lines)
-        print(lines[106066])
+#        print(lines[106066])
 
     def get_batch(self, batch_size: int = 128, shuffle=True):
         while True:
@@ -45,8 +45,10 @@ class BatchGenerator:
                 }
 
     def _create_data(self, lines: Sequence[str]) -> List[Tuple[List[int], List[int]]]:
-        questions = [self._create_question(line) for line in lines[:-1]]
-        answers = [self._create_answer(line) for line in lines[1:]]
+        questions = [self._create_question(line) for line in lines[:-1:2]]
+        answers = [self._create_answer(line) for line in lines[1::2]]
+        print(questions[0])
+        print(answers[0])
         return list(zip(questions, answers))
 
     def _create_question(self, sentence) -> List[int]:

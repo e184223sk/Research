@@ -76,10 +76,9 @@ class Transformer(tf.keras.models.Model):
                 accuracies, weights = padded_accuracy(logit, decoder_target)
                 self.acc = tf.identity(tf.reduce_sum(accuracies) / tf.reduce_sum(weights), name='acc')
 
-    def call(self, encoder_input: tf.Tensor, decoder_input: tf.Tensor, training: bool) -> tf.Tensor:
+    def call(self, encoder_input: tf.Tensor, decoder_input: tf.Tensor, training: bool) -> tf.Tensor:#
         enc_attention_mask = self._create_enc_attention_mask(encoder_input)
         dec_self_attention_mask = self._create_dec_self_attention_mask(decoder_input)
-
         encoder_output = self.encoder(
             encoder_input,
             self_attention_mask=enc_attention_mask,
@@ -92,8 +91,7 @@ class Transformer(tf.keras.models.Model):
             enc_dec_attention_mask=enc_attention_mask,
             training=training,
         )
-        return decoder_output
-
+        return decoder_output 
     def _create_enc_attention_mask(self, encoder_input: tf.Tensor):
         with tf.name_scope('enc_attention_mask'):
             batch_size, length = tf.unstack(tf.shape(encoder_input))
